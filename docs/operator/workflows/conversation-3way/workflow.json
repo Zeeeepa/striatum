@@ -1,0 +1,28 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "conversation-3way",
+  "workflow_version": "2026-05-26",
+  "name": "Three-way frontier-model conversation (RFC 0086)",
+  "branch": {"mode": "confirm", "suggested_name": "striatum/rfc-0086-multiparty-conversation", "allow_dirty": true},
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "context_docs": [],
+  "lanes": {
+    "claude_code": {"adapter": "process", "model": "opus", "display_model": "Claude Opus", "command": ["claude", "--model", "opus"], "capabilities": ["write"]},
+    "codex": {"adapter": "process", "model": "gpt-5.5", "display_model": "Codex GPT-5.5", "command": ["codex", "exec", "-m", "gpt-5.5"], "capabilities": ["write"]},
+    "gemini": {"adapter": "process", "model": "gemini-2.5-pro", "display_model": "Gemini 2.5 Pro", "command": ["gemini", "-m", "gemini-2.5-pro", "-p"], "capabilities": ["write"]}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator host (does not participate)."},
+    "participant": {"description": "A frontier-model conversation participant."}
+  },
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": false},
+  "jobs": [
+    {"id": "host", "type": "build", "title": "Conversation host (no-op placeholder)", "role_id": "coordinator", "lane_id": "claude_code", "fresh_session_required": false,
+     "objective": "Placeholder so the run is valid + running; the conversation is operator-opened among participant sessions and is not a job.",
+     "task_prompt": {"inline": "no-op"},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/conversation-3way/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": []}
+  ],
+  "edges": [],
+  "cycles": []
+}

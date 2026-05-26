@@ -75,7 +75,12 @@
     {"command": "interrogation", "subcommand": "answer", "method": "interrogation.answer", "params": "interrogation_answer"},
     {"command": "interrogation", "subcommand": "close", "method": "interrogation.close", "params": "interrogation_close"},
     {"command": "interrogation", "subcommand": "list", "method": "interrogation.list", "params": "interrogation_list"},
-    {"command": "interrogation", "subcommand": "show", "method": "interrogation.show", "params": "interrogation_show"}
+    {"command": "interrogation", "subcommand": "show", "method": "interrogation.show", "params": "interrogation_show"},
+    {"command": "conversation", "subcommand": "open", "method": "conversation.open", "params": "conversation_open"},
+    {"command": "conversation", "subcommand": "say", "method": "conversation.say", "params": "conversation_say"},
+    {"command": "conversation", "subcommand": "close", "method": "conversation.close", "params": "conversation_close"},
+    {"command": "conversation", "subcommand": "list", "method": "conversation.list", "params": "conversation_list"},
+    {"command": "conversation", "subcommand": "show", "method": "conversation.show", "params": "conversation_show"}
   ],
   "methods": [
     {
@@ -143,6 +148,51 @@
     },
     {
       "method": "interrogation.show",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "conversation.open",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "conversation.say",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "conversation.close",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "conversation.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "conversation.show",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

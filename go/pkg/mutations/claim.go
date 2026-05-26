@@ -816,6 +816,17 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return question, nil
 		}
 
+		// RFC 0086: a participant's await loop also receives its round-robin
+		// conversation turn. Preference: a direct peer question (interrogation)
+		// over a group turn (conversation) over new work.
+		convTurn, err := deliverPendingConversationTurn(ctx, runner, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if convTurn != nil {
+			return convTurn, nil
+		}
+
 		res, err := HandleClaimNext(ctx, runner, envelope)
 		if err != nil {
 			return nil, err

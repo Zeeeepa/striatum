@@ -78,4 +78,9 @@ var generatedRoutes = []Route{
 	{Command: "interrogation", Subcommand: "close", Method: "interrogation.close", ParamsGroup: "interrogation_close", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "interrogation", Subcommand: "list", Method: "interrogation.list", ParamsGroup: "interrogation_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "interrogation", Subcommand: "show", Method: "interrogation.show", ParamsGroup: "interrogation_show", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "conversation", Subcommand: "open", Method: "conversation.open", ParamsGroup: "conversation_open", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "conversation", Subcommand: "say", Method: "conversation.say", ParamsGroup: "conversation_say", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "conversation", Subcommand: "close", Method: "conversation.close", ParamsGroup: "conversation_close", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "conversation", Subcommand: "list", Method: "conversation.list", ParamsGroup: "conversation_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "conversation", Subcommand: "show", Method: "conversation.show", ParamsGroup: "conversation_show", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 }

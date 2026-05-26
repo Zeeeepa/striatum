@@ -2,6 +2,31 @@
 
 ## Unreleased — 2026-05-26
 
+## v2.5.0 — 2026-05-26
+
+### RFC 0086: multi-party conversation on the MCP agent-loop (D144)
+
+- **New live N-party conversation primitive** generalizing RFC 0082 interrogation
+  (the 1→1 special case) to symmetric, round-robin, agent-loop-native group
+  dialogue. `conversation.{open,say,close,list,show}`; a new
+  `conversation_message` envelope on `work.await_packet`; turns reuse the message
+  bus; lifecycle/floor in a plain new `conversations` table (migration 0017, no
+  owner-table FKs — runtime-role-applicable; schema 16 → 17).
+- **Crash-safe floor-derived delivery**: "your turn" is derived from durable
+  `floor_index`, not a consumable message — a floor-holder that errors/restarts
+  before `say` simply sees its turn again (the live run surfaced and this fixed a
+  round-robin stall). Idempotent + read-only.
+- **Proven end-to-end**: three frontier models — Claude Opus, Codex GPT-5.5,
+  Gemini 2.5 Pro (models pinned explicitly per lane) — held a live 9-turn,
+  3-round conversation at ~16s/turn on the agent-loop (transcript:
+  `docs/operator/workflows/conversation-3way/TRANSCRIPT.md`). Gemini's speed was
+  fixed by pinning the GA `gemini-2.5-pro` (the preview default was
+  capacity-throttled).
+- Follow-ups: F42 (gemini-cli is unreliable at the multi-step await/say loop —
+  needed an operator-side turn driver; harden with a thin conversation-loop
+  wrapper or default lease), F43 (render conversations in the chat UI, reusing
+  the RFC 0084 renderer with speaker = participant).
+
 ## v2.4.2 — 2026-05-26
 
 ### RFC 0085: tailnet-identity UI auth (run through interrogation, design + build)

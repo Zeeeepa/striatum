@@ -1559,3 +1559,21 @@ F41. Derive the RFC 0085 identity route-audit allowlist from the dispatch table.
     list would not be caught (RFC 0085 build-review finding). Make the audit
     enumerate routes from the actual dispatch so a new mutating route is rejected
     over the identity socket by construction. Surfaced 2026-05-26.
+
+F42. Harden gemini-cli as an autonomous agent-loop participant. In the RFC 0086
+    3-way conversation, gemini-2.5-pro is fast (~9s/turn) but gemini-cli is
+    unreliable at the stateful await→say→await loop (it exited the loop early,
+    printing "conversation done" while the conversation was open), so its turns
+    had to be driven by an operator-side loop (`/tmp/gemini-driver.sh`-style:
+    detect floor==gemini, call gemini for content, conversation.say). claude and
+    codex self-drive fine. Provide a thin Striatum-supplied conversation/agent-loop
+    wrapper (or a much simpler, more deterministic bootstrap + default long lease)
+    so gemini participates autonomously without an operator turn-driver. Surfaced
+    2026-05-26.
+
+F43. Render conversations in the chat UI. RFC 0086 conversation turns are
+    queryable (`conversation.show`/`list`) and persist on the message bus like
+    interrogation turns; reuse the RFC 0084 chat renderer (speaker = participant
+    session/lane) and add `/v1/runs/{runID}/conversations[/{id}]` GET routes so a
+    3-way conversation is viewable as chat (read-only, over `tailscale serve` per
+    RFC 0085) — the same way interrogation threads are. Surfaced 2026-05-26.

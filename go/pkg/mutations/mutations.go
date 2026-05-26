@@ -112,6 +112,11 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("interrogation.ask", makeHandler(runner, HandleInterrogationAsk))
 	server.Register("interrogation.answer", makeHandler(runner, HandleInterrogationAnswer))
 	server.Register("interrogation.close", makeHandler(runner, HandleInterrogationClose))
+	server.Register("conversation.open", makeHandler(runner, HandleConversationOpen))
+	server.Register("conversation.say", makeHandler(runner, HandleConversationSay))
+	server.Register("conversation.close", makeHandler(runner, HandleConversationClose))
+	server.Register("conversation.list", makeHandler(runner, HandleConversationList))
+	server.Register("conversation.show", makeHandler(runner, HandleConversationShow))
 	server.Register("corpus.migrate_historical_dogfood_file", makeHandler(runner, HandleCorpusMigrateHistoricalDogfoodFile))
 	server.Register("artifact.backfill_blob", makeHandler(runner, HandleArtifactBackfillBlob))
 }

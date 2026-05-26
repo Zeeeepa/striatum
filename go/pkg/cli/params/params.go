@@ -179,6 +179,16 @@ func positionalNames(group string) []string {
 		return []string{"run_id"}
 	case "interrogation_show":
 		return []string{"interrogation_id"}
+	case "conversation_open":
+		return []string{"participant_session_ids"}
+	case "conversation_say":
+		return []string{"session_id", "conversation_id", "body"}
+	case "conversation_close":
+		return []string{"session_id", "conversation_id"}
+	case "conversation_list":
+		return []string{"run_id"}
+	case "conversation_show":
+		return []string{"conversation_id"}
 	default:
 		return nil
 	}
