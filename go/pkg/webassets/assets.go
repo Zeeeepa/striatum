@@ -56,6 +56,69 @@ func RenderPage(title string, payload any) ([]byte, error) {
 	return []byte(builder.String()), nil
 }
 
+// InterrogationMeta carries the curated header fields for an interrogation
+// thread. Only fields the existing read projects are present (D028): no
+// provider stdout/stderr, no raw captured output, no tool payloads.
+type InterrogationMeta struct {
+	InterrogationID       string
+	RunID                 string
+	Topic                 string
+	State                 string
+	InterrogatorSessionID string
+	TargetSessionID       string
+	OpenedAt              string
+	ClosedAt              string
+}
+
+// InterrogationTurn is one curated Q&A turn: the message kind enum and the
+// authored body text. Nothing else from the message bus is rendered.
+type InterrogationTurn struct {
+	Kind string
+	Body string
+}
+
+// RenderInterrogation renders an interrogation thread as a chat thread.
+//
+// It uses html/template (NOT text/template): each turn Body is bound as
+// {{.Body}} in HTML element context, so html/template context-aware
+// auto-escaping neutralizes stored XSS / scriptable HTML injection before the
+// bytes leave the process. Bodies are rendered as plain text — Markdown is
+// deliberately not parsed — so links, code blocks, and raw HTML all display as
+// inert, escaped characters. This is the single render-boundary enforcement
+// point for both the escaping guarantee and the curated-field guarantee.
+func RenderInterrogation(meta InterrogationMeta, turns []InterrogationTurn) ([]byte, error) {
+	tmpl, err := template.ParseFS(embedded, "templates/interrogation.html")
+	if err != nil {
+		return nil, err
+	}
+	type viewTurn struct {
+		Speaker  string
+		Body     string
+		Question bool
+	}
+	view := struct {
+		InterrogationMeta
+		Turns []viewTurn
+	}{InterrogationMeta: meta}
+	for _, turn := range turns {
+		vt := viewTurn{Body: turn.Body}
+		if turn.Kind == "interrogation_answer" {
+			vt.Speaker = "Target"
+			vt.Question = false
+		} else {
+			// interrogation_question (and any unexpected kind) is the reviewer.
+			vt.Speaker = "Reviewer"
+			vt.Question = true
+		}
+		view.Turns = append(view.Turns, vt)
+	}
+	var builder strings.Builder
+	if err := tmpl.Execute(&builder, view); err != nil {
+		return nil, err
+	}
+	return []byte(builder.String()), nil
+}
+
 func cleanRelative(relative string) (string, error) {
 	if relative == "" || strings.HasPrefix(relative, "/") {
 		return "", fs.ErrInvalid

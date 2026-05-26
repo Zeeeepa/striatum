@@ -127,6 +127,16 @@ func (h *Handler) routeRunGET(w http.ResponseWriter, r *http.Request, suffix str
 		h.callAndWrite(w, r.Context(), "dashboard", map[string]any{"run_id": runID})
 	case "artifacts":
 		h.callAndWrite(w, r.Context(), "list.artifacts", map[string]any{"run_id": runID})
+	case "interrogations":
+		// D142 / RFC 0084 build review: curated interrogation bodies must not be cached.
+		w.Header().Set("Cache-Control", "no-store")
+		if len(parts) >= 3 && parts[2] != "" {
+			// /v1/runs/{runID}/interrogations/{id} — verify run ownership.
+			h.showInterrogation(w, r, runID, parts[2])
+			return
+		}
+		// /v1/runs/{runID}/interrogations — list for this run.
+		h.callAndWrite(w, r.Context(), "interrogation.list", map[string]any{"run_id": runID})
 	case "events":
 		h.streamRunEvents(w, r, runID)
 	default:
@@ -290,6 +300,71 @@ func (h *Handler) renderRPCPage(w http.ResponseWriter, ctx context.Context, titl
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+// showInterrogation serves a single interrogation thread for a run.
+//
+// interrogation.show is keyed by interrogation_id, not run_id, so this route
+// enforces run ownership: it asserts the returned interrogation.run_id equals
+// the path runID and returns 404 on mismatch (or unknown id), before writing
+// any turn bytes. This closes the cross-run IDOR a guessed/leaked
+// interrogation_id under the wrong run path could otherwise open. Repository
+// scope is already enforced by callAndWrite/call injecting repository_id.
+//
+// Default response is the curated JSON read. With ?view=chat the same curated
+// data is rendered server-side as an html/template chat thread.
+func (h *Handler) showInterrogation(w http.ResponseWriter, r *http.Request, runID, interrogationID string) {
+	data, status, code, message := h.call(r.Context(), "interrogation.show", map[string]any{"interrogation_id": interrogationID})
+	if code != "" {
+		writeJSON(w, status, errorPayload(code, message))
+		return
+	}
+	interrogation, _ := data["interrogation"].(map[string]any)
+	if interrogation == nil || displayString(interrogation["run_id"]) != runID {
+		writeJSON(w, http.StatusNotFound, errorPayload("not_found", "not found"))
+		return
+	}
+	if r.URL.Query().Get("view") == "chat" {
+		h.renderInterrogationPage(w, data, interrogation)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
+}
+
+func (h *Handler) renderInterrogationPage(w http.ResponseWriter, data map[string]any, interrogation map[string]any) {
+	meta := webassets.InterrogationMeta{
+		InterrogationID:       displayString(interrogation["interrogation_id"]),
+		RunID:                 displayString(interrogation["run_id"]),
+		Topic:                 displayString(interrogation["topic"]),
+		State:                 displayString(interrogation["state"]),
+		InterrogatorSessionID: displayString(interrogation["interrogator_session_id"]),
+		TargetSessionID:       displayString(interrogation["target_session_id"]),
+		OpenedAt:              displayString(interrogation["opened_at"]),
+		ClosedAt:              displayString(interrogation["closed_at"]),
+	}
+	rawTurns, _ := data["turns"].([]any)
+	turns := make([]webassets.InterrogationTurn, 0, len(rawTurns))
+	for _, raw := range rawTurns {
+		row, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		turns = append(turns, webassets.InterrogationTurn{
+			Kind: displayString(row["kind"]),
+			Body: displayString(row["body"]),
+		})
+	}
+	body, err := webassets.RenderInterrogation(meta, turns)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorPayload("render_failed", err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// D142 / RFC 0084 build review: curated interrogation bodies must not
+	// persist in a browser profile after token rotation or shared-operator use.
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)
 }
@@ -490,6 +565,21 @@ func sameOrigin(r *http.Request) bool {
 
 func isRetiredRoute(clean string) bool {
 	return clean == "/dogfood" || strings.HasPrefix(clean, "/dogfood/") || clean == "/chat" || strings.HasPrefix(clean, "/chat/")
+}
+
+// displayString coerces a curated field value to its display string. It
+// handles the string case directly and falls back to fmt.Sprint for non-nil
+// non-string scalars (e.g. timestamps that scan as time.Time over the
+// in-process RPC path), returning "" for nil. html/template escapes the result
+// at render time.
+func displayString(value any) string {
+	if value == nil {
+		return ""
+	}
+	if s, ok := value.(string); ok {
+		return s
+	}
+	return fmt.Sprint(value)
 }
 
 func intFromAny(value any) int {

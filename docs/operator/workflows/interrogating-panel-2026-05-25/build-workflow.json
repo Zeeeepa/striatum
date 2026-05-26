@@ -1,0 +1,39 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "interrogating-panel-uichat-build",
+  "workflow_version": "2026-05-26",
+  "name": "Interrogation-log chat UI — build loop (corrected write-scope)",
+  "branch": {"mode": "confirm", "suggested_name": "striatum/agentloop-smoke", "allow_dirty": true},
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "claude_code": {"adapter": "process", "display_model": "Claude", "command": ["claude"], "capabilities": ["write", "review", "synthesis"]},
+    "codex": {"adapter": "process", "display_model": "Codex", "command": ["codex", "exec"], "capabilities": ["write", "review"]}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator coordinator."},
+    "implementer": {"description": "Implements the synthesis; stays live for interrogation."},
+    "reviewer": {"description": "Interrogates the live implementer before verdict."}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/DESIGN_SYNTHESIS.md", "required": true},
+    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/INTERROGATION_THREAD.md", "required": false},
+    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/web-assets.md", "required": false},
+    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/interrogation-data.md", "required": false}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 2, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "implement", "type": "build", "title": "Implement interrogation-log chat UI (interrogable)", "role_id": "implementer", "lane_id": "claude_code", "interrogable": true,
+     "objective": "Implement the synthesized design: server-side html/template render of a run's interrogation thread as a chat transcript, served by the Go web service, backed by the existing interrogation read path. Add a Go test pinning html/template escaping. Stay live for the build-review interrogation.",
+     "task_prompt": {"inline": "Build per DESIGN_SYNTHESIS.md."},
+     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/webassets/", "go/pkg/webservice/", "go/pkg/reads/", "go/cmd/striatumd/", "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/HANDOFF.md", "required": true}]},
+    {"id": "review_build_codex", "type": "review", "title": "Build review codex threat_model", "role_id": "reviewer", "lane_id": "codex", "fresh_session_required": true,
+     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
+     "objective": "Threat-model the implementation and interrogate the live implementer (<=3 rounds) before verdict.",
+     "task_prompt": {"inline": "Interrogate the live implement session, then write your finding and verdict."},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "build_review_codex", "kind": "finding", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/REVIEW.md", "required": true}]}
+  ],
+  "edges": [{"from": "implement", "to": "review_build_codex", "on": "completed"}],
+  "cycles": [{"from": "review_build_codex", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true}]
+}

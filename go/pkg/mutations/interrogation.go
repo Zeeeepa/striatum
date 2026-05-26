@@ -396,10 +396,37 @@ func requireLiveTarget(ctx context.Context, runner any, repositoryID, targetSess
 		return rpc.NewError("target_unavailable", "target session is not live (must be active)", nil)
 	}
 	attestation := sessionLaneAttestation(ctx, runner, repositoryID, targetSessionID)
-	if attested, _ := attestation["attested"].(bool); !attested {
-		return rpc.NewError("target_unavailable", "target session is not attested (no attached supervisor); interrogation requires a live, attested session", nil)
+	if attested, _ := attestation["attested"].(bool); attested {
+		return nil
 	}
-	return nil
+	// RFC 0084: a wrapper-attested target satisfies D026, but an interrogable
+	// agent-loop session that has entered the awaiting_interrogation window
+	// (it completed its interrogable job and is still active) is equally a
+	// live, identified interrogation target — and it is the only target with
+	// the preserved context RFC 0082 interrogation exists to query. Wrapper
+	// attestation (D080) drives artifact byline provenance and is intentionally
+	// NOT granted here; this widens only interrogation liveness.
+	awaiting, err := targetInAwaitingInterrogation(ctx, runner, repositoryID, targetSessionID)
+	if err != nil {
+		return err
+	}
+	if awaiting {
+		return nil
+	}
+	return rpc.NewError("target_unavailable", "target session is not attested and is not in the awaiting_interrogation window; interrogation requires a live, attested session or a live interrogable agent-loop target", nil)
+}
+
+// targetInAwaitingInterrogation reports whether the target session has entered
+// the RFC 0082 §5 awaiting_interrogation context-preservation window (it
+// completed an interrogable job). Combined with an active session state in
+// requireLiveTarget, this admits live agent-loop targets that are not wrapper
+// attested without granting them byline attestation (D080).
+func targetInAwaitingInterrogation(ctx context.Context, runner any, repositoryID, targetSessionID string) (bool, error) {
+	return existsRow(ctx, runner, `
+		SELECT 1 FROM striatumd.events
+		 WHERE repository_id = $1 AND actor_session_id = $2
+		   AND event_type = 'session.awaiting_interrogation'
+		 LIMIT 1`, repositoryID, targetSessionID)
 }
 
 func sessionHasCapability(session map[string]any, capability string) bool {

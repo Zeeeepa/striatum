@@ -305,6 +305,30 @@ func TestInterrogationOpenRequiresLiveTarget(t *testing.T) {
 	}
 }
 
+// RFC 0084: an interrogable agent-loop target that has entered the
+// awaiting_interrogation window is a valid interrogation target even without
+// wrapper attestation (which only drives artifact byline provenance, D080).
+func TestInterrogationOpenAcceptsAwaitingInterrogationTarget(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_intg_awaiting"
+	runID, interrogator, _ := intgFixture(t, ctx, runner, repoID)
+
+	// active, NOT wrapper-attested, but in the awaiting_interrogation window.
+	target := "sess_awaiting"
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, target, "implementer", "claude", nil, "active", 4)
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.events (repository_id, run_id, event_type, actor_session_id, created_at)
+		VALUES ($1, $2, 'session.awaiting_interrogation', $3, now())`, repoID, runID, target); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandleInterrogationOpen(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": interrogator, "target_session_id": target, "topic": "design",
+	})); err != nil {
+		t.Fatalf("awaiting_interrogation target should be interrogable without wrapper attestation: %v", err)
+	}
+}
+
 // --- Required Test 5: await_packet envelope discriminator ------------------
 
 func TestAwaitPacketEnvelopeDiscriminator(t *testing.T) {

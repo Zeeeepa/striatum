@@ -22,3 +22,77 @@ pre {
   border: 1px solid #d0d7de;
   border-radius: 6px;
 }
+
+.interrogation-header {
+  margin-bottom: 24px;
+}
+
+.interrogation-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 4px 16px;
+  margin: 0;
+  color: #57606a;
+  font-size: 0.85rem;
+}
+
+.interrogation-meta div {
+  display: flex;
+  gap: 6px;
+}
+
+.interrogation-meta dt {
+  font-weight: 600;
+}
+
+.interrogation-meta dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.interrogation-thread {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.turn {
+  max-width: 80%;
+  padding: 12px 16px;
+  border: 1px solid #d0d7de;
+  border-radius: 12px;
+}
+
+.turn-question {
+  align-self: flex-start;
+  background: #ffffff;
+}
+
+.turn-answer {
+  align-self: flex-end;
+  background: #ddf4ff;
+}
+
+.turn-speaker {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #57606a;
+  margin-bottom: 4px;
+}
+
+.turn-body {
+  /* Bodies are plain authored text; readability comes from CSS, never from
+     HTML interpretation. Markdown is deliberately not parsed (see synthesis). */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.turn-empty {
+  color: #57606a;
+  list-style: none;
+}

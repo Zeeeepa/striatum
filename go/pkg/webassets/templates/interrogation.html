@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Topic}}{{.Topic}}{{else}}Interrogation{{end}}</title>
+  <link rel="stylesheet" href="/static/base.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <main>
+    <header class="interrogation-header">
+      <h1>{{if .Topic}}{{.Topic}}{{else}}Interrogation thread{{end}}</h1>
+      <dl class="interrogation-meta">
+        <div><dt>State</dt><dd>{{.State}}</dd></div>
+        <div><dt>Interrogator</dt><dd>{{.InterrogatorSessionID}}</dd></div>
+        <div><dt>Target</dt><dd>{{.TargetSessionID}}</dd></div>
+        <div><dt>Opened</dt><dd>{{.OpenedAt}}</dd></div>
+        {{if .ClosedAt}}<div><dt>Closed</dt><dd>{{.ClosedAt}}</dd></div>{{end}}
+      </dl>
+    </header>
+    <ol class="interrogation-thread">
+      {{range .Turns}}
+      <li class="turn {{if .Question}}turn-question{{else}}turn-answer{{end}}">
+        <div class="turn-speaker">{{.Speaker}}</div>
+        <div class="turn-body">{{.Body}}</div>
+      </li>
+      {{else}}
+      <li class="turn-empty">No turns recorded for this interrogation.</li>
+      {{end}}
+    </ol>
+  </main>
+</body>
+</html>

@@ -1,6 +1,34 @@
 # Changelog
 
-## Unreleased — 2026-05-25
+## Unreleased — 2026-05-26
+
+## v2.4.0 — 2026-05-26
+
+### RFC 0083 + RFC 0084: iterated interrogating panel, agent-loop interrogation, chat UI
+
+- **RFC 0083 (D139/D140)**: new reusable *Iterated Panel Review with
+  Interrogation* workflow pattern — design + build loops, each fan-out (3 lanes)
+  → synthesis → interrogating panel with ≤3 interrogation rounds + a bounded
+  revision cycle. Reusable example `examples/iterated-interrogating-panel/`,
+  template catalog entry, `docs/WORKFLOW_TYPES.md` section. Conditional
+  deprecation of the `--print` supervised wrapper for new workflows, gated on
+  per-adapter agent-loop validation.
+- **Agent-loop substrate validation**: headless `claude -p` and `codex exec`
+  drive genuine MCP agent-loop packet loops (await → publish → ack → complete);
+  the `striatumd -agent-loop` PTY launcher does not submit prompts to TUI
+  agents; gemini connects but is too slow (lease expiry). See
+  `docs/operator/workflows/interrogating-panel-2026-05-25/SUBSTRATE_VALIDATION.md`.
+- **RFC 0084 (D141)**: interrogable agent-loop attestation. `requireLiveTarget`
+  now accepts a live session in the `awaiting_interrogation` window as a valid
+  interrogation target, not only wrapper-attested sessions — unblocking genuine
+  model-to-model interrogation on the agent-loop (the only lanes with preserved
+  context). Artifact byline attestation (D080) is unchanged. Regression test
+  `TestInterrogationOpenAcceptsAwaitingInterrogationTarget`.
+- **RFC 0084 (D142)**: interrogation-log chat UI. The Go web service renders a
+  run's interrogation thread as a server-rendered chat at
+  `/v1/runs/{runID}/interrogations[/{id}]`, backed by the existing interrogation
+  read path (`html/template` escaping, run-ownership 404, D028 curated fields
+  only). Closes the presentation-layer half of F36 for interrogation threads.
 
 ## v2.3.2 — 2026-05-25
 
