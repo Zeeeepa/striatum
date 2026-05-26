@@ -18,6 +18,15 @@ repository (D094 / RFC 0043). `.striatum/` next to the target repo is
 operational scratch only. The runner — not your prose, terminal output, or
 direct database access — advances state through daemon MCP/RPC methods.
 
+## Agent-loop reliability (Gemini)
+
+Gemini lanes must follow these rules to ensure reliable workflow completion:
+
+1.  **Request a long lease**: On `work.await_packet`, always request `lease_seconds: 900`. Gemini is slower than other lanes, and the default short lease may expire before you can finish the loop.
+2.  **Do not grep or explore the repository**: Before claiming or while holding a work packet, do NOT run `grep` or other file searches. Read only the specific files named by the packet or objective. Go straight to the MCP tool calls.
+3.  **Pass IDs on every call**: Pass `repository_id` and `session_id` on **every** Striatum MCP tool call as an explicit JSON object argument.
+4.  **Complete the loop promptly**: Follow the sequence `await_packet` → do the work → `artifact.publish` (with `kind`) → `work.ack` → `work.complete`. If a mutation reports a lease error, you were too slow — re-`await_packet` to refresh the lease and retry without re-exploring.
+
 ## Scaffold
 
 Bring a target repo from "no `.striatum/`" to "a run that's ready
