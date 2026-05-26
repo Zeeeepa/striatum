@@ -1,0 +1,57 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0085-tailnet-ui",
+  "workflow_version": "2026-05-26",
+  "name": "RFC 0085 tailnet-identity UI auth — design+build through interrogation",
+  "branch": {"mode": "confirm", "suggested_name": "striatum/rfc-0085-tailnet-ui-auth", "allow_dirty": true},
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "claude_code": {"adapter": "process", "display_model": "Claude", "command": ["claude"], "capabilities": ["write", "review", "synthesis"]},
+    "codex": {"adapter": "process", "display_model": "Codex", "command": ["codex", "exec"], "capabilities": ["write", "review"]}
+  },
+  "roles": {
+    "coordinator": {"description": "Operator coordinator."},
+    "designer": {"description": "Defends the RFC 0085 design; stays live for interrogation."},
+    "implementer": {"description": "Implements the RFC 0085 slice; stays live for interrogation."},
+    "reviewer": {"description": "Interrogates the live design/implementation before verdict."}
+  },
+  "context_docs": [
+    {"path": "docs/rfcs/0085-tailnet-identity-ui-auth.md", "required": true},
+    {"path": "docs/operator/workflows/rfc-0085-tailnet-ui/TASK.md", "required": true}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {"id": "design_ratify", "type": "synthesis", "title": "Defend RFC 0085 design (interrogable)", "role_id": "designer", "lane_id": "claude_code", "fresh_session_required": true, "interrogable": true,
+     "objective": "Internalize RFC 0085 and write a design defense; stay live so the design reviewer can interrogate the trust model.",
+     "task_prompt": {"inline": "Per TASK.md: write artifacts/DESIGN_DEFENSE.md and stay live for interrogation."},
+     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/rfc-0085-tailnet-ui/artifacts/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "design_defense", "kind": "synthesis", "path": "docs/operator/workflows/rfc-0085-tailnet-ui/artifacts/DESIGN_DEFENSE.md", "required": true}]},
+    {"id": "review_design", "type": "review", "title": "Design review codex threat_model (interrogating)", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "design_review", "fresh_session_required": true,
+     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
+     "objective": "Interrogate the live design defense on the anti-spoofing trust model, read-only enforcement, fail-closed posture, and the loopback invariant; then verdict.",
+     "task_prompt": {"inline": "Interrogate the live design_ratify session (<=3 rounds), then write your finding and verdict."},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0085-tailnet-ui/review/design/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "design_review", "kind": "finding", "path": "docs/operator/workflows/rfc-0085-tailnet-ui/review/design/REVIEW.md", "required": true}]},
+    {"id": "implement", "type": "build", "title": "Implement RFC 0085 slice (interrogable)", "role_id": "implementer", "lane_id": "claude_code", "interrogable": true,
+     "required_review_postures": ["threat_model"],
+     "objective": "Implement the RFC 0085 minimal slice per TASK.md; stay live for the build-review interrogation.",
+     "task_prompt": {"inline": "Implement the RFC 0085 minimal landable slice per TASK.md; self-verify with go build/test."},
+     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/cmd/striatumd/", "go/pkg/webservice/", "docs/operator/workflows/rfc-0085-tailnet-ui/artifacts/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/operator/workflows/rfc-0085-tailnet-ui/artifacts/HANDOFF.md", "required": true}]},
+    {"id": "review_build", "type": "review", "title": "Build review codex threat_model (interrogating)", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "build_review", "fresh_session_required": true,
+     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
+     "objective": "Interrogate the live implementer on socket perms, read-only enforcement, identity-header trust, and allowlist behavior; then verdict.",
+     "task_prompt": {"inline": "Interrogate the live implement session (<=3 rounds), then write your finding and verdict."},
+     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0085-tailnet-ui/review/build/"], "forbidden_paths": [".striatum/"]},
+     "expected_artifacts": [{"logical_name": "build_review", "kind": "finding", "path": "docs/operator/workflows/rfc-0085-tailnet-ui/review/build/REVIEW.md", "required": true}]}
+  ],
+  "edges": [
+    {"from": "design_ratify", "to": "review_design", "on": "completed"},
+    {"from": "review_design", "to": "implement", "on": "completed"},
+    {"from": "implement", "to": "review_build", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_design", "to": "design_ratify", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
+    {"from": "review_build", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true}
+  ]
+}
