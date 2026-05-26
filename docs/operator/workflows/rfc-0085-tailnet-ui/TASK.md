@@ -29,13 +29,25 @@ Implement RFC 0085's "Minimal landable slice" in `go/cmd/striatumd/` +
   `STRIATUM_DAEMON_WEB_TAILSCALE_USERS` allowlist (empty + enabled = deny all).
 - A unix-socket UI listener at `$STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock`
   (mode `0600`) serving the existing web handler in a tailscale-identity auth
-  mode: authenticate when `Tailscale-User-Login` ∈ allowlist; reject non-GET
-  (read-only, 403); accept the configured MagicDNS `Host`; no identity → 401.
+  mode: authenticate when `Tailscale-User-Login` ∈ allowlist; accept the
+  configured MagicDNS `Host`; no identity → 401.
+- **Read-only via an explicit route allowlist, NOT the HTTP verb** (design
+  interrogation `intg_4b69c562…` rejected "GET means safe"). Permit only:
+  `GET /v1/health`, `GET /v1/runs`, `GET /v1/runs/{id}`,
+  `GET /v1/runs/{id}/interrogations`, `GET /v1/runs/{id}/interrogations/{id}`
+  (incl. `?view=chat`). Deny everything else by default — `POST /v1/invoke`
+  (even read methods), workflow generation, any other/future route → 403.
+- Allowlist normalization: unset / empty / whitespace-only / empty-after-parse
+  → empty set → deny every identity request (fail closed).
 - The main loopback listener and its bearer auth are unchanged and never trust
   identity headers.
-- Go tests: allowed-identity GET → 200; not-in-allowlist → 403; POST/mutation
-  under identity → 403; no identity → 401; bearer path on the main listener
-  still works.
+- Go tests: allowed-identity permitted-route GET → 200; identity not in allowlist
+  → 403; `POST /v1/invoke` (mutating AND read method) under identity → 403; a
+  non-allowlisted GET under identity → 403; no identity → 401; bearer path on the
+  main listener still works; the four empty-allowlist normalizations all deny.
+- **Route-audit test (normative):** enumerate the identity-socket permitted set
+  and assert it equals the read-route allowlist and that no mutating handler is
+  reachable over the identity socket.
 
 Self-verify: `cd go && go build ./... && go test ./cmd/striatumd/... ./pkg/webservice/...`.
 Stay live after completing for the build-review interrogation. Write a HANDOFF.

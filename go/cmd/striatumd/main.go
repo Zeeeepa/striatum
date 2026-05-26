@@ -103,7 +103,9 @@ func main() {
 	var maxSweeps optionalIntFlag
 	var agentLoop bool
 	var mcpHTTPAddr string
+	var webTailscale bool
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
+	flag.BoolVar(&webTailscale, "web-tailscale", envBool("STRIATUM_DAEMON_WEB_TAILSCALE"), "RFC 0085: serve a read-only tailnet-identity UI on a dedicated 0600 unix socket ($STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock) for `tailscale serve`; default off; loopback bind + bearer path unchanged")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.StringVar(&mcpHTTPAddr, "mcp-http-addr", defaultMCPHTTPAddr(), "loopback HTTP/SSE MCP listen address; use 'off' to disable")
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
@@ -277,6 +279,20 @@ func main() {
 	}
 	if stopMCPHTTP != nil {
 		defer stopMCPHTTP()
+	}
+	if webTailscale {
+		stopWebUI, err := startWebUISocket(ctx, server, resolveWebUIOptions(webServiceToken))
+		if err != nil {
+			_ = listener.Close()
+			_ = os.Remove(pidPath)
+			if stopMCPHTTP != nil {
+				stopMCPHTTP()
+			}
+			log.Fatalf("start tailnet-identity UI socket: %v", err)
+		}
+		if stopWebUI != nil {
+			defer stopWebUI()
+		}
 	}
 	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
 	go func() {

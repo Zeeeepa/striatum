@@ -59,22 +59,35 @@ internet and would violate the local-first / no-hosted-services boundary
   `STRIATUM_DAEMON_WEB_TAILSCALE=1`). When off, nothing changes.
 - **Explicit allowlist.** `STRIATUM_DAEMON_WEB_TAILSCALE_USERS` (comma-separated
   tailnet logins). Empty allowlist while enabled = **deny all** (fail closed).
-- **Read-only.** Tailnet-identity requests may call **GET** routes only (run
-  history, `interrogation.list`/`show`, the chat page). Mutations (POST
-  `/v1/invoke` mutating methods, workflow generation) are refused — they remain
-  bearer + loopback. Read scope is enough to "view the dialog in the UI."
+- **Read-only via an explicit route allowlist (not the HTTP verb).** Design
+  interrogation `intg_4b69c562…` rejected "GET means safe": the read-only
+  invariant must be an **audited allowlist of permitted read routes**, not a
+  `reject non-GET` check. Tailnet-identity requests are permitted only for an
+  explicit set — `GET /v1/health`, `GET /v1/runs`, `GET /v1/runs/{id}`,
+  `GET /v1/runs/{id}/interrogations`, `GET /v1/runs/{id}/interrogations/{id}`
+  (incl. `?view=chat`) — and **everything else is denied by default**, including
+  `POST /v1/invoke` (even read methods), workflow generation, and any future
+  route. Mutations remain bearer + loopback. This set is enough to "view the
+  dialog in the UI." A **normative route-audit test** asserts the permitted set
+  is read-only and that no mutating route is reachable over the identity socket.
 
 ## Minimal landable slice
 
 - `--web-tailscale` flag + the two env knobs; default off.
 - A unix-socket UI listener (`web-ui.sock`, 0600) serving the existing web
   handler in a "tailscale identity" auth mode: authenticate via
-  `Tailscale-User-Login` ∈ allowlist; reject non-GET; accept the configured
-  MagicDNS `Host`.
+  `Tailscale-User-Login` ∈ allowlist; permit only the **read-route allowlist**
+  above (deny everything else by default); accept the configured MagicDNS `Host`.
+- Allowlist normalization: unset, empty, whitespace-only, and empty-after-parse
+  all resolve to an empty set ⇒ deny every identity request (fail closed).
 - Documented operator command: `tailscale serve --bg unix:$RUNTIME/web-ui.sock`.
-- Tests: identity-in-allowlist GET → 200; identity-not-in-allowlist → 403;
-  POST/mutation under tailnet identity → 403 (read-only); no identity → 401;
-  bearer path on the main listener unchanged.
+- Tests: identity-in-allowlist permitted-route GET → 200; identity-not-in-allowlist
+  → 403; `POST /v1/invoke` (mutating AND read method) under identity → 403; a
+  not-allowlisted GET route under identity → 403; no identity → 401; bearer path
+  on the main listener unchanged; the four empty-allowlist normalizations deny.
+- **Route-audit test (normative):** enumerate the identity-socket permitted set
+  and assert it is exactly the read-route allowlist and that no mutating handler
+  is reachable over the identity socket.
 
 ## Drawbacks / follow-ups
 

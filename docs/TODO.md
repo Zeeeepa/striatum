@@ -1551,3 +1551,11 @@ F40. Diagnose the `striatum release` (work.release) hang. During the 2026-05-25
     (`go/pkg/mutations/lifecycle.go`) + the CLI client, identify whether the
     block is daemon-side or CLI-side, and fix or add a timeout. Surfaced
     2026-05-25.
+
+F41. Derive the RFC 0085 identity route-audit allowlist from the dispatch table.
+    `TestIdentityRouteAuditMatchesAllowlist` is normative for the current route
+    surface, but `allRoutes` is kept in sync with `routeGET`/`routePOST`
+    manually — a future route added to the router without updating the audit
+    list would not be caught (RFC 0085 build-review finding). Make the audit
+    enumerate routes from the actual dispatch so a new mutating route is rejected
+    over the identity socket by construction. Surfaced 2026-05-26.

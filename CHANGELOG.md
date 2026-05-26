@@ -2,6 +2,33 @@
 
 ## Unreleased — 2026-05-26
 
+## v2.4.2 — 2026-05-26
+
+### RFC 0085: tailnet-identity UI auth (run through interrogation, design + build)
+
+- **Loopback preserved; opt-in read-only tailnet UI.** `striatumd --web-tailscale`
+  (default off) starts a dedicated `0600` unix socket
+  (`$STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock`) serving the web UI in a
+  Tailscale-identity auth mode, the stable target for `tailscale serve`. The
+  daemon's loopback bind and bearer/MCP path are unchanged and never trust
+  identity headers.
+- **Auth = allowlisted tailnet identity, read-only via an explicit route
+  allowlist.** A request is authenticated iff `Tailscale-User-Login` is in
+  `STRIATUM_DAEMON_WEB_TAILSCALE_USERS` (unset/empty/whitespace → deny all, fail
+  closed); permitted routes are an audited GET allowlist (`/v1/health`,
+  `/v1/runs[/{id}[/interrogations[/{id}]]]`) — everything else (incl.
+  `POST /v1/invoke` for any method, workflow generation) is denied. A normative
+  route-audit test asserts no mutating route is reachable over the socket.
+- **Process:** RFC 0085 was run through the interrogating panel. The design
+  interrogation (`intg_4b69c562`) returned `needs_revision`, rejecting
+  verb-based "GET means safe"; the RFC was revised to the explicit route
+  allowlist + audit test before any code. The build interrogation accepted; live
+  verification over the socket confirmed allowed-identity GET → 200 (chat renders
+  6 turns), not-in-allowlist/POST/non-allowlisted → 403, no identity → 401, and
+  the MagicDNS-Host path → 200. `serve` only; `funnel` prohibited. D143.
+- Follow-up F41: the route-audit test's `allRoutes` is manually kept in sync with
+  the router (build-review finding) — derive it from the dispatch table.
+
 ## v2.4.1 — 2026-05-26
 
 ### RFC 0084 follow-ups (dogfooded via the iterated interrogating panel)

@@ -30,6 +30,20 @@ type Config struct {
 	WebEnabled      bool
 	StartedAt       time.Time
 	SSEPollInterval time.Duration
+
+	// RFC 0085 tailnet-identity UI auth (web-ui.sock). When IdentityAuth is
+	// true the handler authenticates via the Tailscale-User-Login header
+	// instead of a bearer token, and permits ONLY the read-route allowlist
+	// (IdentityReadRoutes); every other route — including all mutating ones —
+	// is denied 403. The main loopback listener leaves IdentityAuth false and
+	// never trusts identity headers.
+	IdentityAuth bool
+	// IdentityAllowlist is the set of permitted Tailscale logins. An empty set
+	// while IdentityAuth is true denies every identity request (fail closed).
+	IdentityAllowlist map[string]struct{}
+	// AllowedHost is the node's MagicDNS name that `tailscale serve` forwards;
+	// accepted on the identity listener in addition to loopback.
+	AllowedHost string
 }
 
 type Handler struct {
@@ -46,6 +60,10 @@ func New(config Config) *Handler {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	setBaseHeaders(w)
+	if h.config.IdentityAuth {
+		h.serveIdentity(w, r)
+		return
+	}
 	if !isLoopbackHost(r.Host) {
 		writeJSON(w, http.StatusForbidden, errorPayload("host_refused", "Host header must be loopback"))
 		return
@@ -550,15 +568,20 @@ func argvValue(argv []string, flag string) string {
 	return ""
 }
 
-func isLoopbackHost(hostport string) bool {
+// hostOnly returns the host portion of a Host header value, stripping any
+// :port and surrounding brackets from an IPv6 literal.
+func hostOnly(hostport string) string {
 	host := hostport
 	if strings.Contains(hostport, ":") {
-		parsed, _, err := net.SplitHostPort(hostport)
-		if err == nil {
+		if parsed, _, err := net.SplitHostPort(hostport); err == nil {
 			host = parsed
 		}
 	}
-	host = strings.Trim(host, "[]")
+	return strings.Trim(host, "[]")
+}
+
+func isLoopbackHost(hostport string) bool {
+	host := hostOnly(hostport)
 	if strings.EqualFold(host, "localhost") {
 		return true
 	}
