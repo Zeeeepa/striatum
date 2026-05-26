@@ -1574,8 +1574,23 @@ F42. [DONE 2026-05-26, v2.6.0, D145] Harden gemini-cli as an autonomous
     `docs/operator/workflows/f42-conversation-turn-driver/OPERATOR_REPORT.md`:
     interrogation-window closes after the first interrogation (breaks sequential
     multi-reviewer panels); reviewer sessions need the `interrogate` capability at
-    registration; `review.submit` must be a single call; live gemini verification
-    pending a daemon rebuild+restart (post-merge).
+    registration; `review.submit` must be a single call. Live gemini verification
+    PASSED 2026-05-26 (conv reached max_rounds; gemini's turns driven by
+    `striatumd -agent-loop -turn-driver` via `supervise.start`, no shell script)
+    — see F44 for the PATH bug found + fixed during verification.
+
+F44. Make daemon-spawned single-shot turn-driver lanes find their generator
+    binary, and fail gracefully. Live F42 verification found the supervised
+    turn-driver zombies because it inherits the daemon's systemd `PATH`
+    (`/usr/local/sbin:…:/snap/bin`), which lacks `~/.local/bin` /
+    `~/.npm-global/bin` where `gemini` lives: `exec: "gemini": executable file
+    not found in $PATH`. (1) `supervise.start` should add the operator local bin
+    dirs to the supervised lane `PATH` (or resolve the lane command to an
+    absolute path); (2) generator-not-found / repeated generation failure should
+    park the floor + escalate, not crash the whole turn-driver; (3) the daemon
+    should reap exited supervised children and not report stale `alive` liveness.
+    Local workaround in use: a `striatumd.service.d/path.conf` systemd drop-in.
+    Surfaced 2026-05-26.
 
 F43. Render conversations in the chat UI. RFC 0086 conversation turns are
     queryable (`conversation.show`/`list`) and persist on the message bus like
