@@ -256,6 +256,15 @@ striatum skills install --profile all
 
 The skill bundle teaches a Striatum-aware agent how to drive the runner without reading the source repo. Generated files are version-stamped; `striatum doctor` flags outdated bundles and emits the exact `skills install` invocation to fix them.
 
+#### Optional agent-side skills
+
+Beyond the Striatum-authored bundle, the operator may install optional,
+third-party agent skills (e.g., a divergent-ideation skill). These are **not
+part of Striatum or its runtime** — they install agent-side and Striatum never
+fetches, vendors, or calls them. The operator pack prompts about them on first
+initiation and installs only what you confirm. The curated registry of such
+skills lives in [`skills/optional/`](skills/optional/README.md).
+
 ### Use the local web UI
 
 ```bash

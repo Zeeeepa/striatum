@@ -116,6 +116,13 @@ What `adopt` does:
 - Migrates/registers the repo with the daemon-owned Postgres substrate
   and reports a suggested starter workflow path.
 
+On first initiation the operator skill bundle also prompts you about
+**optional, third-party agent skills** (for example a divergent-ideation
+skill). These are not part of Striatum or its runtime — they install
+agent-side and Striatum never fetches, vendors, or calls them. The operator
+installs only the ones you confirm. The curated registry lives in
+[`skills/optional/`](../skills/optional/README.md).
+
 If the target repo follows the recommended layout in
 [`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md), your
 workflow file lives under `striatum/workflows/` and artifacts land

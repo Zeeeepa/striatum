@@ -41,6 +41,17 @@ branch and transitions the run to `ready` in one call. For
 `branch.mode: "confirm"` workflows, call `striatum branch confirm
 --run-id <id> --create` after `run prepare`.
 
+## Optional skills (offer on first initiation)
+
+After a repo is registered for the first time, ask the operator whether they
+want to install any optional, third-party agent skills (for example, a
+divergent-ideation skill for brainstorming architecture or API options). These
+are **not part of Striatum**: they install agent-side, separate from this
+Striatum operator pack, and Striatum does not fetch, vendor, or maintain them.
+Describe what each offered skill does, install only the ones the operator
+explicitly confirms, and use each skill's own documented install command. If
+the operator declines, continue without them.
+
 ## Where to look next
 
 - **`striatum-claim-loop`** — claim packets, publish artifacts,
