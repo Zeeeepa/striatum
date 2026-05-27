@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/creack/pty"
@@ -61,6 +62,25 @@ type runConfig struct {
 	Env          []string
 }
 
+// agentLoopSubmitSequence returns the key-sequence written after the bootstrap
+// prompt to submit it to an interactive agent. Defaults to a single carriage
+// return (Enter), which submits the input line in the TUIs we drive; override
+// via STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE using Go-style escapes (\r, \n) for
+// adapters that need a different submit (e.g. bracketed paste). An explicitly
+// empty override disables the submit (for headless adapters that EOF instead).
+func agentLoopSubmitSequence() string {
+	raw, ok := os.LookupEnv("STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE")
+	if !ok {
+		return "\r"
+	}
+	return decodeSubmitSequence(raw)
+}
+
+func decodeSubmitSequence(raw string) string {
+	replacer := strings.NewReplacer(`\r`, "\r", `\n`, "\n", `\t`, "\t", `\\`, `\`)
+	return replacer.Replace(raw)
+}
+
 func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stderr io.Writer) error {
 	log.Printf("Starting Striatum agent PTY for session %s on run %s", cfg.SessionID, cfg.RunID)
 	log.Printf("Agent command: %v", cfg.Command)
@@ -105,7 +125,12 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		_, _ = io.Copy(stdout, ptmx)
 	}()
 
-	if _, err := io.WriteString(ptmx, prompt); err != nil {
+	// Write the bootstrap prompt, then send the submit key-sequence so an
+	// interactive TUI agent actually submits it instead of leaving it buffered
+	// in the input line (the RFC 0088 / D140 "buffers unsubmitted" blocker).
+	// Headless agents (claude -p / codex exec) read the prompt as input and the
+	// trailing carriage return is harmless.
+	if _, err := io.WriteString(ptmx, prompt+agentLoopSubmitSequence()); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return fmt.Errorf("agent-loop bootstrap prompt: %w", err)

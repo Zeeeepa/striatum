@@ -442,7 +442,23 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 			return config, err
 		}
 		config.AgentLoopMode = agentLoopModeTurnDriver
+	} else if laneUsesAgentLoop(lane) {
+		// RFC 0088: wrap the raw lane command in `striatumd -agent-loop -- …`
+		// so the agent-loop executor delivers the bootstrap prompt and submits
+		// it over a PTY (interactive lanes), instead of launching the bare
+		// command which blocks waiting for input it never receives.
+		command, err = selfDrivingAgentLoopCommand(command)
+		if err != nil {
+			return config, err
+		}
 	}
+	// RFC 0088: resolve argv0 against the augmented supervised PATH so a lane
+	// binary that lives only in ~/.local/bin (codex, claude, agy) launches even
+	// when the daemon's own PATH lacks it. exec.Command resolves argv0 against
+	// the launching process's PATH at construction time, before cmd.Env is
+	// applied, so setting the child PATH alone is insufficient (the F44
+	// path.conf-retirement regression).
+	command = resolveSupervisedCommandBinary(command)
 	transport, err := supervisionTransport(lane)
 	if err != nil {
 		return config, err
@@ -1327,6 +1343,61 @@ func boolLaneValue(values map[string]any, key string) (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+// laneUsesAgentLoop reports whether a lane opts into the daemon-owned
+// agent-loop PTY session (RFC 0088): the command is wrapped in
+// `striatumd -agent-loop -- …` and driven over a PTY with a submitted
+// bootstrap prompt. Opt-in via lane `agent_loop: true` or
+// `adapter_capabilities.agent_loop: true`; default false preserves the
+// raw-launch / one-shot-delivery behavior for existing lanes.
+func laneUsesAgentLoop(lane map[string]any) bool {
+	if value, ok := boolLaneValue(lane, "agent_loop"); ok {
+		return value
+	}
+	capabilities := asMap(lane["adapter_capabilities"])
+	if value, ok := boolLaneValue(capabilities, "agent_loop"); ok {
+		return value
+	}
+	return false
+}
+
+// selfDrivingAgentLoopCommand wraps a raw lane command in the agent-loop
+// executor without the turn-driver flag, mirroring turnDriverAgentLoopCommand.
+func selfDrivingAgentLoopCommand(command []string) ([]string, error) {
+	if len(command) == 0 {
+		return nil, rpc.NewError("invalid_transition", "self-driving lane command must be non-empty", nil)
+	}
+	if agentLoopFlagIndex(command) >= 0 {
+		return append([]string(nil), command...), nil
+	}
+	return append([]string{agentLoopExecutable(), "-agent-loop", "--"}, command...), nil
+}
+
+// resolveSupervisedCommandBinary rewrites command[0] to an absolute path found
+// on the augmented supervised PATH, so the lane binary resolves regardless of
+// the daemon's own PATH. A no-op when argv0 is already a path or cannot be
+// resolved (the launch will then surface the original not-found error).
+func resolveSupervisedCommandBinary(command []string) []string {
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return command
+	}
+	bin := command[0]
+	if strings.ContainsRune(bin, os.PathSeparator) {
+		return command
+	}
+	for _, dir := range filepath.SplitList(supervisedPath()) {
+		if dir == "" {
+			continue
+		}
+		candidate := filepath.Join(dir, bin)
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			out := append([]string(nil), command...)
+			out[0] = candidate
+			return out
+		}
+	}
+	return command
 }
 
 func turnDriverAgentLoopCommand(command []string) ([]string, error) {
