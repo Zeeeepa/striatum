@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -81,6 +83,18 @@ func decodeSubmitSequence(raw string) string {
 	return replacer.Replace(raw)
 }
 
+// agentLoopSubmitDelay is how long to wait after writing the bootstrap prompt
+// before sending the submit key-sequence, so a TUI line editor finishes
+// ingesting the multi-line paste. Override via STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS.
+func agentLoopSubmitDelay() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS")); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms >= 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 750 * time.Millisecond
+}
+
 func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stderr io.Writer) error {
 	log.Printf("Starting Striatum agent PTY for session %s on run %s", cfg.SessionID, cfg.RunID)
 	log.Printf("Agent command: %v", cfg.Command)
@@ -105,7 +119,16 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		Token:        cfg.Token,
 	})
 
-	cmd := exec.CommandContext(ctx, cfg.Command[0], cfg.Command[1:]...)
+	// RFC 0088 Decision 5: give the lane CLI a striatum MCP server pointed at
+	// the live endpoint + token, generated fresh into ephemeral scratch and
+	// removed on exit (never persist the rotating port).
+	laneCommand, cleanupMCP, err := injectLaneMCPConfig(cfg.Command, cfg.RepoRoot, cfg.Endpoint, cfg.Token)
+	if err != nil {
+		return fmt.Errorf("agent-loop mcp config: %w", err)
+	}
+	defer cleanupMCP()
+
+	cmd := exec.CommandContext(ctx, laneCommand[0], laneCommand[1:]...)
 	cmd.Dir = cfg.RepoRoot
 	cmd.Env = childEnv
 
@@ -119,21 +142,44 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		_ = pty.InheritSize(inputFile, ptmx)
 	}
 
+	// Debug-only: tee the PTY output to a file so the operator can see an
+	// interactive TUI agent's screen while tuning the submit sequence. Off by
+	// default (D028: no transcript capture); enabled via
+	// STRIATUM_AGENT_LOOP_DEBUG_LOG=<path> for live submit debugging only.
+	var sink io.Writer = stdout
+	if dbg := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_DEBUG_LOG")); dbg != "" {
+		if f, ferr := os.OpenFile(dbg, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
+			defer f.Close()
+			fmt.Fprintf(f, "\n===== agent-loop session %s @ %s, command=%v =====\n", cfg.SessionID, cfg.RunID, laneCommand)
+			sink = io.MultiWriter(stdout, f)
+		}
+	}
+
 	outputDone := make(chan struct{})
 	go func() {
 		defer close(outputDone)
-		_, _ = io.Copy(stdout, ptmx)
+		_, _ = io.Copy(sink, ptmx)
 	}()
 
-	// Write the bootstrap prompt, then send the submit key-sequence so an
-	// interactive TUI agent actually submits it instead of leaving it buffered
-	// in the input line (the RFC 0088 / D140 "buffers unsubmitted" blocker).
-	// Headless agents (claude -p / codex exec) read the prompt as input and the
-	// trailing carriage return is harmless.
-	if _, err := io.WriteString(ptmx, prompt+agentLoopSubmitSequence()); err != nil {
+	// Write the bootstrap prompt, then — after a short delay so the TUI line
+	// editor finishes ingesting the (multi-line) paste — send the submit
+	// key-sequence as a SEPARATE write so an interactive TUI agent actually
+	// submits it instead of leaving it buffered in the input line (the RFC 0088
+	// / D140 "buffers unsubmitted" blocker). Concatenating the CR to the prompt
+	// does not submit: the editor absorbs it into the multi-line input. Headless
+	// agents read the prompt as input and the later CR is harmless.
+	if _, err := io.WriteString(ptmx, prompt); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return fmt.Errorf("agent-loop bootstrap prompt: %w", err)
+	}
+	if submit := agentLoopSubmitSequence(); submit != "" {
+		time.Sleep(agentLoopSubmitDelay())
+		if _, err := io.WriteString(ptmx, submit); err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return fmt.Errorf("agent-loop bootstrap submit: %w", err)
+		}
 	}
 
 	if stdin != nil {

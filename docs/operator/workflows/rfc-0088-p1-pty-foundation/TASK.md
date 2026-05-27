@@ -95,6 +95,35 @@ turn-driver/`single_shot` capability. Per-adapter submit sequences for
 codex/agy are P2/P3 — P1 may structure the submit driver to be per-adapter, but
 only claude must be proven.
 
+## Verification log (2026-05-27)
+
+**PROVEN end-to-end:** a daemon-owned claude interactive PTY agent-loop lane
+(`adapter_capabilities.agent_loop: true`, command `claude --model opus
+--dangerously-skip-permissions`, no `-p`) received its bootstrap, **submitted**
+it, connected to the striatum MCP via the ephemeral `--mcp-config
+--strict-mcp-config`, and autonomously `await_packet → wrote VERIFY.md →
+publish → complete` (job `completed`). The published artifact carried a **lane
+byline `author: writer-claude-opus-004`, not `author: operator`** — confirming
+the owned-PTY session is attested and earns the byline via the existing D080
+supervised-session attestation path (`claim.go` `artifactAuthorIdentity(…
+attested …)`). **D149's goal is met without new attestation code**, because
+`supervise.start` attaches a supervisor (pid + command-snapshot) to the
+agent-loop session. Harness: `docs/operator/workflows/rfc-0088-p1-verify/`.
+
+The submit needed a **separate keystroke after a delay** (concatenating CR to
+the prompt is absorbed into the multi-line input); see `agentLoopSubmitDelay`
+(default 750ms, `STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS`).
+
+**Open P1 follow-ups found during verification:**
+1. **claude bypass-consent dialog.** claude's interactive startup can show a
+   one-time "Bypass Permissions mode" consent dialog (`1. No, exit / 2. Yes`);
+   the bootstrap Enter then selects "No, exit" and claude exits. Robust
+   interactive lanes must pre-accept this (seed claude config / lane prep) or
+   the submit driver must answer it. Adapter-specific lane-prep surface.
+2. **path.conf drop-in removal pending.** Fix C (argv0 resolution) is unit-
+   tested, but the end-to-end "remove the drop-in" check was confounded by
+   finding #1 (PATH-independent). Re-validate drop-in removal after #1.
+
 ## Verification
 
 `cd go && gofmt -l . && go vet ./... && go test ./...`. Live proof
