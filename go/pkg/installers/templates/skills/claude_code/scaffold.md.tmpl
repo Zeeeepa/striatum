@@ -44,13 +44,19 @@ branch and transitions the run to `ready` in one call. For
 ## Optional skills (offer on first initiation)
 
 After a repo is registered for the first time, ask the operator whether they
-want to install any optional, third-party agent skills (for example, a
-divergent-ideation skill for brainstorming architecture or API options). These
-are **not part of Striatum**: they install agent-side, separate from this
-Striatum operator pack, and Striatum does not fetch, vendor, or maintain them.
-Describe what each offered skill does, install only the ones the operator
-explicitly confirms, and use each skill's own documented install command. If
-the operator declines, continue without them.
+want to install any optional, third-party agent skills. These are **not part of
+Striatum**: they install agent-side, separate from this Striatum operator pack,
+and Striatum does not fetch, vendor, or maintain them. Describe what each
+offered skill does, install only the ones the operator explicitly confirms, and
+if the operator declines, continue without them.
+
+Currently suggested:
+
+- **adhd** — divergent ideation: spawn parallel idea branches under different
+  cognitive frames, then critic-prune and deepen the survivors. Good for
+  architecture, API design, naming, and "give me a few different ways" prompts.
+  Claude-only (built on the Claude Agent SDK). Install only if the operator
+  confirms: `npx skills add UditAkhourii/adhd`
 
 ## Where to look next
 

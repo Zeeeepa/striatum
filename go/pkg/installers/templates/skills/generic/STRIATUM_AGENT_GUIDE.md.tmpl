@@ -28,11 +28,13 @@ tools/call run.start {{"run_id":"<id>"}}
 ```
 
 After a repo is registered for the first time, ask the operator whether they
-want to install any optional, third-party agent skills (for example, a
-divergent-ideation skill for brainstorming). These are **not part of
+want to install any optional, third-party agent skills. These are **not part of
 Striatum** — they install agent-side and Striatum does not fetch, vendor, or
-maintain them. Install only the ones the operator explicitly confirms, using
-each skill's own documented install command; otherwise continue without them.
+maintain them. Install only the ones the operator explicitly confirms;
+otherwise continue without them. Currently suggested: **adhd** — divergent
+ideation (parallel idea branches under different cognitive frames, then
+critic-prune and deepen survivors); Claude-only; install only if confirmed:
+`npx skills add UditAkhourii/adhd`
 
 ## Claim loop
 
