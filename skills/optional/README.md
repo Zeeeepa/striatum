@@ -47,9 +47,23 @@ self-contained invariant); the concrete pointers live here in the source repo.
   naming, fuzzy-bug hypotheses, and "give me a few genuinely different ways to
   do this" prompts.
 - **Source:** https://github.com/UditAkhourii/adhd
-- **License:** MIT
-- **Provider constraint:** built on the Claude Agent SDK; Claude-only.
-- **Install (agent-side, user-confirmed):** `npx skills add UditAkhourii/adhd`
+- **License:** MIT (see [`adhd/LICENSE`](adhd/LICENSE)).
+- **Provider constraint:** the `SKILL.md` is a standalone prompt that drives the
+  host agent's own parallel sub-agent calls; it targets Claude Code / the Claude
+  Agent SDK. The optional `adhd-agent` npm CLI (for batch/non-Claude use) is
+  **not** vendored here and is not required.
+- **Vendored copy (offline):** [`adhd/SKILL.md`](adhd/SKILL.md) is a
+  byte-faithful pinned copy of upstream `skills/adhd/SKILL.md`, fetched from
+  `main` on 2026-05-27. Content hash (sha256):
+  `bc821db683d56b78fbbff5244295f408110cd813db768d1008998722154d9ca4`. This copy
+  is a reviewable reference; it is **not** auto-installed into the operator's
+  environment and is **not** part of the Striatum operator bundle.
+- **Install (agent-side, user-confirmed):** either copy the vendored
+  [`adhd/SKILL.md`](adhd/SKILL.md) into the operator's skill directory (e.g.
+  `.claude/skills/adhd/SKILL.md`) for an offline, pinned install, or pull the
+  latest from upstream with `npx skills add UditAkhourii/adhd`.
+- **Updating the vendored copy:** re-fetch upstream `skills/adhd/SKILL.md`,
+  refresh the date and sha256 above, and re-confirm the license is unchanged.
 - **Relationship to Striatum:** ADHD does divergence *inside one agent session*
   with no durable provenance. Striatum's server-side, provenance-tracked
   equivalent of the same diverge → prune → deepen pattern is proposed as a
