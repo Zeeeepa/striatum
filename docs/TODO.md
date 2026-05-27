@@ -1579,8 +1579,19 @@ F42. [DONE 2026-05-26, v2.6.0, D145] Harden gemini-cli as an autonomous
     `striatumd -agent-loop -turn-driver` via `supervise.start`, no shell script)
     — see F44 for the PATH bug found + fixed during verification.
 
-F44. Make daemon-spawned single-shot turn-driver lanes find their generator
-    binary, and fail gracefully. Live F42 verification found the supervised
+F44. [DONE 2026-05-27, v2.7.0, D146] Make daemon-spawned single-shot
+    turn-driver lanes find their generator binary, and fail gracefully. Shipped:
+    supervised lanes append existing operator-local bin dirs (`$HOME/.local/bin`,
+    `$HOME/.npm-global/bin`, `STRIATUM_SUPERVISED_PATH_DIRS`) to one deduped
+    `PATH`; `turndriver.Loop` routes exhausted generator failures through
+    `OnFailure`/escalation instead of crashing; pipe supervisors reap via async
+    `cmd.Wait` and liveness is zombie/start-token-aware (`supervise.status`
+    reports `gone`, not stale `alive`). Built via dogfood `run_8e1f8965…` (4×
+    accept_with_findings). Live-verified in isolation on a minimal-PATH daemon:
+    supervised PATH augmented, generator executed, no zombie, honest liveness; the
+    operator `path.conf` workaround is retired. Deferred: durable terminal-state
+    persistence; resident retry-after-escalation. ORIGINAL CONTEXT BELOW.
+    Live F42 verification found the supervised
     turn-driver zombies because it inherits the daemon's systemd `PATH`
     (`/usr/local/sbin:…:/snap/bin`), which lacks `~/.local/bin` /
     `~/.npm-global/bin` where `gemini` lives: `exec: "gemini": executable file

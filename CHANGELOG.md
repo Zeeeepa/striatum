@@ -1,6 +1,37 @@
 # Changelog
 
-## Unreleased — 2026-05-26
+## Unreleased — 2026-05-27
+
+## v2.7.0 — 2026-05-27
+
+### F44: supervised turn-driver hardening (D146)
+
+Fixes the production-path bug F42's live verification surfaced: a daemon-spawned
+single-shot turn-driver inherited the daemon's systemd `PATH`, could not find its
+generator binary (`exec: "gemini": executable file not found in $PATH`), crashed
+instead of parking the floor, and zombied with stale `alive` liveness.
+
+- **Generator findable.** Supervised lanes now build one effective `PATH`: the
+  inherited system `PATH` plus any existing operator-local bin dirs
+  (`$HOME/.local/bin`, `$HOME/.npm-global/bin`, or `STRIATUM_SUPERVISED_PATH_DIRS`),
+  deduped. No hardcoded home; only existing dirs are appended. This is not
+  control state, so it does not weaken the D145 topic+transcript-only generator
+  boundary. The operator `striatumd.service.d/path.conf` workaround is no longer
+  needed.
+- **Graceful generator failure.** `turndriver.Loop` routes exhausted generator
+  failures (including exec-not-found) through `OnFailure` → `session.report`
+  escalation + parked floor, instead of crashing `RunTurnDriver`.
+- **Honest liveness.** Pipe supervisors capture `pid_start_time` and reap via an
+  async `cmd.Wait`; read-side liveness is zombie- and start-token-aware;
+  `supervise.status`/dashboard surface the latest escalation report. An exited
+  supervised child now reports `gone`, not a frozen `alive`.
+- Designed + built through the iterated-interrogating-panel dogfood
+  (`run_8e1f8965…`), four `accept_with_findings` verdicts with live interrogations.
+  Live-verified in isolation: with the daemon forced to a minimal `PATH` (gemini
+  not on it), a supervised gemini turn-driver's PATH was augmented to include
+  `~/.local/bin`, the generator executed, the driver stayed healthy, and
+  `supervise.status` reported honest liveness with no zombie. Deferred: durable
+  unexpected-exit terminal-state persistence; resident retry-after-escalation.
 
 ## v2.6.0 — 2026-05-26
 
