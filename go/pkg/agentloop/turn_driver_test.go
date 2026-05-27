@@ -18,6 +18,7 @@ func TestContentOnlyEnvStripsAllStriatumVariables(t *testing.T) {
 		"STRIATUM_REPOSITORY_ID=repo_1",
 		"STRIATUM_SESSION_ID=sess_1",
 		"STRIATUM_RUN_ID=run_1",
+		"STRIATUM_SUPERVISED_PATH_DIRS=/home/operator/.local/bin",
 		"STRIATUM_OTHER=blocked-by-default",
 	})
 	for _, entry := range env {

@@ -14,9 +14,11 @@ import (
 )
 
 type superviseReadFakeRunner struct {
-	listQuery string
-	listArgs  []any
-	execCount int
+	listQuery      string
+	listArgs       []any
+	execCount      int
+	statusRow      map[string]any
+	escalationRows []map[string]any
 }
 
 func (r *superviseReadFakeRunner) Exec(context.Context, string, ...any) error {
@@ -66,10 +68,15 @@ func (r *superviseReadFakeRunner) Query(_ context.Context, sql string, args ...a
 			}
 		}
 		return dashboardAllRowsFromMaps(rows), nil
+	case strings.Contains(sql, "FROM striatumd.events") && strings.Contains(sql, "session.reported"):
+		return dashboardAllRowsFromMaps(r.escalationRows), nil
 	case strings.Contains(sql, "FROM striatumd.process_supervisors") && strings.Contains(sql, "ORDER BY ps.started_at DESC"):
 		r.listQuery = sql
 		r.listArgs = args
 		if strings.Contains(sql, "LIMIT 1") {
+			if r.statusRow != nil {
+				return dashboardAllRowsFromMaps([]map[string]any{r.statusRow}), nil
+			}
 			return dashboardAllRowsFromMaps([]map[string]any{superviseBaseRow("sup_gone", 0, "stale-start-token")}), nil
 		}
 		return dashboardAllRowsFromMaps([]map[string]any{superviseBaseRow("sup_reattachable", os.Getpid(), currentStartTokenForTest())}), nil
@@ -168,6 +175,72 @@ func TestHandleSuperviseStatusKeepsGonePIDAsReadProjection(t *testing.T) {
 	}
 	if runner.execCount != 0 {
 		t.Fatalf("unexpected exec count %d", runner.execCount)
+	}
+}
+
+func TestHandleSuperviseStatusTreatsStartTokenMismatchAsGone(t *testing.T) {
+	row := superviseBaseRow("sup_mismatch", os.Getpid(), "different-start-token")
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["liveness"] != "gone" || result["pid_identity"] != "mismatch" {
+		t.Fatalf("status projection = %#v", result)
+	}
+	if result["lane_attestation"] != "unattested" || result["lane_attestation_reason"] != "pid_identity_mismatch" {
+		t.Fatalf("lane attestation = %#v", result)
+	}
+}
+
+func TestHandleSuperviseStatusSurfacesLatestEscalationReport(t *testing.T) {
+	now := time.Date(2026, 5, 27, 4, 0, 0, 0, time.UTC)
+	runner := &superviseReadFakeRunner{
+		statusRow: superviseBaseRow("sup_gone", 0, "stale-start-token"),
+		escalationRows: []map[string]any{
+			{
+				"event_id":   int64(42),
+				"run_id":     "run_1",
+				"session_id": "sess_1",
+				"created_at": now,
+				"payload_json": map[string]any{
+					"report_kind":  "escalate",
+					"phase":        "await_packet",
+					"blocker_kind": "other",
+					"message":      "turn-driver parked floor for conv_1 after 2 attempt(s)",
+				},
+			},
+		},
+	}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["liveness"] != "gone" || result["liveness_reason"] != "escalated" {
+		t.Fatalf("liveness projection = %#v", result)
+	}
+	report, ok := result["latest_escalation_report"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing latest escalation report: %#v", result)
+	}
+	if report["event_id"] != int64(42) || report["blocker_kind"] != "other" {
+		t.Fatalf("escalation report = %#v", report)
+	}
+	if !strings.Contains(superviseString(report["message"]), "parked floor") {
+		t.Fatalf("escalation report message = %#v", report)
+	}
+}
+
+func TestLinuxProcStatZombieDetectsDefunctProcessStateForReads(t *testing.T) {
+	if !linuxProcStatZombie([]byte("1234 (agent command) Z 1 2 3")) {
+		t.Fatal("expected Z process state to be treated as zombie")
+	}
+	if linuxProcStatZombie([]byte("1234 (agent command) S 1 2 3")) {
+		t.Fatal("sleeping process state should not be treated as zombie")
 	}
 }
 

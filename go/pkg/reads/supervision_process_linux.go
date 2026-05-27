@@ -28,3 +28,14 @@ func processStartToken(pid int) (string, bool) {
 	}
 	return fields[starttimeIndex], true
 }
+
+func processZombie(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return false
+	}
+	return linuxProcStatZombie(data)
+}

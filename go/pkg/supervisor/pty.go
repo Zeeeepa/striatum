@@ -66,7 +66,7 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
-	cmd.Env = append(os.Environ(), spec.Env...)
+	cmd.Env = mergeEnv(os.Environ(), spec.Env)
 
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
@@ -139,7 +139,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
 	newSessionArgs = append(newSessionArgs, spec.Command...)
 	createCmd := exec.Command("tmux", newSessionArgs...)
-	createCmd.Env = append(os.Environ(), spec.Env...)
+	createCmd.Env = mergeEnv(os.Environ(), spec.Env)
 	if err := createCmd.Run(); err != nil {
 		return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
 	}
@@ -150,7 +150,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	// 3. Attach to the session in the PTY
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
 	attachCmd.Dir = spec.WorkingDir
-	attachCmd.Env = append(os.Environ(), spec.Env...)
+	attachCmd.Env = mergeEnv(os.Environ(), spec.Env)
 
 	ptmx, err := pty.Start(attachCmd)
 	if err != nil {
@@ -170,7 +170,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
 	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
 	cmd.Dir = spec.WorkingDir
-	cmd.Env = append(os.Environ(), spec.Env...)
+	cmd.Env = mergeEnv(os.Environ(), spec.Env)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pty.Start: %w", err)
@@ -214,6 +214,25 @@ func sanitizeTmuxName(value string) string {
 		return "unknown"
 	}
 	return out.String()
+}
+
+func mergeEnv(base []string, updates []string) []string {
+	keys := map[string]bool{}
+	for _, entry := range updates {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			keys[key] = true
+		}
+	}
+	out := make([]string, 0, len(base)+len(updates))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || keys[key] {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, updates...)
 }
 
 func tmuxAttachMetadata(sessionName string) map[string]any {

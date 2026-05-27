@@ -3,6 +3,8 @@ package turndriver
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os/exec"
 	"reflect"
 	"strings"
 	"testing"
@@ -110,8 +112,8 @@ func TestLoopGeneratorFailureAndEmptyOutputDoNotSay(t *testing.T) {
 				return nil
 			}
 			err := Loop{Conversation: conv, Generator: gen, Options: opts}.Run(context.Background())
-			if !errors.Is(err, ErrGenerationFailed) {
-				t.Fatalf("Run() error = %v, want ErrGenerationFailed", err)
+			if err != nil {
+				t.Fatalf("Run() error = %v, want clean exit after failure report", err)
 			}
 			if len(conv.says) != 0 {
 				t.Fatalf("generator failure said unexpectedly: %#v", conv.says)
@@ -120,6 +122,71 @@ func TestLoopGeneratorFailureAndEmptyOutputDoNotSay(t *testing.T) {
 				t.Fatalf("failure callback count = %d, want 1", failures)
 			}
 		})
+	}
+}
+
+func TestLoopGeneratorFailureWithoutReporterRemainsFatal(t *testing.T) {
+	conv := &fakeConversation{turns: []Turn{{Kind: TurnOurTurn, ConversationID: "conv_1"}}}
+	gen := &fakeGenerator{errs: []error{errors.New("boom")}}
+	opts := testOptions()
+	opts.MaxGenerateAttempts = 1
+	err := Loop{Conversation: conv, Generator: gen, Options: opts}.Run(context.Background())
+	if !errors.Is(err, ErrGenerationFailed) {
+		t.Fatalf("Run() error = %v, want ErrGenerationFailed", err)
+	}
+	if len(conv.says) != 0 {
+		t.Fatalf("generator failure said unexpectedly: %#v", conv.says)
+	}
+}
+
+func TestLoopGeneratorFailureReportsAndExitsCleanly(t *testing.T) {
+	conv := &fakeConversation{turns: []Turn{{Kind: TurnOurTurn, ConversationID: "conv_1", Topic: "topic"}}}
+	gen := missingBinaryGenerator{name: "striatum-missing-generator-for-test"}
+	opts := testOptions()
+	opts.MaxGenerateAttempts = 2
+	var reported Failure
+	failures := 0
+	opts.OnFailure = func(_ context.Context, failure Failure) error {
+		failures++
+		reported = failure
+		return nil
+	}
+	err := Loop{Conversation: conv, Generator: gen, Options: opts}.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v, want clean exit after failure report", err)
+	}
+	if failures != 1 {
+		t.Fatalf("failure callback count = %d, want 1", failures)
+	}
+	if reported.Attempts != 2 {
+		t.Fatalf("reported attempts = %d, want 2", reported.Attempts)
+	}
+	if !errors.Is(reported.Err, ErrGenerationFailed) {
+		t.Fatalf("reported error = %v, want ErrGenerationFailed", reported.Err)
+	}
+	var pathErr *exec.Error
+	if !errors.As(reported.Err, &pathErr) {
+		t.Fatalf("reported error = %T %[1]v, want wrapped exec.Error", reported.Err)
+	}
+	if len(conv.says) != 0 {
+		t.Fatalf("generator failure said unexpectedly: %#v", conv.says)
+	}
+}
+
+func TestLoopGeneratorFailureReturnsReportFailure(t *testing.T) {
+	conv := &fakeConversation{turns: []Turn{{Kind: TurnOurTurn, ConversationID: "conv_1"}}}
+	gen := &fakeGenerator{errs: []error{errors.New("boom")}}
+	reportErr := errors.New("report failed")
+	opts := testOptions()
+	opts.OnFailure = func(context.Context, Failure) error {
+		return reportErr
+	}
+	err := Loop{Conversation: conv, Generator: gen, Options: opts}.Run(context.Background())
+	if !errors.Is(err, reportErr) {
+		t.Fatalf("Run() error = %v, want report failure", err)
+	}
+	if len(conv.says) != 0 {
+		t.Fatalf("generator failure said unexpectedly: %#v", conv.says)
 	}
 }
 
@@ -225,4 +292,15 @@ func (f *fakeGenerator) Generate(_ context.Context, ctx ConversationContext) (st
 		return f.outputs[idx], nil
 	}
 	return "", nil
+}
+
+type missingBinaryGenerator struct {
+	name string
+}
+
+func (g missingBinaryGenerator) Generate(ctx context.Context, _ ConversationContext) (string, error) {
+	if err := exec.CommandContext(ctx, g.name).Run(); err != nil {
+		return "", fmt.Errorf("content generator failed: %w", err)
+	}
+	return "unexpected", nil
 }

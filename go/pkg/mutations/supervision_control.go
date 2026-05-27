@@ -867,6 +867,9 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		return supervisionLaunchResult{}, fmt.Errorf("cmd.Start: %w", err)
 	}
 	start, _ := processStartToken(cmd.Process.Pid)
+	go func() {
+		_ = cmd.Wait()
+	}()
 	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start}, nil
 }
 
@@ -1464,11 +1467,12 @@ func currentDaemonInstanceID() string {
 }
 
 func supervisedEnv(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	return append(os.Environ(), supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)...)
+	return mergeEnvReplacing(os.Environ(), supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID))
 }
 
 func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
 	return []string{
+		"PATH=" + supervisedPath(),
 		"STRIATUM_REPOSITORY_ID=" + repositoryID,
 		"STRIATUM_RUN_ID=" + runID,
 		"STRIATUM_SESSION_ID=" + sessionID,
@@ -1476,6 +1480,78 @@ func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID
 		"STRIATUM_REPO=" + repoRoot,
 		"STRIATUM_LANE_ID=" + laneID,
 	}
+}
+
+func mergeEnvReplacing(base []string, updates []string) []string {
+	keys := map[string]bool{}
+	for _, entry := range updates {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			keys[key] = true
+		}
+	}
+	out := make([]string, 0, len(base)+len(updates))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || keys[key] {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return append(out, updates...)
+}
+
+func supervisedPath() string {
+	current := os.Getenv("PATH")
+	entries := filepath.SplitList(current)
+	seen := map[string]bool{}
+	for _, entry := range entries {
+		if entry != "" {
+			seen[entry] = true
+		}
+	}
+	for _, dir := range supervisedPathDirs() {
+		if seen[dir] {
+			continue
+		}
+		entries = append(entries, dir)
+		seen[dir] = true
+	}
+	return strings.Join(entries, string(os.PathListSeparator))
+}
+
+func supervisedPathDirs() []string {
+	rawDirs := []string{}
+	if override := strings.TrimSpace(os.Getenv("STRIATUM_SUPERVISED_PATH_DIRS")); override != "" {
+		rawDirs = filepath.SplitList(override)
+	} else if home := supervisedHomeDir(); home != "" {
+		rawDirs = []string{
+			filepath.Join(home, ".local", "bin"),
+			filepath.Join(home, ".npm-global", "bin"),
+		}
+	}
+	dirs := make([]string, 0, len(rawDirs))
+	seen := map[string]bool{}
+	for _, raw := range rawDirs {
+		dir := filepath.Clean(strings.TrimSpace(raw))
+		if dir == "." || dir == "" || !filepath.IsAbs(dir) || seen[dir] {
+			continue
+		}
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		dirs = append(dirs, dir)
+		seen[dir] = true
+	}
+	return dirs
+}
+
+func supervisedHomeDir() string {
+	if home, err := os.UserHomeDir(); err == nil && strings.TrimSpace(home) != "" {
+		return home
+	}
+	return strings.TrimSpace(os.Getenv("HOME"))
 }
 
 func resolveSupervisorHelper() (string, error) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -78,8 +79,13 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	pid, hasPID := intValueOptional(supervisor["pid"])
 	liveness := "gone"
 	var progress map[string]any
+	var pidIdentityReason string
 	if hasPID && supervisorActiveStatesRead[state] {
-		if pidAlive(pid) {
+		alive, currentStart, reason := pidLiveWithStartToken(pid, superviseString(supervisor["pid_start_time"]))
+		pidIdentityReason = reason
+		supervisor["current_pid_start_time"] = nullableText(currentStart)
+		supervisor["pid_identity"] = pidIdentityFromReason(alive, reason)
+		if alive {
 			liveness = "alive"
 			progress, err = supervisorProgressForSession(ctx, runner, repositoryID, sessionID, defaultSupervisorStallAfterSeconds)
 			if err != nil {
@@ -90,7 +96,11 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 			}
 		}
 	} else if hasPID && state == "stopped" {
-		if pidAlive(pid) {
+		alive, currentStart, reason := pidLiveWithStartToken(pid, superviseString(supervisor["pid_start_time"]))
+		pidIdentityReason = reason
+		supervisor["current_pid_start_time"] = nullableText(currentStart)
+		supervisor["pid_identity"] = pidIdentityFromReason(alive, reason)
+		if alive {
 			liveness = "alive"
 		}
 	}
@@ -103,6 +113,16 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		supervisor["last_progress_age_seconds"] = progress["last_progress_age_seconds"]
 		supervisor["stall_after_seconds"] = progress["stall_after_seconds"]
 		supervisor["lease_expired"] = progress["lease_expired"]
+	}
+	escalationReport, err := latestSessionEscalationReport(ctx, runner, repositoryID, superviseString(supervisor["run_id"]), sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if escalationReport != nil {
+		supervisor["latest_escalation_report"] = escalationReport
+		if liveness != "alive" {
+			supervisor["liveness_reason"] = "escalated"
+		}
 	}
 
 	reattachRows, err := reattachStatusRows(ctx, runner, repositoryID, "", "", superviseString(supervisor["supervisor_id"]))
@@ -126,6 +146,8 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	switch {
 	case liveness == "stalled":
 		supervisor["lane_attestation_reason"] = "supervisor_stalled"
+	case pidIdentityReason == "pid_identity_mismatch" || pidIdentityReason == "pid_identity_unavailable":
+		supervisor["lane_attestation_reason"] = pidIdentityReason
 	case reattachState == "needs_repair" || reattachState == "needs_verification":
 		supervisor["lane_attestation_reason"] = nullableText(reattachReason)
 	default:
@@ -423,6 +445,72 @@ func reattachStatusView(row map[string]any) map[string]any {
 	}
 }
 
+func latestSessionEscalationReport(ctx context.Context, runner db.Runner, repositoryID, runID, sessionID string) (map[string]any, error) {
+	if runID == "" || sessionID == "" {
+		return nil, nil
+	}
+	rows, err := collectRows(ctx, runner,
+		`SELECT event_id, run_id, actor_session_id AS session_id, created_at, payload_json
+		   FROM striatumd.events
+		  WHERE repository_id = $1
+		    AND run_id = $2
+		    AND actor_session_id = $3
+		    AND event_type = 'session.reported'
+		    AND payload_json->>'report_kind' = 'escalate'
+		  ORDER BY created_at DESC, event_id DESC
+		  LIMIT 1`,
+		repositoryID, runID, sessionID,
+	)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return sessionEscalationReportView(rows[0]), nil
+}
+
+func latestSessionEscalationReportsForRun(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]map[string]any, error) {
+	if runID == "" {
+		return map[string]map[string]any{}, nil
+	}
+	rows, err := collectRows(ctx, runner,
+		`SELECT DISTINCT ON (actor_session_id)
+		        event_id, run_id, actor_session_id AS session_id, created_at, payload_json
+		   FROM striatumd.events
+		  WHERE repository_id = $1
+		    AND run_id = $2
+		    AND actor_session_id IS NOT NULL
+		    AND event_type = 'session.reported'
+		    AND payload_json->>'report_kind' = 'escalate'
+		  ORDER BY actor_session_id, created_at DESC, event_id DESC`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	reports := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		sessionID := superviseString(row["session_id"])
+		if sessionID == "" {
+			continue
+		}
+		reports[sessionID] = sessionEscalationReportView(row)
+	}
+	return reports, nil
+}
+
+func sessionEscalationReportView(row map[string]any) map[string]any {
+	payload := superviseObject(row["payload_json"])
+	return map[string]any{
+		"event_id":     row["event_id"],
+		"run_id":       row["run_id"],
+		"session_id":   row["session_id"],
+		"created_at":   timestampValue(row["created_at"]),
+		"report_kind":  "escalate",
+		"phase":        nullableText(superviseString(payload["phase"])),
+		"blocker_kind": nullableText(superviseString(payload["blocker_kind"])),
+		"message":      nullableText(superviseString(payload["message"])),
+	}
+}
+
 func reattachState(row map[string]any, pidAlive bool, currentStart string) (string, string, string) {
 	state := superviseString(row["state"])
 	if supervisorTerminalStates[state] {
@@ -471,6 +559,38 @@ func pidIdentity(row map[string]any, pidAlive bool, currentStart string) string 
 		return "mismatch"
 	}
 	return "matched"
+}
+
+func pidLiveWithStartToken(pid int, expectedStart string) (bool, string, string) {
+	if !pidAlive(pid) {
+		return false, "", "pid_gone"
+	}
+	currentStart := ""
+	if expectedStart != "" {
+		var ok bool
+		currentStart, ok = processStartToken(pid)
+		if !ok || currentStart == "" {
+			return false, currentStart, "pid_identity_unavailable"
+		}
+		if currentStart != expectedStart {
+			return false, currentStart, "pid_identity_mismatch"
+		}
+	}
+	return true, currentStart, ""
+}
+
+func pidIdentityFromReason(alive bool, reason string) string {
+	if alive {
+		return "matched"
+	}
+	switch reason {
+	case "pid_identity_mismatch":
+		return "mismatch"
+	case "pid_identity_unavailable":
+		return "unverified"
+	default:
+		return "pid_gone"
+	}
 }
 
 func supervisorProgressForSession(ctx context.Context, runner db.Runner, repositoryID, sessionID string, stallAfterSeconds int) (map[string]any, error) {
@@ -661,6 +781,9 @@ func pidAlive(pid int) bool {
 	if pid <= 0 {
 		return false
 	}
+	if processZombie(pid) {
+		return false
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return false
@@ -669,6 +792,16 @@ func pidAlive(pid int) bool {
 		return false
 	}
 	return true
+}
+
+func linuxProcStatZombie(data []byte) bool {
+	text := string(data)
+	idx := strings.LastIndex(text, ")")
+	if idx < 0 || idx+1 >= len(text) {
+		return false
+	}
+	fields := strings.Fields(text[idx+1:])
+	return len(fields) > 0 && fields[0] == "Z"
 }
 
 func pidLiveness(alive bool) string {

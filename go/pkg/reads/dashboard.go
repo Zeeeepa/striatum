@@ -177,6 +177,16 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		sessionliveness.RemoveProjectionSourceFields(session)
 		attachSupervisorTmux(session, "supervisor_metadata_json")
 	}
+	escalationReports, err := latestSessionEscalationReportsForRun(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, session := range sessions {
+		sessionID := superviseString(session["session_id"])
+		if report := escalationReports[sessionID]; report != nil {
+			session["latest_escalation_report"] = report
+		}
+	}
 
 	events, err := collectRows(ctx, runner,
 		`SELECT event_id, run_id, event_type, job_id, message_id,

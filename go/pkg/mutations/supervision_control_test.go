@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -181,6 +182,78 @@ func TestSuperviseStartWrapsSingleShotLaneInTurnDriver(t *testing.T) {
 	}
 	if launchedConfig.RepositoryID != "repo_1" {
 		t.Fatalf("repository id = %q", launchedConfig.RepositoryID)
+	}
+}
+
+func TestSupervisedEnvAddsOperatorLocalBinsToPath(t *testing.T) {
+	home := t.TempDir()
+	localBin := filepath.Join(home, ".local", "bin")
+	npmBin := filepath.Join(home, ".npm-global", "bin")
+	if err := os.MkdirAll(localBin, 0o755); err != nil {
+		t.Fatalf("mkdir local bin: %v", err)
+	}
+	if err := os.MkdirAll(npmBin, 0o755); err != nil {
+		t.Fatalf("mkdir npm bin: %v", err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", strings.Join([]string{"/usr/local/bin", "/usr/bin"}, string(os.PathListSeparator)))
+	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", "")
+
+	entries := supervisedEnvEntries("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	path := envValue(t, entries, "PATH")
+	want := strings.Join([]string{"/usr/local/bin", "/usr/bin", localBin, npmBin}, string(os.PathListSeparator))
+	if path != want {
+		t.Fatalf("PATH = %q, want %q", path, want)
+	}
+	if countEnv(entries, "PATH") != 1 {
+		t.Fatalf("supervisedEnvEntries PATH count = %d, want 1", countEnv(entries, "PATH"))
+	}
+	if countEnv(supervisedEnv("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1"), "PATH") != 1 {
+		t.Fatalf("supervisedEnv should emit exactly one effective PATH")
+	}
+	for _, key := range []string{
+		"STRIATUM_REPOSITORY_ID",
+		"STRIATUM_RUN_ID",
+		"STRIATUM_SESSION_ID",
+		"STRIATUM_SUPERVISOR_ID",
+		"STRIATUM_REPO",
+		"STRIATUM_LANE_ID",
+	} {
+		if envValue(t, entries, key) == "" {
+			t.Fatalf("%s missing from supervised env entries: %#v", key, entries)
+		}
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry, "STRIATUM_SUPERVISED_PATH_DIRS=") {
+			t.Fatalf("override trust-boundary env leaked through supervisedEnvEntries: %#v", entries)
+		}
+	}
+}
+
+func TestSupervisedEnvPathOverrideAppendsExistingAbsoluteDirs(t *testing.T) {
+	baseDir := t.TempDir()
+	customOne := filepath.Join(baseDir, "custom-one")
+	customTwo := filepath.Join(baseDir, "custom-two")
+	if err := os.MkdirAll(customOne, 0o755); err != nil {
+		t.Fatalf("mkdir custom one: %v", err)
+	}
+	if err := os.MkdirAll(customTwo, 0o755); err != nil {
+		t.Fatalf("mkdir custom two: %v", err)
+	}
+	missing := filepath.Join(baseDir, "missing")
+	t.Setenv("PATH", strings.Join([]string{"/usr/bin", customOne}, string(os.PathListSeparator)))
+	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", strings.Join([]string{
+		customOne,
+		missing,
+		"relative/bin",
+		customTwo,
+	}, string(os.PathListSeparator)))
+
+	entries := supervisedEnvEntries("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	path := envValue(t, entries, "PATH")
+	want := strings.Join([]string{"/usr/bin", customOne, customTwo}, string(os.PathListSeparator))
+	if path != want {
+		t.Fatalf("PATH = %q, want %q", path, want)
 	}
 }
 
@@ -471,6 +544,29 @@ func (tx *superviseControlFakeTx) lastEventInsert() *superviseControlExec {
 		return nil
 	}
 	return &events[len(events)-1]
+}
+
+func envValue(t *testing.T, env []string, key string) string {
+	t.Helper()
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	t.Fatalf("missing env key %s in %#v", key, env)
+	return ""
+}
+
+func countEnv(env []string, key string) int {
+	prefix := key + "="
+	count := 0
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			count++
+		}
+	}
+	return count
 }
 
 type superviseControlFakeRow struct {

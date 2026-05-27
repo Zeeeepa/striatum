@@ -111,7 +111,10 @@ func (l Loop) Run(ctx context.Context) error {
 			body, attempts, err := l.generate(ctx, turn, opts)
 			if err != nil {
 				if opts.OnFailure != nil {
-					_ = opts.OnFailure(ctx, Failure{Turn: turn, Err: err, Attempts: attempts})
+					if failureErr := opts.OnFailure(ctx, Failure{Turn: turn, Err: err, Attempts: attempts}); failureErr != nil {
+						return failureErr
+					}
+					return nil
 				}
 				return err
 			}
@@ -171,7 +174,7 @@ func (l Loop) generate(ctx context.Context, turn Turn, opts Options) (string, in
 	if lastErr == nil {
 		lastErr = ErrGenerationFailed
 	}
-	return "", opts.MaxGenerateAttempts, fmt.Errorf("%w after %d attempt(s): %v", ErrGenerationFailed, opts.MaxGenerateAttempts, lastErr)
+	return "", opts.MaxGenerateAttempts, fmt.Errorf("%w after %d attempt(s): %w", ErrGenerationFailed, opts.MaxGenerateAttempts, lastErr)
 }
 
 func (l Loop) options() Options {
