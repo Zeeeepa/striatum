@@ -1609,3 +1609,25 @@ F43. Render conversations in the chat UI. RFC 0086 conversation turns are
     session/lane) and add `/v1/runs/{runID}/conversations[/{id}]` GET routes so a
     3-way conversation is viewable as chat (read-only, over `tailscale serve` per
     RFC 0085) — the same way interrogation threads are. Surfaced 2026-05-26.
+
+F45. Make the turn-driver content generator hermetic (gemini-slowness diagnosis,
+    2026-05-27). Diagnosis: the turn-driver (`CommandGenerator`,
+    go/pkg/agentloop/turn_driver.go) runs the per-turn content generator in the
+    TARGET-REPO working directory, so gemini-cli loads the repo's project
+    `.gemini/settings.json` and tries to connect its configured `striatum` MCP
+    server every turn. That config pins a daemon loopback port, which rotates on
+    every daemon restart, so it goes stale → "MCP issues detected" + ~3-9s of
+    failed-connection overhead per turn (measured: repo cwd WITH stale MCP
+    13.8-20.4s vs WITHOUT 11-12.8s). Under concurrent invocations / a
+    less-responsive endpoint this compounds toward the 180s `GenerateTimeout`
+    (the ~3.5min no-progress window seen in F44 live verification). Base
+    gemini-2.5-pro latency is itself ~11-13s/turn (vs ~3s trivial) — inherent,
+    not a bug, but relevant for `GenerateTimeout` sizing and lane choice
+    (claude/codex turn over much faster). Fix: (1) generic — run the content
+    generator in a NEUTRAL/temp working directory, not the target repo, so no
+    project agent-config (`.gemini`, `.codex`, …) or its MCP servers load (also
+    tightens the D145 content-only boundary); (2) targeted — for gemini, pass
+    `--allowed-mcp-server-names` (empty) so it never attempts MCP regardless of
+    cwd. Immediate operator cleanup: the repo `.gemini/settings.json` is stale
+    local cruft from the manual gemini-driver experiments pointing at a dead port
+    (gitignored, not in repo) — remove/refresh it. Surfaced 2026-05-27.
