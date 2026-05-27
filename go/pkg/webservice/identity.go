@@ -37,6 +37,13 @@ func IdentityReadRoutes() []IdentityReadRoute {
 		{http.MethodGet, "/v1/runs/{run_id}", "/v1/runs/run_1"},
 		{http.MethodGet, "/v1/runs/{run_id}/interrogations", "/v1/runs/run_1/interrogations"},
 		{http.MethodGet, "/v1/runs/{run_id}/interrogations/{interrogation_id}", "/v1/runs/run_1/interrogations/intg_1"},
+		// Read-only HTML dashboard (server-rendered status page) + its static
+		// assets, so the human web UI is reachable over `tailscale serve` and not
+		// only the JSON API. All GET, no mutation; the page renders the same
+		// `status` read already exposed at /v1/runs.
+		{http.MethodGet, "/", "/"},
+		{http.MethodGet, "/run", "/run"},
+		{http.MethodGet, "/static/{asset}", "/static/app.js"},
 	}
 }
 
@@ -53,6 +60,13 @@ func PermitIdentityRoute(method, rawPath string) bool {
 	clean := path.Clean(rawPath)
 	switch {
 	case clean == "/v1/health":
+		return true
+	case clean == "/" || clean == "/run":
+		// Read-only HTML dashboard (server-rendered status page).
+		return true
+	case strings.HasPrefix(clean, "/static/"):
+		// Static CSS/JS for the dashboard. path.Clean above removes any
+		// "../" so this cannot escape the static asset prefix.
 		return true
 	case clean == "/v1/runs":
 		return true

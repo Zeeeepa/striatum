@@ -2,6 +2,21 @@
 
 ## Unreleased — 2026-05-27
 
+## v2.7.1 — 2026-05-27
+
+### D147: tailnet-identity UI serves the read-only HTML dashboard
+
+- The RFC 0085 (D143) tailnet-identity socket previously allowlisted only the
+  `/v1/...` JSON read routes, so a tailnet browser hitting `/` got
+  `route_forbidden` and the human HTML dashboard was loopback+bearer only. The
+  allowlist now also permits `GET /`, `GET /run` (the server-rendered `status`
+  page) and `GET /static/{asset}` — so the dashboard is viewable over
+  `tailscale serve` at `https://<magicdns-host>:9443/` by identity-allowlisted
+  users. Still GET-only; `POST /v1/invoke` and all mutations remain 403; no-identity
+  remains 401; `path.Clean` blocks `/static/` traversal. `IdentityReadRoutes` +
+  `PermitIdentityRoute` updated together, kept in sync by the normative
+  `TestIdentityRouteAuditMatchesAllowlist`. Live-verified over `web-ui.sock`.
+
 ## v2.7.0 — 2026-05-27
 
 ### F44: supervised turn-driver hardening (D146)
