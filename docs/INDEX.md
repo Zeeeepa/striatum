@@ -19,7 +19,7 @@ collectively, not individually.
 | [WORKFLOW_CATALOG.md](WORKFLOW_CATALOG.md) | Workflow selector | Generated reference for bundled workflow catalog shapes and lane sets, including Mermaid graph previews. |
 | [WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) | Workflow author | How to author `workflow.json` from scratch: required fields, scaffold layout, common graph shapes, validation. |
 | [CLI_REFERENCE.md](CLI_REFERENCE.md) | Anyone | Flat list of every CLI verb plus stable exit codes; `--help` is authoritative. |
-| [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, retired SQLite import-command behavior, verification, and exit codes 11 / 12. |
+| [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) | Operator | The D094 / RFC 0043 PostgreSQL runbook: prerequisites, daemon doctor role/grant repair, daemon service startup, `striatum adopt`, native PostgreSQL adoption verification, and exit codes 11 / 12. |
 | [BLOB_TRANSITION.md](BLOB_TRANSITION.md) | Operator | The RFC 0072 blob-storage runbook: configuring `striatumd` against an S3-compatible service, adopting repos with `--apply-blob-creation`, bulk-migrating `docs/dogfood/` into blob storage, and verifying the round trip. |
 | [operator/DAEMON_RUNBOOK.md](operator/DAEMON_RUNBOOK.md) | Operator | The RFC 0079 daemon operability runbook: `striatum daemon install/uninstall/status`, the portable systemd user unit, runtime layout (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`, pidfile), `daemon.toml` DSN, `journalctl --user -u striatumd`, and troubleshooting. |
 | [operator/INDEX.md](operator/INDEX.md) | Operator | RFC 0058 current-state surface: read `operator/BRIEF.md`, then only its bounded plan links unless a task asks for deeper history. |
@@ -37,9 +37,9 @@ collectively, not individually.
 | [TODO.md](TODO.md) | Maintainer | Active product-improvement tracker. |
 | [ROADMAP.md](ROADMAP.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway. Use after `operator/BRIEF.md` when picking up cold. Stays in sync with version bumps. |
 | [RELEASING.md](RELEASING.md) | Maintainer | Versioning policy and release cadence: when to bump major/minor/patch, the pre-release checklist, and changelog discipline. |
-| [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Inventory of CLI/RPC authority paths across daemon RPC route translations, closed fallback guardrails, Go handlers, retired Python surfaces, and legacy SQLite dependencies. |
-| [architecture/DAEMON_METHOD_TABLES.md](architecture/DAEMON_METHOD_TABLES.md) | Maintainer | Generated daemon method registry and CLI route translation reference, sourced from `contracts/daemon_methods.json` and guarded by `scripts/generate_daemon_method_tables.py --check`. |
-| [architecture/REMEDIATION_SYNTHESIS_2026-05-17.md](architecture/REMEDIATION_SYNTHESIS_2026-05-17.md) | Maintainer | Synthesis of the Codex/Gemini remediation plans: D107, RFC 0068-0071, Go daemon port sequencing, PostgreSQL-only cleanup, and dogfood-065 execution plan. |
+| [architecture/COMMAND_AUTHORITY_MATRIX.md](architecture/COMMAND_AUTHORITY_MATRIX.md) | Maintainer | Inventory of CLI/RPC authority paths across Go daemon RPC route translations, capability scopes, and local PostgreSQL authority guardrails. |
+| [architecture/DAEMON_METHOD_TABLES.md](architecture/DAEMON_METHOD_TABLES.md) | Maintainer | Generated daemon method registry and CLI route translation reference, sourced from `contracts/daemon_methods.json` and guarded by Go daemon handler coverage and contract registry tests. |
+| [architecture/REMEDIATION_SYNTHESIS_2026-05-17.md](architecture/REMEDIATION_SYNTHESIS_2026-05-17.md) | Maintainer | Synthesis of the Codex remediation plans: D107, RFC 0068-0071, Go daemon port sequencing, PostgreSQL-only cleanup, Gemini/Antigravity decommissioning, and dogfood-065 execution plan. |
 
 ## Background and reference
 

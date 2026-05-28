@@ -1,7 +1,7 @@
 # How To Drive striatum (Coding Agent)
 
-This document is for a coding agent (Claude Code, Codex, Gemini
-CLI, or any tool-using model) that has been pointed at a target
+This document is for a coding agent (Claude Code, Codex, agy
+(Antigravity CLI), or any tool-using model) that has been pointed at a target
 repository and asked to drive a striatum workflow.
 
 If you have the **agent skill bundle** loaded already (RFC 0015),
@@ -14,16 +14,16 @@ depending on the profile the operator chose:
   `claude_code` profile (auto-discovered by Claude Code).
 - `.codex/agents/striatum-*.md` — five flat files,
   `codex` profile (Codex CLI's agent-doc convention).
-- `striatum-STRIATUM_GEMINI_GUIDE.md` — one file at the repo
-  root, `gemini` profile (single-guide fallback until Gemini
-  CLI's skill-discovery convention stabilizes).
+- `.agy/skills/striatum-*/SKILL.md` — five files,
+  `agy` profile (Antigravity's skill-discovery convention; reuses the
+  claude_code skill templates wholesale per RFC 0088).
 - `striatum-STRIATUM_AGENT_GUIDE.md` — one file at the repo
   root, `generic` profile (any other agent CLI; load it as
   system context).
 
 `--profile all` writes every profile in disjoint paths so a
-target repo set up for multiple agents has all four bundles
-side-by-side.
+target repo set up for multiple agents has the four bundles
+(claude_code, agy, codex, generic) side-by-side.
 
 Always prefer the bundle's command shapes over this doc; they
 were rendered from the runner version installed in this
@@ -41,8 +41,8 @@ packet remain exact compatibility fallbacks and parameter references.
 Striatum is a local-first runner whose authoritative live state
 lives in a daemon-owned PostgreSQL instance under a `repository_id`
 scope per target repository (D094 / RFC 0043). `.striatum/` next to
-the target repo is operational scratch only — supervised wrapper
-FIFOs, pidfiles, and transient supervisor scratch. The daemon runtime
+the target repo is operational scratch only — PTY FIFOs,
+daemon-owned interactive lanes, pidfiles, and transient supervisor scratch. The daemon runtime
 token lives under the daemon runtime directory as `client-token`. The runner —
 not your prose, terminal output, marker files, or direct database access —
 advances state. You move the workflow forward through daemon MCP tools; the
@@ -152,13 +152,13 @@ derive bylines from job titles.
 
 ## Long-lived (supervised) sessions
 
-If the lane's harness profile sets `supervision.compatible: true`, the daemon
-may hold your process alive across multiple work packets. The Go agent-loop
-path exports `STRIATUM_MCP_URL`, `STRIATUM_MCP_TOKEN` or
-`STRIATUM_MCP_TOKEN_FILE`, and the repository/session context; connect to MCP
-and call `work.await_packet` yourself. The older `supervise send` delivery
-path remains a CLI compatibility route for wrappers that read packets from
-stdin.
+Under RFC 0088, every lane is launched as a daemon-owned long-lived interactive
+PTY session. The daemon maintains the agent in live memory, preserving session
+context across turns. Per-turn prompt payloads are delivered directly to the PTY
+master (`stdin-submit`) using the per-adapter submit key-sequence (Enter / `\r`),
+and the agent connects to the local MCP server to manage state. The older one-shot
+`-p` / `--print` wrappers, named pipe FIFO transport, and ephemeral stdin packet JSON
+delivery are completely retired.
 
 Stdout and stderr are sent to `DEVNULL`; the supervisor never parses your
 output for state. Use `supervise.stop` or its CLI fallback to shut the
@@ -188,9 +188,9 @@ or CLI diagnostics, then ask the operator to recover stale work.
   and CLI compatibility surfaces are clients of that boundary.
   Never open the daemon's Postgres directly, and do not open or rely on
   legacy `.striatum/retired-local-state*` files or tombstones as live state.
-- Do not write to `.striatum/scratch/` or `.striatum/bin/` unless
-  a packet explicitly asks you to (the supervised wrapper script,
-  for example).
+- Do not write to `.striatum/scratch/` or `.striatum/bin/`. All wrapper scripts
+  and temporary operational files are managed by the daemon; agents must never
+  write to `.striatum/`.
 - Do not treat marker files, tmux panes, or terminal output as
   workflow state.
 - Do not advance state by printing phrases. Call daemon MCP; use CLI fallback
