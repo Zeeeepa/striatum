@@ -1436,7 +1436,7 @@ func harnessFragmentByToolFamily(family string) map[string]any {
 }
 
 func workflowtemplatesHarnessFamilies() map[string]struct{} {
-	return set("generic", "codex", "claude_code", "gemini_cli")
+	return set("generic", "codex", "claude_code", "agy")
 }
 
 func constraints(spec Spec) (map[string]any, error) {
