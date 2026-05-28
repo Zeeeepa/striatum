@@ -110,20 +110,32 @@ func TestInjectLaneMCPConfigAgyWritesEphemeralStrictConfig(t *testing.T) {
 	}
 }
 
+func TestInjectLaneMCPConfigCodexAppendsTomlUrlOverride(t *testing.T) {
+	cmd, cleanup, err := injectLaneMCPConfig(
+		[]string{"/home/x/.local/bin/codex"},
+		t.TempDir(), "http://127.0.0.1:42727/mcp", TokenMaterial{Token: "dtok_secret"},
+	)
+	if err != nil {
+		t.Fatalf("inject codex: %v", err)
+	}
+	defer cleanup()
+	want := []string{"/home/x/.local/bin/codex", "-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`}
+	if strings.Join(cmd, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("codex injection = %#v, want %#v", cmd, want)
+	}
+}
+
 func TestInjectLaneMCPConfigPassthrough(t *testing.T) {
-	// Non-injected adapter (codex): unchanged.
-	cmd, _, err := injectLaneMCPConfig([]string{"codex", "exec", "-"}, t.TempDir(), "http://x/mcp", TokenMaterial{Token: "t"})
-	if err != nil || strings.Join(cmd, " ") != "codex exec -" {
-		t.Fatalf("codex passthrough failed: %#v %v", cmd, err)
+	// No token: unchanged even for injected adapters.
+	for _, adapter := range []string{"claude", "agy", "codex"} {
+		cmd, _, err := injectLaneMCPConfig([]string{adapter}, t.TempDir(), "http://x/mcp", TokenMaterial{})
+		if err != nil || strings.Join(cmd, " ") != adapter {
+			t.Fatalf("no-token %s passthrough failed: %#v %v", adapter, cmd, err)
+		}
 	}
-	// No token: unchanged even for claude.
-	cmd2, _, err := injectLaneMCPConfig([]string{"claude"}, t.TempDir(), "http://x/mcp", TokenMaterial{})
-	if err != nil || strings.Join(cmd2, " ") != "claude" {
-		t.Fatalf("no-token passthrough failed: %#v %v", cmd2, err)
-	}
-	// No token: unchanged even for agy.
-	cmd3, _, err := injectLaneMCPConfig([]string{"agy"}, t.TempDir(), "http://x/mcp", TokenMaterial{})
-	if err != nil || strings.Join(cmd3, " ") != "agy" {
-		t.Fatalf("no-token agy passthrough failed: %#v %v", cmd3, err)
+	// Unknown adapter: unchanged.
+	cmd, _, err := injectLaneMCPConfig([]string{"some-other-cli"}, t.TempDir(), "http://x/mcp", TokenMaterial{Token: "t"})
+	if err != nil || strings.Join(cmd, " ") != "some-other-cli" {
+		t.Fatalf("unknown-adapter passthrough failed: %#v %v", cmd, err)
 	}
 }

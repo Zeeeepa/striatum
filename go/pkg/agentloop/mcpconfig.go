@@ -18,8 +18,10 @@ import (
 // P1 wires claude (the baseline): `--mcp-config <file> --strict-mcp-config`
 // loads ONLY the striatum server and ignores any stale global ~/.claude.json
 // entry. P2 extends the same shape to agy (claude-shaped CLI: supports
-// `--mcp-config <configs...>` and `agy plugin import claude`). Other adapters
-// (codex) are passed through unchanged until P3.
+// `--mcp-config <configs...>` and `agy plugin import claude`). P3 wires codex
+// via a TOML override flag (codex has no --mcp-config; it overrides ~/.codex/
+// config.toml per-key with `-c key=value`); the bearer is read by codex from
+// the STRIATUM_MCP_TOKEN env var supervisedEnv already provides.
 func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token TokenMaterial) ([]string, func(), error) {
 	noop := func() {}
 	if len(command) == 0 || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(token.Token) == "" {
@@ -37,6 +39,15 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		out := append([]string(nil), command...)
 		out = append(out, "--mcp-config", path, "--strict-mcp-config")
 		return out, cleanup, nil
+	case "codex":
+		// Codex stores the striatum MCP server in ~/.codex/config.toml; the
+		// bearer is read from the STRIATUM_MCP_TOKEN env var (supervisedEnv
+		// provides it). Only the rotating URL needs overriding at launch —
+		// `-c mcp_servers.striatum.url="<endpoint>"` overrides config.toml
+		// without persisting (Decision 5: never persist the rotating port).
+		out := append([]string(nil), command...)
+		out = append(out, "-c", fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint))
+		return out, noop, nil
 	default:
 		return command, noop, nil
 	}
