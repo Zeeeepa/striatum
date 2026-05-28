@@ -11,9 +11,9 @@ Context:
 [`RFC 0043`](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
 [`RFC 0068`](0068-go-production-daemon-port.md),
 [`RFC 0070`](0070-daemon-client-service-boundary.md),
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md),
-[`docs/TODO.md`](../TODO.md)
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md),
+[`docs/TODO.md`](../reference/todo.md)
 
 Supersedes if accepted:
 D018's V1 Python implementation preference, RFC 0068's "keep Python CLI/web
@@ -321,4 +321,4 @@ artifact, session, lease, event, and capability concepts remain the same. The
 primary domain clarification is that "client surface" no longer implies a
 Python implementation; Go becomes the only Striatum runtime implementation in
 active HEAD. This follows the boundary-clarification guidance in
-[`docs/DDD.md § Adding to the model`](../DDD.md#adding-to-the-model).
+[`docs/DDD.md § Adding to the model`](../explanation/domain-driven-design.md#adding-to-the-model).

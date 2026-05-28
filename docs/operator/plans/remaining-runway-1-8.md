@@ -36,8 +36,8 @@ run in parallel with later scaffold jobs.
 ## Inputs
 
 - [`docs/operator/BRIEF.md`](../BRIEF.md)
-- [`docs/TODO.md`](../../TODO.md)
-- [`docs/DECISION_LOG.md`](../../DECISION_LOG.md)
+- [`docs/TODO.md`](../../reference/todo.md)
+- [`docs/DECISION_LOG.md`](../../decisions/decision-log.md)
 - [`docs/operator/artifacts/active-runway-1-5/FINAL.md`](../artifacts/active-runway-1-5/FINAL.md)
 - [`RFC 0050`](../../rfcs/0050-go-daemon-http-sse-mcp.md)
 - [`RFC 0057`](../../rfcs/0057-corpus-contract-v2.md)

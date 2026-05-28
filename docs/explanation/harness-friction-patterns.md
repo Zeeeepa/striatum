@@ -3,7 +3,7 @@
 Status: living record
 Date: 2026-05-12
 Owner: striatum maintainers
-See: [`docs/rfcs/0040-mcp-driven-dogfood-harness.md`](rfcs/0040-mcp-driven-dogfood-harness.md)
+See: [`docs/rfcs/0040-mcp-driven-dogfood-harness.md`](../rfcs/0040-mcp-driven-dogfood-harness.md)
 
 This document is the long-form companion to RFC 0040. It records the
 three recurring friction patterns observed across dogfoods 036-039 and

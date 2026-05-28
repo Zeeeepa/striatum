@@ -3,7 +3,7 @@
 Status: accepted (V1)
 Date: 2026-05-09
 Context:
-[`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md)
+[`docs/UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md)
 (operator, operator surrogate, supervised session, artifact author),
 `striatum.cli.mutations` (retired)
 (`register_session`),
@@ -356,7 +356,7 @@ A passing implementation must demonstrate:
 
 This RFC adds two concepts to the ubiquitous language and clarifies one
 existing boundary, fitting the patterns in
-[`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model)
+[`docs/DDD.md § "Adding to the model"`](../explanation/domain-driven-design.md#adding-to-the-model)
 (precedent: RFC 0019).
 
 - **Lane attestation** — a *value object* describing a session at a

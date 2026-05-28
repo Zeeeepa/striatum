@@ -10,8 +10,8 @@ Context:
 [`RFC 0050 MCP`](0050-go-daemon-http-sse-mcp.md),
 [`RFC 0058`](0058-operator-progress-surface.md),
 [`RFC 0063`](0063-hardened-pty-supervision.md),
-[`docs/HOW_TO_AGENT.md`](../HOW_TO_AGENT.md),
-[`docs/UBIQUITOUS_LANGUAGE.md`](../UBIQUITOUS_LANGUAGE.md)
+[`docs/HOW_TO_AGENT.md`](../how-to/how-to-agent.md),
+[`docs/UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md)
 
 ## Problem
 

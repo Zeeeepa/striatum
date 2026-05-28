@@ -15,7 +15,7 @@ Context:
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md),
 [`RFC 0035`](0035-multi-repo-test-harness-for-cross-repo-workflows.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D087, D088, D107, D109, D111),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D082, D084, D086, D087, D088, D107, D109, D111),
 `src/striatum/daemon.py`,
 `src/striatum/daemon_rpc/`,
 `src/striatum/daemon_apply/`,

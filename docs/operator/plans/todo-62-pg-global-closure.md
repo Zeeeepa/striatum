@@ -26,8 +26,8 @@ posture and records that no safe implementation gap is present.
 ## Inputs
 
 - [`docs/operator/BRIEF.md`](../BRIEF.md)
-- [`docs/TODO.md`](../../TODO.md)
-- [`docs/ROADMAP.md`](../../ROADMAP.md)
+- [`docs/TODO.md`](../../reference/todo.md)
+- [`docs/ROADMAP.md`](../../reference/roadmap.md)
 - [`RFC 0069`](../../rfcs/0069-pg-only-daemon-global-surfaces.md)
 - [`RFC 0069 plan`](rfc-0069-pg-only-daemon-global-surfaces.md)
 - [`TODO 61-62 final summary`](../artifacts/todo-61-62-cleanup/final/SUMMARY.md)

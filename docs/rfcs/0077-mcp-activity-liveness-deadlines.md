@@ -8,8 +8,8 @@ Context:
 [`RFC 0058`](0058-operator-progress-surface.md),
 [`RFC 0063`](0063-hardened-pty-supervision.md),
 [`RFC 0075`](0075-tmux-observable-mcp-agent-sessions.md),
-[`docs/MCP.md`](../MCP.md),
-[`docs/SPEC.md`](../SPEC.md),
+[`docs/MCP.md`](../explanation/mcp.md),
+[`docs/SPEC.md`](../reference/spec.md),
 [`docs/operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md`](../operator/artifacts/rfc-0075-and-mcp-cutover/design/LIVENESS_CONTRACT.md),
 [`docs/operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md`](../operator/artifacts/rfc-0075-and-mcp-cutover/final/SUMMARY.md)
 
@@ -287,7 +287,7 @@ and fail-closed tmux requirements remain RFC 0075 follow-up work.
 ## Domain Modeling
 
 This RFC adds a daemon-owned value-object projection and two domain
-events, following [`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model).
+events, following [`docs/DDD.md § "Adding to the model"`](../explanation/domain-driven-design.md#adding-to-the-model).
 
 The aggregate roots remain `session`, `run`, `lease`, and `supervisor`.
 MCP activity timestamps are attributes of a `session` under a registered

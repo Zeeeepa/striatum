@@ -11,8 +11,8 @@ Context:
 [`docs/research/P005_GEMINI_ANALYSIS_ABSOLUTE_PROVENANCE.md`](../research/P005_GEMINI_ANALYSIS_ABSOLUTE_PROVENANCE.md),
 [`docs/research/P005_PROVENANCE_BYPASS_STRATEGIES.md`](../research/P005_PROVENANCE_BYPASS_STRATEGIES.md),
 [`RFC 0026`](0026-lane-attestation-and-operator-byline-honesty.md),
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D006, D009,
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D006, D009,
 D020, D028, D036, D048, D049)
 
 Implementation status: dogfood-030 shipped phase 2 guardrails
@@ -372,7 +372,7 @@ advisory behavior.
 ## Domain Modeling
 
 This RFC adds several terms to the model. Per
-[`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model),
+[`docs/DDD.md § "Adding to the model"`](../explanation/domain-driven-design.md#adding-to-the-model),
 the accepted implementation should update `docs/UBIQUITOUS_LANGUAGE.md`
 before validator and introspection changes land.
 

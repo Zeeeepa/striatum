@@ -8,7 +8,7 @@ explicitly paired test-harness compatibility (`STRIATUM_TEST_HARNESS=1`)
 or guarded migration fixtures; the operator-facing writable
 `daemon migrate-repo-local` import command is retired by D113.
 Context:
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D094 supersedes D006/D007/D036
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D094 supersedes D006/D007/D036
 and the SQLite half of D009; D082, D084, D086, D087, D088 cite the daemon-first
 trajectory; D028 unaffected),
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
@@ -609,7 +609,7 @@ Terms to add to `docs/UBIQUITOUS_LANGUAGE.md` after acceptance:
 - **Repo-local schema version** — retired. The daemon-DB schema
   version (RFC 0033 substrate version) now covers all schemas.
 
-DDD framing (per [`docs/DDD.md`](../DDD.md)): the change is a
+DDD framing (per [`docs/DDD.md`](../explanation/domain-driven-design.md)): the change is a
 **boundary clarification**, not a new aggregate. The "live state"
 bounded context expands from "repo-local SQLite plus daemon Postgres"
 to "daemon Postgres, namespaced by repository." Aggregate roots

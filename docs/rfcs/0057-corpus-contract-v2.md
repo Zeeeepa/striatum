@@ -4,8 +4,8 @@ Status: proposed (scaffold)
 Date: 2026-05-14
 author: implementer-unknown-model-001
 Context:
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/ROADMAP.md § 5.7`](../ROADMAP.md),
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/ROADMAP.md § 5.7`](../reference/roadmap.md),
 [`RFC 0041`](0041-engram-memory-layer-for-striatum-operators.md),
 [`RFC 0044`](0044-engram-phase-1-implementation-spec.md),
 `~/git/engram/STRIATUM_MEMORY_ROADMAP.md` (external roadmap, read-only reference).

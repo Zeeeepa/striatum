@@ -1,6 +1,6 @@
 # Consumer-repo directory-structure recommendations
 
-Per [RFC 0056](rfcs/0056-consumer-repo-directory-structure-opinions.md):
+Per [RFC 0056](../rfcs/0056-consumer-repo-directory-structure-opinions.md):
 **these are defaults, not enforcement.** Striatum's runtime does not
 refuse repositories that ignore them. The recommendations exist so
 new operators don't have to invent conventions from scratch and so
@@ -107,7 +107,7 @@ Striatum records every workflow decision through the audit chain
 regardless of where the Markdown body lives, but RFC 0021's DDD
 scaffold ships `docs/DECISION_LOG.md` and that is the canonical
 home. The format is a numbered append-only table; see Striatum's
-own [`docs/DECISION_LOG.md`](DECISION_LOG.md) for the shape.
+own [`docs/DECISION_LOG.md`](../decisions/decision-log.md) for the shape.
 
 ### RFCs go in `docs/rfcs/`
 
@@ -174,7 +174,7 @@ default recommendations work but extend in two ways:
 
 1. Add a `docs/dogfood/` index or README listing each run by number,
    workflow type, and outcome. Striatum's own
-   [`docs/INDEX.md`](INDEX.md) cross-links to per-dogfood
+   [`docs/INDEX.md`](../index.md) cross-links to per-dogfood
    `OPERATOR_REPORT.md` headers.
 2. Use the operator-on-behalf publish pattern (RFC 0051 / V1.48.1
    wrapper auth) so the operator AI can finalize phase boundaries
@@ -182,13 +182,13 @@ default recommendations work but extend in two ways:
 
 ## See also
 
-- [RFC 0021](rfcs/0021-ddd-layout-scaffold-on-init.md) — the DDD doc
+- [RFC 0021](../rfcs/0021-ddd-layout-scaffold-on-init.md) — the DDD doc
   scaffold this layout composes with.
-- [RFC 0034](rfcs/0034-workflow-generator-and-template-catalog.md) —
+- [RFC 0034](../rfcs/0034-workflow-generator-and-template-catalog.md) —
   the workflow generator that writes `workflow.json` files.
-- [RFC 0043](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md) — fixes `.striatum/` as runtime scratch only.
-- [`docs/USING_STRIATUM.md`](USING_STRIATUM.md) — the day-zero
+- [RFC 0043](../rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md) — fixes `.striatum/` as runtime scratch only.
+- [`docs/USING_STRIATUM.md`](../tutorials/using-striatum.md) — the day-zero
   walkthrough that uses this layout in its examples.
-- [`docs/WRITING_WORKFLOWS.md`](WRITING_WORKFLOWS.md) — how to
+- [`docs/WRITING_WORKFLOWS.md`](../how-to/writing-workflows.md) — how to
   author a `workflow.json` that declares the artifact paths
   described above.

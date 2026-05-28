@@ -2,7 +2,7 @@
 
 Status: proposed
 Date: 2026-05-19
-Context: [RFC 0072](0072-blob-backed-artifact-storage.md), [BLOB_TRANSITION.md](../BLOB_TRANSITION.md)
+Context: [RFC 0072](0072-blob-backed-artifact-storage.md), [BLOB_TRANSITION.md](../explanation/blob-transition.md)
 
 ## Problem
 

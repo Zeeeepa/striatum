@@ -6,9 +6,9 @@ configuration, daemon doctor, retired SQLite import handling, repository
 registration, verification, and the documented refusal codes you will hit if
 a step is skipped.
 
-Read [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) for the broader operator
-playbook; read [SPEC.md § State Store](SPEC.md#state-store) and
-[SPEC.md § CLI](SPEC.md#cli) for the implementation contract.
+Read [HOW_TO_HUMAN.md](how-to-human.md) for the broader operator
+playbook; read [SPEC.md § State Store](../reference/spec.md#state-store) and
+[SPEC.md § CLI](../reference/spec.md#cli) for the implementation contract.
 
 ## What changed
 
@@ -337,7 +337,7 @@ The exit codes RFC 0043 reserves for daemon-required behavior:
 | 11 | `daemon_unreachable`. | Start the daemon (`striatum daemon start` or the systemd / launchd unit). Check the socket path printed in stderr. |
 | 12 | `repo_not_migrated`. | Archive/remove legacy SQLite files if present, then register with `striatum adopt` or `striatum repo add --init`. |
 
-See [CLI_REFERENCE.md § Stable exit codes](CLI_REFERENCE.md#stable-exit-codes)
+See [CLI_REFERENCE.md § Stable exit codes](../reference/cli-reference.md#stable-exit-codes)
 for the full closed list.
 
 ## Rollback and inspection limits
@@ -425,18 +425,18 @@ A ported single-repo RPC verb now flows through:
 
 ## See also
 
-- [GETTING_STARTED.md](GETTING_STARTED.md) — the first-15-minutes
+- [GETTING_STARTED.md](../tutorials/getting-started.md) — the first-15-minutes
   walkthrough; includes the Postgres prerequisite.
-- [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) — the operator's playbook
+- [HOW_TO_HUMAN.md](how-to-human.md) — the operator's playbook
   for the full CLI surface.
-- [CLI_REFERENCE.md](CLI_REFERENCE.md) — every verb plus stable
+- [CLI_REFERENCE.md](../reference/cli-reference.md) — every verb plus stable
   exit codes.
-- [SPEC.md § State Store](SPEC.md#state-store) and
-  [SPEC.md § CLI](SPEC.md#cli) — the implementation contract.
-- [DECISION_LOG.md § D094](DECISION_LOG.md) — the decision that
+- [SPEC.md § State Store](../reference/spec.md#state-store) and
+  [SPEC.md § CLI](../reference/spec.md#cli) — the implementation contract.
+- [DECISION_LOG.md § D094](../decisions/decision-log.md) — the decision that
   superseded the V1 carve-out.
-- [rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md)
+- [rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md](../rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md)
   — the full RFC including acceptance criteria and the historical migration
   body.
-- [rfcs/0048-daemon-side-substrate-migration.md](rfcs/0048-daemon-side-substrate-migration.md)
+- [rfcs/0048-daemon-side-substrate-migration.md](../rfcs/0048-daemon-side-substrate-migration.md)
   — the RFC that tracked and completed the daemon-side handler port.

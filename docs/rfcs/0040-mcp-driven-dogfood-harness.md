@@ -11,7 +11,7 @@ side supervised-progress heartbeat were scoped to the systems half and landed
 under the same RFC; D110 later removed the SQLite-bound composite tools from
 the production daemon contract, so operators now use primitive daemon methods
 until a PostgreSQL-native composite is accepted. See
-[`docs/HARNESS_FRICTION_PATTERNS.md`](../HARNESS_FRICTION_PATTERNS.md)
+[`docs/HARNESS_FRICTION_PATTERNS.md`](../explanation/harness-friction-patterns.md)
 for the long-form record of the four observed friction patterns and the
 fixes that landed.
 Context:
@@ -21,7 +21,7 @@ Context:
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
 [`RFC 0034`](0034-workflow-generator-and-template-catalog.md),
 [`RFC 0036`](0036-mcp-harness-for-daemon-v2-mutation-surface.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D087, D088, D090),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D087, D088, D090),
 [`docs/dogfood/036/OPERATOR_REPORT.md`](../dogfood/036/OPERATOR_REPORT.md),
 [`docs/dogfood/037/OPERATOR_REPORT.md`](../dogfood/037/OPERATOR_REPORT.md),
 [`docs/dogfood/038/OPERATOR_REPORT.md`](../dogfood/038/OPERATOR_REPORT.md),

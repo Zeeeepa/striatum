@@ -34,9 +34,9 @@ retire CLI workflow-control verbs before MCP/UI parity is covered.
 ## Inputs
 
 - [`docs/operator/BRIEF.md`](../BRIEF.md)
-- [`docs/ROADMAP.md`](../../ROADMAP.md)
-- [`docs/TODO.md`](../../TODO.md)
-- [`D124-D129`](../../DECISION_LOG.md)
+- [`docs/ROADMAP.md`](../../reference/roadmap.md)
+- [`docs/TODO.md`](../../reference/todo.md)
+- [`D124-D129`](../../decisions/decision-log.md)
 - [`RFC 0050 MCP`](../../rfcs/0050-go-daemon-http-sse-mcp.md)
 - [`RFC 0074`](../../rfcs/0074-workflow-shape-and-adversary-pack-catalog.md)
 - [`RFC 0075`](../../rfcs/0075-tmux-observable-mcp-agent-sessions.md)

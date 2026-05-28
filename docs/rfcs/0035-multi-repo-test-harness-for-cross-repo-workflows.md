@@ -7,7 +7,7 @@ Context:
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
 [`RFC 0031`](0031-daemon-owned-supervision-and-sealed-apply-boundary.md),
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D086, D087, D088, D090),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D086, D087, D088, D090),
 [`docs/dogfood/035/DESIGN_SYNTHESIS.md`](../dogfood/035/DESIGN_SYNTHESIS.md),
 [`docs/dogfood/035/BUILD_HANDOFF.md`](../dogfood/035/BUILD_HANDOFF.md),
 `tests/conftest.py`,

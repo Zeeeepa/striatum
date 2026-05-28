@@ -537,7 +537,7 @@ already exists?"
 
 ## Roadmap To A Chooser
 
-[`RFC 0034`](rfcs/0034-workflow-generator-and-template-catalog.md)
+[`RFC 0034`](../rfcs/0034-workflow-generator-and-template-catalog.md)
 proposes turning this guide's workflow types and lane sets into a
 first-class generator, CLI catalog, and UI chooser.
 

@@ -2,17 +2,17 @@
 
 Start here:
 
-1. [PRD.md](PRD.md)
-2. [DECISION_LOG.md](DECISION_LOG.md)
-3. [UBIQUITOUS_LANGUAGE.md](UBIQUITOUS_LANGUAGE.md)
-4. [PRIOR_ART.md](PRIOR_ART.md)
-5. [SPEC.md](SPEC.md)
-6. [INTERVIEW_LOG.md](INTERVIEW_LOG.md)
-7. [TODO.md](TODO.md)
+1. [PRD.md](reference/prd.md)
+2. [DECISION_LOG.md](decisions/decision-log.md)
+3. [UBIQUITOUS_LANGUAGE.md](reference/ubiquitous-language.md)
+4. [PRIOR_ART.md](explanation/prior-art.md)
+5. [SPEC.md](reference/spec.md)
+6. [INTERVIEW_LOG.md](explanation/interview-log.md)
+7. [TODO.md](reference/todo.md)
 
 ## Planning
 
-- [TODO.md](TODO.md) - repo split checklist and product improvement backlog.
+- [TODO.md](reference/todo.md) - repo split checklist and product improvement backlog.
 
 ## Usage
 
@@ -28,7 +28,7 @@ Start here:
 
 ## Follow-Up Specs
 
-- [RFC_0014_DOGFOOD_FIX_SPEC.md](RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
+- [RFC_0014_DOGFOOD_FIX_SPEC.md](_archive/RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
   proposed after the RFC 0014 validation dogfood run. This is now tracked as
   [rfcs/0001](rfcs/0001-run-recovery-and-dogfood-fixes.md).
 
@@ -40,7 +40,7 @@ Start here:
   artifacts with machine-checkable local metadata.
 - `striatum submit-review` combines review artifact publication and verdict
   recording for the common review-gate path.
-- [MCP.md](MCP.md) documents the native Go daemon HTTP/SSE MCP surface.
+- [MCP.md](explanation/mcp.md) documents the native Go daemon HTTP/SSE MCP surface.
 
 ## Design
 

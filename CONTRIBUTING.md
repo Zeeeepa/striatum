@@ -20,20 +20,20 @@ fresh-clone smoke (`scripts/fresh_clone_smoke.sh`).
 striatum is local-first orchestration software. Do not add
 hosted-service dependencies, telemetry, transcript capture, or
 external persistence without an explicit product decision (see
-[`docs/DECISION_LOG.md`](docs/DECISION_LOG.md)).
+[`docs/DECISION_LOG.md`](docs/decisions/decision-log.md)).
 
 ## Where to put what
 
 The doc system has explicit boundaries — see
-[`docs/DOC_MAP.md`](docs/DOC_MAP.md). Briefly:
+[`docs/DOC_MAP.md`](docs/reference/doc-map.md). Briefly:
 
-- Behavior changes edit [`docs/SPEC.md`](docs/SPEC.md) and add a
+- Behavior changes edit [`docs/SPEC.md`](docs/reference/spec.md) and add a
   one-sentence-per-cell row to
-  [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md).
+  [`docs/DECISION_LOG.md`](docs/decisions/decision-log.md).
 - New concepts add a glossary entry to
-  [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md)
+  [`docs/UBIQUITOUS_LANGUAGE.md`](docs/reference/ubiquitous-language.md)
   *first*, validator + introspection second
-  (see [`docs/DDD.md`](docs/DDD.md) § "Adding to the model").
+  (see [`docs/DDD.md`](docs/explanation/domain-driven-design.md) § "Adding to the model").
 - Significant design changes go through an RFC under
   [`docs/rfcs/`](docs/rfcs/) before implementation.
 - README is first-contact material capped at 250 lines by a
@@ -56,7 +56,7 @@ The doc system has explicit boundaries — see
 
 If you are an LLM agent (Claude Code, Codex, Gemini CLI, …)
 working on this codebase, read [`AGENTS.md`](AGENTS.md). It
-points at [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) for
+points at [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md) for
 how to drive striatum *as a runner inside a target repo* —
 that's a different role from contributing to striatum's source.
 

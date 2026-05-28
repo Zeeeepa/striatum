@@ -163,7 +163,7 @@ Replace the placeholder command with the actual invocation shape your
 agent CLI expects.
 
 For the operator-facing lane selection matrix, see
-[WORKFLOW_TYPES.md § "Lane Selection Heuristic"](WORKFLOW_TYPES.md#lane-selection-heuristic).
+[WORKFLOW_TYPES.md § "Lane Selection Heuristic"](../reference/workflow-types.md#lane-selection-heuristic).
 
 ## Adapter constraints
 
@@ -204,7 +204,7 @@ source artifact in the target repository and reference it from
 
 Before editing `workflow.json`, choose the run outcome. For the
 full selection guide and diagrams, see
-[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md). The short version:
+[WORKFLOW_TYPES.md](../reference/workflow-types.md). The short version:
 
 - **review only**: independent reviewers inspect the source
   proposal, publish findings, and a synthesis job produces the
@@ -321,7 +321,7 @@ not enforce a layout. Putting them under
 
 These are shorthand reminders. For the more complete selection
 guide with Mermaid diagrams, see
-[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md).
+[WORKFLOW_TYPES.md](../reference/workflow-types.md).
 
 ```text
 review_a + review_b + review_c -> findings_ledger -> synthesis -> final_review
@@ -342,7 +342,7 @@ under the target repository and outside `.striatum/`.
 
 For the full reviewer policy field set
 (`reviewer_access_scope`, `reviewer_context_policy`), see
-[SPEC.md § Reviewer Policy](SPEC.md#reviewer-policy).
+[SPEC.md § Reviewer Policy](../reference/spec.md#reviewer-policy).
 
 ## Harness profiles (RFC 0010)
 
@@ -375,7 +375,7 @@ remains the persistent FIFO mode for wrappers that handle multiple packets.
 
 For the full harness-profile schema (recognised tool families,
 required fields, accountability rules), see
-[SPEC.md § Harness Profiles (RFC 0010 V1)](SPEC.md#harness-profiles-rfc-0010-v1).
+[SPEC.md § Harness Profiles (RFC 0010 V1)](../reference/spec.md#harness-profiles-rfc-0010-v1).
 
 ## Validate before you ship
 

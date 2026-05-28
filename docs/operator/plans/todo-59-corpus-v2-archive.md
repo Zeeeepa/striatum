@@ -29,9 +29,9 @@ inspection, no comparative replay, and optional daemon audit-chain cross-check.
 
 ## Inputs
 
-- [`docs/TODO.md`](../../TODO.md)
-- [`D126`](../../DECISION_LOG.md)
-- [`docs/SPEC.md`](../../SPEC.md)
+- [`docs/TODO.md`](../../reference/todo.md)
+- [`D126`](../../decisions/decision-log.md)
+- [`docs/SPEC.md`](../../reference/spec.md)
 - [`RFC 0057`](../../rfcs/0057-corpus-contract-v2.md)
 - [`RFC 0066`](../../rfcs/0066-replay-archive-corpus-v2-foundations.md)
 - [`docs/operator/BRIEF.md`](../BRIEF.md)

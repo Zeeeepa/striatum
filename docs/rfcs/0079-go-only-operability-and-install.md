@@ -7,8 +7,8 @@ author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0068`](0068-go-production-daemon-port.md),
 [`RFC 0078`](0078-go-only-runtime-and-python-removal.md),
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md)
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md)
 
 ## Problem
 

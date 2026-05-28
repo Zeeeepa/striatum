@@ -57,7 +57,7 @@ terminal-AI agents on real repos with state that survives session death.
   coordinator (Mayor), federation across machines (Wasteland/DoltHub),
   proxy server, browser dashboard, and 20–30 agents as the design target.
 - **Striatum** is **target-repository-scoped, local-first, and daemon-backed**.
-  [`AGENTS.md`](AGENTS.md) is explicit: "Do not introduce hosted services,
+  [`AGENTS.md`](../../AGENTS.md) is explicit: "Do not introduce hosted services,
   cloud APIs, telemetry, transcript capture, or external persistence
   without an explicit product decision."
   [`docs/UBIQUITOUS_LANGUAGE.md`](docs/UBIQUITOUS_LANGUAGE.md) defines
@@ -152,7 +152,7 @@ for one repo's auditable, deterministic provenance.
 - Gas Town's split of **identity / sandbox / session** maps cleanly onto
   striatum's three concepts and might tighten the docs.
 
-**Deliberately reject** (consistent with [`AGENTS.md`](AGENTS.md))
+**Deliberately reject** (consistent with [`AGENTS.md`](../../AGENTS.md))
 
 - Mayor (AI-as-coordinator) — striatum keeps the coordinator
   deterministic.

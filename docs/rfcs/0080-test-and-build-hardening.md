@@ -7,7 +7,7 @@ author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0043`](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
 [`RFC 0078`](0078-go-only-runtime-and-python-removal.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md)
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md)
 
 ## Problem
 

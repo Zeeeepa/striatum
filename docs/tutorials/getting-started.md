@@ -7,8 +7,8 @@ driving the runner by hand.
 
 ## The model: AI operator + human principal
 
-Per [RFC 0053](rfcs/0053-human-principal-and-terminology-truing.md)
-and [D103](DECISION_LOG.md), striatum has two distinct outside-the-
+Per [RFC 0053](../rfcs/0053-human-principal-and-terminology-truing.md)
+and [D103](../decisions/decision-log.md), striatum has two distinct outside-the-
 workflow roles:
 
 - **AI operator** — a coding-agent CLI (Claude Code, Codex, Gemini)
@@ -42,7 +42,7 @@ covers that path.
   (bundled / Dockerized distributions are deferred). Configure
   the connection through `STRIATUM_DAEMON_DB_URL`,
   `~/.config/striatum/daemon.toml`, or `--postgres-url`. See
-  [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+  [POSTGRES_TRANSITION.md](../how-to/postgres-transition.md) for the full
   runbook (daemon doctor, daemon startup, retired SQLite import
   handling, repository registration, verification, and the documented
   refusal exit codes 11
@@ -85,7 +85,7 @@ striatum doctor                # expect: ok
 `doctor` in one view; `make uninstall` reverses the install (binaries +
 unit), leaving `daemon.toml` and data intact. The full lifecycle, runtime
 layout, and troubleshooting live in
-[operator/DAEMON_RUNBOOK.md](operator/DAEMON_RUNBOOK.md).
+[operator/DAEMON_RUNBOOK.md](../how-to/daemon-runbook.md).
 
 From a release archive instead of a source checkout:
 
@@ -109,7 +109,7 @@ If you do want to drive by hand: you will run striatum yourself.
 There is no repository-wide default workflow. The quick start below
 uses the bundled code-change fixture so you can see the lifecycle
 quickly; for choosing the right shape for your own run, see
-[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md). That guide also covers lane
+[WORKFLOW_TYPES.md](../reference/workflow-types.md). That guide also covers lane
 selection: whether to use one lane, separate author/reviewer lanes,
 multiple model-family review lanes, supervised lanes, or constrained
 lanes.
@@ -135,7 +135,7 @@ striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 The dashboard prints a single frame to stdout: run state, job
 counts, claimable work, recent events. From here you register a
 session and claim work — see
-[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md), which is now the **escalation
+[HOW_TO_HUMAN.md](../how-to/how-to-human.md), which is now the **escalation
 playbook** but retains the full operator-by-hand walkthrough as
 reference at the bottom of the page.
 
@@ -259,7 +259,7 @@ Point your agent at `$TARGET_REPO`. Tell it: *"drive the workflow
 at `<path>/workflow.json` using striatum"*. The agent loads the
 bundle, registers a session, claims work, and proceeds.
 For the long-form companion to the bundle, see
-[HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+[HOW_TO_AGENT.md](../how-to/how-to-agent.md).
 
 ## What's in `.striatum/`?
 
@@ -309,39 +309,39 @@ scratch directory but committed:
 
 This is just a convention — your workflow chooses its own
 paths. See [WRITING_WORKFLOWS.md § "Recommended output
-layout"](WRITING_WORKFLOWS.md#recommended-output-layout) for
+layout"](../how-to/writing-workflows.md#recommended-output-layout) for
 the full pattern, and [HOW_TO_HUMAN.md § "Where artifacts
-land"](HOW_TO_HUMAN.md#where-artifacts-land) for how to adapt
+land"](../how-to/how-to-human.md#where-artifacts-land) for how to adapt
 an existing example fixture.
 
 ## Where to next
 
-- **[HOW_TO_AGENT.md](HOW_TO_AGENT.md)** — the load-bearing playbook
+- **[HOW_TO_AGENT.md](../how-to/how-to-agent.md)** — the load-bearing playbook
   for the AI operator (the default driver). Long-form companion to
   the skill bundle.
-- **[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md)** — the human principal's
+- **[HOW_TO_HUMAN.md](../how-to/how-to-human.md)** — the human principal's
   escalation playbook (RFC 0053): how to resolve a blocker or
   decision when the AI operator escalates. Retains the manual-driver
   walkthrough at the bottom as a reference for the rare hands-on case.
-- **[WORKFLOW_TYPES.md](WORKFLOW_TYPES.md)** — choose a workflow
+- **[WORKFLOW_TYPES.md](../reference/workflow-types.md)** — choose a workflow
   shape and lane set; explains current starter styles, examples, and
   defaults.
-- **[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md)** — author your
+- **[WRITING_WORKFLOWS.md](../how-to/writing-workflows.md)** — author your
   own `workflow.json` from scratch.
-- **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every CLI verb,
+- **[CLI_REFERENCE.md](../reference/cli-reference.md)** — every CLI verb,
   flat list, with stable exit codes.
-- **[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md)** — operator
+- **[POSTGRES_TRANSITION.md](../how-to/postgres-transition.md)** — operator
   runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite
   import handling, and repository registration.
-- **[SPEC.md](SPEC.md)** — the implementation contract for the
+- **[SPEC.md](../reference/spec.md)** — the implementation contract for the
   current V1 surface.
-- **[INDEX.md](INDEX.md)** — every doc in `docs/` with a one-line
+- **[INDEX.md](../index.md)** — every doc in `docs/` with a one-line
   summary.
 
 ## How to contribute
 
 The striatum source tree's contributor rules live in
-[`AGENTS.md`](../AGENTS.md) at the repository root. The Makefile
+[`AGENTS.md`](../../AGENTS.md) at the repository root. The Makefile
 targets `install`, `lint`, `typecheck`, `test`, and `smoke` are
 the supported entry points; pull requests are expected to keep
 all four green.

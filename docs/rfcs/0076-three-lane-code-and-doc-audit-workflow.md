@@ -10,10 +10,10 @@ Context:
 [`RFC 0064`](0064-review-diversity-enforcement.md),
 [`RFC 0071`](0071-operator-diagnostics-and-cutover-evidence.md),
 [`RFC 0074`](0074-workflow-shape-and-adversary-pack-catalog.md),
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md),
-[`docs/TODO.md`](../TODO.md),
-[`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md)
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md),
+[`docs/TODO.md`](../reference/todo.md),
+[`docs/WORKFLOW_TYPES.md`](../reference/workflow-types.md)
 
 ## Current Status
 

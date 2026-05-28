@@ -32,10 +32,10 @@ recovery, and operator UX.
 ## Inputs
 
 - [`AGENTS.md`](../../../AGENTS.md)
-- [`docs/SPEC.md`](../../SPEC.md)
-- [`docs/DECISION_LOG.md`](../../DECISION_LOG.md)
-- [`docs/UBIQUITOUS_LANGUAGE.md`](../../UBIQUITOUS_LANGUAGE.md)
-- [`docs/TODO.md`](../../TODO.md)
+- [`docs/SPEC.md`](../../reference/spec.md)
+- [`docs/DECISION_LOG.md`](../../decisions/decision-log.md)
+- [`docs/UBIQUITOUS_LANGUAGE.md`](../../reference/ubiquitous-language.md)
+- [`docs/TODO.md`](../../reference/todo.md)
 - [`docs/operator/BRIEF.md`](../BRIEF.md)
 - [`src/striatum/repo_policy.py`](../../../src/striatum/repo_policy.py)
 - [`src/striatum/workflow.py`](../../../src/striatum/workflow.py)

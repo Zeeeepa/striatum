@@ -4,7 +4,7 @@ Status: proposed (design-shape only — no acceptance criteria fully specified;
 the design phase consumes this and produces the concrete plan)
 Date: 2026-05-13
 Context:
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D006, D007, D058, D083, D087, D092),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D006, D007, D058, D083, D087, D092),
 [`RFC 0032`](0032-cross-repo-workflows-and-mcp-mutation-capabilities.md),
 [`RFC 0036`](0036-mcp-harness-for-daemon-v2-mutation-surface.md),
 [`RFC 0040`](0040-mcp-driven-dogfood-harness.md),

@@ -10,7 +10,7 @@ Context:
 [`RFC 0068`](0068-go-production-daemon-port.md) (MCP agent-loop),
 [`RFC 0077`](0077-mcp-activity-liveness-deadlines.md),
 [`RFC 0081`](0081-conversation-trajectories.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028 no-transcript-capture, D026 lane attestation),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D028 no-transcript-capture, D026 lane attestation),
 the 2026-05-25 event-bus robustness assessment.
 
 ## Problem

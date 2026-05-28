@@ -25,8 +25,8 @@ per-RFC work.
 
 ## Inputs
 
-- [`docs/TODO.md`](../../TODO.md), items 6 and 7.
-- [`docs/SPEC.md`](../../SPEC.md), Artifacts and Artifact Front Matter Schemas.
+- [`docs/TODO.md`](../../reference/todo.md), items 6 and 7.
+- [`docs/SPEC.md`](../../reference/spec.md), Artifacts and Artifact Front Matter Schemas.
 - [`src/striatum/artifact_contracts.py`](../../../src/striatum/artifact_contracts.py).
 - [`src/striatum/evidence_presentation.py`](../../../src/striatum/evidence_presentation.py).
 - [`src/striatum/corpus/redaction.py`](../../../src/striatum/corpus/redaction.py).

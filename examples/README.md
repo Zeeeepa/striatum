@@ -6,7 +6,7 @@ not automatic defaults: every run still starts from an explicit
 workflow browser.
 
 For the selection guide, diagrams, and roadmap toward a template
-chooser, see [`docs/WORKFLOW_TYPES.md`](../docs/WORKFLOW_TYPES.md).
+chooser, see [`docs/WORKFLOW_TYPES.md`](../docs/reference/workflow-types.md).
 
 ## Starter-Friendly Fixtures
 

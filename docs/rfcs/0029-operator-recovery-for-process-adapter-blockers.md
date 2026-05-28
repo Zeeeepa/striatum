@@ -6,8 +6,8 @@ Context:
 [`RFC 0014`](0014-process-adapter-completion-guarantees.md),
 [`RFC 0009`](0009-long-lived-process-supervision.md),
 [`RFC 0013`](0013-local-web-ui.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028, D036, D055, D057, D122),
-[`docs/SPEC.md`](../SPEC.md) § "Adapter Boundary",
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D028, D036, D055, D057, D122),
+[`docs/SPEC.md`](../reference/spec.md) § "Adapter Boundary",
 `src/striatum/process_completion.py`,
 `src/striatum/cli/recovery.py` (retired),
 `src/striatum/cli/mutations.py` (retired) (`checkpoint_resolve`)
@@ -403,7 +403,7 @@ demonstrates the closed loop.
 ## Domain Modeling
 
 `Blocker` is an aggregate root in the runner's domain model
-([`docs/DDD.md`](../DDD.md)). RFC 0029 adds a new lifecycle
+([`docs/DDD.md`](../explanation/domain-driven-design.md)). RFC 0029 adds a new lifecycle
 transition (`open → resolved`) for the **process-adapter blocker
 family**, mirroring the transition that already exists for
 `human_checkpoint` blockers under `checkpoint resolve`. The

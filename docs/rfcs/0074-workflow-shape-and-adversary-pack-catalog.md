@@ -5,7 +5,7 @@ Date: 2026-05-20
 author: proposer-codex-gpt-5-001
 Decision: D132
 Context:
-[`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md),
+[`docs/WORKFLOW_TYPES.md`](../reference/workflow-types.md),
 [`examples/README.md`](../../examples/README.md),
 [`RFC 0018`](0018-focused-adversarial-review-postures.md),
 [`RFC 0034`](0034-workflow-generator-and-template-catalog.md),

@@ -24,7 +24,7 @@ Context:
 [`RFC 0024`](0024-workflow-browser-and-builder.md),
 [`RFC 0034`](0034-workflow-generator-and-template-catalog.md) §9,
 [`RFC 0037`](0037-web-ui-ergonomic-improvements.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D073, D082, D084, D092),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D073, D082, D084, D092),
 `src/striatum/service.py`,
 `src/striatum/web/`
 

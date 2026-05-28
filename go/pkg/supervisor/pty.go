@@ -135,8 +135,17 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	// Kill existing session with the same name if any (to avoid collisions / stale sessions)
 	_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
 
-	// 1. Create the detached tmux session
+	// 1. Create the detached tmux session.
+	// RFC 0088 P3 follow-up: pass STRIATUM_*/PATH env vars via tmux's `-e
+	// KEY=VAL` so the new session's pane child sees them. A long-running global
+	// tmux server inherits its environment from FIRST launch, not from our
+	// `new-session` call's createCmd.Env — so without `-e`, the pane child gets
+	// the SERVER's stale env (no STRIATUM_RUN_ID/SESSION_ID/REPO etc.) and the
+	// agent-loop wrapper exits code 1 on the env check before any output.
 	newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
+	for _, entry := range spec.Env {
+		newSessionArgs = append(newSessionArgs, "-e", entry)
+	}
 	newSessionArgs = append(newSessionArgs, spec.Command...)
 	createCmd := exec.Command("tmux", newSessionArgs...)
 	createCmd.Env = mergeEnv(os.Environ(), spec.Env)

@@ -1,10 +1,10 @@
 # How to Act as Human Principal
 
-Per [RFC 0053](rfcs/0053-human-principal-and-terminology-truing.md)
-and [D103](DECISION_LOG.md), the human principal's only role is to
+Per [RFC 0053](../rfcs/0053-human-principal-and-terminology-truing.md)
+and [D103](../decisions/decision-log.md), the human principal's only role is to
 **resolve unresolvable blockers or decisions**. Routine workflow
 execution — claim, ack, publish, verdict, complete — is the AI
-operator's job, covered in [HOW_TO_AGENT.md](HOW_TO_AGENT.md).
+operator's job, covered in [HOW_TO_AGENT.md](how-to-agent.md).
 Use this doc when an escalation has surfaced and you need to look
 at it.
 
@@ -168,10 +168,10 @@ operator session can avoid the same trap.
 
 ### Cross-reference
 
-- [HOW_TO_AGENT.md](HOW_TO_AGENT.md) — the AI operator's playbook.
-- [SPEC.md § Branch Confirmation](SPEC.md) — confirmation is the
+- [HOW_TO_AGENT.md](how-to-agent.md) — the AI operator's playbook.
+- [SPEC.md § Branch Confirmation](../reference/spec.md) — confirmation is the
   operator's job, not the principal's.
-- [RFC 0052](rfcs/0052-committee-deliberation-workflow.md) —
+- [RFC 0052](../rfcs/0052-committee-deliberation-workflow.md) —
   committee stalemate is one of the named escalation triggers.
 
 ---
@@ -331,7 +331,7 @@ Mermaid `flowchart TD` (default), JSON, or Graphviz DOT
 (`--format dot`, pipe through `dot -Tsvg` to render).
 
 The canonical authoring path is `striatum workflow generate` (see
-[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md) for the full surface and
+[WRITING_WORKFLOWS.md](writing-workflows.md) for the full surface and
 options):
 
 ```bash
@@ -365,7 +365,7 @@ overwrite an existing path.
 
 RFC 0040 V1 bakes the "no-questions" and gemini front-matter
 completeness fragments into the bundled template catalog (see
-[`docs/HARNESS_FRICTION_PATTERNS.md`](HARNESS_FRICTION_PATTERNS.md)).
+[`docs/HARNESS_FRICTION_PATTERNS.md`](../explanation/harness-friction-patterns.md)).
 New workflows scaffolded via `workflow generate` pick them up
 automatically. Existing workflows can be upgraded in place:
 
@@ -393,7 +393,7 @@ will land as separate verbs.
 When the operator's AI session is connected to `striatum serve --web
 --allow-mutations`, the chat surface exposes the dogfood-lifecycle
 verbs as structured tool calls (see
-[`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools)) so the operator no
+[`docs/MCP.md`](../explanation/mcp.md#dogfood-lifecycle-tools)) so the operator no
 longer has to copy session/lease/message ids between bash
 invocations:
 
@@ -417,7 +417,7 @@ client. Anything the chat tools do is also available as a
 bash CLI command.
 
 For deeper authoring guidance, see
-[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md).
+[WRITING_WORKFLOWS.md](writing-workflows.md).
 
 To choose from the bundled generator catalog instead of a fixed starter:
 
@@ -456,7 +456,7 @@ prepared but not claimable.
 
 Add `--create`, `--use-current`, or `--strict` to drive git
 instead of just recording (see [SPEC.md § Branches And
-Commits](SPEC.md#branches-and-commits)).
+Commits](../reference/spec.md#branches-and-commits)).
 
 ## Register a session
 
@@ -1226,7 +1226,7 @@ sed -i 's|docs/reviews/rfc-ledger|striatum/rfc-ledger|g' \
 ```
 
 For new workflows, see
-[WRITING_WORKFLOWS.md § "Recommended output layout"](WRITING_WORKFLOWS.md#recommended-output-layout).
+[WRITING_WORKFLOWS.md § "Recommended output layout"](writing-workflows.md#recommended-output-layout).
 
 ## Optional: export a corpus bundle for an external memory consumer
 
@@ -1254,13 +1254,13 @@ consumer at runtime and continues to run unchanged when no consumer is
 configured. The V2 contract decisions (multi-corpus identity,
 redaction-tier metadata, incremental watermarks, optional workflow-level
 context-injection policy) are scoped by
-[RFC 0057](rfcs/0057-corpus-contract-v2.md).
+[RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
 ## See also
 
-- **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every verb in one
+- **[CLI_REFERENCE.md](../reference/cli-reference.md)** — every verb in one
   flat list with stable exit codes.
-- **[WRITING_WORKFLOWS.md](WRITING_WORKFLOWS.md)** — author your
+- **[WRITING_WORKFLOWS.md](writing-workflows.md)** — author your
   own `workflow.json`.
-- **[SPEC.md](SPEC.md)** — the implementation contract; the
+- **[SPEC.md](../reference/spec.md)** — the implementation contract; the
   source of truth when this doc and the runner disagree.

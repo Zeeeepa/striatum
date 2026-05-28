@@ -10,8 +10,8 @@ fixtures.
 Context:
 [`RFC 0028`](0028-long-running-daemon-and-multi-repository-control-plane.md),
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md) (proposed),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D084, D086, D006, D007),
-[`docs/SPEC.md`](../SPEC.md) § "State Store",
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D082, D084, D086, D006, D007),
+[`docs/SPEC.md`](../reference/spec.md) § "State Store",
 `src/striatum/daemon.py`,
 `src/striatum/migrations.py`
 

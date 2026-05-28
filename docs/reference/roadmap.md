@@ -74,7 +74,7 @@ alias, tool discovery/calls reuse daemon RPC authorization, the fake MCP agent
 coverage completes a packet loop through `/mcp`, agent-loop is a PTY/MCP
 bootstrapper, the Python MCP wrapper is deleted, and the final RFC 0050/RFC
 0075 live workflow-control cutover is complete. The working spec is
-[`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](rfcs/0050-go-daemon-http-sse-mcp.md).
+[`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](../rfcs/0050-go-daemon-http-sse-mcp.md).
 
 Order the work as a set of gates, not as one all-or-nothing cutover:
 
@@ -105,19 +105,19 @@ compatibility commands survive intentionally; hiding or deleting commands is a
 later deprecation/release decision.
 
 Post-transition operator introspection is accepted in
-[`RFC 0075 - Tmux-Observable MCP Agent Sessions And Liveness Deadlines`](rfcs/0075-tmux-observable-mcp-agent-sessions.md):
+[`RFC 0075 - Tmux-Observable MCP Agent Sessions And Liveness Deadlines`](../rfcs/0075-tmux-observable-mcp-agent-sessions.md):
 live interactive agents use autonomous MCP sessions with daemon-owned
 protocol liveness, tmux attach metadata, and a fail-closed tmux opt-in for
 PTY-helper lanes. Daemon MCP activity and lease heartbeats remain the
 authoritative liveness signals. Tmux panes are for human inspection, not
 workflow state.
-[`RFC 0077 - MCP Activity Liveness Deadlines`](rfcs/0077-mcp-activity-liveness-deadlines.md)
+[`RFC 0077 - MCP Activity Liveness Deadlines`](../rfcs/0077-mcp-activity-liveness-deadlines.md)
 landed the daemon-owned MCP activity timestamp and deadline-classification
 slice; D131 accepts the current RFC 0075 tmux-observable session contract.
 The current closure artifacts are
-[`RFC 0050/RFC 0075 Final Cutover Design`](operator/plans/rfc-0050-0075-final-cutover-design.md)
+[`RFC 0050/RFC 0075 Final Cutover Design`](../operator/plans/rfc-0050-0075-final-cutover-design.md)
 and
-[`RFC 0050/RFC 0075 Final Cutover Implementation`](operator/plans/rfc-0050-0075-final-cutover-implementation.md).
+[`RFC 0050/RFC 0075 Final Cutover Implementation`](../operator/plans/rfc-0050-0075-final-cutover-implementation.md).
 
 ## 2. Just shipped (this week)
 
@@ -277,7 +277,7 @@ cleanup is legacy fixture/import/module deletion.
 
 ### 4.2 🟡 landed bounded slice — RFC 0051 V1 auto-finalize from front matter
 
-**Updates:** [TODO item 56](TODO.md).
+**Updates:** [TODO item 56](todo.md).
 
 The bounded daemon slice has landed: `recovery.auto_finalize` supports manual
 dry-run preview and default-live mode with explicit workflow opt-out, records
@@ -293,7 +293,7 @@ dashboard, and web projections remain dry-run/read-only previews.
 
 ### 4.3 ✅ completed — TODO #30 / RFC 0039 V1.6 Go support-runtime hardening
 
-**Closes:** [TODO item 30](TODO.md#L527).
+**Closes:** [TODO item 30](todo.md#L527).
 
 **Status:** complete for the historical helper-focused hardening slice. D107
 later reopened full Go daemon parity under RFC 0068, so this item is now
@@ -314,7 +314,7 @@ avoid codex (D101 precedent).
 
 ### 4.4 ✅ completed — Architecture remediation Phase 0: authority matrix and guardrails
 
-**Closes:** [TODO item 48](TODO.md).
+**Closes:** [TODO item 48](todo.md).
 
 **Why now:** the 2026-05-16 architecture review found the main product
 risk is not a missing feature; it is authority ambiguity across daemon
@@ -343,7 +343,7 @@ as drift guards.
 
 ### 4.5 🟡 substantially completed — Architecture remediation Phase 1: production fallback closure
 
-**Updates:** [TODO item 49](TODO.md).
+**Updates:** [TODO item 49](todo.md).
 
 **Landed in this slice:**
 - Native Python PG handlers now cover `run.graph`, `worktree.*`,
@@ -387,7 +387,7 @@ live-state support.
 
 ### 4.6 ✅ completed — Architecture remediation Phase 2: daemon method contract source
 
-**Updates:** [TODO item 50](TODO.md).
+**Updates:** [TODO item 50](todo.md).
 
 **Landed in this slice:**
 - `contracts/daemon_methods.json` is the source for all 104 registered
@@ -433,7 +433,7 @@ live-state support.
 
 ### 4.7 ✅ completed / superseded — Architecture remediation Phase 3: daemon core strategy
 
-**Closes:** [TODO item 51](TODO.md).
+**Closes:** [TODO item 51](todo.md).
 
 **Decision:** D105 named Python as the primary production daemon core, but
 D107 supersedes it. RFC 0068 has moved the production/default daemon to Go;
@@ -455,7 +455,7 @@ and legacy local-state implementation paths from reappearing.
 
 ### 4.8 🟡 partially completed — Architecture remediation Phase 4: daemon-first web service
 
-**Updates:** [TODO item 52](TODO.md).
+**Updates:** [TODO item 52](todo.md).
 
 **Landed in this slice:**
 - Added `src/striatum/service_daemon.py` as a narrow local-service daemon RPC
@@ -624,7 +624,7 @@ paths are stable.
 
 ### 4.9 🟡 partially completed — Architecture remediation Phase 5: real escalation inbox
 
-**Updates:** [TODO item 53](TODO.md).
+**Updates:** [TODO item 53](todo.md).
 
 **Landed in this slice:**
 - `escalation.list`, `escalation.show`, and `escalation.resolve` project
@@ -661,7 +661,7 @@ the packet helper to `packet inbox`.
 
 ### 4.10 ✅ completed — Architecture remediation Phase 6: supervisor control channel
 
-**Updates:** [TODO item 54](TODO.md).
+**Updates:** [TODO item 54](todo.md).
 
 **Landed in this slice:**
 - `supervise.send` returns an explicit delivered-unacknowledged state.
@@ -730,7 +730,7 @@ the packet helper to `packet inbox`.
 
 ### 4.11 ✅ completed — Architecture remediation Phase 7: workflow risk lint
 
-**Updates:** [TODO item 55](TODO.md).
+**Updates:** [TODO item 55](todo.md).
 
 **Landed in this slice:**
 - Added `striatum workflow lint <workflow.json> --json`.
@@ -776,7 +776,7 @@ workflow-file metadata a live authority.
 
 ### 4.12 ✅ completed; evidence gate satisfied — Architecture remediation Phase 8: auto-finalize from front matter
 
-**Updates:** [TODO item 39](TODO.md), [TODO item 56](TODO.md).
+**Updates:** [TODO item 39](todo.md), [TODO item 56](todo.md).
 
 **Landed in this slice:**
 - Added `recovery.auto_finalize` as a daemon/Postgres recovery method with
@@ -834,7 +834,7 @@ finalization reports.
 
 ### 4.13 ✅ completed — Architecture remediation Phase 9: UI packaging and bundle cleanup
 
-**Updates:** [TODO item 57](TODO.md).
+**Updates:** [TODO item 57](todo.md).
 
 **Landed in this slice:**
 - `make ui-build` now clears `src/striatum/web/static/build/` before Vite
@@ -943,7 +943,7 @@ operator surface into augmentation.
 
 **RFC 0057 scaffold landed (2026-05-14); D126 resolved the core choices
 (2026-05-21).** See
-[`docs/rfcs/0057-corpus-contract-v2.md`](rfcs/0057-corpus-contract-v2.md)
+[`docs/rfcs/0057-corpus-contract-v2.md`](../rfcs/0057-corpus-contract-v2.md)
 for the bounded V2 decision surface (contract version, multi-corpus
 identity, redaction-tier metadata, incremental-export watermarks,
 validation rules, V1→V2 backward compatibility, augmentation-boundary
@@ -1193,11 +1193,11 @@ dogfood. Order them by impact, not by RFC number.
 
 | TODO | RFC | Origin | Decision | Scope |
 |---:|---|---|---|---|
-| [27](TODO.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
-| [28](TODO.md) | RFC 0040 V1.6 | dogfood-044 | D098 | ✅ Completed: composite failure observability plus PostgreSQL artifact byline evidence landed; larger packet redesign requires a separate product decision. |
-| [29](TODO.md) | RFC 0038 V1.6 | dogfood-045 | D099 | ✅ Completed: real-bundle commit + supply-chain polish. **First `reject critical` override.** |
-| [30](TODO.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as helper groundwork; full Go daemon parity is reopened by D107 / RFC 0068. |
-| [31](TODO.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
+| [27](todo.md) | RFC 0045 V1.5 | dogfood-043 | D097 | ✅ Completed: cycle phase-jump, Python/editor phase-field mismatch, explicit synthesis-job metadata validation, frontend drag-drop phase bypass, and invalid/unknown phase display tolerance have landed. |
+| [28](todo.md) | RFC 0040 V1.6 | dogfood-044 | D098 | ✅ Completed: composite failure observability plus PostgreSQL artifact byline evidence landed; larger packet redesign requires a separate product decision. |
+| [29](todo.md) | RFC 0038 V1.6 | dogfood-045 | D099 | ✅ Completed: real-bundle commit + supply-chain polish. **First `reject critical` override.** |
+| [30](todo.md) | RFC 0039 V1.6 | dogfood-047 | D101 | ✅ Completed in 4.3 as helper groundwork; full Go daemon parity is reopened by D107 / RFC 0068. |
+| [31](todo.md) | RFC 0043 V1.5 | dogfood-048 | D102 | ✅ Completed / tracker stale: crash-recovery tombstone two-phase, daemon-required default flip, `daemon migrate-repo-local` subparser wiring, focused `make test-rfc0043`, and a foreground-daemon refusal smoke have landed. **Distinct from D095-D101 — both reviewers had real findings, not co-blindness.** |
 | (NEW) | RFC 0050 follow-up | dogfood-056 | (no override) | 5 reviewer findings filed as GH #9-13; 1 ergonomic from claude review. Already in active runway as 4.1 + 5.1. |
 
 ---

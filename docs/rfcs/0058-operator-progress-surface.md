@@ -3,9 +3,9 @@
 Status: implemented
 Date: 2026-05-15
 Context:
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md),
-[`docs/ROADMAP.md`](../ROADMAP.md),
-[`docs/TODO.md`](../TODO.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md),
+[`docs/ROADMAP.md`](../reference/roadmap.md),
+[`docs/TODO.md`](../reference/todo.md),
 [`docs/handoffs/`](../handoffs/),
 [`docs/dogfood/FRICTION_LOG.md`](../dogfood/FRICTION_LOG.md),
 [`docs/dogfood/<NNN>/OPERATOR_REPORT.md`](../dogfood/),
@@ -506,7 +506,7 @@ V1 lands when:
 
 ## Domain Modeling
 
-Per [`docs/DDD.md § "Adding to the model"`](../DDD.md#adding-to-the-model):
+Per [`docs/DDD.md § "Adding to the model"`](../explanation/domain-driven-design.md#adding-to-the-model):
 
 - `operator_brief`, `work_plan`, `progress_note`, and `operator_report`
   are **artifacts** — repository-resident value objects whose identity

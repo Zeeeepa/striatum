@@ -196,7 +196,7 @@ Striatum runs with two named roles (RFC 0053):
 - **AI operator** — the default driver. Claims work, publishes artifacts, and advances state through daemon MCP tools. CLI verbs are compatibility/debug fallbacks, not the normal live control plane.
 - **Human principal** — escalation only. Resolves blockers the AI judges itself stuck on (`escalation` artifacts). Routine work belongs to the operator.
 
-The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through both roles, prerequisites, first run, and the principal's escalation surface.
+The [day-zero usage guide](docs/tutorials/using-striatum.md) walks new arrivals through both roles, prerequisites, first run, and the principal's escalation surface.
 
 ---
 
@@ -206,7 +206,7 @@ The [day-zero usage guide](docs/USING_STRIATUM.md) walks new arrivals through bo
 
 **Audit-quality provenance.** Many workflows lose state when a session crashes, a process exits nonzero, or a serve restarts. Striatum's authoritative live state is the daemon-owned Postgres; every event carries a `previous_hash` / `row_hash` anchor (schema v6, migration 0006); every RPC request lands a row in `striatumd.audit_log` with a chain head locked `FOR UPDATE` so concurrent appenders serialize. `corpus export` produces a verifying manifest with replay-stable SHA-256s.
 
-**Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same daemon MCP method set works. The product boundary in [`docs/SPEC.md`](docs/SPEC.md) explicitly forbids the runner from importing any vendor SDK.
+**Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same daemon MCP method set works. The product boundary in [`docs/SPEC.md`](docs/reference/spec.md) explicitly forbids the runner from importing any vendor SDK.
 
 ---
 
@@ -236,7 +236,7 @@ striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
 striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 ```
 
-Full walkthrough: [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md). Human-principal escalation guide: [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md).
+Full walkthrough: [`docs/USING_STRIATUM.md`](docs/tutorials/using-striatum.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md). Human-principal escalation guide: [`docs/HOW_TO_HUMAN.md`](docs/how-to/how-to-human.md).
 
 ### Install the agent skill bundle
 
@@ -316,15 +316,15 @@ make check
 
 | File | When to read |
 |---|---|
-| [`docs/USING_STRIATUM.md`](docs/USING_STRIATUM.md) | The day-zero usage guide — operator + principal in one pass |
-| [`docs/HOW_TO_HUMAN.md`](docs/HOW_TO_HUMAN.md) | Human-principal escalation playbook; retains manual operator reference for debugging and demos |
-| [`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md) | Long-form companion to the RFC 0015 agent skill bundle |
-| [`docs/POSTGRES_TRANSITION.md`](docs/POSTGRES_TRANSITION.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite handling, and repo registration |
-| [`docs/WORKFLOW_TYPES.md`](docs/WORKFLOW_TYPES.md) | Workflow shapes and lane sets; starters, examples, defaults |
-| [`docs/WRITING_WORKFLOWS.md`](docs/WRITING_WORKFLOWS.md) | How to author your own `workflow.json` |
-| [`docs/CLI_REFERENCE.md`](docs/CLI_REFERENCE.md) | Flat list of every CLI verb and stable exit codes |
-| [`docs/SPEC.md`](docs/SPEC.md) | The implementation contract; source of truth when this page disagrees with the runner |
-| [`docs/CONSUMER_REPO_LAYOUT.md`](docs/CONSUMER_REPO_LAYOUT.md) | Recommended target-repo layout (RFC 0056) |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Operator kickoff doc: active runway, queue, blocked items |
-| [`docs/INDEX.md`](docs/INDEX.md) | Every doc in `docs/` with a one-line summary |
+| [`docs/USING_STRIATUM.md`](docs/tutorials/using-striatum.md) | The day-zero usage guide — operator + principal in one pass |
+| [`docs/HOW_TO_HUMAN.md`](docs/how-to/how-to-human.md) | Human-principal escalation playbook; retains manual operator reference for debugging and demos |
+| [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md) | Long-form companion to the RFC 0015 agent skill bundle |
+| [`docs/POSTGRES_TRANSITION.md`](docs/how-to/postgres-transition.md) | Operator runbook for the D094 / RFC 0043 PostgreSQL cutover, retired SQLite handling, and repo registration |
+| [`docs/WORKFLOW_TYPES.md`](docs/reference/workflow-types.md) | Workflow shapes and lane sets; starters, examples, defaults |
+| [`docs/WRITING_WORKFLOWS.md`](docs/how-to/writing-workflows.md) | How to author your own `workflow.json` |
+| [`docs/CLI_REFERENCE.md`](docs/reference/cli-reference.md) | Flat list of every CLI verb and stable exit codes |
+| [`docs/SPEC.md`](docs/reference/spec.md) | The implementation contract; source of truth when this page disagrees with the runner |
+| [`docs/CONSUMER_REPO_LAYOUT.md`](docs/reference/consumer-repo-layout.md) | Recommended target-repo layout (RFC 0056) |
+| [`docs/ROADMAP.md`](docs/reference/roadmap.md) | Operator kickoff doc: active runway, queue, blocked items |
+| [`docs/INDEX.md`](docs/index.md) | Every doc in `docs/` with a one-line summary |
 | [`docs/rfcs/README.md`](docs/rfcs/README.md) | Accepted and proposed RFCs (0001 → current) |

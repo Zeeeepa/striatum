@@ -40,7 +40,7 @@ When two docs disagree, the home wins.
 - **Rule of thumb:** if you find yourself adding `(RFC NNNN
   V*)` to a SPEC heading, you're appending instead of editing.
   Edit the existing section, cite the RFC inline (e.g. `> Design
-  rationale: [RFC 0020](rfcs/0020-autonomous-stalled-run-recovery.md).`),
+  rationale: [RFC 0020](../rfcs/0020-autonomous-stalled-run-recovery.md).`),
   and drop the suffix.
 
 ### `docs/rfcs/<NNNN>-*.md` — design proposals
@@ -72,7 +72,7 @@ When two docs disagree, the home wins.
   - **Reason:** the binding constraint.
   - **Consequences:** observable surface change + version bump.
     Cite the RFC and the dogfood BUILD_HANDOFF for the full
-    surface, e.g. `See [RFC 0020](rfcs/0020-autonomous-stalled-run-recovery.md)
+    surface, e.g. `See [RFC 0020](../rfcs/0020-autonomous-stalled-run-recovery.md)
     and [dogfood-014](dogfood/014/BUILD_HANDOFF.md).`
   - **Revisit trigger:** when the decision should be revisited.
 - **What it doesn't:** test names, function signatures,

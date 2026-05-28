@@ -12,8 +12,8 @@ author: proposer-claude-opus-4-7-001
 Context:
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),
 [`RFC 0043`](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D028 no-transcript-capture),
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D028 no-transcript-capture),
 `docs/operator/artifacts/two-model-conversation/` (the design dialogue that
 produced this RFC)
 

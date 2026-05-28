@@ -92,7 +92,7 @@ Python `mcp.py` wrapper is removed"), `docs/ROADMAP.md` § 1.1 step 7
 `README.md` § Project Status pins:
 
 ```
-| Version | v1.55.0 (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v1.55.0 (see [CHANGELOG.md](../../../../../../CHANGELOG.md)) |
 | CI | 1254 passed / 7 skipped / 0 failures on `main` as of v1.55.0 |
 ```
 

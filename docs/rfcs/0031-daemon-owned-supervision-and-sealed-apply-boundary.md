@@ -11,7 +11,7 @@ Context:
 [`RFC 0014`](0014-process-adapter-completion-guarantees.md),
 [`RFC 0026`](0026-lane-attestation-and-operator-byline-honesty.md),
 [`RFC 0027`](0027-sealed-patch-provenance-mode.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D080, D082, D086, D028, D036),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D080, D082, D086, D028, D036),
 `src/striatum/supervisor.py`,
 `src/striatum/process_adapter.py`,
 `src/striatum/process_completion.py`

@@ -3,9 +3,9 @@
 Status: accepted (V1)
 Date: 2026-05-11
 Context:
-[`docs/WORKFLOW_TYPES.md`](../WORKFLOW_TYPES.md),
-[`docs/WRITING_WORKFLOWS.md`](../WRITING_WORKFLOWS.md),
-[`docs/SPEC.md`](../SPEC.md) § "Workflow Config",
+[`docs/WORKFLOW_TYPES.md`](../reference/workflow-types.md),
+[`docs/WRITING_WORKFLOWS.md`](../how-to/writing-workflows.md),
+[`docs/SPEC.md`](../reference/spec.md) § "Workflow Config",
 [`RFC 0024`](0024-workflow-browser-and-builder.md),
 [`RFC 0010`](0010-tool-harness-profiles.md),
 [`RFC 0018`](0018-focused-adversarial-review-postures.md),

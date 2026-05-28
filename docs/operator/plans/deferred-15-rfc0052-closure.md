@@ -28,8 +28,8 @@ phase, debate/panel daemon methods, or committee-specific validator behavior.
 
 ## Inputs
 
-- [TODO item 43](../../TODO.md)
-- [ROADMAP section 5.8](../../ROADMAP.md)
+- [TODO item 43](../../reference/todo.md)
+- [ROADMAP section 5.8](../../reference/roadmap.md)
 - [Operator brief](../BRIEF.md)
 - [RFC 0052](../../rfcs/0052-committee-deliberation-workflow.md)
 - [RFC 0074](../../rfcs/0074-workflow-shape-and-adversary-pack-catalog.md)

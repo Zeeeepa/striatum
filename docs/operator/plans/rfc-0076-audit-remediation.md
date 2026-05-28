@@ -26,7 +26,7 @@ decide whether generator/catalog integration should be scheduled next.
 ## Inputs
 
 - [`RFC 0076`](../../rfcs/0076-three-lane-code-and-doc-audit-workflow.md)
-- [`D128`](../../DECISION_LOG.md)
+- [`D128`](../../decisions/decision-log.md)
 - [`REMEDIATION_PLAN.md`](../artifacts/rfc-0076-code-doc-audit/REMEDIATION_PLAN.md)
 - [`SYNTHESIS.md`](../artifacts/rfc-0076-code-doc-audit/SYNTHESIS.md)
 - [`docs/operator/workflows/rfc-0076-audit-remediation/workflow.json`](../workflows/rfc-0076-audit-remediation/workflow.json)

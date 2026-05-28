@@ -17,12 +17,12 @@ concludes the tool was the problem.
 
 The actual answer is that striatum is a **domain-driven design** of
 workflow orchestration. The vocabulary in
-[`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) is the *model*.
+[`UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md) is the *model*.
 Daemon RPC methods are the model's state-mutation boundary; CLI,
 MCP, and web surfaces are clients of that boundary. The schemas
 (workflow, work packet, artifact front matter) are the model's
 grammar. The boundary decisions in
-[`DECISION_LOG.md`](DECISION_LOG.md) (D006, D009, D020, D028) are
+[`DECISION_LOG.md`](../decisions/decision-log.md) (D006, D009, D020, D028) are
 the *bounded context*.
 
 This document writes the framing down so a new reader can see what's
@@ -60,7 +60,7 @@ commits), it lives outside striatum.
 
 ## Ubiquitous language
 
-[`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) is the canonical
+[`UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md) is the canonical
 glossary. Three things to internalize:
 
 - **Every term in the vocabulary is load-bearing.** A reviewer's
@@ -150,7 +150,7 @@ vocabulary is enforced by *what the API will let you say*.
 When a new RFC introduces a concept:
 
 1. **Glossary first.** Add an entry to
-   [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md). If the
+   [`UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md). If the
    concept doesn't have a name yet, propose one in the RFC.
 2. **Identify the pattern.** Is the new concept an aggregate root,
    a value object, or a domain event? RFCs cite which.
@@ -186,14 +186,14 @@ down so a reader can see it instead of reverse-engineering it.
 
 ## See also
 
-- [`UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) — the glossary;
+- [`UBIQUITOUS_LANGUAGE.md`](../reference/ubiquitous-language.md) — the glossary;
   this document's load-bearing dependency.
-- [`SPEC.md`](SPEC.md) — the implementation contract; what the
+- [`SPEC.md`](../reference/spec.md) — the implementation contract; what the
   runner accepts and refuses, in concrete terms.
-- [`DECISION_LOG.md`](DECISION_LOG.md) — the boundary decisions;
+- [`DECISION_LOG.md`](../decisions/decision-log.md) — the boundary decisions;
   D006/D009/D020/D028 are this document's load-bearing
   precedents.
-- [`PRD.md`](PRD.md) — the original product framing; this document
+- [`PRD.md`](../reference/prd.md) — the original product framing; this document
   describes how that framing maps onto the implementation.
-- [`rfcs/`](rfcs/) — every RFC adds to the model in the pattern
+- [`rfcs/`](../rfcs) — every RFC adds to the model in the pattern
   above.

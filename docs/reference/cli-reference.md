@@ -489,7 +489,7 @@ RFC 0044) may ingest the bundle for retrieval, but Striatum does not call
 them at runtime and runs identically when no consumer is configured. The
 V2 contract decisions (multi-corpus identity, redaction-tier metadata,
 incremental watermarks, optional context-injection policy) are scoped by
-[RFC 0057](rfcs/0057-corpus-contract-v2.md).
+[RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
 ## Run archive
 
@@ -551,8 +551,8 @@ striatum session close
 
 ## See also
 
-- [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md) — the operator's playbook
+- [HOW_TO_HUMAN.md](../how-to/how-to-human.md) — the operator's playbook
   with examples per verb.
-- [HOW_TO_AGENT.md](HOW_TO_AGENT.md) — the coding-agent
+- [HOW_TO_AGENT.md](../how-to/how-to-agent.md) — the coding-agent
   companion to the RFC 0015 skill bundle.
-- [SPEC.md](SPEC.md) — the implementation contract.
+- [SPEC.md](spec.md) — the implementation contract.

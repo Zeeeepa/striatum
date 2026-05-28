@@ -11,7 +11,7 @@ Context:
 [`RFC 0081`](0081-conversation-trajectories.md) (`dialogue` trajectory),
 [`RFC 0082`](0082-interrogation-sessions.md) (interrogation sessions, `interrogable`, `awaiting_interrogation`),
 [`docs/operator/workflows/interrogating-panel-2026-05-25/PATTERN_SPEC.md`](../operator/workflows/interrogating-panel-2026-05-25/PATTERN_SPEC.md) (ground-truth pattern spec),
-[`docs/WORKFLOW_TYPES.md` § "Review By Interrogation"](../WORKFLOW_TYPES.md),
+[`docs/WORKFLOW_TYPES.md` § "Review By Interrogation"](../reference/workflow-types.md),
 [`examples/three-lane-design-build-review/workflow.json`](../../examples/three-lane-design-build-review/workflow.json),
 [`examples/implementation-panel-flow/workflow.json`](../../examples/implementation-panel-flow/workflow.json).
 
@@ -230,7 +230,7 @@ for the operator to merge, avoiding a concurrent-write conflict on the log.
 ## Domain Modeling
 
 This RFC adds no new aggregate. It is a **boundary clarification** in the sense
-of [`docs/DDD.md` § "Adding to the model"](../DDD.md#adding-to-the-model): it
+of [`docs/DDD.md` § "Adding to the model"](../explanation/domain-driven-design.md#adding-to-the-model): it
 names a reusable composition of existing concepts — fan-out (`parallel_group`),
 synthesis, the RFC 0082 *interrogation* aggregate, review postures (RFC 0018),
 and bounded `cycles` — and pins the two distinct bounded-iteration value

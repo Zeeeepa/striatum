@@ -7,7 +7,7 @@ Context:
 [`RFC 0022`](0022-web-ui-redesign.md),
 [`RFC 0023`](0023-web-chat-and-browse.md),
 [`RFC 0024`](0024-workflow-browser-and-builder.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D058, D059, D073, D074, D075),
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D058, D059, D073, D074, D075),
 `src/striatum/service.py`,
 `src/striatum/web/static/base.css`,
 `src/striatum/web/static/app.css`,

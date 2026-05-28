@@ -6,7 +6,7 @@ installed, how to start a workflow, and what your role looks like
 when something escalates. Plan ~10 minutes.
 
 If you want a quick install summary instead, see the
-[`README.md`](../README.md). For the long-form playbooks, see
+[`README.md`](../../README.md). For the long-form playbooks, see
 [`how-to-human.md`](../how-to/how-to-human.md) and
 [`how-to-agent.md`](../how-to/how-to-agent.md).
 
@@ -124,7 +124,7 @@ On first initiation the operator skill bundle also prompts you about
 skill). These are not part of Striatum or its runtime — they install
 agent-side and Striatum never fetches, vendors, or calls them. The operator
 installs only the ones you confirm. The curated registry lives in
-[`skills/optional/`](../skills/optional/README.md).
+[`skills/optional/`](../../skills/optional/README.md).
 
 If the target repo follows the recommended layout in
 [`consumer-repo-layout.md`](../reference/consumer-repo-layout.md), your
@@ -247,7 +247,7 @@ harness friction worth filing in `explanation/harness-friction-patterns.md`.
 - **Authoring a workflow.json** —
   [`writing-workflows.md`](../how-to/writing-workflows.md).
 - **System architecture (Mermaid)** —
-  [`README.md`](../README.md) §"At a glance".
+  [`README.md`](../../README.md) §"At a glance".
 - **Postgres prerequisites + repository registration** —
   [`postgres-transition.md`](../how-to/postgres-transition.md).
 - **Target-repo layout recommendations** —

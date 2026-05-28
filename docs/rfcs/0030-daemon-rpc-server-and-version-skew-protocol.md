@@ -13,8 +13,8 @@ Context:
 [`RFC 0033`](0033-storage-substrate-rewrite-for-daemon-v2.md) (accepted V2),
 [`RFC 0012`](0012-local-service-api.md),
 [`RFC 0013`](0013-local-web-ui.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D082, D083, D084, D086, D006, D009),
-[`docs/SPEC.md`](../SPEC.md) § "Product Boundary" and § "State Store",
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D082, D083, D084, D086, D006, D009),
+[`docs/SPEC.md`](../reference/spec.md) § "Product Boundary" and § "State Store",
 `src/striatum/daemon.py`,
 `src/striatum/api.py`,
 `src/striatum/service.py`

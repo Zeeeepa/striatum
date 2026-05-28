@@ -3,8 +3,8 @@
 Status: superseded V1 foundation
 Date: 2026-05-10
 Context:
-[`docs/SPEC.md`](../SPEC.md),
-[`docs/MCP.md`](../MCP.md),
+[`docs/SPEC.md`](../reference/spec.md),
+[`docs/MCP.md`](../explanation/mcp.md),
 [`RFC 0012`](0012-local-service-api.md),
 [`RFC 0013`](0013-local-web-ui.md),
 [`RFC 0020`](0020-autonomous-stalled-run-recovery.md),
@@ -12,7 +12,7 @@ Context:
 [`RFC 0024`](0024-workflow-browser-and-builder.md),
 [`RFC 0026`](0026-lane-attestation-and-operator-byline-honesty.md),
 [`RFC 0027`](0027-sealed-patch-provenance-mode.md),
-[`docs/DECISION_LOG.md`](../DECISION_LOG.md) (D006, D007, D009,
+[`docs/DECISION_LOG.md`](../decisions/decision-log.md) (D006, D007, D009,
 D020, D028, D036, D049, D058, D059, D066, D068, D074, D075,
 D076-D080)
 

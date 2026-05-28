@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -83,6 +84,18 @@ func decodeSubmitSequence(raw string) string {
 	return replacer.Replace(raw)
 }
 
+// resolveTrajectoryLogPath returns the default per-supervisor trajectory log
+// path. Returns empty when the supervisor id or repo root are unavailable
+// (e.g., agent-loop invoked outside the daemon supervisor for unit testing).
+func resolveTrajectoryLogPath(repoRoot, supervisorID string) string {
+	repoRoot = strings.TrimSpace(repoRoot)
+	supervisorID = strings.TrimSpace(supervisorID)
+	if repoRoot == "" || supervisorID == "" {
+		return ""
+	}
+	return filepath.Join(repoRoot, ".striatum", "scratch", supervisorID, "pty.log")
+}
+
 // agentLoopSubmitDelay is how long to wait after writing the bootstrap prompt
 // before sending the submit key-sequence, so a TUI line editor finishes
 // ingesting the multi-line paste. Override via STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS.
@@ -142,13 +155,27 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		_ = pty.InheritSize(inputFile, ptmx)
 	}
 
-	// Debug-only: tee the PTY output to a file so the operator can see an
-	// interactive TUI agent's screen while tuning the submit sequence. Off by
-	// default (D028: no transcript capture); enabled via
-	// STRIATUM_AGENT_LOOP_DEBUG_LOG=<path> for live submit debugging only.
+	// RFC 0088 P3 follow-up: tee the PTY output to a per-supervisor 0600 file
+	// under .striatum/scratch so the operator can `tail -f` the lane trajectory
+	// for live inspection or interactive debugging. This is LOCAL-ONLY
+	// (operator scratch); D028's "no upstream transcript capture" intent is
+	// preserved — nothing is sent to the daemon, MCP, or repo artifacts. Set
+	// STRIATUM_AGENT_LOOP_DEBUG_LOG explicitly to override the path (e.g. for
+	// debugging from a fixed location); set it to "off" / "/dev/null" to
+	// disable.
 	var sink io.Writer = stdout
-	if dbg := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_DEBUG_LOG")); dbg != "" {
-		if f, ferr := os.OpenFile(dbg, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
+	trajectoryPath := resolveTrajectoryLogPath(cfg.RepoRoot, os.Getenv("STRIATUM_SUPERVISOR_ID"))
+	if explicit := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_DEBUG_LOG")); explicit != "" {
+		switch strings.ToLower(explicit) {
+		case "off", "false", "0", "/dev/null":
+			trajectoryPath = ""
+		default:
+			trajectoryPath = explicit
+		}
+	}
+	if trajectoryPath != "" {
+		_ = os.MkdirAll(filepath.Dir(trajectoryPath), 0o700)
+		if f, ferr := os.OpenFile(trajectoryPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
 			defer f.Close()
 			fmt.Fprintf(f, "\n===== agent-loop session %s @ %s, command=%v =====\n", cfg.SessionID, cfg.RunID, laneCommand)
 			sink = io.MultiWriter(stdout, f)
