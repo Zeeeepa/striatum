@@ -2,94 +2,455 @@
   "schema_version": "striatum.workflow.v1",
   "workflow_id": "interrogating-panel-uichat",
   "workflow_version": "2026-05-25",
-  "name": "Iterated interrogating panel — interrogation-log chat UI",
-  "branch": {"mode": "confirm", "suggested_name": "striatum/interrogating-panel-uichat", "allow_dirty": true},
-  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "name": "Iterated interrogating panel \u2014 interrogation-log chat UI",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/interrogating-panel-uichat",
+    "allow_dirty": true
+  },
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "claude_code"
+  },
   "lanes": {
-    "codex": {"adapter": "process", "display_model": "Codex", "command": ["codex", "exec"], "capabilities": ["write", "review", "synthesis"]},
-    "claude_code": {"adapter": "process", "display_model": "Claude", "command": ["claude"], "capabilities": ["write", "review", "synthesis"]},
-    "gemini": {"adapter": "process", "display_model": "Gemini", "command": ["gemini", "-p"], "capabilities": ["write", "review"]}
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex",
+      "command": [
+        "codex",
+        "exec"
+      ],
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ]
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude",
+      "command": [
+        "claude"
+      ],
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ]
+    }
   },
   "roles": {
-    "coordinator": {"description": "Operator coordinator."},
-    "designer": {"description": "Independent designer."},
-    "synthesizer": {"description": "Reconciles designs; stays live for interrogation."},
-    "implementer": {"description": "Implements the synthesis; stays live for interrogation."},
-    "reviewer": {"description": "Interrogates the live reviewed session before verdict."}
+    "coordinator": {
+      "description": "Operator coordinator."
+    },
+    "designer": {
+      "description": "Independent designer."
+    },
+    "synthesizer": {
+      "description": "Reconciles designs; stays live for interrogation."
+    },
+    "implementer": {
+      "description": "Implements the synthesis; stays live for interrogation."
+    },
+    "reviewer": {
+      "description": "Interrogates the live reviewed session before verdict."
+    }
   },
   "context_docs": [
-    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/FEATURE_TASK.md", "required": true},
-    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/web-assets.md", "required": false},
-    {"path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/interrogation-data.md", "required": false}
+    {
+      "path": "docs/operator/workflows/interrogating-panel-2026-05-25/FEATURE_TASK.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/web-assets.md",
+      "required": false
+    },
+    {
+      "path": "docs/operator/workflows/interrogating-panel-2026-05-25/briefs/interrogation-data.md",
+      "required": false
+    }
   ],
-  "parallelism": {"mode": "declared", "max_active_jobs": 3, "require_disjoint_write_scopes": true},
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 3,
+    "require_disjoint_write_scopes": true
+  },
   "jobs": [
-    {"id": "design_codex", "type": "draft", "title": "Design (codex)", "role_id": "designer", "lane_id": "codex", "parallel_group": "design", "fresh_session_required": true,
-     "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
-     "task_prompt": {"inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."},
-     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/codex/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "codex_design", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/codex/DESIGN.md", "required": true}]},
-    {"id": "design_claude", "type": "draft", "title": "Design (claude)", "role_id": "designer", "lane_id": "claude_code", "parallel_group": "design", "fresh_session_required": true,
-     "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
-     "task_prompt": {"inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."},
-     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/claude_code/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "claude_design", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/claude_code/DESIGN.md", "required": true}]},
-    {"id": "design_gemini", "type": "draft", "title": "Design (gemini)", "role_id": "designer", "lane_id": "gemini", "parallel_group": "design", "fresh_session_required": true,
-     "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
-     "task_prompt": {"inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."},
-     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/gemini/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "gemini_design", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/gemini/DESIGN.md", "required": true}]},
-    {"id": "synth", "type": "synthesis", "title": "Synthesize designs (interrogable)", "role_id": "synthesizer", "lane_id": "claude_code", "fresh_session_required": true, "interrogable": true,
-     "objective": "Reconcile the design proposals into one buildable synthesis. Stay live after completing so the design-review panel can interrogate your reasoning.",
-     "task_prompt": {"inline": "Reconcile the design proposals under artifacts/design/ into one buildable synthesis. Cite each design; call out the smallest landable slice."},
-     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/DESIGN_SYNTHESIS.md"], "forbidden_paths": [".striatum/", "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/"]},
-     "expected_artifacts": [{"logical_name": "design_synthesis", "kind": "synthesis", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/DESIGN_SYNTHESIS.md", "required": true}]},
-    {"id": "review_design_codex", "type": "review", "title": "Design review codex threat_model", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "design_review", "fresh_session_required": true,
-     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
-     "objective": "Threat-model the design synthesis and interrogate the live synthesizer (<=3 rounds, early exit on resolved findings) before verdict.",
-     "task_prompt": {"inline": "Open an interrogation against the live synth session, ask up to 3 questions, then write your finding and verdict."},
-     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/codex/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "design_review_codex", "kind": "finding", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/codex/REVIEW.md", "required": true}]},
-    {"id": "review_design_claude", "type": "review", "title": "Design review claude ergonomics_dx", "role_id": "reviewer", "lane_id": "claude_code", "parallel_group": "design_review", "fresh_session_required": true,
-     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "ergonomics_dx",
-     "objective": "Review the design synthesis for ergonomics/DX and interrogate the live synthesizer (<=3 rounds, early exit) before verdict.",
-     "task_prompt": {"inline": "Open an interrogation against the live synth session, ask up to 3 questions, then write your finding and verdict."},
-     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/claude_code/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "design_review_claude", "kind": "finding", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/claude_code/REVIEW.md", "required": true}]},
-    {"id": "implement", "type": "build", "title": "Implement chat UI (interrogable)", "role_id": "implementer", "lane_id": "claude_code", "interrogable": true,
-     "required_review_postures": ["threat_model", "ergonomics_dx"],
-     "objective": "Implement the interrogation-log chat UI per the synthesis. Stay live so the build-review panel can interrogate your reasoning.",
-     "task_prompt": {"inline": "Implement the synthesized design: serve the interrogation chat in the run-detail web view, backed by the existing interrogation read path. Add a Go test. Write a HANDOFF."},
-     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["go/pkg/webassets/", "go/web/", "go/pkg/service/", "go/pkg/reads/", "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/HANDOFF.md", "required": true}]},
-    {"id": "review_build_codex", "type": "review", "title": "Build review codex threat_model", "role_id": "reviewer", "lane_id": "codex", "parallel_group": "build_review", "fresh_session_required": true,
-     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
-     "objective": "Threat-model the implementation and interrogate the live implementer (<=3 rounds, early exit) before verdict.",
-     "task_prompt": {"inline": "Open an interrogation against the live implement session, ask up to 3 questions, then write your finding and verdict."},
-     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "build_review_codex", "kind": "finding", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/REVIEW.md", "required": true}]},
-    {"id": "review_build_claude", "type": "review", "title": "Build review claude ergonomics_dx", "role_id": "reviewer", "lane_id": "claude_code", "parallel_group": "build_review", "fresh_session_required": true,
-     "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "ergonomics_dx",
-     "objective": "Review the implementation for ergonomics/DX and interrogate the live implementer (<=3 rounds, early exit) before verdict.",
-     "task_prompt": {"inline": "Open an interrogation against the live implement session, ask up to 3 questions, then write your finding and verdict."},
-     "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/claude_code/"], "forbidden_paths": [".striatum/"]},
-     "expected_artifacts": [{"logical_name": "build_review_claude", "kind": "finding", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/claude_code/REVIEW.md", "required": true}]}
+    {
+      "id": "design_codex",
+      "type": "draft",
+      "title": "Design (codex)",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
+      "task_prompt": {
+        "inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "codex_design",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/codex/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_claude",
+      "type": "draft",
+      "title": "Design (claude)",
+      "role_id": "designer",
+      "lane_id": "claude_code",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
+      "task_prompt": {
+        "inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "claude_design",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/claude_code/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "design_gemini",
+      "type": "draft",
+      "title": "Design (gemini)",
+      "role_id": "designer",
+      "lane_id": "codex",
+      "parallel_group": "design",
+      "fresh_session_required": true,
+      "objective": "Produce an independent design proposal for the FEATURE_TASK. Do not coordinate with other design lanes.",
+      "task_prompt": {
+        "inline": "Design the interrogation-log chat UI per FEATURE_TASK.md and the briefs. Write your proposal to the expected artifact path."
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "gemini_design",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/gemini/DESIGN.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "synth",
+      "type": "synthesis",
+      "title": "Synthesize designs (interrogable)",
+      "role_id": "synthesizer",
+      "lane_id": "claude_code",
+      "fresh_session_required": true,
+      "interrogable": true,
+      "objective": "Reconcile the design proposals into one buildable synthesis. Stay live after completing so the design-review panel can interrogate your reasoning.",
+      "task_prompt": {
+        "inline": "Reconcile the design proposals under artifacts/design/ into one buildable synthesis. Cite each design; call out the smallest landable slice."
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/DESIGN_SYNTHESIS.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/design/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_synthesis",
+          "kind": "synthesis",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/DESIGN_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design_codex",
+      "type": "review",
+      "title": "Design review codex threat_model",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "design_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "document_only",
+      "review_posture": "threat_model",
+      "objective": "Threat-model the design synthesis and interrogate the live synthesizer (<=3 rounds, early exit on resolved findings) before verdict.",
+      "task_prompt": {
+        "inline": "Open an interrogation against the live synth session, ask up to 3 questions, then write your finding and verdict."
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review_codex",
+          "kind": "finding",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_design_claude",
+      "type": "review",
+      "title": "Design review claude ergonomics_dx",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "design_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "document_only",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the design synthesis for ergonomics/DX and interrogate the live synthesizer (<=3 rounds, early exit) before verdict.",
+      "task_prompt": {
+        "inline": "Open an interrogation against the live synth session, ask up to 3 questions, then write your finding and verdict."
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "design_review_claude",
+          "kind": "finding",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/design/claude_code/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "build",
+      "title": "Implement chat UI (interrogable)",
+      "role_id": "implementer",
+      "lane_id": "claude_code",
+      "interrogable": true,
+      "required_review_postures": [
+        "threat_model",
+        "ergonomics_dx"
+      ],
+      "objective": "Implement the interrogation-log chat UI per the synthesis. Stay live so the build-review panel can interrogate your reasoning.",
+      "task_prompt": {
+        "inline": "Implement the synthesized design: serve the interrogation chat in the run-detail web view, backed by the existing interrogation read path. Add a Go test. Write a HANDOFF."
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/pkg/webassets/",
+          "go/web/",
+          "go/pkg/service/",
+          "go/pkg/reads/",
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_handoff",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/HANDOFF.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_codex",
+      "type": "review",
+      "title": "Build review codex threat_model",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "document_only",
+      "review_posture": "threat_model",
+      "objective": "Threat-model the implementation and interrogate the live implementer (<=3 rounds, early exit) before verdict.",
+      "task_prompt": {
+        "inline": "Open an interrogation against the live implement session, ask up to 3 questions, then write your finding and verdict."
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_codex",
+          "kind": "finding",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/codex/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "review_build_claude",
+      "type": "review",
+      "title": "Build review claude ergonomics_dx",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "build_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "document_only",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the implementation for ergonomics/DX and interrogate the live implementer (<=3 rounds, early exit) before verdict.",
+      "task_prompt": {
+        "inline": "Open an interrogation against the live implement session, ask up to 3 questions, then write your finding and verdict."
+      },
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/claude_code/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "build_review_claude",
+          "kind": "finding",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/review/build/claude_code/REVIEW.md",
+          "required": true
+        }
+      ]
+    }
   ],
   "edges": [
-    {"from": "design_codex", "to": "synth", "on": "completed"},
-    {"from": "design_claude", "to": "synth", "on": "completed"},
-    {"from": "design_gemini", "to": "synth", "on": "completed"},
-    {"from": "synth", "to": "review_design_codex", "on": "completed"},
-    {"from": "synth", "to": "review_design_claude", "on": "completed"},
-    {"from": "review_design_codex", "to": "implement", "on": "completed"},
-    {"from": "review_design_claude", "to": "implement", "on": "completed"},
-    {"from": "implement", "to": "review_build_codex", "on": "completed"},
-    {"from": "implement", "to": "review_build_claude", "on": "completed"}
+    {
+      "from": "design_codex",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "design_claude",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "design_gemini",
+      "to": "synth",
+      "on": "completed"
+    },
+    {
+      "from": "synth",
+      "to": "review_design_codex",
+      "on": "completed"
+    },
+    {
+      "from": "synth",
+      "to": "review_design_claude",
+      "on": "completed"
+    },
+    {
+      "from": "review_design_codex",
+      "to": "implement",
+      "on": "completed"
+    },
+    {
+      "from": "review_design_claude",
+      "to": "implement",
+      "on": "completed"
+    },
+    {
+      "from": "implement",
+      "to": "review_build_codex",
+      "on": "completed"
+    },
+    {
+      "from": "implement",
+      "to": "review_build_claude",
+      "on": "completed"
+    }
   ],
   "cycles": [
-    {"from": "review_design_codex", "to": "synth", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
-    {"from": "review_design_claude", "to": "synth", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
-    {"from": "review_build_codex", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
-    {"from": "review_build_claude", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true}
+    {
+      "from": "review_design_codex",
+      "to": "synth",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_design_claude",
+      "to": "synth",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_codex",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    },
+    {
+      "from": "review_build_claude",
+      "to": "implement",
+      "on_verdict": "needs_revision",
+      "max_iterations": 2,
+      "allow_same_lane": true
+    }
   ]
 }

@@ -69,22 +69,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-21",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -172,7 +156,7 @@
       "type": "synthesis",
       "title": "Analyze TODO 59 Corpus Contract V2 decisions",
       "role_id": "analyst",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "decision_analysis",
       "fresh_session_required": true,
       "objective": "Prepare decision options for replay/archive/Corpus Contract V2 choices in TODO 59.",
@@ -264,7 +248,7 @@
       "type": "human_checkpoint",
       "title": "Open human-principal decision checkpoint",
       "role_id": "human_checkpoint",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Open a human checkpoint for the TODO 55, 56, 59, and 60 product decisions. Do not write a decision artifact yourself.",
       "task_prompt": {

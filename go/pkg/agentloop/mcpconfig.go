@@ -17,14 +17,19 @@ import (
 //
 // P1 wires claude (the baseline): `--mcp-config <file> --strict-mcp-config`
 // loads ONLY the striatum server and ignores any stale global ~/.claude.json
-// entry. Other adapters (codex, agy) are passed through unchanged until P2/P3.
+// entry. P2 extends the same shape to agy (claude-shaped CLI: supports
+// `--mcp-config <configs...>` and `agy plugin import claude`). Other adapters
+// (codex) are passed through unchanged until P3.
 func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token TokenMaterial) ([]string, func(), error) {
 	noop := func() {}
 	if len(command) == 0 || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(token.Token) == "" {
 		return command, noop, nil
 	}
 	switch laneAdapterName(command[0]) {
-	case "claude":
+	case "claude", "agy":
+		// Both adapters accept `--mcp-config <file> --strict-mcp-config`
+		// and load ONLY the striatum server from the ephemeral file,
+		// ignoring any stale global config entry.
 		path, cleanup, err := writeEphemeralMCPConfig(repoRoot, endpoint, token.Token)
 		if err != nil {
 			return command, noop, err

@@ -75,22 +75,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-22",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -226,7 +210,7 @@
       "type": "review",
       "title": "Review read-only catalog discovery",
       "role_id": "discovery_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:catalog_discovery_readonly",

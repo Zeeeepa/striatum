@@ -9,7 +9,7 @@
   "lanes": {
     "claude_code": {"adapter": "process", "model": "opus", "display_model": "Claude Opus", "command": ["claude", "--model", "opus"], "capabilities": ["write"]},
     "codex": {"adapter": "process", "model": "gpt-5.5", "display_model": "Codex GPT-5.5", "command": ["codex", "exec", "-m", "gpt-5.5"], "capabilities": ["write"]},
-    "gemini": {"adapter": "process", "model": "gemini-2.5-pro", "display_model": "Gemini 2.5 Pro", "command": ["gemini", "-m", "gemini-2.5-pro", "-p"], "adapter_capabilities": {"single_shot": true}, "capabilities": ["write"]}
+    "agy": {"adapter": "process", "display_model": "Antigravity", "command": ["agy", "--print"], "capabilities": ["write"]}
   },
   "roles": {
     "coordinator": {"description": "Operator host (does not participate)."},

@@ -68,22 +68,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-23",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -222,7 +206,7 @@
       "type": "synthesis",
       "title": "Phase 2C tmux authority guardrail",
       "role_id": "tmux_guardrail",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "phase_02_todo67",
       "fresh_session_required": true,
       "objective": "Map RFC 0075 guardrails proving tmux pane output and transcripts remain non-authoritative.",
@@ -379,7 +363,7 @@
       "type": "synthesis",
       "title": "Phase 6B F2 publication policy",
       "role_id": "publication_policy",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "phase_06_docs",
       "fresh_session_required": true,
       "objective": "Map the remaining fuller publication policy gap and source-backed schema list.",

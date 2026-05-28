@@ -68,22 +68,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-22",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -174,7 +158,7 @@
       "type": "synthesis",
       "title": "Operator/adoption audit",
       "role_id": "operator_auditor",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "audit_lanes",
       "fresh_session_required": true,
       "objective": "Audit whether operators and first adopters can understand setup, workflow selection, MCP/CLI transition, recovery, and status surfaces without private project memory.",

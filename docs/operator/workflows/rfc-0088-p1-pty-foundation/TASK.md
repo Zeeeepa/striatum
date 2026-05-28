@@ -151,3 +151,15 @@ the prompt is absorbed into the multi-line input); see `agentLoopSubmitDelay`
 bootstrap prompt, performs `await_packet → write → artifact.publish → ack →
 work.complete`, the published artifact carries a `author: <role>-claude-…`
 byline (not `operator`), and the session is interrogable while live.
+
+## Operator expectation (logged 2026-05-28)
+
+**All lane trajectories must be tmux-attached + inspectable**, not just the
+PTY/agent-loop variant. Currently the default lane supervision is
+`transport: pipe` (no tmux session); `pty_helper`+`require_tmux=true` enables
+tmux but is incompatible with `stdin_delivery: one_shot_eof` (validator
+rejects), so codex one-shot + tmux can't coexist today. This is the deeper
+expression of the `--print` wrapper / one-shot delivery shape RFC 0088 is
+deprecating: **the right end-state is "all lanes are agent_loop over a tmux
+PTY"**, which removes the pipe-vs-tty conflict. P3 should ensure the
+post-cleanup default delivers a tmux session for every lane.

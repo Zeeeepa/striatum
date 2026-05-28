@@ -74,22 +74,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-23",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -179,7 +163,7 @@
       "type": "review",
       "title": "Boundary review scaffold 1",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -276,7 +260,7 @@
       "type": "review",
       "title": "Boundary review scaffold 2",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -373,7 +357,7 @@
       "type": "review",
       "title": "Boundary review scaffold 3",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -470,7 +454,7 @@
       "type": "review",
       "title": "Boundary review scaffold 4",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -567,7 +551,7 @@
       "type": "review",
       "title": "Boundary review scaffold 5",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -664,7 +648,7 @@
       "type": "review",
       "title": "Boundary review scaffold 6",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -761,7 +745,7 @@
       "type": "review",
       "title": "Boundary review scaffold 7",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -858,7 +842,7 @@
       "type": "review",
       "title": "Boundary review scaffold 8",
       "role_id": "boundary_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "custom:authority_boundary",
@@ -919,45 +903,201 @@
     }
   ],
   "edges": [
-    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "validate_01_todo55_scaffold", "on": "completed"},
-    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "review_01_todo55_boundary", "on": "completed"},
-    {"from": "scaffold_01_todo55_accepted_risk_cli_ui", "to": "scaffold_02_todo56_autofinalize_gate", "on": "completed"},
-    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "validate_02_todo56_scaffold", "on": "completed"},
-    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "review_02_todo56_boundary", "on": "completed"},
-    {"from": "scaffold_02_todo56_autofinalize_gate", "to": "scaffold_03_rfc0075_fail_closed_tmux_ui", "on": "completed"},
-    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "validate_03_rfc0075_scaffold", "on": "completed"},
-    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "review_03_rfc0075_boundary", "on": "completed"},
-    {"from": "scaffold_03_rfc0075_fail_closed_tmux_ui", "to": "scaffold_04_cli_retirement_parity", "on": "completed"},
-    {"from": "scaffold_04_cli_retirement_parity", "to": "validate_04_cli_retirement_scaffold", "on": "completed"},
-    {"from": "scaffold_04_cli_retirement_parity", "to": "review_04_cli_retirement_boundary", "on": "completed"},
-    {"from": "scaffold_04_cli_retirement_parity", "to": "scaffold_05_todo59_corpus_watermark_archive", "on": "completed"},
-    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "validate_05_todo59_scaffold", "on": "completed"},
-    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "review_05_todo59_boundary", "on": "completed"},
-    {"from": "scaffold_05_todo59_corpus_watermark_archive", "to": "scaffold_06_todo60_git_pr_requests", "on": "completed"},
-    {"from": "scaffold_06_todo60_git_pr_requests", "to": "validate_06_todo60_scaffold", "on": "completed"},
-    {"from": "scaffold_06_todo60_git_pr_requests", "to": "review_06_todo60_boundary", "on": "completed"},
-    {"from": "scaffold_06_todo60_git_pr_requests", "to": "scaffold_07_rfc0074_phase_a", "on": "completed"},
-    {"from": "scaffold_07_rfc0074_phase_a", "to": "validate_07_rfc0074_scaffold", "on": "completed"},
-    {"from": "scaffold_07_rfc0074_phase_a", "to": "review_07_rfc0074_boundary", "on": "completed"},
-    {"from": "scaffold_07_rfc0074_phase_a", "to": "scaffold_08_todo61_legacy_cleanup", "on": "completed"},
-    {"from": "scaffold_08_todo61_legacy_cleanup", "to": "validate_08_todo61_scaffold", "on": "completed"},
-    {"from": "scaffold_08_todo61_legacy_cleanup", "to": "review_08_todo61_boundary", "on": "completed"},
-    {"from": "validate_01_todo55_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_01_todo55_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_02_todo56_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_02_todo56_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_03_rfc0075_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_03_rfc0075_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_04_cli_retirement_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_04_cli_retirement_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_05_todo59_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_05_todo59_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_06_todo60_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_06_todo60_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_07_rfc0074_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_07_rfc0074_boundary", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "validate_08_todo61_scaffold", "to": "finalize_remaining_runway", "on": "completed"},
-    {"from": "review_08_todo61_boundary", "to": "finalize_remaining_runway", "on": "completed"}
+    {
+      "from": "scaffold_01_todo55_accepted_risk_cli_ui",
+      "to": "validate_01_todo55_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_01_todo55_accepted_risk_cli_ui",
+      "to": "review_01_todo55_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_01_todo55_accepted_risk_cli_ui",
+      "to": "scaffold_02_todo56_autofinalize_gate",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_02_todo56_autofinalize_gate",
+      "to": "validate_02_todo56_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_02_todo56_autofinalize_gate",
+      "to": "review_02_todo56_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_02_todo56_autofinalize_gate",
+      "to": "scaffold_03_rfc0075_fail_closed_tmux_ui",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_03_rfc0075_fail_closed_tmux_ui",
+      "to": "validate_03_rfc0075_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_03_rfc0075_fail_closed_tmux_ui",
+      "to": "review_03_rfc0075_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_03_rfc0075_fail_closed_tmux_ui",
+      "to": "scaffold_04_cli_retirement_parity",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_04_cli_retirement_parity",
+      "to": "validate_04_cli_retirement_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_04_cli_retirement_parity",
+      "to": "review_04_cli_retirement_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_04_cli_retirement_parity",
+      "to": "scaffold_05_todo59_corpus_watermark_archive",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_05_todo59_corpus_watermark_archive",
+      "to": "validate_05_todo59_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_05_todo59_corpus_watermark_archive",
+      "to": "review_05_todo59_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_05_todo59_corpus_watermark_archive",
+      "to": "scaffold_06_todo60_git_pr_requests",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_06_todo60_git_pr_requests",
+      "to": "validate_06_todo60_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_06_todo60_git_pr_requests",
+      "to": "review_06_todo60_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_06_todo60_git_pr_requests",
+      "to": "scaffold_07_rfc0074_phase_a",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_07_rfc0074_phase_a",
+      "to": "validate_07_rfc0074_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_07_rfc0074_phase_a",
+      "to": "review_07_rfc0074_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_07_rfc0074_phase_a",
+      "to": "scaffold_08_todo61_legacy_cleanup",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_08_todo61_legacy_cleanup",
+      "to": "validate_08_todo61_scaffold",
+      "on": "completed"
+    },
+    {
+      "from": "scaffold_08_todo61_legacy_cleanup",
+      "to": "review_08_todo61_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "validate_01_todo55_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_01_todo55_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_02_todo56_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_02_todo56_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_03_rfc0075_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_03_rfc0075_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_04_cli_retirement_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_04_cli_retirement_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_05_todo59_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_05_todo59_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_06_todo60_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_06_todo60_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_07_rfc0074_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_07_rfc0074_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "validate_08_todo61_scaffold",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    },
+    {
+      "from": "review_08_todo61_boundary",
+      "to": "finalize_remaining_runway",
+      "on": "completed"
+    }
   ],
   "cycles": []
 }

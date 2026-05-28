@@ -52,21 +52,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "strategy_version": "2026-05-14",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -156,7 +141,7 @@
       "type": "review",
       "title": "Verify GH #17",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "review_posture": "compliance_license",

@@ -42,17 +42,6 @@
       "model": "codex",
       "display_model": "Codex",
       "strategy_version": "2026-05-23"
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "printf 'todo16 generic language review lane\\n'"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-23"
     }
   },
   "roles": {
@@ -148,7 +137,7 @@
       "type": "review",
       "title": "Review generic-language closure",
       "role_id": "language_reviewer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Review the scan, fixes, and guardrail for correctness, scope discipline, and product-boundary alignment.",
       "task_prompt": {

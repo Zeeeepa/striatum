@@ -310,15 +310,6 @@
       "native_delegation_instruction": "Use native delegation aggressively for parallelizable work. The parent session remains accountable for Striatum artifacts, write scope, verification, and completion. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If a step is ambiguous, choose the most-conservative default that matches the synthesis and proceed; the operator publishes the result on your behalf if your CLI access is denied."
     },
     {
-      "profile_id": "gemini_default",
-      "kind": "harness_profile_fragment",
-      "tool_family": "gemini_cli",
-      "display_name": "Gemini default profile",
-      "summary": "Adds the RFC 0040 V1 no-questions instruction and the front-matter completeness callout.",
-      "native_delegation_mode": "encouraged",
-      "native_delegation_instruction": "Use native delegation aggressively for parallelizable work. The parent session remains accountable for Striatum artifacts, write scope, verification, and completion. This is a one-shot supervised invocation: you cannot ask the operator a follow-up question. If a step is ambiguous, choose the most-conservative default that matches the synthesis and proceed; the operator publishes the result on your behalf if your CLI access is denied. When writing finding artifacts, ALL FIVE front-matter fields are required (none are optional): schema_version, artifact_kind, verdict_intent, severity, tags. Use verdict_intent (not verdict); severity from {low,medium,high,critical} (not none); tags as a JSON array; the author: byline is a plain markdown line AFTER the front-matter block, not a key inside it. Handoff artifacts (DESIGN.md / BUILD_HANDOFF.md) do not need front matter; just the plain author: byline."
-    },
-    {
       "profile_id": "generic_default",
       "kind": "harness_profile_fragment",
       "tool_family": "generic",

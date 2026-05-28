@@ -186,14 +186,14 @@ func TestPluginUninstallRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPluginGeminiSkipsMarketplace(t *testing.T) {
+func TestPluginAgySkipsMarketplace(t *testing.T) {
 	target := t.TempDir()
-	result, err := InstallPlugin(PluginsParams{Target: target, Profile: "gemini", Scope: "project", Namespace: "striatum", WithMarketplace: true, Version: "1.0.0"})
+	result, err := InstallPlugin(PluginsParams{Target: target, Profile: "agy", Scope: "project", Namespace: "striatum", WithMarketplace: true, Version: "1.0.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.Marketplace["skipped"] != true {
-		t.Fatalf("gemini marketplace not skipped: %+v", result.Marketplace)
+		t.Fatalf("agy marketplace not skipped: %+v", result.Marketplace)
 	}
 }
 

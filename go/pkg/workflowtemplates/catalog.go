@@ -23,9 +23,7 @@ var harnessProfileToolFamilies = map[string]struct{}{
 	"generic":     {},
 	"codex":       {},
 	"claude_code": {},
-	"gemini_cli":  {},
 	"agy":         {},
-	"antigravity": {},
 }
 
 var multiPhaseShapeEntry = map[string]any{

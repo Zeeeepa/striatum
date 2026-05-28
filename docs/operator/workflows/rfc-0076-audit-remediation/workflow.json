@@ -71,22 +71,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-22",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -146,7 +130,7 @@
       "type": "synthesis",
       "title": "Verify docs and status remediations",
       "role_id": "docs_verifier",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "verification",
       "fresh_session_required": true,
       "objective": "Verify REM-003 through REM-010 against current docs, RFC status, roadmap, and operator guidance. Do not edit docs in this job.",
@@ -244,7 +228,7 @@
       "type": "synthesis",
       "title": "Write remediation closure",
       "role_id": "closer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Publish a closure artifact mapping every REM id to closed, deferred, no-action, or follow-up work, with validation evidence and links.",
       "task_prompt": {
