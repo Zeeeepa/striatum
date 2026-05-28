@@ -6,9 +6,9 @@ author: implementer-claude-opus-001
 
 This guide covers the contributor-side TypeScript toolchain that ships
 the Striatum web UI's React island components. It complements
-[`docs/SPEC.md`](SPEC.md) (architecture and product boundary),
-[`docs/HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) (operator walkthroughs), and
-[`docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md`](rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md)
+[`docs/reference/spec.md`](../reference/spec.md) (architecture and product boundary),
+[`docs/how-to/how-to-human.md`](how-to-human.md) (operator walkthroughs), and
+[`docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md`](../rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md)
 (the RFC that introduced this surface).
 
 Operators do not need Node installed. Operators install Striatum from
@@ -251,12 +251,12 @@ supply-chain control.
 
 ## See also
 
-- [`docs/SPEC.md`](SPEC.md) — frontend toolchain section (codex).
-- [`docs/UBIQUITOUS_LANGUAGE.md`](UBIQUITOUS_LANGUAGE.md) — frontend
+- [`docs/reference/spec.md`](../reference/spec.md) — frontend toolchain section (codex).
+- [`docs/reference/ubiquitous-language.md`](../reference/ubiquitous-language.md) — frontend
   island vocabulary.
-- [`docs/HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) — `/view/`, `/workflows/new`,
+- [`docs/how-to/how-to-human.md`](how-to-human.md) — `/view/`, `/workflows/new`,
   graph editor, code viewer walkthroughs.
-- [`docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md`](rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md)
+- [`docs/rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md`](../rfcs/0038-web-ui-feature-additions-and-frontend-toolchain.md)
   — the RFC.
-- [`docs/dogfood/041/DESIGN_SYNTHESIS.md`](dogfood/041/DESIGN_SYNTHESIS.md)
+- [`docs/dogfood/041/DESIGN_SYNTHESIS.md`](../dogfood/041/DESIGN_SYNTHESIS.md)
   — the accepted synthesis.

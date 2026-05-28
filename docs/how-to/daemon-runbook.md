@@ -4,7 +4,7 @@ Operator reference for the Striatum Go daemon (`striatumd`): install,
 lifecycle, runtime layout, the Postgres DSN, logs, and troubleshooting.
 Formalized by [RFC 0079](../rfcs/0079-go-only-operability-and-install.md);
 the Postgres bootstrap details live in
-[POSTGRES_TRANSITION.md](../POSTGRES_TRANSITION.md).
+[postgres-transition.md](postgres-transition.md).
 
 Striatum is Go-only (RFC 0078). The daemon is a hard prerequisite for every
 Striatum verb; there is no `--no-daemon` mode.
@@ -94,7 +94,7 @@ postgres_url = "postgres://striatum@localhost:5432/striatum?sslmode=disable"
 ```
 
 Provisioning the Postgres role and database is out of scope for `daemon
-install`; see [POSTGRES_TRANSITION.md](../POSTGRES_TRANSITION.md) for the
+install`; see [postgres-transition.md](postgres-transition.md) for the
 role/grant runbook and `striatum doctor`'s repair guidance.
 
 ## Logs
@@ -118,7 +118,7 @@ In the foreground recipe the daemon logs to stderr.
   `systemctl --user restart striatumd`.
 - **`repo_not_migrated` (exit 12).** The target repo isn't registered with
   the daemon. Run `striatum repo add <path> --init` (see
-  [POSTGRES_TRANSITION.md](../POSTGRES_TRANSITION.md)).
+  [postgres-transition.md](postgres-transition.md)).
 - **Socket / token mismatch.** A stale `client-token` from a prior daemon can
   cause auth failures. Stop the daemon, remove the runtime directory contents
   (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`), and restart; the

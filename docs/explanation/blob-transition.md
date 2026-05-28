@@ -2,7 +2,7 @@
 
 Status: V1 shipped, operator migration pending
 Date: 2026-05-18
-Context: [RFC 0072](rfcs/0072-blob-backed-artifact-storage.md), [POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md)
+Context: [RFC 0072](../rfcs/0072-blob-backed-artifact-storage.md), [postgres-transition.md](../how-to/postgres-transition.md)
 
 This runbook walks the maintainer through transitioning a striatum
 deployment to blob-backed artifact storage. The infrastructure

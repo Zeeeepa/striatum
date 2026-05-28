@@ -232,7 +232,7 @@ reachable daemon, the verbs above refuse with exit code 11
 (`daemon_unreachable`); against a pre-D094 SQLite-only repo they
 refuse with exit code 12 (`repo_not_migrated`) and tell you to
 archive/remove legacy SQLite files before registering. See
-[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the current
+[postgres-transition.md](postgres-transition.md) for the current
 PostgreSQL bootstrap runbook.
 
 To also drop a self-contained agent skill bundle that teaches a
@@ -853,7 +853,7 @@ events — into the same daemon-owned Postgres under a
 Striatum verb; the V1 `--no-daemon` direct-CLI path is retired and
 parsing the flag returns the standard argparse "unrecognized
 arguments" error. See
-[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+[postgres-transition.md](postgres-transition.md) for the full
 runbook.
 
 The operator provides PostgreSQL. Striatum connects through
@@ -881,7 +881,7 @@ CLI verbs against an unregistered repo refuse with exit code 12
 (`repo_not_migrated`) and tell the operator to archive/remove legacy SQLite
 files before registering; CLI verbs without a reachable daemon refuse with
 exit code 11 (`daemon_unreachable`). See
-[POSTGRES_TRANSITION.md](POSTGRES_TRANSITION.md) for the full
+[postgres-transition.md](postgres-transition.md) for the full
 runbook and rollback notes.
 
 RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on

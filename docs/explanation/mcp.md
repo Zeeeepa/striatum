@@ -26,7 +26,7 @@ $STRIATUM_DAEMON_RUNTIME_DIR/mcp-http-endpoint
 ```
 
 If `STRIATUM_DAEMON_RUNTIME_DIR` is unset, the runtime directory follows the
-same daemon token/socket rules documented in `docs/POSTGRES_TRANSITION.md`.
+same daemon token/socket rules documented in `docs/how-to/postgres-transition.md`.
 The file contains a single URL such as:
 
 ```text

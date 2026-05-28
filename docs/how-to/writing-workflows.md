@@ -6,9 +6,9 @@ workflow generate`**; hand-editing and visual editing are alternate
 paths for advanced cases.
 
 For the AI-operator commands that consume a workflow, see
-[HOW_TO_AGENT.md](HOW_TO_AGENT.md). For human-principal
-escalations, see [HOW_TO_HUMAN.md](HOW_TO_HUMAN.md). For the workflow
-families and graph shapes, see [WORKFLOW_TYPES.md](WORKFLOW_TYPES.md).
+[how-to-agent.md](how-to-agent.md). For human-principal
+escalations, see [how-to-human.md](how-to-human.md). For the workflow
+families and graph shapes, see [workflow-types.md](../reference/workflow-types.md).
 
 ## The primary path: `striatum workflow generate`
 
@@ -426,4 +426,4 @@ striatum --repo . workflow graph examples/code-change-flow/workflow.json --forma
 ```
 
 For state-annotated graphs of a *running* run, see
-[HOW_TO_HUMAN.md § "Dashboards and graphs"](HOW_TO_HUMAN.md#dashboards-and-graphs).
+[how-to-human.md § "Dashboards and graphs"](how-to-human.md#dashboards-and-graphs).
