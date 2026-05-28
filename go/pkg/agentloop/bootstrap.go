@@ -59,7 +59,13 @@ func AgentEnvironment(base []string, ctx BootstrapContext) []string {
 	if ctx.SocketPath != "" {
 		updates[EnvDaemonSocket] = ctx.SocketPath
 	}
-	if ctx.Token.Token != "" && (ctx.Token.Source == "" || ctx.Token.Source == EnvMCPToken) {
+	// Always give the literal token via STRIATUM_MCP_TOKEN when we have it —
+	// codex reads the bearer from this env var (its config says
+	// `bearer_token_env_var = "STRIATUM_MCP_TOKEN"`) and gets nothing if only
+	// the file pointer is set. The file pointer is still exposed for adapters
+	// that prefer to read the token from a 0600 file (claude's plugin config
+	// can reference it).
+	if ctx.Token.Token != "" {
 		updates[EnvMCPToken] = ctx.Token.Token
 	}
 	if ctx.Token.Source != "" && ctx.Token.Source != EnvMCPToken {
