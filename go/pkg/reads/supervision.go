@@ -702,7 +702,6 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 	delete(view, metadataKey)
 	if mode := superviseString(metadata["agent_loop_mode"]); mode != "" {
 		view["agent_loop_mode"] = mode
-		view["turn_driver"] = mode == "turn_driver"
 	}
 	if tmux := tmuxMetadata(metadata); tmux != nil {
 		view["tmux"] = tmux

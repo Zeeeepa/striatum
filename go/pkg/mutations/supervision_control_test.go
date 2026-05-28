@@ -134,57 +134,6 @@ func TestSuperviseStartPropagatesRequireTmuxFromLaneSupervision(t *testing.T) {
 	}
 }
 
-func TestSuperviseStartWrapsSingleShotLaneInTurnDriver(t *testing.T) {
-	origMkfifo := supervisionMkfifo
-	origLaunch := supervisionLaunch
-	defer func() {
-		supervisionMkfifo = origMkfifo
-		supervisionLaunch = origLaunch
-	}()
-	t.Setenv("STRIATUM_AGENT_LOOP_BINARY", "/bin/striatumd")
-	supervisionMkfifo = func(path string) error {
-		return os.WriteFile(path, nil, 0o600)
-	}
-	var launchedConfig supervisionStartConfig
-	supervisionLaunch = func(_ context.Context, config supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
-		launchedConfig = config
-		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
-	}
-
-	runner := &superviseControlFakeRunner{
-		repoRoot: t.TempDir(),
-		workflowLane: map[string]any{
-			"adapter_capabilities": map[string]any{"single_shot": true},
-		},
-		txs: []*superviseControlFakeTx{{}, {}},
-	}
-	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
-		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "req_start_turn_driver",
-		Method:        "supervise.start",
-		Params: map[string]any{
-			"repository_id": "repo_1",
-			"session_id":    "sess_1",
-		},
-	})
-	if err != nil {
-		t.Fatalf("HandleSuperviseStart: %v", err)
-	}
-	want := []string{"/bin/striatumd", "-agent-loop", "-turn-driver", "--", "/bin/cat"}
-	if strings.Join(launchedConfig.Command, "\x00") != strings.Join(want, "\x00") {
-		t.Fatalf("launched command = %#v, want %#v", launchedConfig.Command, want)
-	}
-	if launchedConfig.AgentLoopMode != agentLoopModeTurnDriver || result["agent_loop_mode"] != agentLoopModeTurnDriver || result["turn_driver"] != true {
-		t.Fatalf("turn-driver mode not surfaced: config=%#v result=%#v", launchedConfig.AgentLoopMode, result)
-	}
-	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/cat" {
-		t.Fatalf("original command = %#v", launchedConfig.OriginalCommand)
-	}
-	if launchedConfig.RepositoryID != "repo_1" {
-		t.Fatalf("repository id = %q", launchedConfig.RepositoryID)
-	}
-}
-
 func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	origMkfifo := supervisionMkfifo
 	origLaunch := supervisionLaunch
@@ -225,7 +174,7 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	if strings.Join(launchedConfig.Command, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("launched command = %#v, want %#v", launchedConfig.Command, want)
 	}
-	if launchedConfig.AgentLoopMode != agentLoopModeSelfDriving || result["turn_driver"] != false {
+	if launchedConfig.AgentLoopMode != agentLoopModeSelfDriving || result["agent_loop_mode"] != agentLoopModeSelfDriving {
 		t.Fatalf("self-driving agent-loop mode not surfaced: config=%#v result=%#v", launchedConfig.AgentLoopMode, result)
 	}
 	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/cat" {

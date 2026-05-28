@@ -28,7 +28,6 @@ const (
 	stdinDeliveryOneShotEOF     = "one_shot_eof"
 
 	agentLoopModeSelfDriving = "self_driving"
-	agentLoopModeTurnDriver  = "turn_driver"
 )
 
 type supervisionStartConfig struct {
@@ -228,7 +227,6 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"stdin_delivery":       config.StdinDelivery,
 		"require_tmux":         config.RequireTmux,
 		"agent_loop_mode":      config.AgentLoopMode,
-		"turn_driver":          config.AgentLoopMode == agentLoopModeTurnDriver,
 		"helper_process":       helperProcessPayload(config.Transport, launch.HelperPID, launch.HelperPIDStartTime, eventPath),
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
@@ -436,13 +434,7 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	}
 	config.OriginalCommand = append([]string(nil), command...)
 	config.AgentLoopMode = agentLoopModeSelfDriving
-	if laneUsesTurnDriver(lane) {
-		command, err = turnDriverAgentLoopCommand(command)
-		if err != nil {
-			return config, err
-		}
-		config.AgentLoopMode = agentLoopModeTurnDriver
-	} else if laneUsesAgentLoop(lane) {
+	if laneUsesAgentLoop(lane) {
 		// RFC 0088: wrap the raw lane command in `striatumd -agent-loop -- …`
 		// so the agent-loop executor delivers the bootstrap prompt and submits
 		// it over a PTY (interactive lanes), instead of launching the bare
@@ -493,10 +485,6 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		"stdin_delivery":     config.StdinDelivery,
 		"require_tmux":       config.RequireTmux,
 		"agent_loop_mode":    config.AgentLoopMode,
-	}
-	if config.AgentLoopMode == agentLoopModeTurnDriver {
-		metadata["turn_driver"] = true
-		metadata["content_generator_command"] = config.OriginalCommand
 	}
 	if config.Transport == supervisionTransportPTYHelper {
 		metadata["helper_events_path"] = eventPath
@@ -1308,23 +1296,6 @@ func commandArray(lane map[string]any) ([]string, error) {
 	return command, nil
 }
 
-func laneUsesTurnDriver(lane map[string]any) bool {
-	if value, ok := boolLaneValue(lane, "single_shot"); ok && value {
-		return true
-	}
-	if value, ok := boolLaneValue(lane, "self_driving"); ok {
-		return !value
-	}
-	capabilities := asMap(lane["adapter_capabilities"])
-	if value, ok := boolLaneValue(capabilities, "single_shot"); ok && value {
-		return true
-	}
-	if value, ok := boolLaneValue(capabilities, "self_driving"); ok {
-		return !value
-	}
-	return false
-}
-
 func boolLaneValue(values map[string]any, key string) (bool, bool) {
 	value, exists := values[key]
 	if !exists {
@@ -1363,7 +1334,7 @@ func laneUsesAgentLoop(lane map[string]any) bool {
 }
 
 // selfDrivingAgentLoopCommand wraps a raw lane command in the agent-loop
-// executor without the turn-driver flag, mirroring turnDriverAgentLoopCommand.
+// executor so the daemon-owned PTY session delivers the bootstrap prompt.
 func selfDrivingAgentLoopCommand(command []string) ([]string, error) {
 	if len(command) == 0 {
 		return nil, rpc.NewError("invalid_transition", "self-driving lane command must be non-empty", nil)
@@ -1400,23 +1371,6 @@ func resolveSupervisedCommandBinary(command []string) []string {
 	return command
 }
 
-func turnDriverAgentLoopCommand(command []string) ([]string, error) {
-	if len(command) == 0 {
-		return nil, rpc.NewError("invalid_transition", "turn-driver content generator command must be non-empty", nil)
-	}
-	if idx := agentLoopFlagIndex(command); idx >= 0 {
-		if hasCommandFlag(command, "-turn-driver") {
-			return append([]string(nil), command...), nil
-		}
-		out := make([]string, 0, len(command)+1)
-		out = append(out, command[:idx+1]...)
-		out = append(out, "-turn-driver")
-		out = append(out, command[idx+1:]...)
-		return out, nil
-	}
-	return append([]string{agentLoopExecutable(), "-agent-loop", "-turn-driver", "--"}, command...), nil
-}
-
 func agentLoopFlagIndex(command []string) int {
 	limit := len(command)
 	if limit > 4 {
@@ -1428,15 +1382,6 @@ func agentLoopFlagIndex(command []string) int {
 		}
 	}
 	return -1
-}
-
-func hasCommandFlag(command []string, flag string) bool {
-	for _, part := range command {
-		if part == flag || part == "--"+strings.TrimPrefix(flag, "-") {
-			return true
-		}
-	}
-	return false
 }
 
 func agentLoopExecutable() string {
