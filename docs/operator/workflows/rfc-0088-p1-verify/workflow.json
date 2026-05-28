@@ -20,7 +20,8 @@
         "claude",
         "--model",
         "opus",
-        "--dangerously-skip-permissions"
+        "--permission-mode",
+        "bypassPermissions"
       ],
       "adapter_capabilities": {
         "agent_loop": true

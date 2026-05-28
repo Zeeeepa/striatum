@@ -114,15 +114,24 @@ The submit needed a **separate keystroke after a delay** (concatenating CR to
 the prompt is absorbed into the multi-line input); see `agentLoopSubmitDelay`
 (default 750ms, `STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS`).
 
-**Open P1 follow-ups found during verification:**
-1. **claude bypass-consent dialog.** claude's interactive startup can show a
-   one-time "Bypass Permissions mode" consent dialog (`1. No, exit / 2. Yes`);
-   the bootstrap Enter then selects "No, exit" and claude exits. Robust
-   interactive lanes must pre-accept this (seed claude config / lane prep) or
-   the submit driver must answer it. Adapter-specific lane-prep surface.
-2. **path.conf drop-in removal pending.** Fix C (argv0 resolution) is unit-
-   tested, but the end-to-end "remove the drop-in" check was confounded by
-   finding #1 (PATH-independent). Re-validate drop-in removal after #1.
+**Open P1 follow-ups status (updated 2026-05-28):**
+1. ~~**claude bypass-consent dialog.**~~ **CLOSED.** Use
+   `--permission-mode bypassPermissions` in the claude lane command instead
+   of `--dangerously-skip-permissions`. The declarative permission mode does
+   not trigger the one-time "Bypass Permissions" consent dialog that the
+   `--dangerously-skip-permissions` startup gate shows (which would otherwise
+   eat the bootstrap Enter as "1. No, exit"). The verify workflow uses this
+   form; recommend it as the standard claude `agent_loop` lane command shape.
+   Live-verified end-to-end (job completed, lane byline published).
+2. **path.conf drop-in removal still pending.** With consent unconfounded,
+   removing the drop-in still causes the agent-loop child to exit immediately
+   for a reason the daemon journal doesn't capture (agent-loop stderr is
+   `DEVNULL`). Fix C resolves the OUTER argv0 (striatumd is already
+   absolute); the INNER `claude` is resolved inside `agentloop.Run` against
+   the agent-loop process's env PATH — `supervisedEnv` should provide it,
+   but the lane still dies. Needs a focused diagnose pass that captures
+   agent-loop stderr (e.g., a per-supervisor stderr file) to surface the
+   actual error. The operator `path.conf` drop-in stays for now; harmless.
 
 ## Verification
 
