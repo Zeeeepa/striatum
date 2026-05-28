@@ -869,7 +869,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		return supervisionLaunchResult{}, err
 	}
 	defer stdout.Close()
-	stderr, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	stderr, err := openSupervisedStderr()
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
@@ -923,7 +923,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	cmd := exec.CommandContext(ctx, helper)
 	cmd.Dir = config.RepoRoot
 	cmd.Stdout = eventFile
-	stderr, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	stderr, err := openSupervisedStderr()
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
@@ -1570,6 +1570,17 @@ func mergeEnvReplacing(base []string, updates []string) []string {
 		out = append(out, entry)
 	}
 	return append(out, updates...)
+}
+
+// openSupervisedStderr returns the stderr sink for a supervised lane: by
+// default /dev/null (D028 no-capture), but if STRIATUM_SUPERVISED_STDERR_LOG
+// is set, it's appended to that path. Used to surface agent-loop / lane
+// failures that would otherwise be silent — debug only.
+func openSupervisedStderr() (*os.File, error) {
+	if path := strings.TrimSpace(os.Getenv("STRIATUM_SUPERVISED_STDERR_LOG")); path != "" {
+		return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	}
+	return os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 }
 
 func supervisedPath() string {

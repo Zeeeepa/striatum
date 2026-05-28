@@ -123,15 +123,26 @@ the prompt is absorbed into the multi-line input); see `agentLoopSubmitDelay`
    eat the bootstrap Enter as "1. No, exit"). The verify workflow uses this
    form; recommend it as the standard claude `agent_loop` lane command shape.
    Live-verified end-to-end (job completed, lane byline published).
-2. **path.conf drop-in removal still pending.** With consent unconfounded,
-   removing the drop-in still causes the agent-loop child to exit immediately
-   for a reason the daemon journal doesn't capture (agent-loop stderr is
-   `DEVNULL`). Fix C resolves the OUTER argv0 (striatumd is already
-   absolute); the INNER `claude` is resolved inside `agentloop.Run` against
-   the agent-loop process's env PATH — `supervisedEnv` should provide it,
-   but the lane still dies. Needs a focused diagnose pass that captures
-   agent-loop stderr (e.g., a per-supervisor stderr file) to surface the
-   actual error. The operator `path.conf` drop-in stays for now; harmless.
+2. ~~**path.conf drop-in removal pending.**~~ **CLOSED as won't-remove**
+   (2026-05-28). Diagnose pass added `STRIATUM_SUPERVISED_STDERR_LOG` (env-
+   gated stderr capture, default still `/dev/null` per D028) and reran without
+   the drop-in: the failure is **not a PATH issue**. The agent-loop launches,
+   resolves `claude`, and execs it — claude itself exits with `exit status 1`
+   after showing the **"Bypass Permissions" consent dialog** (the same gate
+   `--dangerously-skip-permissions` triggers). The dialog's default selection
+   is "1. No, exit", so the bootstrap Enter exits claude. The dialog reappears
+   for `--permission-mode bypassPermissions` non-deterministically; `--bare`
+   skips the dialog but requires `ANTHROPIC_API_KEY` (we use OAuth/keychain);
+   no `hasAcknowledgedBypassPermissions`-style key exists in `~/.claude.json`
+   to pre-seed. Empirically, **with `path.conf` present the dialog does not
+   appear**; mechanism unknown (likely PATH order or some indirect env effect
+   on claude's startup gating). **The `path.conf` drop-in stays** as a load-
+   bearing piece of the robust lane setup, *not* a F44 regression workaround.
+   Fix C remains valid (argv0 resolution for raw lanes; unit-tested) for
+   defense in depth. A robust universal fix would mean teaching the submit
+   driver to detect+answer the dialog before the bootstrap (write "2\r" only
+   when the dialog screen is seen on the PTY) — adapter-specific friction.
+   Deferred until the per-adapter submit driver (P2/P3) anyway.
 
 ## Verification
 
