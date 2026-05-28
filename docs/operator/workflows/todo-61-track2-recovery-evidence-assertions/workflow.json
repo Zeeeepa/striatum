@@ -67,22 +67,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-21",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -174,7 +158,7 @@
       "type": "review",
       "title": "Recovery evidence assertion regression review",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "parallel_group": "recovery_evidence_assertion_review",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",

@@ -9,12 +9,12 @@ const skillsManifestSchema = "striatum.skills.manifest.v1"
 
 // SkillsAllProfilesOrder mirrors striatum.skills.install.ALL_PROFILES_ORDER:
 // the stable fan-out order for `--profile all`.
-var SkillsAllProfilesOrder = []string{"claude_code", "codex", "gemini", "generic"}
+var SkillsAllProfilesOrder = []string{"claude_code", "agy", "codex", "generic"}
 
 var skillsAllowedProfiles = map[string]bool{
 	"claude_code": true,
+	"agy":         true,
 	"codex":       true,
-	"gemini":      true,
 	"generic":     true,
 }
 
@@ -55,7 +55,7 @@ type SkillsAllResult struct {
 // InstallSkills renders the skill bundle for a single profile.
 func InstallSkills(p SkillsParams) (SkillsResult, error) {
 	if !skillsAllowedProfiles[p.Profile] {
-		return SkillsResult{}, fmt.Errorf("unknown skills profile %q; expected one of: claude_code, codex, gemini, generic", p.Profile)
+		return SkillsResult{}, fmt.Errorf("unknown skills profile %q; expected one of: claude_code, agy, codex, generic", p.Profile)
 	}
 	if p.Scope != "project" && p.Scope != "user" {
 		return SkillsResult{}, fmt.Errorf("unknown skills scope %q; expected one of: project, user", p.Scope)
@@ -115,12 +115,17 @@ func skillsPlan(profile, namespace string, ctx renderContext) ([]planEntry, erro
 		return skillsSkillPlan(namespace, ctx, func(skill string) string {
 			return fmt.Sprintf(".claude/skills/%s%s/SKILL.md", namespace, skill)
 		})
+	case "agy":
+		// agy reuses the claude_code skill template bodies wholesale (RFC 0088
+		// Decision 4 — "agy plugin import claude" works wholesale). Only the
+		// destination differs: agy stores skills under .agy/.
+		return skillsSkillPlan(namespace, ctx, func(skill string) string {
+			return fmt.Sprintf(".agy/skills/%s%s/SKILL.md", namespace, skill)
+		})
 	case "codex":
 		return skillsSkillPlan(namespace, ctx, func(skill string) string {
 			return fmt.Sprintf(".codex/agents/%s%s.md", namespace, skill)
 		})
-	case "gemini":
-		return skillsSingle("gemini/STRIATUM_GEMINI_GUIDE.md.tmpl", namespace+"STRIATUM_GEMINI_GUIDE.md", ctx)
 	case "generic":
 		return skillsSingle("generic/STRIATUM_AGENT_GUIDE.md.tmpl", namespace+"STRIATUM_AGENT_GUIDE.md", ctx)
 	}
@@ -171,10 +176,10 @@ func skillsManifestPath(root, profile, namespace string) string {
 	switch profile {
 	case "claude_code":
 		return filepath.Join(root, ".claude", "skills", namespace+"workflow", ".manifest.json")
+	case "agy":
+		return filepath.Join(root, ".agy", "skills", namespace+"workflow", ".manifest.json")
 	case "codex":
 		return filepath.Join(root, ".codex", "agents", namespace+"workflow.manifest.json")
-	case "gemini":
-		return filepath.Join(root, namespace+"STRIATUM_GEMINI_GUIDE.manifest.json")
 	case "generic":
 		return filepath.Join(root, namespace+"STRIATUM_AGENT_GUIDE.manifest.json")
 	}

@@ -36,14 +36,16 @@ func TestAgentEnvironmentDoesNotInventRepositoryIDFromRepoRoot(t *testing.T) {
 	}
 }
 
-func TestAgentEnvironmentPrefersTokenFileOverPlaintextTokenEnv(t *testing.T) {
+func TestAgentEnvironmentExposesLiteralTokenAndFilePointer(t *testing.T) {
+	// RFC 0088 P3: both STRIATUM_MCP_TOKEN (literal) and STRIATUM_MCP_TOKEN_FILE
+	// (pointer) must be set when we have a token loaded from a file. Codex
+	// reads bearer from the literal env var; claude can use either. Setting
+	// both is the only shape that lets every adapter authenticate.
 	env := AgentEnvironment(nil, BootstrapContext{
 		Endpoint: "http://127.0.0.1:1234/mcp/sse",
 		Token:    TokenMaterial{Token: "tok", Source: "/runtime/client-token"},
 	})
-	if value, ok := envLookup(env, EnvMCPToken); ok {
-		t.Fatalf("%s = %q, want unset when token file is available", EnvMCPToken, value)
-	}
+	assertEnvValue(t, env, EnvMCPToken, "tok")
 	assertEnvValue(t, env, EnvMCPTokenFile, "/runtime/client-token")
 }
 

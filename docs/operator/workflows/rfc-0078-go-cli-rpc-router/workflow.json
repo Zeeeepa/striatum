@@ -48,7 +48,11 @@
   "lanes": {
     "codex": {
       "adapter": "process",
-      "command": ["bash", "-lc", "cat >/dev/null"],
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null"
+      ],
       "model": "codex",
       "display_model": "Codex GPT-5.5",
       "strategy_version": "2026-05-25",
@@ -65,26 +69,13 @@
     },
     "claude_code": {
       "adapter": "process",
-      "command": ["bash", "-lc", "cat >/dev/null"],
+      "command": [
+        "bash",
+        "-lc",
+        "cat >/dev/null"
+      ],
       "model": "claude_code",
       "display_model": "Claude Code",
-      "strategy_version": "2026-05-25",
-      "constraints": {
-        "network": "forbidden",
-        "repo_scope": "local_only",
-        "transcripts": "off"
-      },
-      "required_enforcement": {
-        "network": "advisory_strict",
-        "repo_scope": "advisory_strict",
-        "transcripts": "enforced"
-      }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": ["bash", "-lc", "cat >/dev/null"],
-      "model": "gemini",
-      "display_model": "Gemini",
       "strategy_version": "2026-05-25",
       "constraints": {
         "network": "forbidden",
@@ -148,7 +139,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/inventory/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -185,7 +180,11 @@
           "go/pkg/cli/routestest/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/routes/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -220,7 +219,11 @@
           "go/pkg/cli/rpcclient/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/transport/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -255,7 +258,11 @@
           "go/pkg/cli/readparams/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/read-params/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -290,7 +297,11 @@
           "go/pkg/cli/mutationparams/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/mutation-params/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -325,7 +336,11 @@
           "go/pkg/cli/localcommands/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/local-boundary/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -360,7 +375,11 @@
           "go/pkg/cli/dispatch/",
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/build/integration/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -391,7 +410,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/authority/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -408,7 +431,7 @@
       "type": "review",
       "title": "Review route coverage",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "claude_code",
       "review_posture": "custom:contract_drift",
       "parallel_group": "router_review",
       "fresh_session_required": true,
@@ -422,7 +445,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/coverage/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -453,7 +480,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/review/ergonomics/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -482,7 +513,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/validation/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -511,7 +546,11 @@
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-go-cli-rpc-router/final/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -525,24 +564,96 @@
     }
   ],
   "edges": [
-    {"from": "inventory_router_contract", "to": "build_generated_route_metadata", "on": "completed"},
-    {"from": "inventory_router_contract", "to": "build_cli_rpc_transport", "on": "completed"},
-    {"from": "inventory_router_contract", "to": "build_read_param_adapters", "on": "completed"},
-    {"from": "inventory_router_contract", "to": "build_mutation_param_adapters", "on": "completed"},
-    {"from": "inventory_router_contract", "to": "preserve_local_command_boundary", "on": "completed"},
-    {"from": "build_generated_route_metadata", "to": "integrate_go_cli_dispatch", "on": "completed"},
-    {"from": "build_cli_rpc_transport", "to": "integrate_go_cli_dispatch", "on": "completed"},
-    {"from": "build_read_param_adapters", "to": "integrate_go_cli_dispatch", "on": "completed"},
-    {"from": "build_mutation_param_adapters", "to": "integrate_go_cli_dispatch", "on": "completed"},
-    {"from": "preserve_local_command_boundary", "to": "integrate_go_cli_dispatch", "on": "completed"},
-    {"from": "integrate_go_cli_dispatch", "to": "review_authority_boundary", "on": "completed"},
-    {"from": "integrate_go_cli_dispatch", "to": "review_route_coverage", "on": "completed"},
-    {"from": "integrate_go_cli_dispatch", "to": "review_operator_ergonomics", "on": "completed"},
-    {"from": "integrate_go_cli_dispatch", "to": "validate_router_gate", "on": "completed"},
-    {"from": "review_authority_boundary", "to": "finalize_router_gate", "on": "completed"},
-    {"from": "review_route_coverage", "to": "finalize_router_gate", "on": "completed"},
-    {"from": "review_operator_ergonomics", "to": "finalize_router_gate", "on": "completed"},
-    {"from": "validate_router_gate", "to": "finalize_router_gate", "on": "completed"}
+    {
+      "from": "inventory_router_contract",
+      "to": "build_generated_route_metadata",
+      "on": "completed"
+    },
+    {
+      "from": "inventory_router_contract",
+      "to": "build_cli_rpc_transport",
+      "on": "completed"
+    },
+    {
+      "from": "inventory_router_contract",
+      "to": "build_read_param_adapters",
+      "on": "completed"
+    },
+    {
+      "from": "inventory_router_contract",
+      "to": "build_mutation_param_adapters",
+      "on": "completed"
+    },
+    {
+      "from": "inventory_router_contract",
+      "to": "preserve_local_command_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "build_generated_route_metadata",
+      "to": "integrate_go_cli_dispatch",
+      "on": "completed"
+    },
+    {
+      "from": "build_cli_rpc_transport",
+      "to": "integrate_go_cli_dispatch",
+      "on": "completed"
+    },
+    {
+      "from": "build_read_param_adapters",
+      "to": "integrate_go_cli_dispatch",
+      "on": "completed"
+    },
+    {
+      "from": "build_mutation_param_adapters",
+      "to": "integrate_go_cli_dispatch",
+      "on": "completed"
+    },
+    {
+      "from": "preserve_local_command_boundary",
+      "to": "integrate_go_cli_dispatch",
+      "on": "completed"
+    },
+    {
+      "from": "integrate_go_cli_dispatch",
+      "to": "review_authority_boundary",
+      "on": "completed"
+    },
+    {
+      "from": "integrate_go_cli_dispatch",
+      "to": "review_route_coverage",
+      "on": "completed"
+    },
+    {
+      "from": "integrate_go_cli_dispatch",
+      "to": "review_operator_ergonomics",
+      "on": "completed"
+    },
+    {
+      "from": "integrate_go_cli_dispatch",
+      "to": "validate_router_gate",
+      "on": "completed"
+    },
+    {
+      "from": "review_authority_boundary",
+      "to": "finalize_router_gate",
+      "on": "completed"
+    },
+    {
+      "from": "review_route_coverage",
+      "to": "finalize_router_gate",
+      "on": "completed"
+    },
+    {
+      "from": "review_operator_ergonomics",
+      "to": "finalize_router_gate",
+      "on": "completed"
+    },
+    {
+      "from": "validate_router_gate",
+      "to": "finalize_router_gate",
+      "on": "completed"
+    }
   ],
   "cycles": []
 }

@@ -19,10 +19,10 @@
       "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
       "capabilities": ["write", "review", "synthesis"]
     },
-    "gemini": {
+    "agy": {
       "adapter": "process",
-      "display_model": "Gemini Pro 3.1",
-      "command": ["gemini", "--model", "gemini-3.1-pro-preview"],
+      "display_model": "Antigravity",
+      "command": ["agy", "--print"],
       "capabilities": ["review"]
     },
     "claude": {
@@ -104,7 +104,7 @@
       "type": "review",
       "title": "Review RFC ledger draft with Gemini",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "agy",
       "parallel_group": "reviews",
       "fresh_session_required": true,
       "objective": "Review the draft for broad process and privacy risks.",

@@ -40,12 +40,12 @@
         "synthesis"
       ]
     },
-    "gemini": {
+    "agy": {
       "adapter": "process",
-      "display_model": "Gemini (placeholder)",
+      "display_model": "Antigravity (placeholder)",
       "command": [
-        "gemini",
-        "-p"
+        "agy",
+        "--print"
       ],
       "capabilities": [
         "write",
@@ -149,7 +149,7 @@
       "type": "draft",
       "title": "Design (gemini lane)",
       "role_id": "designer",
-      "lane_id": "gemini",
+      "lane_id": "agy",
       "parallel_group": "design",
       "fresh_session_required": true,
       "objective": "Produce an independent design proposal for the operator-supplied task. Keep the design within the artifact root and do not coordinate with the other design lanes.",
@@ -280,7 +280,7 @@
       "type": "review",
       "title": "Design review gemini devils_advocate",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "agy",
       "parallel_group": "design_review",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
@@ -417,7 +417,7 @@
       "type": "review",
       "title": "Build review gemini devils_advocate",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "agy",
       "parallel_group": "build_review",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",

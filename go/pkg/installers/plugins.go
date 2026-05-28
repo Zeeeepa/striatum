@@ -11,12 +11,12 @@ import (
 const pluginsManifestSchema = "striatum.plugins.manifest.v1"
 
 // PluginsAllProfilesOrder mirrors plugins.install.ALL_PROFILES_ORDER.
-var PluginsAllProfilesOrder = []string{"claude_code", "codex", "gemini"}
+var PluginsAllProfilesOrder = []string{"claude_code", "agy", "codex"}
 
 var pluginsAllowedProfiles = map[string]bool{
 	"claude_code": true,
+	"agy":         true,
 	"codex":       true,
-	"gemini":      true,
 }
 
 var pluginProfileSkills = []string{"workflow", "scaffold", "claim-loop", "supervise", "recover", "mcp"}
@@ -50,7 +50,7 @@ type PluginsResult struct {
 // InstallPlugin renders the plugin bundle for a single profile.
 func InstallPlugin(p PluginsParams) (PluginsResult, error) {
 	if !pluginsAllowedProfiles[p.Profile] {
-		return PluginsResult{}, fmt.Errorf("unknown plugin profile %q; expected one of: claude_code, codex, gemini", p.Profile)
+		return PluginsResult{}, fmt.Errorf("unknown plugin profile %q; expected one of: claude_code, agy, codex", p.Profile)
 	}
 	if p.Scope != "project" && p.Scope != "user" {
 		return PluginsResult{}, fmt.Errorf("unknown plugin scope %q; expected one of: project, user", p.Scope)
@@ -83,8 +83,8 @@ func InstallPlugin(p PluginsParams) (PluginsResult, error) {
 
 	var marketplace map[string]any
 	if p.WithMarketplace && !p.DryRun && p.Scope == "project" {
-		if p.Profile == "gemini" {
-			marketplace = map[string]any{"skipped": true, "reason": "gemini has no marketplace concept"}
+		if p.Profile == "agy" {
+			marketplace = map[string]any{"skipped": true, "reason": "agy has no marketplace concept"}
 		} else {
 			target, err := filepath.Abs(p.Target)
 			if err != nil {
@@ -121,7 +121,7 @@ type PluginUninstallResult struct {
 // UninstallPlugin removes a previously installed bundle by reading its manifest.
 func UninstallPlugin(p PluginsParams) (PluginUninstallResult, error) {
 	if !pluginsAllowedProfiles[p.Profile] {
-		return PluginUninstallResult{}, fmt.Errorf("unknown plugin profile %q; expected one of: claude_code, codex, gemini", p.Profile)
+		return PluginUninstallResult{}, fmt.Errorf("unknown plugin profile %q; expected one of: claude_code, agy, codex", p.Profile)
 	}
 	bundleRoot, err := pluginBundleRoot(p.Target, p.Home, p.Profile, p.Scope, p.Namespace)
 	if err != nil {
@@ -182,10 +182,10 @@ func pluginBundleRoot(target, home, profile, scope, namespace string) (string, e
 		switch profile {
 		case "claude_code":
 			return filepath.Join(abs, ".claude", "plugins", namespace), nil
+		case "agy":
+			return filepath.Join(abs, ".agy", "plugins", namespace), nil
 		case "codex":
 			return filepath.Join(abs, ".codex", "plugins", namespace), nil
-		case "gemini":
-			return filepath.Join(abs, ".gemini", "extensions", namespace), nil
 		}
 		return "", fmt.Errorf("user-scope path undefined for profile %q", profile)
 	}
@@ -199,7 +199,11 @@ func pluginBundleRoot(target, home, profile, scope, namespace string) (string, e
 func pluginPlan(profile, namespace string, ctx renderContext) ([]planEntry, error) {
 	var specs []struct{ tmpl, out string }
 	switch profile {
-	case "claude_code":
+	case "claude_code", "agy":
+		// RFC 0088 Decision 4: agy is claude-shaped (`agy plugin import claude`
+		// works wholesale), so the agy installer reuses the claude_code template
+		// tree rather than authoring a parallel one. The bundle root differs
+		// (see pluginBundleRoot) but the in-bundle layout is identical.
 		specs = append(specs, entrySpec("claude_code/plugin.json.tmpl", ".claude-plugin/plugin.json"))
 		for _, skill := range pluginProfileSkills {
 			specs = append(specs, entrySpec(fmt.Sprintf("claude_code/skills/%s.md.tmpl", skill), fmt.Sprintf("skills/%s-%s/SKILL.md", namespace, skill)))
@@ -221,17 +225,6 @@ func pluginPlan(profile, namespace string, ctx renderContext) ([]planEntry, erro
 		specs = append(specs, entrySpec("codex/hooks/hooks.json.tmpl", "hooks/hooks.json"))
 		specs = append(specs, entrySpec("codex/mcp.json.tmpl", ".mcp.json"))
 		specs = append(specs, entrySpec("codex/README.md.tmpl", "README.md"))
-	case "gemini":
-		specs = append(specs, entrySpec("gemini/gemini-extension.json.tmpl", "gemini-extension.json"))
-		specs = append(specs, entrySpec("gemini/GEMINI.md.tmpl", "GEMINI.md"))
-		for _, skill := range pluginProfileSkills {
-			specs = append(specs, entrySpec(fmt.Sprintf("gemini/skills/%s.md.tmpl", skill), fmt.Sprintf("skills/%s-%s/SKILL.md", namespace, skill)))
-		}
-		for _, cmd := range pluginProfileCommands {
-			specs = append(specs, entrySpec(fmt.Sprintf("gemini/commands/%s.toml.tmpl", cmd), fmt.Sprintf("commands/%s.toml", cmd)))
-		}
-		specs = append(specs, entrySpec("gemini/agents/striatum-recover.md.tmpl", "agents/striatum-recover.md"))
-		specs = append(specs, entrySpec("gemini/README.md.tmpl", "README.md"))
 	default:
 		return nil, fmt.Errorf("unsupported profile %q", profile)
 	}

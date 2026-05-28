@@ -4,33 +4,104 @@
   "workflow_version": "2026-05-25",
   "name": "Agent-loop smoke test (codex+gemini)",
   "context_docs": [],
-  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
-  "parallelism": {"mode": "declared", "max_active_jobs": 2, "require_disjoint_write_scopes": true},
-  "branch": {"mode": "confirm", "suggested_name": "striatum/agentloop-smoke", "allow_dirty": true},
+  "coordinator": {
+    "role_id": "coordinator",
+    "lane_id": "codex"
+  },
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 2,
+    "require_disjoint_write_scopes": true
+  },
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/agentloop-smoke",
+    "allow_dirty": true
+  },
   "lanes": {
-    "codex": {"adapter": "process", "command": ["codex", "exec"], "model": "codex", "display_model": "Codex", "capabilities": ["write"]},
-    "gemini": {"adapter": "process", "command": ["gemini", "-p"], "model": "gemini", "display_model": "Gemini", "capabilities": ["write"]}
+    "codex": {
+      "adapter": "process",
+      "command": [
+        "codex",
+        "exec"
+      ],
+      "model": "codex",
+      "display_model": "Codex",
+      "capabilities": [
+        "write"
+      ]
+    }
   },
   "roles": {
-    "coordinator": {"description": "Operator coordinator."},
-    "implementer": {"description": "Builder lane under agent-loop validation."}
+    "coordinator": {
+      "description": "Operator coordinator."
+    },
+    "implementer": {
+      "description": "Builder lane under agent-loop validation."
+    }
   },
   "jobs": [
     {
-      "id": "build_codex", "type": "build", "title": "Smoke build (codex)", "role_id": "implementer", "lane_id": "codex",
-      "parallel_group": "smoke", "fresh_session_required": false,
+      "id": "build_codex",
+      "type": "build",
+      "title": "Smoke build (codex)",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "smoke",
+      "fresh_session_required": false,
       "objective": "Write a marker file proving the codex agent-loop completed a packet via MCP.",
-      "task_prompt": {"inline": "codex marker"},
-      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/smoke/codex/"], "forbidden_paths": [".striatum/"]},
-      "expected_artifacts": [{"logical_name": "marker_codex", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/codex/MARKER.md", "required": true}]
+      "task_prompt": {
+        "inline": "codex marker"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/codex/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "marker_codex",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/codex/MARKER.md",
+          "required": true
+        }
+      ]
     },
     {
-      "id": "build_gemini", "type": "build", "title": "Smoke build (gemini)", "role_id": "implementer", "lane_id": "gemini",
-      "parallel_group": "smoke", "fresh_session_required": false,
+      "id": "build_gemini",
+      "type": "build",
+      "title": "Smoke build (gemini)",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "parallel_group": "smoke",
+      "fresh_session_required": false,
       "objective": "Write a marker file proving the gemini agent-loop completed a packet via MCP.",
-      "task_prompt": {"inline": "gemini marker"},
-      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/interrogating-panel-2026-05-25/smoke/gemini/"], "forbidden_paths": [".striatum/"]},
-      "expected_artifacts": [{"logical_name": "marker_gemini", "kind": "handoff", "path": "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/gemini/MARKER.md", "required": true}]
+      "task_prompt": {
+        "inline": "gemini marker"
+      },
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/gemini/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "marker_gemini",
+          "kind": "handoff",
+          "path": "docs/operator/workflows/interrogating-panel-2026-05-25/smoke/gemini/MARKER.md",
+          "required": true
+        }
+      ]
     }
   ],
   "edges": [],

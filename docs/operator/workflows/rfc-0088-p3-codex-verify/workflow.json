@@ -1,0 +1,23 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0088-p3-codex-verify",
+  "workflow_version": "2026-05-28",
+  "name": "RFC 0088 P3 codex agent_loop live verify",
+  "branch": {"mode":"confirm","suggested_name":"striatum/rfc-0088-p3-codex-verify","allow_dirty":true},
+  "coordinator": {"role_id":"coordinator","lane_id":"codex"},
+  "lanes": {
+    "codex": {"adapter":"process","display_model":"Codex","command":["codex","--dangerously-bypass-approvals-and-sandbox"],"adapter_capabilities":{"agent_loop":true},"capabilities":["write"]}
+  },
+  "roles": {"coordinator":{"description":"operator host"},"writer":{"definition_path":"roles/writer.md"}},
+  "context_docs": [],
+  "parallelism": {"mode":"declared","max_active_jobs":1,"require_disjoint_write_scopes":true},
+  "jobs": [{
+    "id":"write","type":"draft","title":"Write codex verify note","role_id":"writer","lane_id":"codex","fresh_session_required":true,
+    "objective":"Write+publish the verify note, then complete.",
+    "task_prompt":{"path":"prompts/write.md"},
+    "write_scope":{"mode":"repo_write","repo_write":true,"allowed_paths":["docs/operator/workflows/rfc-0088-p3-codex-verify/artifacts/"],"forbidden_paths":[".striatum/"]},
+    "expected_artifacts":[{"logical_name":"verify_note","kind":"handoff","path":"docs/operator/workflows/rfc-0088-p3-codex-verify/artifacts/VERIFY.md","required":true}]
+  }],
+  "edges": [],
+  "cycles": []
+}

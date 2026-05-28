@@ -60,32 +60,6 @@
         "stdin_format": "newline_delimited_json",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-23",
-      "constraints": {
-        "network": "forbidden",
-        "repo_scope": "local_only",
-        "transcripts": "off"
-      },
-      "required_enforcement": {
-        "network": "advisory_strict",
-        "repo_scope": "advisory_strict",
-        "transcripts": "enforced"
-      },
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -177,7 +151,7 @@
       "type": "review",
       "title": "Review adapter boundary",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "reviewer_context_policy": "fresh",
       "reviewer_access_scope": "repo_level",

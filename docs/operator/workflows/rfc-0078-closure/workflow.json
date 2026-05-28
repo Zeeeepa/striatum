@@ -37,39 +37,67 @@
   "lanes": {
     "codex": {
       "adapter": "process",
-      "command": ["bash", "-lc", "striatum skills install --profile codex --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/codex-supervised-wrapper.sh"],
+      "command": [
+        "bash",
+        "-lc",
+        "striatum skills install --profile codex --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/codex-supervised-wrapper.sh"
+      ],
       "model": "codex",
       "display_model": "Codex GPT-5",
       "strategy_version": "2026-05-25",
-      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
-      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
-      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
     },
     "claude": {
       "adapter": "process",
-      "command": ["bash", "-lc", "striatum skills install --profile claude_code --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/claude-supervised-wrapper.sh"],
+      "command": [
+        "bash",
+        "-lc",
+        "striatum skills install --profile claude_code --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/claude-supervised-wrapper.sh"
+      ],
       "model": "claude",
       "display_model": "Claude",
       "strategy_version": "2026-05-25",
-      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
-      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
-      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": ["bash", "-lc", "striatum skills install --profile gemini --scope user --force --json >/dev/null 2>&1 || true; exec .striatum/bin/gemini-supervised-wrapper.sh"],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-25",
-      "constraints": {"network": "forbidden", "repo_scope": "local_only", "transcripts": "off"},
-      "required_enforcement": {"network": "advisory_strict", "repo_scope": "advisory_strict", "transcripts": "enforced"},
-      "supervision": {"compatible": true, "stdin_format": "newline_delimited_json", "wrapper_required": true}
+      "constraints": {
+        "network": "forbidden",
+        "repo_scope": "local_only",
+        "transcripts": "off"
+      },
+      "required_enforcement": {
+        "network": "advisory_strict",
+        "repo_scope": "advisory_strict",
+        "transcripts": "enforced"
+      },
+      "supervision": {
+        "compatible": true,
+        "stdin_format": "newline_delimited_json",
+        "wrapper_required": true
+      }
     }
   },
   "roles": {
-    "coordinator": {"description": "Operator/control-plane coordinator."},
-    "implementer": {"description": "RFC 0078 gate implementer."},
-    "closer": {"description": "Aggregate verification closer."}
+    "coordinator": {
+      "description": "Operator/control-plane coordinator."
+    },
+    "implementer": {
+      "description": "RFC 0078 gate implementer."
+    },
+    "closer": {
+      "description": "Aggregate verification closer."
+    }
   },
   "jobs": [
     {
@@ -80,7 +108,9 @@
       "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Port redaction-tier compliance into Go corpus/evidence/archive export, then retire the Python corpus/archive modules.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_corpus.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_corpus.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -91,10 +121,20 @@
           "src/striatum/archive/",
           "docs/operator/artifacts/rfc-0078-closure/corpus/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "corpus_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/corpus/SUMMARY.md", "required": true}
+        {
+          "logical_name": "corpus_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/corpus/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -105,7 +145,9 @@
       "lane_id": "claude",
       "fresh_session_required": true,
       "objective": "Implement striatum skills/plugin install in Go with embedded templates and doctor version-stamp parity; retire the scaffold flag; delete the Python installers.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_installers.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_installers.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -118,10 +160,20 @@
           "src/striatum/plugins/",
           "docs/operator/artifacts/rfc-0078-closure/installers/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "installers_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/installers/SUMMARY.md", "required": true}
+        {
+          "logical_name": "installers_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/installers/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -129,10 +181,12 @@
       "type": "build",
       "title": "Gate C: port the two Python generators to Go",
       "role_id": "implementer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Replace generate_go_rpc_registry.py and generate_daemon_method_tables.py with a Go generator; rewire //go:generate; byte-identical round-trip; delete the scripts.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_generators.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_generators.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -145,10 +199,20 @@
           "scripts/generate_daemon_method_tables.py",
           "docs/operator/artifacts/rfc-0078-closure/generators/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "generators_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/generators/SUMMARY.md", "required": true}
+        {
+          "logical_name": "generators_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/generators/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -159,7 +223,9 @@
       "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Refresh the coverage ledger, delete pytest by row under the pragmatic parity bar, add Go tests for core needs_replacement, and delete remaining Python runtime source.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_tests.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_tests.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -171,10 +237,22 @@
           "docs/operator/artifacts/rfc-0078-python-test-migration/coverage-ledger/",
           "docs/operator/artifacts/rfc-0078-closure/tests/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/", "pyproject.toml", "Makefile"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/",
+          "pyproject.toml",
+          "Makefile"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "tests_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/tests/SUMMARY.md", "required": true}
+        {
+          "logical_name": "tests_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/tests/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -185,7 +263,9 @@
       "lane_id": "claude",
       "fresh_session_required": true,
       "objective": "Delete pyproject.toml, the legacy-python Makefile targets, and the remaining Python scripts; keep Go release/smoke green.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_packaging.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_packaging.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -198,10 +278,20 @@
           ".github/workflows/",
           "docs/operator/artifacts/rfc-0078-closure/packaging/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "packaging_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/packaging/SUMMARY.md", "required": true}
+        {
+          "logical_name": "packaging_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/packaging/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -209,10 +299,12 @@
       "type": "build",
       "title": "Gate F: rewrite current-guidance docs to Go-only",
       "role_id": "implementer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Drive active_python_runtime_guidance to 0 for README/AGENTS/docs current-guidance, preserving target-repo examples and adding supersession notes.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_docs.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_docs.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
@@ -243,10 +335,20 @@
           "docs/architecture/COMMAND_AUTHORITY_MATRIX.md",
           "docs/operator/artifacts/rfc-0078-closure/docs/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "docs_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/docs/SUMMARY.md", "required": true}
+        {
+          "logical_name": "docs_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/docs/SUMMARY.md",
+          "required": true
+        }
       ]
     },
     {
@@ -257,28 +359,68 @@
       "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Run the full aggregate gate (python-trace-guardrail strict, go test, npm test, release/package/fresh-clone smoke) and record green/red.",
-      "task_prompt": {"path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_verify.md"},
+      "task_prompt": {
+        "path": "docs/operator/workflows/rfc-0078-closure/prompts/gate_verify.md"
+      },
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0078-closure/verify/"
         ],
-        "forbidden_paths": [".striatum/", ".venv/", "__pycache__/", "dist/"]
+        "forbidden_paths": [
+          ".striatum/",
+          ".venv/",
+          "__pycache__/",
+          "dist/"
+        ]
       },
       "expected_artifacts": [
-        {"logical_name": "verify_summary", "kind": "synthesis", "path": "docs/operator/artifacts/rfc-0078-closure/verify/SUMMARY.md", "required": true}
+        {
+          "logical_name": "verify_summary",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/rfc-0078-closure/verify/SUMMARY.md",
+          "required": true
+        }
       ]
     }
   ],
   "edges": [
-    {"from": "gate_corpus", "to": "gate_tests", "on": "completed"},
-    {"from": "gate_installers", "to": "gate_tests", "on": "completed"},
-    {"from": "gate_generators", "to": "gate_tests", "on": "completed"},
-    {"from": "gate_tests", "to": "gate_packaging", "on": "completed"},
-    {"from": "gate_tests", "to": "gate_docs", "on": "completed"},
-    {"from": "gate_packaging", "to": "verify_aggregate", "on": "completed"},
-    {"from": "gate_docs", "to": "verify_aggregate", "on": "completed"}
+    {
+      "from": "gate_corpus",
+      "to": "gate_tests",
+      "on": "completed"
+    },
+    {
+      "from": "gate_installers",
+      "to": "gate_tests",
+      "on": "completed"
+    },
+    {
+      "from": "gate_generators",
+      "to": "gate_tests",
+      "on": "completed"
+    },
+    {
+      "from": "gate_tests",
+      "to": "gate_packaging",
+      "on": "completed"
+    },
+    {
+      "from": "gate_tests",
+      "to": "gate_docs",
+      "on": "completed"
+    },
+    {
+      "from": "gate_packaging",
+      "to": "verify_aggregate",
+      "on": "completed"
+    },
+    {
+      "from": "gate_docs",
+      "to": "verify_aggregate",
+      "on": "completed"
+    }
   ],
   "cycles": []
 }

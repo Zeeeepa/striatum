@@ -20,19 +20,18 @@
     "codex": {
       "adapter": "process",
       "display_model": "Codex GPT-5.5",
-      "command": ["codex", "exec", "--model", "gpt-5.5", "-"],
-      "capabilities": ["review", "write", "synthesis"],
-      "constraints": {
-        "network": "forbidden",
-        "transcripts": "off",
-        "repo_scope": "local_only"
-      }
-    },
-    "gemini": {
-      "adapter": "process",
-      "display_model": "Gemini 3.1 Pro Preview",
-      "command": ["gemini", "--model", "gemini-3.1-pro-preview"],
-      "capabilities": ["review"],
+      "command": [
+        "codex",
+        "exec",
+        "--model",
+        "gpt-5.5",
+        "-"
+      ],
+      "capabilities": [
+        "review",
+        "write",
+        "synthesis"
+      ],
       "constraints": {
         "network": "forbidden",
         "transcripts": "off",
@@ -42,8 +41,16 @@
     "claude": {
       "adapter": "process",
       "display_model": "Claude Opus",
-      "command": ["claude", "--model", "opus", "-p"],
-      "capabilities": ["review", "synthesis"],
+      "command": [
+        "claude",
+        "--model",
+        "opus",
+        "-p"
+      ],
+      "capabilities": [
+        "review",
+        "synthesis"
+      ],
       "constraints": {
         "network": "forbidden",
         "transcripts": "off",
@@ -66,14 +73,38 @@
     }
   },
   "context_docs": [
-    {"path": "README.md", "required": true},
-    {"path": "DECISION_LOG.md", "required": true},
-    {"path": "docs/rfcs/0014-operational-artifact-home.md", "required": true},
-    {"path": "docs/process/operational-artifact-home-spec.md", "required": true},
-    {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "required": true},
-    {"path": "docs/process/multi-agent-review-loop.md", "required": true},
-    {"path": "docs/SPEC.md", "required": true},
-    {"path": "docs/DECISION_LOG.md", "required": true}
+    {
+      "path": "README.md",
+      "required": true
+    },
+    {
+      "path": "DECISION_LOG.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0014-operational-artifact-home.md",
+      "required": true
+    },
+    {
+      "path": "docs/process/operational-artifact-home-spec.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0013-development-operational-issue-loop.md",
+      "required": true
+    },
+    {
+      "path": "docs/process/multi-agent-review-loop.md",
+      "required": true
+    },
+    {
+      "path": "docs/SPEC.md",
+      "required": true
+    },
+    {
+      "path": "docs/DECISION_LOG.md",
+      "required": true
+    }
   ],
   "parallelism": {
     "mode": "declared",
@@ -96,15 +127,29 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
-        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
-        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+        {
+          "path": "docs/rfcs/0014-operational-artifact-home.md",
+          "kind": "target_rfc"
+        },
+        {
+          "path": "docs/process/operational-artifact-home-spec.md",
+          "kind": "handoff_spec"
+        },
+        {
+          "path": "docs/rfcs/0013-development-operational-issue-loop.md",
+          "kind": "upstream_rfc"
+        }
       ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/", "docs/rfcs/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/rfcs/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -131,15 +176,29 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
-        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
-        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+        {
+          "path": "docs/rfcs/0014-operational-artifact-home.md",
+          "kind": "target_rfc"
+        },
+        {
+          "path": "docs/process/operational-artifact-home-spec.md",
+          "kind": "handoff_spec"
+        },
+        {
+          "path": "docs/rfcs/0013-development-operational-issue-loop.md",
+          "kind": "upstream_rfc"
+        }
       ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/", "docs/rfcs/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/rfcs/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -156,7 +215,7 @@
       "type": "review",
       "title": "Review RFC 0014 with Gemini",
       "role_id": "reviewer",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "independent_reviews",
       "fresh_session_required": true,
       "reviewer_access_scope": "document_only",
@@ -166,15 +225,29 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/review.md"
       },
       "inputs": [
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
-        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"},
-        {"path": "docs/rfcs/0013-development-operational-issue-loop.md", "kind": "upstream_rfc"}
+        {
+          "path": "docs/rfcs/0014-operational-artifact-home.md",
+          "kind": "target_rfc"
+        },
+        {
+          "path": "docs/process/operational-artifact-home-spec.md",
+          "kind": "handoff_spec"
+        },
+        {
+          "path": "docs/rfcs/0013-development-operational-issue-loop.md",
+          "kind": "upstream_rfc"
+        }
       ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/", "docs/rfcs/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/rfcs/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -198,15 +271,29 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/findings_ledger.md"
       },
       "inputs": [
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_claude.md", "kind": "review"},
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_codex.md", "kind": "review"},
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_gemini.md", "kind": "review"}
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_claude.md",
+          "kind": "review"
+        },
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_codex.md",
+          "kind": "review"
+        },
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_REVIEW_gemini.md",
+          "kind": "review"
+        }
       ],
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/", "docs/rfcs/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/rfcs/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -216,7 +303,11 @@
           "required": true
         }
       ],
-      "needs": ["review_claude", "review_codex", "review_gemini"]
+      "needs": [
+        "review_claude",
+        "review_codex",
+        "review_gemini"
+      ]
     },
     {
       "id": "synthesis",
@@ -230,15 +321,28 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/synthesis.md"
       },
       "inputs": [
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"},
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
-        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"}
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md",
+          "kind": "findings_ledger"
+        },
+        {
+          "path": "docs/rfcs/0014-operational-artifact-home.md",
+          "kind": "target_rfc"
+        },
+        {
+          "path": "docs/process/operational-artifact-home-spec.md",
+          "kind": "handoff_spec"
+        }
       ],
       "write_scope": {
         "mode": "repo_write",
         "repo_write": true,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -248,7 +352,9 @@
           "required": true
         }
       ],
-      "needs": ["findings_ledger"]
+      "needs": [
+        "findings_ledger"
+      ]
     },
     {
       "id": "final_review",
@@ -262,16 +368,33 @@
         "path": "examples/rfc-0014-operational-artifact-home/prompts/final_review.md"
       },
       "inputs": [
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_SYNTHESIS.md", "kind": "synthesis"},
-        {"path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md", "kind": "findings_ledger"},
-        {"path": "docs/rfcs/0014-operational-artifact-home.md", "kind": "target_rfc"},
-        {"path": "docs/process/operational-artifact-home-spec.md", "kind": "handoff_spec"}
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_SYNTHESIS.md",
+          "kind": "synthesis"
+        },
+        {
+          "path": "docs/reviews/rfc-0014-operational-artifact-home/RFC_0014_FINDINGS_LEDGER.md",
+          "kind": "findings_ledger"
+        },
+        {
+          "path": "docs/rfcs/0014-operational-artifact-home.md",
+          "kind": "target_rfc"
+        },
+        {
+          "path": "docs/process/operational-artifact-home-spec.md",
+          "kind": "handoff_spec"
+        }
       ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
-        "allowed_paths": ["docs/reviews/rfc-0014-operational-artifact-home/"],
-        "forbidden_paths": [".striatum/", "docs/rfcs/"]
+        "allowed_paths": [
+          "docs/reviews/rfc-0014-operational-artifact-home/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/rfcs/"
+        ]
       },
       "expected_artifacts": [
         {
@@ -281,15 +404,37 @@
           "required": true
         }
       ],
-      "needs": ["synthesis"]
+      "needs": [
+        "synthesis"
+      ]
     }
   ],
   "edges": [
-    {"from": "review_claude", "to": "findings_ledger", "on": "completed"},
-    {"from": "review_codex", "to": "findings_ledger", "on": "completed"},
-    {"from": "review_gemini", "to": "findings_ledger", "on": "completed"},
-    {"from": "findings_ledger", "to": "synthesis", "on": "completed"},
-    {"from": "synthesis", "to": "final_review", "on": "completed"}
+    {
+      "from": "review_claude",
+      "to": "findings_ledger",
+      "on": "completed"
+    },
+    {
+      "from": "review_codex",
+      "to": "findings_ledger",
+      "on": "completed"
+    },
+    {
+      "from": "review_gemini",
+      "to": "findings_ledger",
+      "on": "completed"
+    },
+    {
+      "from": "findings_ledger",
+      "to": "synthesis",
+      "on": "completed"
+    },
+    {
+      "from": "synthesis",
+      "to": "final_review",
+      "on": "completed"
+    }
   ],
   "cycles": [
     {

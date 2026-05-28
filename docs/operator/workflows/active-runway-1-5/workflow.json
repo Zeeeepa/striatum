@@ -71,22 +71,6 @@
         "stdin_format": "prompt_text",
         "wrapper_required": true
       }
-    },
-    "gemini": {
-      "adapter": "process",
-      "command": [
-        "bash",
-        "-lc",
-        "PYTHONPATH=src python3 -m striatum.cli skills install --profile all --scope user --force --json >/dev/null && export PATH=\"$PWD/.venv/bin:$PATH\" && exec .striatum/bin/gemini-supervised-wrapper.sh"
-      ],
-      "model": "gemini",
-      "display_model": "Gemini",
-      "strategy_version": "2026-05-22",
-      "supervision": {
-        "compatible": true,
-        "stdin_format": "prompt_text",
-        "wrapper_required": true
-      }
     }
   },
   "roles": {
@@ -192,7 +176,7 @@
       "type": "synthesis",
       "title": "Plan TODO 59 Corpus Contract V2",
       "role_id": "corpus_planner",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "phase1_todo_followups",
       "fresh_session_required": true,
       "objective": "Plan Corpus Contract V2 schema/archive/verification implementation.",
@@ -314,7 +298,7 @@
       "type": "synthesis",
       "title": "Design RFC 0075 tmux metadata slice",
       "role_id": "tmux_planner",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Define the smallest remaining RFC 0075 tmux metadata implementation slice.",
       "task_prompt": {
@@ -406,7 +390,7 @@
       "type": "synthesis",
       "title": "Synthesize RFC 0074 Phase A",
       "role_id": "catalog_planner",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "fresh_session_required": true,
       "objective": "Synthesize catalog metadata and runnable-example plans into the RFC 0074 Phase A patch sequence.",
       "task_prompt": {
@@ -498,7 +482,7 @@
       "type": "synthesis",
       "title": "Plan TODO 63 service boundary cleanup",
       "role_id": "cleanup_planner",
-      "lane_id": "gemini",
+      "lane_id": "codex",
       "parallel_group": "phase5_residual_cleanup",
       "fresh_session_required": true,
       "objective": "Plan daemon client/service boundary cleanup for TODO 63 residuals.",

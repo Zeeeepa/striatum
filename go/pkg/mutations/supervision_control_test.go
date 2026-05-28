@@ -134,7 +134,7 @@ func TestSuperviseStartPropagatesRequireTmuxFromLaneSupervision(t *testing.T) {
 	}
 }
 
-func TestSuperviseStartWrapsSingleShotLaneInTurnDriver(t *testing.T) {
+func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	origMkfifo := supervisionMkfifo
 	origLaunch := supervisionLaunch
 	defer func() {
@@ -154,13 +154,13 @@ func TestSuperviseStartWrapsSingleShotLaneInTurnDriver(t *testing.T) {
 	runner := &superviseControlFakeRunner{
 		repoRoot: t.TempDir(),
 		workflowLane: map[string]any{
-			"adapter_capabilities": map[string]any{"single_shot": true},
+			"adapter_capabilities": map[string]any{"agent_loop": true},
 		},
 		txs: []*superviseControlFakeTx{{}, {}},
 	}
 	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "req_start_turn_driver",
+		RequestID:     "req_start_agent_loop",
 		Method:        "supervise.start",
 		Params: map[string]any{
 			"repository_id": "repo_1",
@@ -170,18 +170,36 @@ func TestSuperviseStartWrapsSingleShotLaneInTurnDriver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSuperviseStart: %v", err)
 	}
-	want := []string{"/bin/striatumd", "-agent-loop", "-turn-driver", "--", "/bin/cat"}
+	want := []string{"/bin/striatumd", "-agent-loop", "--", "/bin/cat"}
 	if strings.Join(launchedConfig.Command, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("launched command = %#v, want %#v", launchedConfig.Command, want)
 	}
-	if launchedConfig.AgentLoopMode != agentLoopModeTurnDriver || result["agent_loop_mode"] != agentLoopModeTurnDriver || result["turn_driver"] != true {
-		t.Fatalf("turn-driver mode not surfaced: config=%#v result=%#v", launchedConfig.AgentLoopMode, result)
+	if launchedConfig.AgentLoopMode != agentLoopModeSelfDriving || result["agent_loop_mode"] != agentLoopModeSelfDriving {
+		t.Fatalf("self-driving agent-loop mode not surfaced: config=%#v result=%#v", launchedConfig.AgentLoopMode, result)
 	}
 	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/cat" {
 		t.Fatalf("original command = %#v", launchedConfig.OriginalCommand)
 	}
-	if launchedConfig.RepositoryID != "repo_1" {
-		t.Fatalf("repository id = %q", launchedConfig.RepositoryID)
+}
+
+func TestResolveSupervisedCommandBinaryResolvesOnAugmentedPath(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "faketool")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", dir)
+
+	got := resolveSupervisedCommandBinary([]string{"faketool", "arg"})
+	want := []string{bin, "arg"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("resolved = %#v, want %#v", got, want)
+	}
+
+	// An absolute / path-bearing argv0 is left untouched.
+	abs := resolveSupervisedCommandBinary([]string{"/bin/cat", "-"})
+	if strings.Join(abs, "\x00") != strings.Join([]string{"/bin/cat", "-"}, "\x00") {
+		t.Fatalf("absolute argv0 rewritten: %#v", abs)
 	}
 }
 
