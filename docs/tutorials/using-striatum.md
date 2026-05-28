@@ -7,11 +7,11 @@ when something escalates. Plan ~10 minutes.
 
 If you want a quick install summary instead, see the
 [`README.md`](../README.md). For the long-form playbooks, see
-[`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) and
-[`HOW_TO_AGENT.md`](HOW_TO_AGENT.md).
+[`how-to-human.md`](../how-to/how-to-human.md) and
+[`how-to-agent.md`](../how-to/how-to-agent.md).
 
 When resuming Striatum development work, read
-[`operator/BRIEF.md`](operator/BRIEF.md) after the project instructions.
+[`operator/BRIEF.md`](../operator/BRIEF.md) after the project instructions.
 That brief is the bounded current-state handoff; older
 `docs/handoffs/` files are provenance.
 
@@ -39,7 +39,7 @@ Striatum runs with two named roles. RFC 0053 fixes the model.
 - Humans have local web UI and CLI compatibility access, but routine lane work
   belongs to the AI operator.
 - Long-form companion to the operator skill bundle:
-  [`HOW_TO_AGENT.md`](HOW_TO_AGENT.md).
+  [`how-to-agent.md`](../how-to/how-to-agent.md).
 
 **Human principal** — escalation only.
 
@@ -48,7 +48,7 @@ Striatum runs with two named roles. RFC 0053 fixes the model.
 - Watches the inbox; investigates when something paged; signs off
   on the change.
 - Long-form playbook:
-  [`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md).
+  [`how-to-human.md`](../how-to/how-to-human.md).
 
 Routine work belongs to the operator. If you find yourself using CLI fallback
 to push a healthy run forward, the operator harness should be improved.
@@ -62,7 +62,7 @@ to push a healthy run forward, the operator harness should be improved.
   wrappers, and direct SQLite databases have been completely retired.
 - **PostgreSQL 14+** running locally. The daemon is a hard
   prerequisite; SQLite is no longer the live substrate (D094 /
-  RFC 0043). See [`POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
+  RFC 0043). See [`postgres-transition.md`](../how-to/postgres-transition.md)
   for the install runbook including the `striatumd_rw` role
   provisioning.
 - **An agent runtime** — Claude Code, Codex, agy (Antigravity), or any
@@ -127,7 +127,7 @@ installs only the ones you confirm. The curated registry lives in
 [`skills/optional/`](../skills/optional/README.md).
 
 If the target repo follows the recommended layout in
-[`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md), your
+[`consumer-repo-layout.md`](../reference/consumer-repo-layout.md), your
 workflow file lives under `striatum/workflows/` and artifacts land
 under `striatum/<workflow-name>/`. Generated workflow trees use
 `striatum/workflows/<name>/workflow.json`.
@@ -226,30 +226,30 @@ striatum --repo "$TARGET_REPO" recovery requeue-stale \
 ```
 
 The principal's playbook —
-[`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) — covers the full set of
+[`how-to-human.md`](../how-to/how-to-human.md) — covers the full set of
 recovery verbs with the documented reasons each is appropriate.
 The short version: don't reach for these by default. If the
 operator AI is repeatedly hitting the same blocker, that's
-harness friction worth filing in `HARNESS_FRICTION_PATTERNS.md`.
+harness friction worth filing in `explanation/harness-friction-patterns.md`.
 
 ## Where to go next
 
 - **Long-form playbooks** —
-  [`HOW_TO_HUMAN.md`](HOW_TO_HUMAN.md) for the human principal,
-  [`HOW_TO_AGENT.md`](HOW_TO_AGENT.md) for the AI operator (and
+  [`how-to-human.md`](../how-to/how-to-human.md) for the human principal,
+  [`how-to-agent.md`](../how-to/how-to-agent.md) for the AI operator (and
   the long-form companion to the skill bundle).
-- **The implementation contract** — [`SPEC.md`](SPEC.md). When
+- **The implementation contract** — [`spec.md`](../reference/spec.md). When
   this doc disagrees with the runner, the SPEC wins.
 - **Every CLI verb + stable exit codes** —
-  [`CLI_REFERENCE.md`](CLI_REFERENCE.md).
+  [`cli-reference.md`](../reference/cli-reference.md).
 - **Workflow shapes and lane sets** —
-  [`WORKFLOW_TYPES.md`](WORKFLOW_TYPES.md).
+  [`workflow-types.md`](../reference/workflow-types.md).
 - **Authoring a workflow.json** —
-  [`WRITING_WORKFLOWS.md`](WRITING_WORKFLOWS.md).
+  [`writing-workflows.md`](../how-to/writing-workflows.md).
 - **System architecture (Mermaid)** —
   [`README.md`](../README.md) §"At a glance".
 - **Postgres prerequisites + repository registration** —
-  [`POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md).
+  [`postgres-transition.md`](../how-to/postgres-transition.md).
 - **Target-repo layout recommendations** —
-  [`CONSUMER_REPO_LAYOUT.md`](CONSUMER_REPO_LAYOUT.md).
-- **Every doc in `docs/`** — [`INDEX.md`](INDEX.md).
+  [`consumer-repo-layout.md`](../reference/consumer-repo-layout.md).
+- **Every doc in `docs/`** — [`index.md`](../index.md).

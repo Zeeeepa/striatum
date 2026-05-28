@@ -2,7 +2,7 @@
 
 Striatum is a standalone, local-first workflow runner for terminal-based AI
 coding agents. It is a generic orchestration tool for target repositories,
-not an Engram-specific process script. The product boundary in `docs/SPEC.md`
+not an Engram-specific process script. The product boundary in `docs/reference/spec.md`
 is the source of truth; if a doc claim disagrees with current source
 behavior, fix the doc.
 
@@ -11,15 +11,15 @@ behavior, fix the doc.
 Read these first, in order:
 
 1. `README.md`
-2. `docs/INDEX.md`
-3. `docs/SPEC.md`
-4. `docs/DECISION_LOG.md`
-5. `docs/UBIQUITOUS_LANGUAGE.md`
-6. `docs/TODO.md`
+2. `docs/index.md`
+3. `docs/reference/spec.md`
+4. `docs/decisions/decision-log.md`
+5. `docs/reference/ubiquitous-language.md`
+6. `docs/reference/todo.md`
 7. `docs/operator/BRIEF.md` for current operator state and the bounded
    plan links that supersede older handoffs.
 
-Treat `docs/ENGRAM_INCUBATION_CONTEXT.md`,
+Treat `docs/_archive/ENGRAM_INCUBATION_CONTEXT.md`,
 `examples/rfc-0014-operational-artifact-home/`, and the older P00x prompts as
 historical/reference fixtures unless a current task explicitly asks you to
 work on Engram dogfood history.
@@ -31,7 +31,7 @@ work on Engram dogfood history.
   repository. `.striatum/` next to each target repo is operational
   scratch (PTY FIFOs, daemon-owned interactive lanes, pidfiles, the
   capability-token cache); the daemon is a hard prerequisite for every
-  Striatum verb, and `--no-daemon` is retired. See `docs/POSTGRES_TRANSITION.md`
+  Striatum verb, and `--no-daemon` is retired. See `docs/how-to/postgres-transition.md`
   for the operator runbook and native PostgreSQL repository adoption.
 - Repository files are durable provenance, not the live message bus.
 - Marker files, tmux panes, terminal output, and provider hooks are not
@@ -50,7 +50,7 @@ directly.
 
 The workflow loop, work-packet shape, supervisor mode, decision artifacts,
 front-matter rules, and stale-lease recovery instructions all live in
-**[`docs/HOW_TO_AGENT.md`](docs/HOW_TO_AGENT.md)**. Read that doc — and the
+**[`docs/how-to/how-to-agent.md`](docs/how-to/how-to-agent.md)**. Read that doc — and the
 RFC 0015 skill bundle when one is installed — before claiming work. The
 short version:
 
@@ -95,12 +95,12 @@ Examples live under `examples`. Historical execution prompts live under
 
 ## Change Discipline
 
-- Keep changes aligned with `docs/TODO.md` and accepted decisions in
-  `docs/DECISION_LOG.md`.
+- Keep changes aligned with `docs/reference/todo.md` and accepted decisions in
+  `docs/decisions/decision-log.md`.
 - Until generated daemon contracts land, new RPC methods or handwritten
-  route maps must update `docs/architecture/COMMAND_AUTHORITY_MATRIX.md`
+  route maps must update `docs/reference/command-authority-matrix.md`
   and the authority guardrail tests.
-- Update `docs/DECISION_LOG.md` for product or architecture decisions.
+- Update `docs/decisions/decision-log.md` for product or architecture decisions.
 - Add or update tests for behavior changes.
 - Prefer generic terms: target repository, workflow fixture, runner state,
   artifact, adapter, lane, session, work packet.

@@ -12,7 +12,7 @@ incubation repository and the first reference *augmentation consumer* of
 `striatum corpus export` bundles; it is not the product boundary and not a
 runtime dependency. The augmentation contract is the bundle, not a client
 library import — see [`docs/SPEC.md` § Corpus Export And Augmentation
-Boundary](SPEC.md) and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
+Boundary](spec.md) and [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
 ## Core Terms
 
@@ -210,7 +210,7 @@ Boundary](SPEC.md) and [RFC 0057](rfcs/0057-corpus-contract-v2.md).
 | memory augmentation | An optional retrieval surface an operator or workflow may consult for repository-grounded context. It never owns workflow state, never gates a state transition, and never appears in Striatum source. Engram is the first reference consumer under RFC 0041 / 0044. |
 | augmentation-not-dependency | The non-negotiable invariant that Striatum runs unchanged when any external memory or retrieval consumer is missing, slow, or unreachable. Pinned by `tests/test_cli_corpus_export.py::test_no_engram_imports_or_memory_capabilities_in_striatum`. |
 | private project memory | Context available to one operator or environment but not shared through repository docs, daemon state, durable artifacts, or explicit corpus exports. It can make a local session more informed, but it is not provenance, not live workflow state, and not a dependency Striatum may require. If a claim matters to future operators, crystallize it into a repo-shared artifact or decision instead of leaving it in private memory. |
-| corpus contract version | The bundle-level integer that names which Corpus Contract a manifest declares. V1 is implied (RFC 0044). V2 is named in [RFC 0057](rfcs/0057-corpus-contract-v2.md) as a scaffold of open decisions. |
+| corpus contract version | The bundle-level integer that names which Corpus Contract a manifest declares. V1 is implied (RFC 0044). V2 is named in [RFC 0057](../rfcs/0057-corpus-contract-v2.md) as a scaffold of open decisions. |
 
 ## Distinctions
 

@@ -90,7 +90,7 @@ done, blocked on a human checkpoint, or waiting on a dependency.
 If you are the *operator session* (the AI session that supervises a
 dogfood, not the supervised role itself) and the operator has configured
 daemon MCP/chat tools for the run, use the tools listed in
-[`docs/MCP.md`](MCP.md#dogfood-lifecycle-tools) over shelling out to
+[`docs/MCP.md`](../explanation/mcp.md#dogfood-lifecycle-tools) over shelling out to
 the bash CLI. The tool surface routes through the same daemon RPC
 authority boundary and keeps session/lease/message ids structured so
 you do not have to copy them between turns. Dogfood-lifecycle tools
@@ -142,7 +142,7 @@ Workflow-authored Markdown artifacts of kind `decision`, `finding`,
 `action_item_ledger`, `harness_improvement_proposal`, and
 `escalation` carry V1 front matter. The publisher rejects invalid
 front matter with exit code 6 and never rewrites your file. See
-[SPEC.md § Artifact Front Matter Schemas](SPEC.md#artifact-front-matter-schemas)
+[SPEC.md § Artifact Front Matter Schemas](../reference/spec.md#artifact-front-matter-schemas)
 for the required-field list per kind.
 
 The byline rule (D053-related): if your artifact's title block
@@ -208,15 +208,15 @@ or CLI diagnostics, then ask the operator to recover stale work.
   packet as authoritative; any retrieval beyond that is operator-
   supplied augmentation, not a packet prerequisite. Augmentation
   policy is scoped by
-  [RFC 0057](rfcs/0057-corpus-contract-v2.md).
+  [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
 ## See also
 
-- **[GETTING_STARTED.md](GETTING_STARTED.md)** — the operator's
+- **[getting-started.md](../tutorials/getting-started.md)** — the operator's
   setup walkthrough; useful if you also need to install the
   runner before driving it.
-- **[HOW_TO_HUMAN.md](HOW_TO_HUMAN.md)** — the operator's
+- **[how-to-human.md](how-to-human.md)** — the operator's
   long-form companion; the verbs are identical to yours.
-- **[SPEC.md](SPEC.md)** — the implementation contract.
-- **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — every verb in one
+- **[spec.md](../reference/spec.md)** — the implementation contract.
+- **[cli-reference.md](../reference/cli-reference.md)** — every verb in one
   flat list with stable exit codes.

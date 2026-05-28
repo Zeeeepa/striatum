@@ -28,14 +28,14 @@ separate future product decisions.
 
 The authoritative live state is the daemon-owned PostgreSQL instance
 (RFC 0033) under a `repository_id` scope per registered target
-repository. Per [D094 / RFC 0043](rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
+repository. Per [D094 / RFC 0043](../rfcs/0043-postgres-as-sole-substrate-and-daemon-required-runtime.md),
 this supersedes the V1 carve-out that kept repo-local workflow state
 in `.striatum/retired-local-state`. The daemon is a hard prerequisite for
 every Striatum verb; the V1 `--no-daemon` flag is retired and parsing
 it returns the standard argparse "unrecognized arguments" error.
 Repository artifacts are durable provenance only. Marker files, tmux
 panes, terminal output, and provider hooks are never live
-control-plane state. See [`docs/POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
+control-plane state. See [`docs/how-to/postgres-transition.md`](../how-to/postgres-transition.md)
 for the operator runbook.
 
 RFC 0048 (v1.49.0 → v1.55.0) completed the PostgreSQL substrate port:
@@ -235,7 +235,7 @@ root review job declares a matching `needs_revision` cycle.
 
 ### Harness Profiles
 
-> Design rationale: [RFC 0010](rfcs/0010-tool-harness-profiles.md).
+> Design rationale: [RFC 0010](../rfcs/0010-tool-harness-profiles.md).
 
 Workflows may declare an optional `harness_profiles` map at the top level
 and reference one profile per lane via `harness_profile_id`. The map is a
@@ -348,8 +348,8 @@ by the existing edge-verdict gate (a downstream-of-review job stays
 blocked until the review accepts) plus run-completion semantics; no
 separate runtime gate is added in V1.
 
-> Design rationale: [RFC 0018](rfcs/0018-focused-adversarial-review-postures.md);
-> see also [`docs/dogfood/016/decisions/V1_ACCEPTANCE.md`](dogfood/016/decisions/V1_ACCEPTANCE.md)
+> Design rationale: [RFC 0018](../rfcs/0018-focused-adversarial-review-postures.md);
+> see also [`docs/dogfood/016/decisions/V1_ACCEPTANCE.md`](../dogfood/016/decisions/V1_ACCEPTANCE.md)
 > for the lifecycle re-cast (D069).
 
 #### Reviewer Independence (advisory)
@@ -473,7 +473,7 @@ parent session unless explicitly registered as first-class sessions.
 
 ### Session lifecycle and closure
 
-> Design rationale: [RFC 0011](rfcs/0011-session-close-and-run-terminal-auto-close.md).
+> Design rationale: [RFC 0011](../rfcs/0011-session-close-and-run-terminal-auto-close.md).
 
 Sessions are created `active` by `register-session`. The `state` column
 ranges over `('active','expired','stopped','lost','closed')`:
@@ -772,7 +772,7 @@ These invariants are pinned by the active V2 boundary guardrail
 `tests/test_corpus_verify.py::test_corpus_v2_surface_keeps_augmentation_boundary_local`.
 The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
-power V2 are scoped by [RFC 0057](rfcs/0057-corpus-contract-v2.md).
+power V2 are scoped by [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
 `striatum archive create --run-id <id> --out <dir>` is the Phase 11 run
 archive foundation. It is a daemon/Postgres-backed read command that writes
@@ -1092,7 +1092,7 @@ pidfiles (dead PIDs) are overwritten cleanly.
 
 ### Self-Contained Agent Skills
 
-> Design rationale: [RFC 0015](rfcs/0015-self-contained-agent-skills.md).
+> Design rationale: [RFC 0015](../rfcs/0015-self-contained-agent-skills.md).
 
 
 `striatum skills install [--profile {claude_code, codex, agy,
@@ -1223,7 +1223,7 @@ for the wire shape and tool list.
 
 ### Local Service
 
-> Design rationale: [RFC 0012](rfcs/0012-local-service-api.md).
+> Design rationale: [RFC 0012](../rfcs/0012-local-service-api.md).
 
 
 `striatum serve` runs a `ThreadingHTTPServer` on TCP loopback (default
@@ -1272,7 +1272,7 @@ service mutation endpoint.
 
 ### Registry-Backed Multi-Repo Coordination
 
-> Design rationale: [RFC 0028](rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md).
+> Design rationale: [RFC 0028](../rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md).
 
 `striatum daemon start` (also exposed as the `striatumd` console
 script) is the supported foreground entry point. Per D094 / RFC 0043
@@ -1484,8 +1484,8 @@ all Python CLI/web/source/test surfaces have been completely retired and deleted
 
 ### Local Web UI
 
-> Design rationale: [RFC 0013](rfcs/0013-local-web-ui.md) (V1 surface
-> + JSON API + SSE feed); [RFC 0022](rfcs/0022-web-ui-redesign.md) (V1
+> Design rationale: [RFC 0013](../rfcs/0013-local-web-ui.md) (V1 surface
+> + JSON API + SSE feed); [RFC 0022](../rfcs/0022-web-ui-redesign.md) (V1
 > server-rendered redesign + SVG dependency graph).
 
 
