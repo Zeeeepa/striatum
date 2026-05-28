@@ -38,3 +38,31 @@ that waits for codex's UI to be ready before submitting.
 The bounded code change is shipped; closing this needs live iteration on
 codex's TUI behavior (similar to the P1 claude submit work) — out of scope
 for this session.
+
+## 2026-05-28 second pass
+
+After the `STRIATUM_MCP_TOKEN` literal-env fix (`14c7580`), codex's MCP
+startup succeeds. After the `pty.go` `-e KEY=VAL` fix (in `5ff381e`,
+unfortunately mixed into a docs-titled commit; the tmux global server now
+inherits STRIATUM_* env on new-session), claude verify works end-to-end
+through `pty_helper` + tmux — BUT the helper's `tmux attach-session`-as-
+liveness proxy mis-reports `agent_exited` microseconds after start (attach
+exits while the session continues; published artifact got `author: operator`
+because supervisor went "gone" before publish), so the universal-tmux
+default was reverted.
+
+`STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE` set to `\r\r` (double-Enter) does NOT
+trigger codex's TUI to submit the bootstrap either — the input box still
+shows the bootstrap text being typed character-by-character per `pty.log`.
+Codex's TUI submit semantics likely require: a bracketed-paste-aware submit,
+a screen-detect step that waits for the TUI to be ready, OR a single-line
+bootstrap (codex may treat embedded newlines as multi-line input that needs
+an explicit `Ctrl+J` / different terminator). This is the iterative per-
+adapter submit-driver research the RFC anticipated; it didn't yield to a
+short fan-out of variants and is left as a focused follow-up.
+
+The trajectory log default (per-supervisor `pty.log` under
+`.striatum/scratch/<sup>/`) makes this iteration tractable — the operator can
+launch a codex lane, set `STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE=<candidate>`
+on the daemon, and `tail -f` the pty.log to see exactly what codex's TUI
+renders for each variant until one submits.
