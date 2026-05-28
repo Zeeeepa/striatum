@@ -19,7 +19,7 @@ That brief is the bounded current-state handoff; older
 
 Striatum is a local workflow runner for terminal-based AI coding
 agents. It coordinates draft → review → repair → synthesize loops
-across multiple agents (Codex, Claude Code, Gemini CLI, or any
+across multiple agents (Codex, Claude Code, agy (Antigravity), or any
 runtime you can wrap as a command), records every state transition
 in a daemon-owned PostgreSQL audit chain, and never touches a hosted
 service.
@@ -57,15 +57,17 @@ to push a healthy run forward, the operator harness should be improved.
 
 - **Striatum Go binaries.** Install from a GitHub release archive or
   from a source checkout with `make install`. Normal operator use does
-  not require Python or a virtual environment.
+  not require Python or a virtual environment. Striatum is a compiled Go
+  binary application backed by PostgreSQL. The legacy Python runtime, Python CLI
+  wrappers, and direct SQLite databases have been completely retired.
 - **PostgreSQL 14+** running locally. The daemon is a hard
   prerequisite; SQLite is no longer the live substrate (D094 /
   RFC 0043). See [`POSTGRES_TRANSITION.md`](POSTGRES_TRANSITION.md)
   for the install runbook including the `striatumd_rw` role
   provisioning.
-- **An agent runtime** — Claude Code, Codex, Gemini CLI, or any
+- **An agent runtime** — Claude Code, Codex, agy (Antigravity), or any
   CLI tool that takes a session prompt and writes a deliverable.
-  Striatum provides a skill bundle for the first three;
+  Striatum provides a skill bundle for the first three (claude_code, agy, codex);
   `--profile generic` writes a paste-into-system-prompt guide for
   anything else.
 - **Optionally**, a target repository you want to orchestrate.
@@ -105,15 +107,16 @@ What `adopt` does:
 
 - Creates `.striatum/` next to the target repo (runtime scratch).
 - Writes the operator skill bundle to the agent's project-scope location
-  such as `.claude/skills/striatum-*/` or `.codex/agents/striatum-*.md`
+  such as `.claude/skills/striatum-*/`, `.agy/skills/striatum-*/`, or `.codex/agents/striatum-*.md`
   (`~/.codex/agents/striatum-*.md` for user-scope Codex installs).
 - Writes the agent-CLI plugin bundle for the selected profile when one
-  exists.
+  exists. (The agy profile reuses the claude_code plugin and skill templates
+  wholesale via standard imports under .agy/plugins/striatum/).
 - Scaffolds the seven canonical DDD docs under `docs/` (per
   RFC 0021) — `SPEC.md`, `PRD.md`, `DECISION_LOG.md`,
   `UBIQUITOUS_LANGUAGE.md`, `DDD.md`, `rfcs/README.md`,
   `rfcs/0001-template.md`. Existing files are preserved.
-- Migrates/registers the repo with the daemon-owned Postgres substrate
+- Registers the repo with the daemon-owned Postgres substrate
   and reports a suggested starter workflow path.
 
 On first initiation the operator skill bundle also prompts you about
@@ -159,8 +162,8 @@ striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 striatum --repo "$TARGET_REPO" dashboard --run-id <run_id>
 ```
 
-Now hand the agent the run. With Claude Code, open a session in
-the target repo and tell it:
+Now hand the agent the run. With Claude Code or agy, open an interactive
+session in the target repo (e.g. using agy -i or agy --continue) and tell it:
 
 > Drive the workflow at `striatum/workflows/code-change/workflow.json`
 > using striatum.
@@ -181,17 +184,14 @@ striatum --repo "$TARGET_REPO" dashboard --run-id <run_id>
 striatum --repo "$TARGET_REPO" supervise status --session-id <session_id> --json
 ```
 
-When a lane is running in a tmux-backed PTY, attach only to inspect what
-the agent is doing locally:
-
-```bash
-tmux list-sessions
-tmux attach -t <session-name>
-```
+Under RFC 0088, interactive agent sessions run in daemon-owned persistent PTY
+lanes managed directly by `striatumd`. While there is no strict tmux dependency for
+execution, human operators can easily monitor active progress through the local web UI,
+the console dashboard, or by attaching to the daemon's allocated PTY wrappers.
 
 Pane text, terminal output, and transcripts are not workflow state. Do
 not infer completion, verdicts, blockers, or authority from what appears
-in tmux; use Striatum commands and durable artifacts for that.
+in PTY sessions; use Striatum commands and durable artifacts for that.
 
 ### Recovery triage
 

@@ -29,10 +29,10 @@ work on Engram dogfood history.
 - Striatum's authoritative live state is the daemon-owned PostgreSQL
   instance (RFC 0033 + D094 / RFC 0043), scoped per registered target
   repository. `.striatum/` next to each target repo is operational
-  scratch (supervised wrapper FIFOs, pidfiles, the capability-token
-  cache); the daemon is a hard prerequisite for every Striatum verb,
-  and `--no-daemon` is retired. See `docs/POSTGRES_TRANSITION.md` for
-  the operator runbook, retired SQLite handling, and repository registration.
+  scratch (PTY FIFOs, daemon-owned interactive lanes, pidfiles, the
+  capability-token cache); the daemon is a hard prerequisite for every
+  Striatum verb, and `--no-daemon` is retired. See `docs/POSTGRES_TRANSITION.md`
+  for the operator runbook and native PostgreSQL repository adoption.
 - Repository files are durable provenance, not the live message bus.
 - Marker files, tmux panes, terminal output, and provider hooks are not
   authoritative workflow state.
@@ -45,7 +45,7 @@ work on Engram dogfood history.
 
 When you are running inside a striatum workflow (not just editing the repo),
 the runner moves work through daemon MCP/RPC state transitions. Do not advance
-state by printing phrases, scraping terminal output, or touching SQLite
+state by printing phrases, scraping terminal output, or touching PostgreSQL
 directly.
 
 The workflow loop, work-packet shape, supervisor mode, decision artifacts,

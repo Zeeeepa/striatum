@@ -47,11 +47,10 @@ RFC 0078 removes all Python traces from the active repository head.
 The legacy local-state package, root DB/migration facades, direct corpus
 exporter, V1 local-state schema module, deterministic repo-local fixture,
 and broad skipped compatibility tests are deleted. Remaining
-`retired-local-state` handling is refusal/inspection of a retired file name,
-not live-state support.
+legacy SQLite handling is completely retired, and registrations reject any old SQLite files.
 `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1` escape no
 longer takes effect for ported methods — mapped CLI verbs fail
-closed instead of falling back to SQLite when the daemon is
+closed instead of falling back to any local database when the daemon is
 unreachable or the target repository is not registered. Schema v6
 (migration 0006) anchors the per-event hash chain in dedicated
 `previous_hash` / `row_hash` columns plus a
@@ -114,13 +113,10 @@ service, repair local Postgres grants, or run smoke checks, but they do
 not become an alternate workflow-state authority.
 
 Writable SQLite import windows are closed. The retired `migrate-repo-local`
-and `daemon migrate` spellings remain parseable for compatibility diagnostics,
-but they refuse with exit code 12 before opening or importing SQLite migration
-code. CLI verbs against an unregistered repo refuse with exit code 12
-(`repo_not_migrated`) and point operators to archive/remove retired local-state
-files and register with `adopt` or `repo add --init`; CLI verbs without a
+and `daemon migrate` spellings are fully removed. CLI verbs against an unregistered repo refuse with exit code 12
+(`repo_not_migrated`) and point operators to register with `adopt` or `repo add --init`; CLI verbs without a
 reachable daemon refuse with exit code 11 (`daemon_unreachable`). Neither
-refusal opens or creates a SQLite file.
+refusal opens or creates any local database file.
 
 ## Workflow Config
 
@@ -249,7 +245,7 @@ adapter or scheduler behaviour.
 V1 validation rules:
 
 - `tool_family` must be one of `generic`, `codex`, `claude_code`,
-  `gemini_cli`. Other values are rejected.
+  `agy`. Other values are rejected.
 - `strategy_version` must be a non-empty string.
 - `accountability.native_subagents`, when set, must equal
   `internal_to_parent_session`.
@@ -270,7 +266,7 @@ V1 validation rules:
   disk surface as lint warnings under the same `warnings` key. The
   check fires when `lane.command[0]` looks like a path (contains a
   slash or starts with `./`/`../`) and is missing under the workflow's
-  repo root. Bare binary names (`codex`, `claude`, `gemini`) and
+  repo root. Bare binary names (`codex`, `claude`, `agy`) and
   absolute paths are not checked. The warning is non-blocking; future
   versions may graduate it to a hard error.
 
@@ -508,7 +504,7 @@ remains the path for those.
 
 The doctor check `active_session_on_terminal_run` is preserved as the
 residual warning for genuinely anomalous states (transition skipped,
-manual SQLite editing, partial recovery). After auto-close it should
+manual PostgreSQL editing, partial recovery). After auto-close it should
 no longer fire on a clean-finish run.
 
 `evidence export` and `run summary` include a per-session block with
@@ -1071,7 +1067,7 @@ preserved as closely as the daemon PG substrate allows.
 
 The Go production-daemon port also runs a resident active-run recovery
 scheduler over the same `recovery.sweep` behavior. That scheduler updates
-daemon-owned PostgreSQL scheduler cursors and does not open repo-local SQLite.
+daemon-owned PostgreSQL scheduler cursors.
 
 `recovery auto-publish --run-id <id> [--dry-run]` emits the explicit
 `recovery.auto_publish_stale_artifacts` daemon method. It is the
@@ -1099,13 +1095,13 @@ pidfiles (dead PIDs) are overwritten cleanly.
 > Design rationale: [RFC 0015](rfcs/0015-self-contained-agent-skills.md).
 
 
-`striatum skills install [--profile {claude_code, codex, gemini,
+`striatum skills install [--profile {claude_code, codex, agy,
 generic, all}] [--scope {project, user}] [--namespace <prefix>]
 [--force] [--dry-run]` writes a self-contained agent skill bundle
 into the target tree. The bundle teaches a Striatum-aware agent how
 to drive the runner without reading the source repo: each rendered
 Markdown file lists the relevant daemon MCP methods and CLI compatibility
-verbs, the boundary conditions the runner does not enforce (no SQLite writes,
+verbs, the boundary conditions the runner does not enforce (no direct PostgreSQL writes,
 no marker files as state, no transcript capture), and copy-pasteable method
 examples.
 
@@ -1124,16 +1120,15 @@ V1.2 ships four profiles plus an `all` fan-out:
   `.codex/agents/<namespace>striatum-*.md`, reusing the Claude Code
   skill bodies verbatim. Manifest at
   `.codex/agents/<namespace>striatum-workflow.manifest.json`.
-- `gemini` writes a single concatenated guide at
-  `<namespace>STRIATUM_GEMINI_GUIDE.md`. Single-guide fallback per
-  RFC 0015 § "Profile coverage" until Gemini CLI's skill-discovery
-  convention stabilizes; the dedicated filename keeps `--profile all`
-  collision-free with `generic`.
+- `agy` writes one SKILL.md per skill under
+  `.agy/skills/<namespace>striatum-*/SKILL.md`, reusing the `claude_code`
+  skill bundle shape and structure via standard imports (agy plugin import claude),
+  eliminating the need for a separate profile template tree.
 - `generic` writes a single concatenated guide at
   `<namespace>STRIATUM_AGENT_GUIDE.md` for any agent CLI without a
   skill-discovery convention.
 - `all` fans out across the four real profiles in deterministic
-  order (`claude_code, codex, gemini, generic`) and returns a
+  order (`claude_code, codex, agy, generic`) and returns a
   `{"profile": "all", "results": [...]}` envelope. Per-profile
   manifests stay independent; there is no combined "all" manifest.
 
@@ -1217,10 +1212,9 @@ capability-filtered per bearer token and repository scope. `tools/call`
 dispatches through daemon RPC, so authorization, request logging, audit rows,
 and method-denial vocabulary match the Unix-socket daemon path.
 
-The retired local Python stdio MCP wrapper is not a product surface. Tests and
-compatibility harnesses must not depend on the removed Python MCP module; any
-local live workflow invocation should use daemon MCP, the local web UI, or a
-documented daemon-backed CLI fallback.
+The legacy Python stdio MCP wrapper is completely retired. Tests and compatibility
+harnesses must use the Go-based daemon MCP, the local web UI, or a documented daemon-backed
+CLI fallback.
 
 Operator-driven production runs use daemon MCP as the mandatory tool surface.
 CLI use remains acceptable only when it is daemon-backed or when a documented
@@ -1288,7 +1282,7 @@ checks. The V1 `--no-daemon` direct-CLI path is retired and parsing
 the flag returns the standard argparse "unrecognized arguments"
 error. CLI verbs without a reachable daemon refuse with exit code
 11 (`daemon_unreachable`); the stderr message names the socket path
-and the platform-specific remediation, and no SQLite file is opened
+and the platform-specific remediation, and no local database file is opened
 or created.
 
 Daemon-global state — registered repositories, clients, capability
@@ -1317,13 +1311,9 @@ reports substrate version, schema version, audit-chain status,
 and segment-manifest verification.
 
 The RFC 0033 daemon-global V1 registry and RFC 0043 repo-local SQLite cutover
-commands are retired operator surfaces. The compatibility spellings
-`striatum daemon migrate --from sqlite --to pg` and
-`striatum daemon migrate-repo-local --from sqlite --to pg --repo <path>`
-refuse before importing SQLite migration code. `daemon doctor --repo <path>
---authority --json` can still report repository cutover evidence without
-opening SQLite as a database. RFC 0048 completed in v1.55.0: production mapped
-verbs are daemon/Postgres-backed and fail closed without the daemon or
+commands are retired operator surfaces. Legacy SQLite databases and their local-state
+files are completely retired and not supported. RFC 0048 completed in v1.55.0:
+production mapped verbs are daemon/Postgres-backed and fail closed without the daemon or
 repository registration. The legacy local-state implementation and golden
 fixtures are deleted.
 
@@ -1337,7 +1327,7 @@ daemon support is not claimed in V1.
 It authorizes the daemon admin token before recording the repository in
 daemon-owned Postgres. If `.striatum/` scratch is absent, registration
 refuses unless `--init` is passed; `--init` creates only operational
-scratch and does not create `.striatum/retired-local-state`. If a pre-D094
+scratch and does not create any SQLite or local database files. If a pre-D094
 repo-local SQLite source exists, registration refuses and tells the operator
 to archive/remove the legacy SQLite file before registering.
 The command canonicalizes the repository root, refuses
@@ -1472,16 +1462,14 @@ an operator or future RFC supplies rotation/export behavior.
 Production supervision metadata, lane attestation inputs, and supervisor
 pointers live in daemon-owned PostgreSQL under the registered repository
 scope. `supervise.*` CLI calls are daemon clients, not direct repo-local
-state edits. Legacy repo-local supervision shapes survive only as migration
-sources and subprocess compatibility fixtures; they are not a production
-authority boundary.
+state edits. Legacy repo-local supervision shapes and one-shot wrappers are completely
+retired. Every lane is launched as a daemon-owned long-lived interactive PTY session.
 
 The Python daemon is no longer a selectable production core. RFC 0039
 introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol
 and RFC 0033 PostgreSQL substrate. RFC 0068 and D111 make that Go daemon the
 only supported daemon implementation launched by `striatum daemon start`;
-`--core go` is a deprecated no-op compatibility flag and `--core python` /
-`STRIATUM_DAEMON_CORE=python` no longer select a daemon. Current Go handler
+`--core go` is a deprecated no-op compatibility flag. The legacy `--core python` option is completely retired. Current Go handler
 coverage has no missing or generic
 `not_implemented` active contract methods. D110 deliberately removed the
 SQLite-bound
@@ -1492,10 +1480,7 @@ production daemon RPC contract; stale direct calls audit as `method_unknown`.
 D113 closes the writable import window. The Python daemon module, Python MCP
 wrapper, legacy local-state package, root compatibility facades, direct corpus
 exporter, V1 local-state schema module, deterministic repo-local fixture, and
-broad skipped compatibility tests are deleted. RFC 0078 now targets the
-remaining Python CLI/web/source/test surfaces for port, retirement, or final
-deletion; they remain tracked only while the deletion guardrail reports active
-blockers.
+all Python CLI/web/source/test surfaces have been completely retired and deleted per RFC 0078.
 
 ### Local Web UI
 
@@ -1614,7 +1599,7 @@ The process adapter graduates `network=forbidden` and
 
 `adapter run` is single-shot: the child exits with the configured command,
 and the next work packet must spawn a fresh process. Long-lived agent CLIs
-(Codex, Claude Code, Gemini CLI, etc.) need a different shape: one
+(Codex, Claude Code, agy, etc.) need a different shape: one
 persistent process that receives multiple work packets across multiple
 turns. RFC 0009 introduces a `striatum supervise` command group plus a new
 `process_supervisors` table for that flow. The two adapter modes coexist;
@@ -1688,32 +1673,28 @@ The supervise CLI surface:
 - `striatum supervise start --session-id <id>` validates the session is
   active and that its lane uses the `process` adapter, refuses if the
   session already has a supervisor in `('starting','attached','detached')`
-  state, creates `.striatum/scratch/<supervisor_id>/stdin.pipe` via
-  `os.mkfifo`, forks the lane command with `start_new_session=True`, sends
-  stdout/stderr to `DEVNULL` (no transcripts, per D028), and transitions
-  the row to `attached` once the child pid is alive. A
+  state, and forks the lane command in a daemon-owned persistent interactive
+  PTY session. It sends stdout/stderr to `DEVNULL` (no transcripts, per D028),
+  and transitions the row to `attached` once the child pid is alive. A
   `supervisor.starting` and `supervisor.started` event are recorded.
-- `striatum supervise send --session-id <id> --packet-id <id>` looks up
-  the stored work packet, writes its `packet_json` plus a trailing newline
-  to the supervisor's named pipe, refreshes `heartbeat_at`, and records a
-  `supervisor.packet_delivered` event with the byte count and stdin-delivery
-  mode. By default, the agent reads packets line-by-line from a persistent
-  FIFO. A lane can opt in to
-  `supervision.stdin_delivery: "one_shot_eof"` with pipe transport for
-  commands that read all stdin and require EOF before they start work; after
-  one packet write, Striatum closes/removes the FIFO and marks the one-shot
-  stdin as consumed. Reactions are daemon-driven through MCP/RPC methods
-  (`artifact.publish`, `work.ack`, `work.complete`, `review.verdict`), with
-  CLI compatibility fallbacks available for older wrappers. The supervisor
-  never parses agent stdout.
+- `striatum supervise send --session-id <id> --packet-id <id>` delivers the
+  work packet prompt directly to the daemon-owned interactive PTY master
+  (`stdin-submit`) using the per-adapter submit key-sequence (Enter / `\r`),
+  refreshes `heartbeat_at`, and records a `supervisor.packet_delivered` event.
+  The older `supervision.stdin_delivery: "one_shot_eof"` with named pipe (FIFO)
+  transport and one-shot `-p` / `--print` wrappers are completely retired.
+  All agent lanes run natively in persistent PTY sessions with preserved context, and
+  reactions are daemon-driven through MCP/RPC methods (`artifact.publish`,
+  `work.ack`, `work.complete`, `review.verdict`), with CLI compatibility
+  fallbacks available for older workflows. The supervisor never parses agent stdout.
 - PTY-helper lanes can set `supervision.require_tmux: true` to fail closed if
   `tmux` is unavailable or run/lane metadata is missing. Without that opt-in,
   PTY-helper launch may fall back to a plain PTY and records tmux
   unavailability as metadata.
 - `striatum supervise stop --session-id <id> --reason <text>` sends
   `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
-  process is still present, removes the FIFO, marks the row `stopped`,
-  and records `supervisor.stopped`.
+  process is still present, marks the row `stopped`, and records
+  `supervisor.stopped`.
 - `striatum supervise status --session-id <id>` probes PID liveness via
   `os.kill(pid, 0)` and lane progress through the active lease/session/
   supervisor heartbeat timestamps. An active row whose pid is gone is
@@ -1785,17 +1766,12 @@ the supervised flow, that command must satisfy three requirements
 fails to advance and `doctor` surfaces
 `supervisor_lost_with_held_lease`):
 
-1. **Choose an explicit stdin-delivery contract.** The default
-   `persistent_fifo` contract is for wrappers that stay alive across
-   packets, keep stdin open, and continue reading newline-terminated
-   packets until SIGTERM. One-shot print-mode CLIs that read all stdin
-   before starting work must opt in to
-   `supervision.stdin_delivery: "one_shot_eof"` and should expect a
-   single packet for that supervised process.
-2. **Read JSON packets from stdin according to that contract.** Each
-   delivery is the work packet's `packet_json` followed by a trailing
-   newline. Persistent wrappers parse one packet per line; one-shot
-   commands read until EOF and parse the single payload they receive.
+1. **Persistent PTY Interactive Model.** All process lanes run natively in
+   persistent interactive PTY sessions owned by the daemon. One-shot per-turn
+   wrappers and `--print` configurations are completely retired.
+2. **Submit Prompts via stdin-submit.** Per-turn prompt payloads are delivered
+   directly to the PTY master of the long-lived process using the per-adapter
+   submit key-sequence (Enter / `\r`), preserving agent context across turns.
 3. **Call back through daemon MCP/RPC.** The agent advances workflow state by
    invoking `work.ack`, `work.heartbeat`, `artifact.publish`, `work.block`,
    `review.verdict` / `review.submit`, and `work.complete` with the
@@ -1807,12 +1783,11 @@ fails to advance and `doctor` surfaces
 A working supervised lane therefore needs an agent that knows the
 Striatum protocol — a project skill, an embedded loop, or a wrapper
 script — not just a raw model invocation. The shipped wrappers live at
-`.striatum/bin/{claude,codex,gemini}-supervised-wrapper.sh`. Each
-wrapper consumes newline-delimited work packets, starts a fresh
-provider CLI invocation per packet with non-interactive tool-approval
-flags, logs provider stdout/stderr under `STRIATUM_SCRATCH_DIR`, and
-traps `SIGTERM` to clean up the in-flight inner process. Tests under
-`tests/test_claude_supervised_wrapper.py` verify those loop semantics
+`.striatum/bin/{claude,codex,agy}-supervised-wrapper.sh` (where `agy`
+profile reuses `claude` template structures under `.agy/`). Each
+wrapper maintains the long-lived process loop, logs provider stdout/stderr under
+`STRIATUM_SCRATCH_DIR`, and traps `SIGTERM` to clean up the in-flight inner process.
+Go tests under `go/pkg/agentloop/` verify those loop semantics
 with provider-command stubs so they do not depend on real agent
 binaries. dogfood-001's HARNESS-001 captured the "default scaffold
 ships a non-viable lane command" foot-gun; this contract is the
