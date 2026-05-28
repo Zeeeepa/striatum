@@ -118,7 +118,7 @@
     },
     "codex": {
       "adapter": "process",
-      "display_model": "Codex GPT-5.5",
+      "display_model": "Codex GPT-5.5 xhigh",
       "command": [".striatum/bin/codex-supervised-wrapper.sh"],
       "capabilities": ["write"],
       "constraints": {
@@ -136,7 +136,7 @@
     },
     "claude_code": {
       "adapter": "process",
-      "display_model": "Claude Opus",
+      "display_model": "Claude Opus 4.7",
       "command": [".striatum/bin/claude-supervised-wrapper.sh"],
       "capabilities": ["write"],
       "constraints": {

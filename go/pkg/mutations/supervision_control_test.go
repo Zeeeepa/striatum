@@ -4,15 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -177,8 +181,103 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	if launchedConfig.AgentLoopMode != agentLoopModeSelfDriving || result["agent_loop_mode"] != agentLoopModeSelfDriving {
 		t.Fatalf("self-driving agent-loop mode not surfaced: config=%#v result=%#v", launchedConfig.AgentLoopMode, result)
 	}
+	if launchedConfig.Transport != supervisionTransportPTYHelper || result["transport"] != supervisionTransportPTYHelper {
+		t.Fatalf("agent-loop default transport = config:%q result:%#v, want pty_helper", launchedConfig.Transport, result["transport"])
+	}
 	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/cat" {
 		t.Fatalf("original command = %#v", launchedConfig.OriginalCommand)
+	}
+}
+
+func TestMergePointerMetadataPreservesExistingTmuxFields(t *testing.T) {
+	tx := &superviseControlFakeTx{
+		metadata: map[string]any{
+			"transport": supervisionTransportPTYHelper,
+			"tmux": map[string]any{
+				"state": "backed",
+				"delivery_liveness": map[string]any{
+					"class":   "degraded",
+					"healthy": false,
+					"reason":  "attach_client_exited",
+				},
+				"attach_client_last_exit": map[string]any{"attach_exit_code": 1},
+			},
+		},
+	}
+	err := mergePointerMetadata(context.Background(), tx, "repo_1", "sup_1", map[string]any{
+		"helper_events_offset": 512,
+		"tmux": map[string]any{
+			"pane_id":          "%4",
+			"pane_start_token": "123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("mergePointerMetadata: %v", err)
+	}
+	if len(tx.execs) == 0 {
+		t.Fatal("expected metadata update")
+	}
+	metadata, ok := tx.execs[len(tx.execs)-1].args[0].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata arg = %#v", tx.execs[len(tx.execs)-1].args[0])
+	}
+	tmux := asMap(metadata["tmux"])
+	if tmux["pane_id"] != "%4" || tmux["pane_start_token"] != "123" {
+		t.Fatalf("incoming tmux fields missing: %#v", tmux)
+	}
+	delivery := asMap(tmux["delivery_liveness"])
+	if delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("delivery liveness was not preserved: %#v", tmux)
+	}
+	if asMap(tmux["attach_client_last_exit"])["attach_exit_code"] != 1 {
+		t.Fatalf("attach_client_last_exit was not preserved: %#v", tmux)
+	}
+	if metadata["helper_events_offset"] != 512 {
+		t.Fatalf("helper_events_offset = %#v", metadata["helper_events_offset"])
+	}
+}
+
+func TestSuperviseStartAgentLoopAllowsExplicitPipeTransportOverride(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	t.Setenv("STRIATUM_AGENT_LOOP_BINARY", "/bin/striatumd")
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	var launchedConfig supervisionStartConfig
+	supervisionLaunch = func(_ context.Context, config supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		launchedConfig = config
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+	}
+
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		workflowLane: map[string]any{
+			"adapter_capabilities": map[string]any{"agent_loop": true},
+		},
+		workflowSupervision: map[string]any{
+			"transport": supervisionTransportPipe,
+		},
+		txs: []*superviseControlFakeTx{{}, {}},
+	}
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_agent_loop_pipe_override",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStart: %v", err)
+	}
+	if launchedConfig.Transport != supervisionTransportPipe || result["transport"] != supervisionTransportPipe {
+		t.Fatalf("agent-loop explicit transport override = config:%q result:%#v, want pipe", launchedConfig.Transport, result["transport"])
 	}
 }
 
@@ -281,11 +380,12 @@ func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	if err := syscall.Mkfifo(pipePath, 0o600); err != nil {
 		t.Fatalf("mkfifo: %v", err)
 	}
-	readDone := make(chan []byte, 1)
-	go func() {
-		data, _ := os.ReadFile(pipePath)
-		readDone <- data
-	}()
+	readerFD, err := syscall.Open(pipePath, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatalf("open FIFO reader: %v", err)
+	}
+	reader := os.NewFile(uintptr(readerFD), "stdin.pipe.reader")
+	defer reader.Close()
 
 	tx := &superviseControlFakeTx{pipePath: pipePath, pid: os.Getpid()}
 	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
@@ -305,7 +405,10 @@ func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	if result["delivery_state"] != "delivered_unacknowledged" || result["control_ack_expected"] != true {
 		t.Fatalf("send result = %#v", result)
 	}
-	body := <-readDone
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read FIFO payload: %v", err)
+	}
 	var packet map[string]any
 	if err := json.Unmarshal(body, &packet); err != nil {
 		t.Fatalf("packet json = %q: %v", string(body), err)
@@ -353,6 +456,186 @@ func TestSuperviseSendWrongKindPacketIDPointsAtClaimNextPacketID(t *testing.T) {
 	}
 }
 
+func TestSuperviseSendRejectsDeliveryDegradedSupervisor(t *testing.T) {
+	tx := &superviseControlFakeTx{
+		pipePath: "/tmp/no-write-expected",
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"delivery_liveness": map[string]any{
+					"class":   "degraded",
+					"healthy": false,
+					"reason":  "attach_client_exited",
+				},
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_degraded",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject delivery-degraded supervisor")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: attach_client_exited") {
+		t.Fatalf("err = %#v", err)
+	}
+	if len(tx.eventInserts()) != 0 {
+		t.Fatalf("degraded supervisor should not record delivery: %#v", tx.execs)
+	}
+}
+
+func TestSuperviseSendRejectsRootDeliveryDegradedSupervisor(t *testing.T) {
+	tx := &superviseControlFakeTx{
+		pipePath: "/tmp/no-write-expected",
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"delivery_liveness": map[string]any{
+				"class":   "degraded",
+				"healthy": false,
+				"reason":  "stdin_reader_missing",
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_root_degraded",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject root delivery-degraded supervisor")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: stdin_reader_missing") {
+		t.Fatalf("err = %#v", err)
+	}
+	if len(tx.eventInserts()) != 0 {
+		t.Fatalf("degraded supervisor should not record delivery: %#v", tx.execs)
+	}
+}
+
+func TestTmuxMetadataFromHelperEventsPreservesLaunchAttachExit(t *testing.T) {
+	tmux := tmuxMetadataFromHelperEvents([]map[string]any{
+		{
+			"event_type": gosupervisor.HelperEventAgentStarted,
+			"timestamp":  "2026-05-28T21:03:21Z",
+			"payload": map[string]any{
+				"pid": 1001,
+				"metadata": map[string]any{
+					"tmux": map[string]any{
+						"state":            "backed",
+						"session_name":     "striatum-run",
+						"pane_id":          "%1",
+						"pane_pid":         1001,
+						"pane_start_token": "start-1",
+					},
+				},
+			},
+		},
+		{
+			"event_type": gosupervisor.HelperEventAttachExited,
+			"timestamp":  "2026-05-28T21:03:22Z",
+			"payload": map[string]any{
+				"attach_client_pid": 2002,
+				"attach_exit_code":  1,
+				"delivery_degraded": true,
+				"observed_at":       "2026-05-28T21:03:22Z",
+				"pid":               1001,
+				"tmux_liveness":     "tmux_ok",
+			},
+		},
+	})
+	if tmux == nil {
+		t.Fatalf("missing tmux metadata")
+	}
+	delivery := tmux["delivery_liveness"].(map[string]any)
+	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	lastExit := tmux["attach_client_last_exit"].(map[string]any)
+	if lastExit["attach_pid"] != 2002 || lastExit["attach_exit_code"] != 1 || lastExit["pane_pid"] != 1001 {
+		t.Fatalf("last exit = %#v", lastExit)
+	}
+}
+
+func TestSuperviseSendMarksDeliveryDegradedWhenPipeHasNoReader(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|" + strconv.Itoa(os.Getpid()) + "|0|",
+	}
+
+	dir := t.TempDir()
+	pipePath := filepath.Join(dir, "stdin.pipe")
+	if err := syscall.Mkfifo(pipePath, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	metadata := map[string]any{
+		"stdin_delivery": stdinDeliveryPersistentFIFO,
+		"tmux": map[string]any{
+			"state":        "backed",
+			"session_name": "striatum-run",
+			"pane_id":      "%4",
+			"pane_pid":     os.Getpid(),
+		},
+	}
+	tx1 := &superviseControlFakeTx{pipePath: pipePath, pid: os.Getpid(), metadata: metadata}
+	tx2 := &superviseControlFakeTx{metadata: metadata}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx1, tx2}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	_, err := HandleSuperviseSend(ctx, runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_no_reader",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject missing stdin reader")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: stdin_reader_missing") {
+		t.Fatalf("err = %#v", err)
+	}
+	if !tx1.rolledBack || !tx2.committed {
+		t.Fatalf("transactions rollback/commit = tx1:%v tx2:%v", tx1.rolledBack, tx2.committed)
+	}
+	update := tx2.pointerMetadataUpdate()
+	if update == nil {
+		t.Fatalf("missing persisted delivery degradation metadata update: %#v", tx2.execs)
+	}
+	updated := update.args[0].(map[string]any)
+	tmux := updated["tmux"].(map[string]any)
+	delivery := tmux["delivery_liveness"].(map[string]any)
+	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "stdin_reader_missing" {
+		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	if len(tx1.eventInserts()) != 0 {
+		t.Fatalf("missing-reader send should not record packet delivery: %#v", tx1.execs)
+	}
+}
+
 func TestSuperviseStopMarksSupervisorStoppedAndUnlinksPipe(t *testing.T) {
 	dir := t.TempDir()
 	pipePath := dir + "/stdin.pipe"
@@ -387,6 +670,148 @@ func TestSuperviseStopMarksSupervisorStoppedAndUnlinksPipe(t *testing.T) {
 	if event == nil || event.args[3] != "supervisor.stopped" {
 		t.Fatalf("event insert = %#v", event)
 	}
+}
+
+func TestSuperviseStopUsesTmuxKillSessionForBackedLane(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	tmuxRunner := &mutationFakeTmuxRunner{}
+	supervisionTmuxRunner = tmuxRunner
+
+	dir := t.TempDir()
+	pipePath := dir + "/stdin.pipe"
+	if err := os.WriteFile(pipePath, nil, 0o600); err != nil {
+		t.Fatalf("write pipe placeholder: %v", err)
+	}
+	tx := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":             "backed",
+				"session_name":      "striatum-run",
+				"pane_id":           "%4",
+				"pane_pid":          os.Getpid(),
+				"attach_client_pid": 0,
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}, pipePath: pipePath}
+	result, err := HandleSuperviseStop(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_stop_tmux",
+		Method:        "supervise.stop",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"reason":        "operator_requested",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStop: %v", err)
+	}
+	if result["signal"] != "tmux_kill_session" {
+		t.Fatalf("stop signal = %#v", result["signal"])
+	}
+	if len(tmuxRunner.calls) != 1 || strings.Join(tmuxRunner.calls[0], " ") != "kill-session -t striatum-run" {
+		t.Fatalf("tmux calls = %#v", tmuxRunner.calls)
+	}
+}
+
+func TestSuperviseStopSkipsStaleHelperPIDCleanup(t *testing.T) {
+	_ = currentStartTokenForMutationTest(t)
+	tx := &superviseControlFakeTx{
+		pid:      999999999,
+		pidStart: "stale-supervisor-start-token",
+		metadata: map[string]any{
+			"stdin_delivery":        stdinDeliveryPersistentFIFO,
+			"helper_pid":            os.Getpid(),
+			"helper_pid_start_time": "stale-start-token",
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	result, err := HandleSuperviseStop(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_stop_stale_helper",
+		Method:        "supervise.stop",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"reason":        "operator_requested",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStop: %v", err)
+	}
+	if result["state"] != "stopped" {
+		t.Fatalf("stop result = %#v", result)
+	}
+	event := tx.lastEventInsert()
+	if event == nil {
+		t.Fatal("missing stopped event")
+	}
+	payload := event.args[9].(map[string]any)
+	if payload["helper_pid_cleanup_skipped_reason"] != "start_token_mismatch" {
+		t.Fatalf("event payload = %#v", payload)
+	}
+}
+
+func TestSuperviseStopSkipsTmuxFallbackPanePIDOnStartTokenMismatch(t *testing.T) {
+	_ = currentStartTokenForMutationTest(t)
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	supervisionTmuxRunner = &mutationFakeTmuxRunner{err: errors.New("tmux server wedged")}
+
+	tx := &superviseControlFakeTx{
+		pid:      os.Getpid(),
+		pidStart: "stale-start-token",
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run",
+				"pane_id":      "%4",
+				"pane_pid":     os.Getpid(),
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	result, err := HandleSuperviseStop(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_stop_stale_tmux_fallback",
+		Method:        "supervise.stop",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"reason":        "operator_requested",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStop: %v", err)
+	}
+	if result["signal"] != nil {
+		t.Fatalf("stop signal = %#v, want skipped fallback cleanup", result["signal"])
+	}
+	event := tx.lastEventInsert()
+	if event == nil {
+		t.Fatal("missing stopped event")
+	}
+	payload := event.args[9].(map[string]any)
+	if payload["tmux_kill_fallback_reason"] != string(gosupervisor.TmuxLivenessUnavailable) ||
+		payload["pane_pid_cleanup_skipped_reason"] != "start_token_mismatch" {
+		t.Fatalf("event payload = %#v", payload)
+	}
+}
+
+type mutationFakeTmuxRunner struct {
+	calls [][]string
+	err   error
+}
+
+func (r *mutationFakeTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	return "", r.err
 }
 
 func TestLinuxProcStatZombieDetectsDefunctProcessState(t *testing.T) {
@@ -469,6 +894,8 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 type superviseControlFakeTx struct {
 	pipePath   string
 	pid        int
+	pidStart   string
+	metadata   map[string]any
 	nextEvent  int64
 	execs      []superviseControlExec
 	committed  bool
@@ -494,7 +921,11 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 		if tx.pid > 0 {
 			pid = tx.pid
 		}
-		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", tx.pipePath, pid, "", "dsup_1", map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}}}
+		metadata := tx.metadata
+		if metadata == nil {
+			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
+		}
+		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", tx.pipePath, pid, tx.pidStart, "dsup_1", metadata}}
 	case strings.Contains(sql, "FROM striatumd.work_packets"):
 		return superviseControlFakeRow{values: []any{"packet_1", "run_1", "job_1", "lease_1", "sess_1", map[string]any{"packet": "body"}}}
 	case strings.Contains(sql, "FROM striatumd.leases"):
@@ -505,7 +936,11 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 	case strings.Contains(sql, "FROM striatumd.daemon_supervisors") && strings.Contains(sql, "SELECT state"):
 		return superviseControlFakeRow{values: []any{"attached"}}
 	case strings.Contains(sql, "SELECT metadata_json"):
-		return superviseControlFakeRow{values: []any{map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}}}
+		metadata := tx.metadata
+		if metadata == nil {
+			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
+		}
+		return superviseControlFakeRow{values: []any{metadata}}
 	case strings.Contains(sql, "repo_event_chain_heads"):
 		return superviseControlFakeRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "nextval"):
@@ -564,6 +999,15 @@ func (tx *superviseControlFakeTx) lastEventInsert() *superviseControlExec {
 	return &events[len(events)-1]
 }
 
+func (tx *superviseControlFakeTx) pointerMetadataUpdate() *superviseControlExec {
+	for _, exec := range tx.execs {
+		if strings.Contains(exec.sql, "UPDATE striatumd.process_supervisor_pointers") && strings.Contains(exec.sql, "metadata_json") {
+			return &exec
+		}
+	}
+	return nil
+}
+
 func envValue(t *testing.T, env []string, key string) string {
 	t.Helper()
 	prefix := key + "="
@@ -585,6 +1029,15 @@ func countEnv(env []string, key string) int {
 		}
 	}
 	return count
+}
+
+func currentStartTokenForMutationTest(t *testing.T) string {
+	t.Helper()
+	token, ok := processStartToken(os.Getpid())
+	if !ok || token == "" {
+		t.Skip("process start token unavailable on this platform")
+	}
+	return token
 }
 
 type superviseControlFakeRow struct {

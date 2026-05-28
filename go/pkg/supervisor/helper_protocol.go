@@ -16,6 +16,7 @@ const (
 	HelperEventPacketAccepted = "packet_accepted"
 	HelperEventProgress       = "progress"
 	HelperEventAgentExited    = "agent_exited"
+	HelperEventAttachExited   = "attach_client_exited"
 	HelperEventError          = "helper_error"
 )
 

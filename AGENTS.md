@@ -36,8 +36,10 @@ work on Engram dogfood history.
 - Repository files are durable provenance, not the live message bus.
 - Marker files, tmux panes, terminal output, and provider hooks are not
   authoritative workflow state.
-- Do not introduce hosted services, cloud APIs, telemetry, transcript
-  capture, or external persistence without an explicit product decision.
+- Do not introduce hosted services, cloud APIs, telemetry, durable
+  transcript capture/export, or external persistence without an explicit
+  product decision. Operator-local PTY logs under `.striatum/scratch/`
+  are private diagnostics only, not workflow state or durable provenance.
 - Keep workflow examples generic unless they are clearly labeled as
   historical Engram reference fixtures.
 

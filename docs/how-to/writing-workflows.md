@@ -362,7 +362,7 @@ Claude Code, Codex, or Gemini lanes can use the matching wrapper as
 the lane command directly.
 
 Process lanes that call a raw single-prompt command such as
-`["codex", "exec", "--model", "gpt-5.5", "-"]` should declare:
+`["codex", "exec", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "-"]` should declare:
 
 ```json
 "supervision": {

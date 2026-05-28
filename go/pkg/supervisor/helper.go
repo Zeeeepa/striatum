@@ -8,12 +8,27 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 )
 
 const defaultProgressReadSize = 4096
+
+var (
+	helperLaunch        = Launch
+	helperSignalProcess = func(process *os.Process) error {
+		return process.Signal(syscall.SIGTERM)
+	}
+	helperSignalPID = func(pid int) error {
+		proc, err := os.FindProcess(pid)
+		if err != nil {
+			return err
+		}
+		return proc.Signal(syscall.SIGTERM)
+	}
+)
 
 type readWriteCloser interface {
 	io.Reader
@@ -28,6 +43,7 @@ type HelperOptions struct {
 	ProgressReadSize   int
 	StdinEOFClosesPTY  bool
 	ProgressDrainDelay time.Duration
+	TmuxRunner         TmuxRunner
 }
 
 type helperEmitter struct {
@@ -85,7 +101,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		UsePTY:      true,
 		RequireTmux: spec.RequireTmux,
 	}
-	result, err := Launch(ctx, spec.ScratchDir, spec.SupervisorID, launchSpec)
+	result, err := helperLaunch(ctx, spec.ScratchDir, spec.SupervisorID, launchSpec)
 	if err != nil {
 		return emitter.helperError(spec.SupervisorID, "launch", err)
 	}
@@ -100,6 +116,9 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 	defer ptmx.Close()
 
 	startedPayload := map[string]any{"pid": result.PID}
+	if result.AttachPID > 0 {
+		startedPayload["attach_client_pid"] = result.AttachPID
+	}
 	if len(result.Metadata) > 0 {
 		startedPayload["metadata"] = result.Metadata
 	}
@@ -108,7 +127,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		spec.SupervisorID,
 		startedPayload,
 	)); err != nil {
-		terminateProcess(result)
+		terminateProcess(ctx, result, opts.TmuxRunner)
 		return err
 	}
 
@@ -132,7 +151,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		case err := <-packetDone:
 			packetDone = nil
 			if err != nil {
-				terminateProcess(result)
+				terminateProcess(ctx, result, opts.TmuxRunner)
 				return emitter.helperError(spec.SupervisorID, "packet_forward", err)
 			}
 		case err := <-childDone:
@@ -141,13 +160,22 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 				_ = packetCloser.Close()
 			}
 			drainProgress(progressDone, opts.ProgressDrainDelay)
-			exitPayload := agentExitPayload(err)
-			if emitErr := emitter.emit(newHelperEvent(HelperEventAgentExited, spec.SupervisorID, exitPayload)); emitErr != nil {
-				return emitErr
+			if attachPayload, ok := attachClientExitPayload(ctx, result, err, opts.TmuxRunner); ok {
+				if emitErr := emitter.emit(newHelperEvent(HelperEventAttachExited, spec.SupervisorID, attachPayload)); emitErr != nil {
+					return emitErr
+				}
+			} else {
+				exitPayload := agentExitPayload(err)
+				if attachCause := tmuxExitCause(ctx, result, opts.TmuxRunner); attachCause != "" {
+					exitPayload["cause"] = attachCause
+				}
+				if emitErr := emitter.emit(newHelperEvent(HelperEventAgentExited, spec.SupervisorID, exitPayload)); emitErr != nil {
+					return emitErr
+				}
 			}
 			return nil
 		case <-ctx.Done():
-			terminateProcess(result)
+			terminateProcess(ctx, result, opts.TmuxRunner)
 			return emitter.helperError(spec.SupervisorID, "context", ctx.Err())
 		}
 	}
@@ -306,6 +334,62 @@ func agentExitPayload(err error) map[string]any {
 	return payload
 }
 
+func attachClientExitPayload(ctx context.Context, result *LaunchResult, err error, runner TmuxRunner) (map[string]any, bool) {
+	if result == nil || result.AttachPID <= 0 {
+		return nil, false
+	}
+	live := ProbeLaneLiveness(ctx, runnerOrDefault(runner), result.Metadata, result.PID, "")
+	if live.Backed != "tmux" {
+		return nil, false
+	}
+	if live.Class != string(TmuxLivenessOK) && live.Class != string(TmuxLivenessUnavailable) {
+		return nil, false
+	}
+	payload := map[string]any{
+		"pid":               result.PID,
+		"attach_pid":        result.AttachPID,
+		"attach_client_pid": result.AttachPID,
+		"delivery_degraded": true,
+		"delivery_liveness": map[string]any{
+			"class":   "degraded",
+			"healthy": false,
+			"reason":  "attach_client_exited",
+		},
+		"observed_at":   time.Now().UTC().Format(time.RFC3339Nano),
+		"tmux_liveness": live.Class,
+	}
+	if err == nil {
+		payload["attach_exit_code"] = 0
+		payload["exit_code"] = 0
+	} else {
+		if exitCode, ok := processExitCode(err); ok {
+			payload["attach_exit_code"] = exitCode
+			payload["exit_code"] = exitCode
+		} else {
+			payload["attach_error"] = err.Error()
+		}
+	}
+	return payload, true
+}
+
+func tmuxExitCause(ctx context.Context, result *LaunchResult, runner TmuxRunner) string {
+	if result == nil || result.AttachPID <= 0 {
+		return ""
+	}
+	live := ProbeLaneLiveness(ctx, runnerOrDefault(runner), result.Metadata, result.PID, "")
+	if live.Backed != "tmux" {
+		return ""
+	}
+	return live.Class
+}
+
+func runnerOrDefault(runner TmuxRunner) TmuxRunner {
+	if runner != nil {
+		return runner
+	}
+	return DefaultTmuxRunner()
+}
+
 func processExitCode(err error) (int, bool) {
 	var exitError interface {
 		ExitCode() int
@@ -316,9 +400,40 @@ func processExitCode(err error) (int, bool) {
 	return 0, false
 }
 
-func terminateProcess(result *LaunchResult) {
+func terminateProcess(ctx context.Context, result *LaunchResult, runner TmuxRunner) {
 	if result == nil || result.Cmd == nil || result.Cmd.Process == nil {
 		return
 	}
-	_ = result.Cmd.Process.Signal(syscall.SIGTERM)
+	_ = helperSignalProcess(result.Cmd.Process)
+	if result.AttachPID > 0 && result.AttachPID != result.PID {
+		if terminateTmuxBackedPane(ctx, result, runner) {
+			return
+		}
+		_ = helperSignalPID(result.PID)
+	}
+}
+
+func terminateTmuxBackedPane(ctx context.Context, result *LaunchResult, runner TmuxRunner) bool {
+	tmux := objectValue(result.Metadata["tmux"])
+	if strings.TrimSpace(stringValue(tmux["state"])) != "backed" {
+		return false
+	}
+	sessionName := strings.TrimSpace(stringValue(tmux["session_name"]))
+	if sessionName != "" {
+		killCtx, cancel := context.WithTimeout(context.Background(), tmuxProbeTimeout())
+		if ctx != nil && ctx.Err() == nil {
+			killCtx, cancel = context.WithTimeout(ctx, tmuxProbeTimeout())
+		}
+		_, err := runnerOrDefault(runner).Run(killCtx, "kill-session", "-t", sessionName)
+		cancel()
+		if err == nil {
+			return true
+		}
+	}
+	token := verifiedStartToken(stringValue(tmux["pane_start_token"]))
+	if token == "" {
+		return true
+	}
+	alive, _, _ := PIDLiveWithStartToken(result.PID, token)
+	return !alive
 }

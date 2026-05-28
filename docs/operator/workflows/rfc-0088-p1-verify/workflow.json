@@ -15,11 +15,11 @@
   "lanes": {
     "claude_code": {
       "adapter": "process",
-      "display_model": "Claude Opus",
+      "display_model": "Claude Opus 4.7",
       "command": [
         "claude",
         "--model",
-        "opus",
+        "claude-opus-4-7",
         "--permission-mode",
         "bypassPermissions"
       ],

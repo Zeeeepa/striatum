@@ -3,13 +3,119 @@ package mutations
 import (
 	"context"
 	"errors"
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
+
+type laneAttestationRunner struct {
+	rows []map[string]any
+}
+
+func (r laneAttestationRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return runPrepareRowsFromMaps(r.rows), nil
+}
+
+func TestSessionLaneAttestationRequiresLivePointerConsistency(t *testing.T) {
+	attestation := sessionLaneAttestation(context.Background(), laneAttestationRunner{rows: []map[string]any{
+		{
+			"supervisor_id":                "sup_1",
+			"pid":                          os.Getpid(),
+			"pid_start_time":               "",
+			"state":                        "attached",
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  os.Getpid(),
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        map[string]any{},
+			"daemon_supervisor_id":         "dsup_1",
+			"daemon_state":                 "attached",
+		},
+	}}, "repo_1", "sess_1")
+	if attestation["attested"] != true || attestation["state"] != "attested" {
+		t.Fatalf("attestation = %#v", attestation)
+	}
+
+	attestation = sessionLaneAttestation(context.Background(), laneAttestationRunner{rows: []map[string]any{
+		{
+			"supervisor_id":                "sup_1",
+			"pid":                          os.Getpid(),
+			"pid_start_time":               "",
+			"state":                        "attached",
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  os.Getpid() + 1,
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        map[string]any{},
+			"daemon_supervisor_id":         "dsup_1",
+			"daemon_state":                 "attached",
+		},
+	}}, "repo_1", "sess_1")
+	if attestation["attested"] != false || attestation["reason"] != "pointer_pid_mismatch" {
+		t.Fatalf("attestation = %#v", attestation)
+	}
+}
+
+func TestSessionLaneAttestationRejectsCorruptTmuxMetadata(t *testing.T) {
+	attestation := sessionLaneAttestation(context.Background(), laneAttestationRunner{rows: []map[string]any{
+		{
+			"supervisor_id":                "sup_1",
+			"pid":                          os.Getpid(),
+			"pid_start_time":               "",
+			"state":                        "attached",
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  os.Getpid(),
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        map[string]any{"tmux": map[string]any{"state": "backed", "session_name": "striatum-run"}},
+			"daemon_supervisor_id":         "dsup_1",
+			"daemon_state":                 "attached",
+		},
+	}}, "repo_1", "sess_1")
+	if attestation["attested"] != false || attestation["reason"] != "tmux_metadata_corrupt" {
+		t.Fatalf("attestation = %#v", attestation)
+	}
+}
+
+func TestSessionLaneAttestationRejectsLiteralTmuxStartToken(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	pid := os.Getpid()
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|" + strconv.Itoa(pid) + "|0|#{pane_start_time}",
+	}
+
+	attestation := sessionLaneAttestation(context.Background(), laneAttestationRunner{rows: []map[string]any{
+		{
+			"supervisor_id":                "sup_1",
+			"pid":                          pid,
+			"pid_start_time":               "",
+			"state":                        "attached",
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  pid,
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json": map[string]any{"tmux": map[string]any{
+				"state":            "backed",
+				"session_name":     "striatum-run",
+				"pane_id":          "%4",
+				"pane_pid":         pid,
+				"pane_start_token": "#{pane_start_time}",
+			}},
+			"daemon_supervisor_id": "dsup_1",
+			"daemon_state":         "attached",
+		},
+	}}, "repo_1", "sess_1")
+	if attestation["attested"] != false || attestation["reason"] != "start_token_unverified" {
+		t.Fatalf("attestation = %#v", attestation)
+	}
+}
 
 func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 	tx := &superviseReportFakeTx{
@@ -71,6 +177,221 @@ func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 	nested, ok := payload["payload"].(map[string]any)
 	if !ok || nested["exit_code"] != 7 {
 		t.Fatalf("nested payload = %#v", payload["payload"])
+	}
+}
+
+func TestSuperviseReportRecordsAttachClientExitAsDetached(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID:       "sup_1",
+			RunID:              "run_1",
+			SessionID:          "sess_1",
+			State:              "attached",
+			DaemonSupervisorID: "dsup_1",
+		},
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	result, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_attach_exit",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "attach_client_exited",
+			"payload":       map[string]any{"attach_client_pid": 123, "pid": 456},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if result["state"] != "detached" {
+		t.Fatalf("state = %v, want detached", result["state"])
+	}
+	if !tx.sawExec("UPDATE striatumd.process_supervisors", "state = 'detached'") {
+		t.Fatalf("process supervisor detach update was not executed: %#v", tx.execs)
+	}
+	if !tx.sawExec("UPDATE striatumd.process_supervisor_pointers", "state = 'detached'") {
+		t.Fatalf("pointer detach update was not executed: %#v", tx.execs)
+	}
+	if !tx.sawExec("UPDATE striatumd.daemon_supervisors", "state = 'detached'") {
+		t.Fatalf("daemon supervisor detach update was not executed: %#v", tx.execs)
+	}
+	event := tx.eventInsert()
+	if event == nil || event.args[3] != "supervisor.attach_client_exited" {
+		t.Fatalf("event insert = %#v", event)
+	}
+}
+
+func TestSuperviseReportAttachClientExitTmuxOKKeepsAttached(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|456|0|1748452211",
+	}
+
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID:       "sup_1",
+			RunID:              "run_1",
+			SessionID:          "sess_1",
+			State:              "attached",
+			DaemonSupervisorID: "dsup_1",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run",
+					"pane_id":          "%4",
+					"pane_pid":         456,
+					"pane_start_token": "1748452211",
+				},
+			},
+		},
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	result, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_attach_exit_live_tmux",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "attach_client_exited",
+			"payload": map[string]any{
+				"attach_client_pid": 123,
+				"pid":               456,
+				"tmux_liveness":     "tmux_ok",
+				"delivery_liveness": map[string]any{
+					"class":   "ok",
+					"healthy": true,
+					"reason":  "recovered",
+				},
+				"delivery_reason": "recovered",
+				"pane_text":       "raw pane bytes must not persist",
+				"stdout":          "provider stdout must not persist",
+				"stderr":          "provider stderr must not persist",
+				"transcript":      "transcript must not persist",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if result["state"] != "attached" {
+		t.Fatalf("state = %v, want attached", result["state"])
+	}
+	if tx.sawExec("UPDATE striatumd.process_supervisors", "state = 'detached'") {
+		t.Fatalf("live tmux attach exit detached supervisor: %#v", tx.execs)
+	}
+	if !tx.sawExec("UPDATE striatumd.process_supervisor_pointers", "metadata_json") {
+		t.Fatalf("attach exit metadata merge was not executed: %#v", tx.execs)
+	}
+	metadataUpdate := tx.pointerMetadataUpdate()
+	if metadataUpdate == nil {
+		t.Fatalf("missing pointer metadata update: %#v", tx.execs)
+	}
+	metadata, ok := metadataUpdate.args[0].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata arg = %#v", metadataUpdate.args[0])
+	}
+	tmux := metadata["tmux"].(map[string]any)
+	delivery := tmux["delivery_liveness"].(map[string]any)
+	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	lastExit := tmux["attach_client_last_exit"].(map[string]any)
+	if lastExit["delivery_liveness"] == nil || lastExit["tmux_liveness"] != "tmux_ok" {
+		t.Fatalf("attach last exit = %#v", lastExit)
+	}
+	event := tx.eventInsert()
+	if event == nil || event.args[3] != "supervisor.attach_client_exited" {
+		t.Fatalf("event insert = %#v", event)
+	}
+	eventPayload, ok := event.args[9].(map[string]any)
+	if !ok {
+		t.Fatalf("event payload = %#v", event.args[9])
+	}
+	nested, ok := eventPayload["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested event payload = %#v", eventPayload["payload"])
+	}
+	for _, forbidden := range []string{"pane_text", "stdout", "stderr", "transcript", "delivery_reason"} {
+		if _, ok := nested[forbidden]; ok {
+			t.Fatalf("nested event payload leaked %q: %#v", forbidden, nested)
+		}
+	}
+	eventDelivery := nested["delivery_liveness"].(map[string]any)
+	if eventDelivery["class"] != "degraded" || eventDelivery["healthy"] != false || eventDelivery["reason"] != "attach_client_exited" {
+		t.Fatalf("event delivery liveness = %#v", eventDelivery)
+	}
+}
+
+func TestSuperviseReportAttachClientExitUsesDaemonObservedTmuxLiveness(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|456|1|1748452211",
+	}
+
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID:       "sup_1",
+			RunID:              "run_1",
+			SessionID:          "sess_1",
+			State:              "attached",
+			DaemonSupervisorID: "dsup_1",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run",
+					"pane_id":          "%4",
+					"pane_pid":         456,
+					"pane_start_token": "1748452211",
+				},
+			},
+		},
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	result, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_attach_exit_dead_tmux",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "attach_client_exited",
+			"payload": map[string]any{
+				"attach_client_pid": 123,
+				"tmux_liveness":     "tmux_ok",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if result["state"] != "detached" {
+		t.Fatalf("state = %v, want detached", result["state"])
+	}
+	if !tx.sawExec("UPDATE striatumd.process_supervisors", "state = 'detached'") {
+		t.Fatalf("dead daemon-observed tmux pane did not detach supervisor: %#v", tx.execs)
+	}
+	event := tx.eventInsert()
+	if event == nil {
+		t.Fatal("missing attach exit event")
+	}
+	eventPayload, ok := event.args[9].(map[string]any)
+	if !ok {
+		t.Fatalf("event payload = %#v", event.args[9])
+	}
+	nested, ok := eventPayload["payload"].(map[string]any)
+	if !ok || nested["tmux_liveness"] != string(gosupervisor.TmuxLivenessPaneDead) {
+		t.Fatalf("nested payload = %#v", eventPayload["payload"])
 	}
 }
 
@@ -188,12 +509,19 @@ func (tx *superviseReportFakeTx) QueryRow(_ context.Context, sql string, _ ...an
 	switch {
 	case strings.Contains(sql, "FROM striatumd.process_supervisors"):
 		dsup := tx.supervisor.DaemonSupervisorID
+		var pid any
+		if tx.supervisor.HasPID || tx.supervisor.PID > 0 {
+			pid = tx.supervisor.PID
+		}
 		return superviseReportFakeRow{values: []any{
 			tx.supervisor.SupervisorID,
 			tx.supervisor.RunID,
 			tx.supervisor.SessionID,
 			tx.supervisor.State,
+			pid,
+			tx.supervisor.PIDStartTime,
 			&dsup,
+			tx.supervisor.Metadata,
 		}}
 	case strings.Contains(sql, "repo_event_chain_heads"):
 		return superviseReportFakeRow{err: pgx.ErrNoRows}
@@ -243,6 +571,15 @@ func (tx *superviseReportFakeTx) eventInsert() *superviseReportExec {
 	return &events[0]
 }
 
+func (tx *superviseReportFakeTx) pointerMetadataUpdate() *superviseReportExec {
+	for _, exec := range tx.execs {
+		if strings.Contains(exec.sql, "UPDATE striatumd.process_supervisor_pointers") && strings.Contains(exec.sql, "metadata_json") {
+			return &exec
+		}
+	}
+	return nil
+}
+
 func (tx *superviseReportFakeTx) eventInserts() []superviseReportExec {
 	events := []superviseReportExec{}
 	for _, exec := range tx.execs {
@@ -275,11 +612,37 @@ func (r superviseReportFakeRow) Scan(dest ...any) error {
 				text := value.(string)
 				*target = &text
 			}
+		case **int:
+			if value == nil {
+				*target = nil
+			} else if ptr, ok := value.(*int); ok {
+				*target = ptr
+			} else {
+				number := value.(int)
+				*target = &number
+			}
 		case *int64:
 			*target = value.(int64)
+		case *any:
+			*target = value
 		default:
 			return errors.New("unsupported scan destination")
 		}
 	}
 	return nil
+}
+
+type superviseReportFakeTmuxRunner struct {
+	display string
+	err     error
+}
+
+func (r superviseReportFakeTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	if len(args) > 0 && args[0] == "display-message" {
+		return r.display, nil
+	}
+	return "", nil
 }

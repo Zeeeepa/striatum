@@ -208,7 +208,7 @@ Implementation is incomplete without all of these, using the RFC 0080
 - Interrogation turns are curated (D028) and appear in the RFC 0081 `dialogue`
   trajectory.
 - All Required Tests pass under `go test ./...` and `-race`, with live-PG tests
-  running in CI (RFC 0080); `make python-trace-guardrail` strict; smoke green.
+  running in CI (RFC 0080); smoke green.
 - Daemon-owned PostgreSQL remains the only live substrate; the migration is
   owner-safe (test 9).
 

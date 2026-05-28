@@ -6,7 +6,7 @@
   "branch": {"mode":"confirm","suggested_name":"striatum/rfc-0088-p3-codex-verify","allow_dirty":true},
   "coordinator": {"role_id":"coordinator","lane_id":"codex"},
   "lanes": {
-    "codex": {"adapter":"process","display_model":"Codex","command":["codex","--dangerously-bypass-approvals-and-sandbox"],"adapter_capabilities":{"agent_loop":true},"capabilities":["write"]}
+    "codex": {"adapter":"process","display_model":"Codex GPT-5.5 xhigh","command":["codex","--model","gpt-5.5","-c","model_reasoning_effort=\"xhigh\"","--dangerously-bypass-approvals-and-sandbox"],"adapter_capabilities":{"agent_loop":true},"capabilities":["write"]}
   },
   "roles": {"coordinator":{"description":"operator host"},"writer":{"definition_path":"roles/writer.md"}},
   "context_docs": [],

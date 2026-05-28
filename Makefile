@@ -9,8 +9,7 @@ DIST_DIR ?= $(MAKEFILE_DIR)/dist
 .PHONY: install uninstall build lint typecheck test smoke check release-check \
 	go-build go-test go-vet go-release release-archives check-release-archives package-smoke \
 	ui-install ui-update-lock ui-audit ui-clean ui-build ui-dev ui-test ui-bundle-hash \
-	ui-verify-bundle ui-bundle-size ui-check-bundle \
-	python-trace-report python-trace-guardrail
+	ui-verify-bundle ui-bundle-size ui-check-bundle
 
 install: go-build
 	mkdir -p "$(PREFIX)/bin"
@@ -67,12 +66,6 @@ check-release-archives:
 
 package-smoke:
 	"$(MAKEFILE_DIR)/scripts/go_package_smoke.sh"
-
-python-trace-report:
-	"$(MAKEFILE_DIR)/scripts/python_trace_guardrail.sh" --report
-
-python-trace-guardrail:
-	"$(MAKEFILE_DIR)/scripts/python_trace_guardrail.sh" --strict
 
 ui-install:
 	npm ci --prefix "$(MAKEFILE_DIR)/src/striatum/web/frontend"

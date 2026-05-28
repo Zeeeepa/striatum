@@ -233,6 +233,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 	for _, row := range rows {
 		row["liveness"] = sessionliveness.ProjectionFromRow(row, now)
 		sessionliveness.RemoveProjectionSourceFields(row)
+		metadata := superviseObject(row["supervisor_metadata_json"])
 		attachSupervisorTmux(row, "supervisor_metadata_json")
 		if stringFrom(row, "supervisor_id") == "" {
 			row["lane_attestation"] = "unattested"
@@ -241,9 +242,20 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 			continue
 		}
 		pid, hasPID := intValueOptional(row["pid"])
-		if !hasPID || !pidAlive(pid) {
+		live := attachTmuxLivenessFromMetadata(ctx, row, metadata, pid, "")
+		if !hasPID && live.Backed != "tmux" {
 			row["lane_attestation"] = "unattested"
 			row["lane_attestation_reason"] = "pid_gone"
+			continue
+		}
+		if !live.Alive {
+			row["lane_attestation"] = "unattested"
+			row["lane_attestation_reason"] = live.Class
+			continue
+		}
+		if tmuxStartTokenUnverified(live) {
+			row["lane_attestation"] = "unattested"
+			row["lane_attestation_reason"] = "start_token_unverified"
 			continue
 		}
 		row["lane_attestation"] = "attested"

@@ -2,9 +2,11 @@ package reads
 
 import (
 	"context"
+	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 )
 
 // HandleDoctor mirrors reads/doctor.py. Returns a flat health report of
@@ -60,12 +62,36 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			}
 		}
 	}
+	supervisorLiveness := []map[string]any{}
+	if repositoryID != "" {
+		if rows, err := reattachStatusRows(ctx, runner, repositoryID, "", "", ""); err == nil {
+			for _, row := range rows {
+				view := reattachStatusView(row)
+				class := superviseString(view["lane_liveness_class"])
+				if !strings.HasPrefix(class, "tmux_") {
+					continue
+				}
+				item := map[string]any{
+					"supervisor_id": view["supervisor_id"],
+					"session_id":    view["session_id"],
+					"class":         class,
+					"state":         view["reattach_state"],
+					"reason":        view["reattach_reason"],
+				}
+				supervisorLiveness = append(supervisorLiveness, item)
+				if view["reattach_state"] != "terminal" && class != string(gosupervisor.TmuxLivenessOK) && class != string(gosupervisor.TmuxLivenessUnavailable) {
+					problems = append(problems, "supervisor_liveness."+superviseString(view["supervisor_id"])+": "+class)
+				}
+			}
+		}
+	}
 
 	return map[string]any{
 		"ok":             len(problems) == 0,
 		"schema_version": schemaVersion,
 		"stale_leases":   staleLeases,
 		"waiting_human":  waitingHuman,
+		"supervisors":    supervisorLiveness,
 		"problems":       problems,
 		"blob":           blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil

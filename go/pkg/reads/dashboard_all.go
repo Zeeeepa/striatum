@@ -190,6 +190,8 @@ func dashboardAllStatus(ctx context.Context, runner db.Runner, repositoryID stri
 		        s.liveness_stall_class,
 		        s.liveness_stall_since,
 		        ps.supervisor_id AS supervisor_id,
+		        ps.pid AS pid,
+		        ps.pid_start_time AS pid_start_time,
 		        ptr.metadata_json AS supervisor_metadata_json,
 		        active_lease.lease_id AS active_lease_id,
 		        active_lease.acquired_at AS active_lease_acquired_at,
@@ -223,7 +225,11 @@ func dashboardAllStatus(ctx context.Context, runner db.Runner, repositoryID stri
 	for _, session := range sessions {
 		session["liveness"] = sessionliveness.ProjectionFromRow(session, now)
 		sessionliveness.RemoveProjectionSourceFields(session)
+		metadata := superviseObject(session["supervisor_metadata_json"])
 		attachSupervisorTmux(session, "supervisor_metadata_json")
+		pid, _ := intValueOptional(session["pid"])
+		live := attachTmuxLivenessFromMetadata(ctx, session, metadata, pid, superviseString(session["pid_start_time"]))
+		applySupervisorLaneAttestation(session, superviseString(session["supervisor_id"]) != "", live)
 	}
 	processHealth, err := dashboardAllProcessHealth(ctx, runner, repositoryID)
 	if err != nil {

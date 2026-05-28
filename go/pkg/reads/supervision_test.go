@@ -10,6 +10,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -89,6 +90,37 @@ type superviseReadFakeRow struct{}
 
 func (superviseReadFakeRow) Scan(...any) error {
 	return errors.New("unexpected row scan")
+}
+
+type readFakeTmuxRunner struct {
+	responses []readFakeTmuxResponse
+	calls     [][]string
+}
+
+type readFakeTmuxResponse struct {
+	prefix []string
+	out    string
+	err    error
+}
+
+func (r *readFakeTmuxRunner) Run(_ context.Context, args ...string) (string, error) {
+	r.calls = append(r.calls, append([]string(nil), args...))
+	for _, response := range r.responses {
+		if len(args) < len(response.prefix) {
+			continue
+		}
+		matches := true
+		for i := range response.prefix {
+			if args[i] != response.prefix[i] {
+				matches = false
+				break
+			}
+		}
+		if matches {
+			return response.out, response.err
+		}
+	}
+	return "", errors.New("unexpected tmux command")
 }
 
 func TestHandleSuperviseListScopesByRepositoryRunAndState(t *testing.T) {
@@ -195,6 +227,242 @@ func TestHandleSuperviseStatusTreatsStartTokenMismatchAsGone(t *testing.T) {
 	}
 }
 
+func TestHandleSuperviseStatusReportsTmuxLivenessClass(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}})
+	defer restore()
+
+	row := superviseBaseRow("sup_tmux", 0, "")
+	row["pid"] = 48211
+	row["pid_start_time"] = "1748452211"
+	row["pointer_metadata_json"] = map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run_1-lane_1-sup_tmux",
+			"pane_id":          "%4",
+			"pane_pid":         48211,
+			"pane_start_token": "1748452211",
+			"attach_command":   "tmux attach-session -t striatum-run_1-lane_1-sup_tmux",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["liveness"] != "alive" || result["lane_attestation"] != "attested" {
+		t.Fatalf("status projection = %#v", result)
+	}
+	tmux := result["tmux"].(map[string]any)
+	liveness := tmux["liveness"].(map[string]any)
+	if liveness["class"] != "tmux_ok" || liveness["healthy"] != true {
+		t.Fatalf("tmux liveness = %#v", liveness)
+	}
+}
+
+func TestHandleSuperviseStatusTreatsTmuxStartTokenUnverifiedAsUnattested(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|\n"},
+	}})
+	defer restore()
+
+	row := superviseBaseRow("sup_tmux", 48211, "")
+	row["pointer_metadata_json"] = map[string]any{
+		"tmux": map[string]any{
+			"state":          "backed",
+			"session_name":   "striatum-run_1-lane_1-sup_tmux",
+			"pane_id":        "%4",
+			"pane_pid":       48211,
+			"attach_command": "tmux attach-session -t striatum-run_1-lane_1-sup_tmux",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["liveness"] != "alive" {
+		t.Fatalf("status projection = %#v", result)
+	}
+	if result["lane_attestation"] != "unattested" || result["lane_attestation_reason"] != "start_token_unverified" {
+		t.Fatalf("lane attestation = %#v", result)
+	}
+	tmux := result["tmux"].(map[string]any)
+	liveness := tmux["liveness"].(map[string]any)
+	if liveness["class"] != "tmux_ok" || liveness["detail"] != "start_token_unverified" {
+		t.Fatalf("tmux liveness = %#v", liveness)
+	}
+}
+
+func TestReattachStatusViewUsesTmuxObservedStartToken(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}})
+	defer restore()
+
+	view := reattachStatusView(map[string]any{
+		"supervisor_id":                "sup_tmux",
+		"run_id":                       "run_1",
+		"session_id":                   "sess_1",
+		"state":                        "attached",
+		"pid":                          48211,
+		"pid_start_time":               "1748452211",
+		"pointer_daemon_supervisor_id": "dsup_1",
+		"pointer_state":                "attached",
+		"pointer_metadata_json": map[string]any{
+			"tmux": map[string]any{
+				"state":            "backed",
+				"session_name":     "striatum-run_1-lane_1-sup_tmux",
+				"pane_id":          "%4",
+				"pane_pid":         48211,
+				"pane_start_token": "1748452211",
+			},
+		},
+		"daemon_supervisor_id": "dsup_1",
+		"daemon_state":         "attached",
+	})
+
+	if view["reattach_state"] != "reattachable" || view["pid_identity"] != "matched" || view["current_pid_start_time"] != "1748452211" {
+		t.Fatalf("reattach view = %#v", view)
+	}
+}
+
+func TestApplySupervisorLaneAttestationTreatsTmuxStartTokenUnverifiedAsUnattested(t *testing.T) {
+	view := map[string]any{}
+	applySupervisorLaneAttestation(view, true, gosupervisor.LaneLiveness{
+		Backed: "tmux",
+		Alive:  true,
+		Class:  string(gosupervisor.TmuxLivenessOK),
+		Detail: "start_token_unverified",
+	})
+	if view["lane_attestation"] != "unattested" || view["lane_attestation_reason"] != "start_token_unverified" {
+		t.Fatalf("lane attestation = %#v", view)
+	}
+}
+
+func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}})
+	defer restore()
+
+	row := superviseBaseRow("sup_tmux", 48211, "1748452211")
+	row["pointer_metadata_json"] = map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run_1-lane_1-sup_tmux",
+			"pane_id":          "%4",
+			"pane_pid":         48211,
+			"pane_start_token": "1748452211",
+			"attach_command":   "tmux attach-session -t striatum-run_1-lane_1-sup_tmux",
+			"delivery_liveness": map[string]any{
+				"class":       "degraded",
+				"healthy":     false,
+				"reason":      "attach_client_exited",
+				"observed_at": "2026-05-28T17:00:00Z",
+			},
+			"attach_client_last_exit": map[string]any{
+				"attach_pid":       123,
+				"tmux_liveness":    "tmux_ok",
+				"attach_exit_code": 0,
+				"delivery_liveness": map[string]any{
+					"class":   "degraded",
+					"healthy": false,
+					"reason":  "attach_client_exited",
+				},
+			},
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["liveness"] != "alive" || result["lane_attestation"] != "attested" {
+		t.Fatalf("pane liveness projection = %#v", result)
+	}
+	delivery := result["delivery_liveness"].(map[string]any)
+	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	tmux := result["tmux"].(map[string]any)
+	if tmux["delivery_liveness"] == nil || tmux["attach_client_last_exit"] == nil {
+		t.Fatalf("tmux delivery metadata = %#v", tmux)
+	}
+}
+
+func TestHandleSuperviseStatusSurfacesRootDeliveryDegradedWithoutTmuxMetadata(t *testing.T) {
+	row := superviseBaseRow("sup_plain", os.Getpid(), currentStartTokenForTest())
+	row["pointer_metadata_json"] = map[string]any{
+		"delivery_liveness": map[string]any{
+			"class":       "degraded",
+			"healthy":     false,
+			"reason":      "stdin_reader_missing",
+			"observed_at": "2026-05-28T17:00:00Z",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if _, ok := result["tmux"]; ok {
+		t.Fatalf("plain supervisor unexpectedly has tmux metadata: %#v", result)
+	}
+	delivery := result["delivery_liveness"].(map[string]any)
+	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "stdin_reader_missing" {
+		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+}
+
+func TestHandleSuperviseStatusNeverIncludesPaneTextInTmuxMetadata(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}})
+	defer restore()
+
+	row := superviseBaseRow("sup_tmux", 48211, "1748452211")
+	row["pointer_metadata_json"] = map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run_1-lane_1-sup_tmux",
+			"pane_id":          "%4",
+			"pane_pid":         48211,
+			"pane_start_token": "1748452211",
+			"attach_command":   "tmux attach-session -t striatum-run_1-lane_1-sup_tmux",
+			"pane_text":        "must not leak",
+			"stdout":           "must not leak",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	tmux := result["tmux"].(map[string]any)
+	for _, forbidden := range []string{"pane_text", "capture", "buffer", "output", "stdout", "stderr", "transcript"} {
+		if _, ok := tmux[forbidden]; ok {
+			t.Fatalf("tmux metadata leaked %s: %#v", forbidden, tmux)
+		}
+	}
+}
+
 func TestHandleSuperviseStatusSurfacesLatestEscalationReport(t *testing.T) {
 	now := time.Date(2026, 5, 27, 4, 0, 0, 0, time.UTC)
 	runner := &superviseReadFakeRunner{
@@ -247,16 +515,23 @@ func TestLinuxProcStatZombieDetectsDefunctProcessStateForReads(t *testing.T) {
 func TestTmuxMetadataIsAllowlistedForOperatorStatus(t *testing.T) {
 	tmux := tmuxMetadata(map[string]any{
 		"tmux": map[string]any{
-			"session_name":   "striatum-run_1-lane_1-sup_1",
-			"window_id":      "@1",
-			"pane_id":        "%2",
-			"attach_command": "tmux attach-session -t striatum-run_1-lane_1-sup_1",
-			"pane_text":      "terminal bytes must stay out",
-			"raw_output":     "terminal bytes must stay out",
+			"session_name":            "striatum-run_1-lane_1-sup_1",
+			"window_id":               "@1",
+			"pane_id":                 "%2",
+			"attach_command":          "tmux attach-session -t striatum-run_1-lane_1-sup_1",
+			"last_ok_at":              "2026-05-28T18:00:00Z",
+			"probe_skipped_at":        "2026-05-28T18:01:00Z",
+			"probe_unavailable_count": 2,
+			"last_unavailable_detail": "probe_timeout",
+			"pane_text":               "terminal bytes must stay out",
+			"raw_output":              "terminal bytes must stay out",
 		},
 	})
 	if tmux["state"] != "attachable" || tmux["pane_id"] != "%2" {
 		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	if tmux["probe_unavailable_count"] != 2 || tmux["last_unavailable_detail"] != "probe_timeout" {
+		t.Fatalf("tmux probe metadata = %#v", tmux)
 	}
 	for _, forbidden := range []string{"pane_text", "raw_output"} {
 		if _, ok := tmux[forbidden]; ok {

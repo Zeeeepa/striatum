@@ -1,0 +1,160 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0089-tmux-helper-redesign",
+  "workflow_version": "2026-05-28",
+  "name": "RFC 0089: tmux helper redesign with three-model design, interrogation, codex build, and three-lane build review",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0089-tmux-helper-redesign",
+    "allow_dirty": true
+  },
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5 xhigh",
+      "command": ["codex", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "review", "synthesis", "interrogate"]
+    },
+    "codex_builder": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5 xhigh",
+      "command": ["codex", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "interrogate"]
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus 4.7",
+      "command": ["claude", "--model", "claude-opus-4-7", "--permission-mode", "bypassPermissions"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "review", "synthesis", "interrogate"]
+    },
+    "agy": {
+      "adapter": "process",
+      "display_model": "Gemini 3.5 Flash High",
+      "command": ["sh", "-c", "IFS= read -r prompt; exec agy --dangerously-skip-permissions --print-timeout 30m --print \"$prompt\" </dev/null"],
+      "supervision": {"transport": "pipe", "stdin_delivery": "one_shot_eof"},
+      "capabilities": ["write", "review", "interrogate"]
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "roles/coordinator.md"},
+    "designer": {"definition_path": "roles/designer.md"},
+    "synthesizer": {"definition_path": "roles/synthesizer.md"},
+    "implementer": {"definition_path": "roles/implementer.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/TASK.md", "required": true},
+    {"path": "docs/rfcs/0089-tmux-backed-lane-monitoring.md", "required": true},
+    {"path": "docs/rfcs/0088-deprecate-print-interactive-pty-lanes-agy-migration.md", "required": true},
+    {"path": "docs/operator/workflows/rfc-0088-p3-codex-verify/FINDINGS.md", "required": false}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 3, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {
+      "id": "design_codex", "type": "draft", "title": "Design (codex GPT-5.5 xhigh)", "role_id": "designer", "lane_id": "codex",
+      "parallel_group": "design", "fresh_session_required": true,
+      "objective": "Produce an independent design for RFC 0089 Phase 1 session/pane liveness. Do not coordinate with the other design lanes.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/codex/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [{"logical_name": "codex_design", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/codex/DESIGN.md", "required": true}]
+    },
+    {
+      "id": "design_claude", "type": "draft", "title": "Design (claude opus 4.7)", "role_id": "designer", "lane_id": "claude_code",
+      "parallel_group": "design", "fresh_session_required": true,
+      "objective": "Produce an independent design for RFC 0089 Phase 1 session/pane liveness. Do not coordinate with the other design lanes.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/claude_code/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [{"logical_name": "claude_design", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/claude_code/DESIGN.md", "required": true}]
+    },
+    {
+      "id": "design_agy", "type": "draft", "title": "Design (agy gemini 3.5 flash high)", "role_id": "designer", "lane_id": "agy",
+      "parallel_group": "design", "fresh_session_required": true,
+      "objective": "Produce an independent design for RFC 0089 Phase 1 session/pane liveness. Do not coordinate with the other design lanes.",
+      "task_prompt": {"path": "prompts/design.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/agy/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [{"logical_name": "agy_design", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/agy/DESIGN.md", "required": true}]
+    },
+    {
+      "id": "synth", "type": "synthesis", "title": "Synthesize designs (interrogable)", "role_id": "synthesizer", "lane_id": "claude_code",
+      "fresh_session_required": true, "interrogable": true,
+      "objective": "Reconcile the three designs into one buildable RFC 0089 Phase 1 implementation synthesis. Stay live for adversarial interrogation.",
+      "task_prompt": {"path": "prompts/synth.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/DESIGN_SYNTHESIS.md"], "forbidden_paths": [".striatum/", "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/"]},
+      "expected_artifacts": [{"logical_name": "design_synthesis", "kind": "synthesis", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/DESIGN_SYNTHESIS.md", "required": true}]
+    },
+    {
+      "id": "review_design_adversarial", "type": "review", "title": "Design review adversarial agy", "role_id": "reviewer", "lane_id": "agy",
+      "fresh_session_required": true, "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "devils_advocate",
+      "objective": "Adversarially review the synthesis and interrogate the live synthesizer before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_design.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/design/agy/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "design_review_agy", "kind": "finding", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/design/agy/REVIEW.md", "required": true},
+        {"logical_name": "design_interrogation_chat_agy", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/design/agy/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "implement", "type": "build", "title": "Implement RFC 0089 Phase 1 (codex GPT-5.5 xhigh builder)", "role_id": "implementer", "lane_id": "codex_builder",
+      "fresh_session_required": true, "interrogable": true, "required_review_postures": ["threat_model", "ergonomics_dx", "devils_advocate"],
+      "objective": "Implement the synthesized RFC 0089 Phase 1 helper redesign: replace attach-as-liveness with tmux session/pane liveness. Stay live for the three-lane build-review interrogation panel.",
+      "task_prompt": {"path": "prompts/implement.md"},
+      "write_scope": {"mode": "repo_write", "repo_write": true,
+        "allowed_paths": ["go/", "docs/rfcs/0089-tmux-backed-lane-monitoring.md", "docs/decisions/decision-log.md", "docs/reference/spec.md", "docs/reference/ubiquitous-language.md", "docs/reference/command-authority-matrix.md", "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/build/"],
+        "forbidden_paths": [".striatum/", "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/design/", "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/"]},
+      "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/build/HANDOFF.md", "required": true}]
+    },
+    {
+      "id": "review_build_codex", "type": "review", "title": "Build review codex threat_model", "role_id": "reviewer", "lane_id": "codex",
+      "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "threat_model",
+      "objective": "Threat-model the implementation and interrogate the live codex builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/codex/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "build_review_codex", "kind": "finding", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/codex/REVIEW.md", "required": true},
+        {"logical_name": "build_interrogation_chat_codex", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/codex/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_build_claude", "type": "review", "title": "Build review claude ergonomics_dx", "role_id": "reviewer", "lane_id": "claude_code",
+      "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "ergonomics_dx",
+      "objective": "Review implementation ergonomics and interrogate the live codex builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/claude_code/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "build_review_claude", "kind": "finding", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/claude_code/REVIEW.md", "required": true},
+        {"logical_name": "build_interrogation_chat_claude", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/claude_code/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_build_agy", "type": "review", "title": "Build review agy devils_advocate", "role_id": "reviewer", "lane_id": "agy",
+      "parallel_group": "build_review", "fresh_session_required": true, "reviewer_context_policy": "fresh", "reviewer_access_scope": "document_only", "review_posture": "devils_advocate",
+      "objective": "Adversarially review the implementation and interrogate the live codex builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_build.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/agy/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "build_review_agy", "kind": "finding", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/agy/REVIEW.md", "required": true},
+        {"logical_name": "build_interrogation_chat_agy", "kind": "handoff", "path": "docs/operator/workflows/rfc-0089-tmux-helper-redesign/artifacts/review/build/agy/INTERROGATION_CHAT.md", "required": true}
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "design_codex", "to": "synth", "on": "completed"},
+    {"from": "design_claude", "to": "synth", "on": "completed"},
+    {"from": "design_agy", "to": "synth", "on": "completed"},
+    {"from": "synth", "to": "review_design_adversarial", "on": "completed"},
+    {"from": "review_design_adversarial", "to": "implement", "on": "completed"},
+    {"from": "implement", "to": "review_build_codex", "on": "completed"},
+    {"from": "implement", "to": "review_build_claude", "on": "completed"},
+    {"from": "implement", "to": "review_build_agy", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_design_adversarial", "to": "synth", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
+    {"from": "review_build_codex", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
+    {"from": "review_build_claude", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true},
+    {"from": "review_build_agy", "to": "implement", "on_verdict": "needs_revision", "max_iterations": 2, "allow_same_lane": true}
+  ]
+}

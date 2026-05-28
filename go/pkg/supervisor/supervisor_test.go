@@ -156,6 +156,65 @@ func TestLivenessMarksLostOnDeadPid(t *testing.T) {
 	}
 }
 
+func TestLivenessMarksLostOnCorruptTmuxMetadata(t *testing.T) {
+	store := newFakeStore()
+	supID := "sup_corrupt_tmux"
+	store.UpsertSupervisorPointer(context.Background(), PointerRow{
+		SupervisorID: supID,
+		RepositoryID: "repo_test",
+		PID:          os.Getpid(),
+		State:        "running",
+		Metadata: map[string]any{
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run",
+			},
+		},
+	})
+
+	cfg := LivenessConfig{HeartbeatInterval: 25 * time.Millisecond}
+	l := NewLiveness(cfg, store, supID, os.Getpid())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l.Start(ctx)
+
+	time.Sleep(120 * time.Millisecond)
+	_ = l.Stop(context.Background(), false)
+
+	row, err := store.GetSupervisorPointer(context.Background(), supID)
+	if err != nil {
+		t.Fatalf("GetSupervisorPointer: %v", err)
+	}
+	if row.State != "lost" || row.LostReason != "tmux_metadata_corrupt" {
+		t.Fatalf("row = %#v, want corrupt tmux metadata lost", row)
+	}
+}
+
+func TestRecordTmuxProbeUnavailableMetadata(t *testing.T) {
+	now := time.Date(2026, 5, 28, 18, 0, 0, 0, time.UTC)
+	metadata := map[string]any{
+		"tmux": map[string]any{
+			"state":      "backed",
+			"last_ok_at": "2026-05-28T17:59:00Z",
+		},
+	}
+	recordTmuxProbeUnavailable(metadata, now, 2, "probe_timeout")
+	tmux := metadata["tmux"].(map[string]any)
+	if tmux["probe_unavailable_count"] != 2 || tmux["last_unavailable_detail"] != "probe_timeout" {
+		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	if tmux["probe_skipped_at"] == "" {
+		t.Fatalf("tmux metadata missing probe_skipped_at: %#v", tmux)
+	}
+	recordTmuxProbeOK(metadata, now.Add(time.Second))
+	if tmux["probe_unavailable_count"] != nil || tmux["probe_skipped_at"] != nil || tmux["last_unavailable_detail"] != nil {
+		t.Fatalf("tmux metadata did not clear unavailable fields: %#v", tmux)
+	}
+	if tmux["last_ok_at"] == "2026-05-28T17:59:00Z" {
+		t.Fatalf("last_ok_at was not refreshed: %#v", tmux)
+	}
+}
+
 func TestLaunchEmptyCommandRejected(t *testing.T) {
 	_, err := Launch(context.Background(), t.TempDir(), "sup_x", LaunchSpec{})
 	if err == nil {
@@ -165,12 +224,32 @@ func TestLaunchEmptyCommandRejected(t *testing.T) {
 
 func TestTmuxSessionNameIncludesSupervisorIDAndIsSanitized(t *testing.T) {
 	got := tmuxSessionName("run/id:one", "lane one", "sup:123")
-	if got != "striatum-run_id_one-lane_one-sup_123" {
+	if !strings.HasPrefix(got, "striatum-run_id_one-lane_one-sup_123-") || len(got) != len("striatum-run_id_one-lane_one-sup_123-")+tmuxSessionNameHashLen {
 		t.Fatalf("session name = %q", got)
 	}
 	long := tmuxSessionName(strings.Repeat("r", 90), strings.Repeat("l", 90), strings.Repeat("s", 90))
-	if len(long) > 100 {
+	if len(long) > tmuxSessionNameMaxLen {
 		t.Fatalf("session name length = %d, want <= 100", len(long))
+	}
+}
+
+func TestTmuxSessionNameHashSuffixAvoidsTruncationCollision(t *testing.T) {
+	runID := "run_" + strings.Repeat("r", 80)
+	lanePrefix := "lane_" + strings.Repeat("l", 140)
+	first := tmuxSessionName(runID, lanePrefix+"a", "sup_same")
+	second := tmuxSessionName(runID, lanePrefix+"b", "sup_same")
+	if first == second {
+		t.Fatalf("distinct long lane ids collided: %q", first)
+	}
+	if len(first) > tmuxSessionNameMaxLen || len(second) > tmuxSessionNameMaxLen {
+		t.Fatalf("session names too long: %d %d", len(first), len(second))
+	}
+
+	supervisorPrefix := "sup_" + strings.Repeat("s", 140)
+	third := tmuxSessionName(runID, lanePrefix, supervisorPrefix+"a")
+	fourth := tmuxSessionName(runID, lanePrefix, supervisorPrefix+"b")
+	if third == fourth {
+		t.Fatalf("distinct long supervisor ids collided: %q", third)
 	}
 }
 
@@ -252,6 +331,86 @@ func TestLaunchPTYOptionalTmuxFallsBackWhenUnavailable(t *testing.T) {
 	}
 	_ = res.StdinWriter.Close()
 	_ = res.Cmd.Wait()
+}
+
+func TestLaunchPTYTmuxSetupCommandsAreBounded(t *testing.T) {
+	truePath := testCommandPath(t, "true")
+	dir := t.TempDir()
+	tmuxPath := filepath.Join(dir, "tmux")
+	if err := os.WriteFile(tmuxPath, []byte("#!/bin/sh\nexec /bin/sleep 5\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("STRIATUM_TMUX_SETUP_TIMEOUT", "50ms")
+
+	start := time.Now()
+	_, err := Launch(context.Background(), t.TempDir(), "sup_tmux_setup_timeout", LaunchSpec{
+		Command: []string{truePath},
+		UsePTY:  true,
+		Env: []string{
+			"STRIATUM_RUN_ID=run_tmux_setup_timeout",
+			"STRIATUM_LANE_ID=lane_tmux_setup_timeout",
+		},
+		RequireTmux: true,
+	})
+	if err == nil {
+		t.Fatal("expected tmux setup timeout")
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("Launch returned after %s, want bounded tmux setup timeout", elapsed)
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %q, want timeout detail", err.Error())
+	}
+}
+
+func TestLaunchPTYTmuxImmediateExitPreservesDeadPane(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	shPath := testCommandPath(t, "sh")
+	dir := t.TempDir()
+	runID := "run_tmux_exit"
+	laneID := "lane_tmux_exit"
+	supervisorID := "sup_tmux_exit"
+	sessionName := tmuxSessionName(runID, laneID, supervisorID)
+	_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	t.Cleanup(func() { _ = exec.Command("tmux", "kill-session", "-t", sessionName).Run() })
+
+	res, err := Launch(context.Background(), dir, supervisorID, LaunchSpec{
+		Command:     []string{shPath, "-c", "exit 42"},
+		WorkingDir:  dir,
+		UsePTY:      true,
+		RequireTmux: true,
+		Env: []string{
+			"STRIATUM_RUN_ID=" + runID,
+			"STRIATUM_LANE_ID=" + laneID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Launch tmux immediate-exit command: %v", err)
+	}
+	if res.StdinWriter != nil {
+		_ = res.StdinWriter.Close()
+	}
+	if res.Cmd != nil && res.Cmd.Process != nil {
+		_ = res.Cmd.Process.Kill()
+		_ = res.Cmd.Wait()
+	}
+	id, ok := TmuxIdentityFromMetadata(res.Metadata)
+	if !ok {
+		t.Fatalf("tmux identity missing from metadata: %#v", res.Metadata)
+	}
+	var live TmuxLiveness
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		live = ProbeTmuxLiveness(context.Background(), DefaultTmuxRunner(), id)
+		if live.Class == TmuxLivenessPaneDead {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("liveness = %#v, want %s; launch must preserve dead panes for diagnostics", live, TmuxLivenessPaneDead)
 }
 
 func TestLaunchPipeMode(t *testing.T) {

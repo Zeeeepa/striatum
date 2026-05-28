@@ -14,8 +14,9 @@ terminal-based AI coding agents. It coordinates registered target
 repositories through a local daemon, daemon RPC methods, and
 capability-gated client surfaces (CLI, MCP, and local web UI). It
 does not provide hosted services, external persistence, telemetry,
-Slack/remote serving, transcript capture, provider SDK integration,
-malicious-local-operator-resistant sealed apply, or automatic commits.
+Slack/remote serving, durable transcript capture, provider SDK
+integration, malicious-local-operator-resistant sealed apply, or
+automatic commits.
 
 RFC 0033, RFC 0043, and RFC 0048 establish the current substrate:
 daemon-owned PostgreSQL is authoritative for daemon-global state and
@@ -1102,7 +1103,7 @@ into the target tree. The bundle teaches a Striatum-aware agent how
 to drive the runner without reading the source repo: each rendered
 Markdown file lists the relevant daemon MCP methods and CLI compatibility
 verbs, the boundary conditions the runner does not enforce (no direct PostgreSQL writes,
-no marker files as state, no transcript capture), and copy-pasteable method
+no marker files as state, no durable transcript provenance), and copy-pasteable method
 examples.
 
 V1.2 ships four profiles plus an `all` fan-out:
@@ -1590,8 +1591,9 @@ claimed lease, can pass the stored work packet on stdin, sets
 `.striatum/scratch/<process_id>` scratch directory, and records process
 metadata plus lifecycle events through the legacy compatibility schema.
 The daemon-owned supervised-session path is the production long-lived
-process path. Stdout and stderr are suppressed unless the operator
-explicitly requests inherited stdio; Striatum does not capture transcripts.
+process path. Single-shot stdout and stderr are suppressed unless the
+operator explicitly requests inherited stdio; Striatum does not store
+single-shot transcripts in daemon state or durable artifacts.
 The process adapter graduates `network=forbidden` and
 `repo_scope=local_only` to `advisory_strict`; transcript-off is `enforced`.
 
@@ -1674,32 +1676,80 @@ The supervise CLI surface:
   active and that its lane uses the `process` adapter, refuses if the
   session already has a supervisor in `('starting','attached','detached')`
   state, and forks the lane command in a daemon-owned persistent interactive
-  PTY session. It sends stdout/stderr to `DEVNULL` (no transcripts, per D028),
-  and transitions the row to `attached` once the child pid is alive. A
+  PTY session. It keeps raw provider output out of daemon/PostgreSQL state and
+  durable artifacts, and transitions the row to `attached` once the child pid
+  is alive. A
   `supervisor.starting` and `supervisor.started` event are recorded.
 - `striatum supervise send --session-id <id> --packet-id <id>` delivers the
   work packet prompt directly to the daemon-owned interactive PTY master
   (`stdin-submit`) using the per-adapter submit key-sequence (Enter / `\r`),
   refreshes `heartbeat_at`, and records a `supervisor.packet_delivered` event.
-  The older `supervision.stdin_delivery: "one_shot_eof"` with named pipe (FIFO)
-  transport and one-shot `-p` / `--print` wrappers are completely retired.
-  All agent lanes run natively in persistent PTY sessions with preserved context, and
-  reactions are daemon-driven through MCP/RPC methods (`artifact.publish`,
-  `work.ack`, `work.complete`, `review.verdict`), with CLI compatibility
-  fallbacks available for older workflows. The supervisor never parses agent stdout.
+  The helper-facing delivery FIFO is opened in nonblocking mode. If the helper
+  or stdin reader is gone, delivery liveness is marked degraded with reason
+  `stdin_reader_missing`, the call fails with a structured refusal, and no
+  `supervisor.packet_delivered` event is recorded.
+  Delivery degradation is stored under `tmux.delivery_liveness` for tmux-shaped
+  supervisors and under top-level `delivery_liveness` for no-tmux/plain
+  supervisor metadata; send guards and read projections must honor both shapes.
+  Agent-loop lanes default to persistent PTY-helper supervision with preserved
+  context. The older `supervision.stdin_delivery: "one_shot_eof"` named-pipe
+  transport remains an explicit compatibility path for lanes that cannot yet
+  run an agent loop. State reactions are daemon-driven through MCP/RPC methods
+  (`artifact.publish`, `work.ack`, `work.complete`, `review.verdict`), with CLI
+  compatibility fallbacks available for older workflows. The supervisor never
+  parses agent stdout.
 - PTY-helper lanes can set `supervision.require_tmux: true` to fail closed if
   `tmux` is unavailable or run/lane metadata is missing. Without that opt-in,
   PTY-helper launch may fall back to a plain PTY and records tmux
-  unavailability as metadata.
+  unavailability as metadata. Agent-loop lanes default to the PTY-helper
+  transport so they are tmux-backed and operator-attachable when tmux is
+  available; a workflow may explicitly set `supervision.transport: "pipe"` for
+  a lane that still requires legacy pipe delivery.
+- Tmux-backed PTY-helper launches treat the tmux pane process as the supervised
+  lane identity. Launch creates a placeholder pane, configures
+  `remain-on-exit`, and then respawns the lane command so immediate startup
+  exits retain a dead pane for diagnostics. Tmux setup and cleanup commands are
+  bounded by a setup timeout. Tmux session names are bounded for tmux
+  compatibility and include a stable hash suffix over the full run/lane/
+  supervisor identity so truncation cannot collide across supervisors. The
+  pointer metadata `tmux` block carries
+  `state: "backed"`, `session_name`, `window_id`, `pane_id`, `pane_pid`,
+  optional `pane_start_token`, `attach_command`, diagnostic
+  `attach_client_pid`, `captured_at`, and probe visibility fields such as
+  `last_ok_at`, `probe_skipped_at`, `probe_unavailable_count`, and
+  `last_unavailable_detail`. `tmux attach-session` is an observer and
+  packet-delivery handle only; its PID is not the lane liveness identity.
+- Helper-local teardown paths, including context cancellation and
+  packet-forward failure, send `tmux kill-session -t <session>` for
+  tmux-backed lanes before considering any direct pane-PID cleanup. A direct
+  pane-PID signal is permitted only when the stored pane start token is numeric
+  and still matches the current process; missing, literal, unavailable, or
+  mismatched tokens skip direct signalling.
 - `striatum supervise stop --session-id <id> --reason <text>` sends
-  `SIGTERM`, waits up to five seconds, falls back to `SIGKILL` if the
-  process is still present, marks the row `stopped`, and records
-  `supervisor.stopped`.
-- `striatum supervise status --session-id <id>` probes PID liveness via
-  `os.kill(pid, 0)` and lane progress through the active lease/session/
-  supervisor heartbeat timestamps. An active row whose pid is gone is
-  transitioned to `lost` with a `supervisor.lost` event before returning.
-  An attached row whose pid exists but whose active lease has stale progress
+  `tmux kill-session -t <session>` for tmux-backed lanes, then cleans up the
+  helper process metadata without signalling the diagnostic attach-client pid.
+  Any direct PID cleanup fallback, including helper PID cleanup and tmux
+  unavailable pane cleanup, is gated by the recorded pid start token; stale,
+  missing, or unverifiable tokens skip the signal and annotate the
+  `supervisor.stopped` event. Plain PTY lanes keep the existing SIGTERM then
+  SIGKILL path only when the recorded start token still matches. The row is
+  marked `stopped` and `supervisor.stopped` is recorded.
+- `striatum supervise status --session-id <id>` probes tmux-backed liveness
+  with `tmux has-session` plus a pane identity query (`pane_id`, `pane_pid`,
+  `pane_dead`, `pane_start_time`). Plain PTY rows continue to use PID/start-token
+  liveness. Tmux failure classes are `tmux_session_missing`,
+  `tmux_pane_missing`, `tmux_pane_dead`, `tmux_pane_pid_mismatch`, and
+  `tmux_unavailable`; the successful class is `tmux_ok`. The status projection
+  exposes these under `tmux.liveness` and never reads pane text. A tmux lane
+  whose pane is live but whose start token cannot be verified remains
+  operationally live but projects `lane_attestation: "unattested"` with
+  `lane_attestation_reason: "start_token_unverified"`. Only numeric
+  `pane_start_time`/start-token values count as verified identity evidence; if
+  tmux cannot report a numeric live `pane_start_time`, the probe may compare
+  the recorded numeric pane start token against the OS process start token for
+  the observed pane PID. Literal tmux format strings or other non-numeric
+  values are treated as unverified. An attached row whose
+  lane is alive but whose active lease has stale progress
   returns `liveness: "stalled"` plus `last_progress_at`,
   `last_progress_age_seconds`, active lease metadata, and
   `stall_after_seconds`. Status itself never starts or kills processes.
@@ -1708,10 +1758,13 @@ The supervise CLI surface:
 - Daemon RPC `supervise.reattach_status` returns a read-only
   supervisor health DTO for a run/session/supervisor filter. It compares
   repo supervisor rows, daemon supervisor pointers, daemon supervisor
-  rows, PID liveness, and PID start-time identity, classifying each row
+  rows, PID/tmux liveness, and PID or pane start-time identity, classifying each row
   as `reattachable`, `lost_candidate`, `needs_repair`,
   `needs_verification`, or `terminal`. It does not mutate state; actual
-  restart reattach/lost-state transitions remain daemon lifecycle work.
+  restart/lost-state transitions remain daemon lifecycle work. This build does
+  not expose an in-place `supervise.reattach` verb; terminal tmux liveness
+  failures require stopping the broken supervisor and starting/reclaiming a
+  replacement lane through daemon workflow controls.
 
 Recovery: before ordinary stale-lease handling, `recovery.sweep` evaluates
 attached supervisors with active claimed/running work. A stale-but-unexpired
@@ -1729,7 +1782,19 @@ policy for repo-write work.
 The Go `striatum-supervisor-helper` is a narrow process/PTY helper. It emits
 newline-delimited control events with schema
 `striatum.supervisor_helper.event.v1`: `agent_started`, `packet_accepted`,
-`progress`, `artifact_observed`, `helper_error`, and `agent_exited`.
+`progress`, `artifact_observed`, `helper_error`, `attach_client_exited`, and
+`agent_exited`. `attach_client_exited` means the tmux attach observer exited
+while the helper's pane probe still showed the lane alive or unverifiable. The
+daemon treats that helper-reported liveness as advisory and performs its own
+fresh tmux session/pane probe before deciding whether to keep the supervisor
+attached or move it to `detached`. When the daemon-observed pane is live and the
+attach observer was the helper-owned delivery bridge, the daemon keeps pane
+liveness attached/attested, records `tmux.attach_client_last_exit`, and marks
+`delivery_liveness` degraded with reason `attach_client_exited`; later
+`supervise.send` calls refuse that supervisor until a rebridge/restart or a
+future alternate delivery path clears the degradation. Non-tmux or unproven
+attach exits still move the supervisor to `detached` instead of treating the
+lane as lost.
 Daemon `supervise.report` can consume those helper events as JSONL text, a
 path, or an object list and records them through the same durable
 `supervisor.<event>` event path used by wrapper reports. Helper timestamps are
@@ -1776,9 +1841,25 @@ fails to advance and `doctor` surfaces
    invoking `work.ack`, `work.heartbeat`, `artifact.publish`, `work.block`,
    `review.verdict` / `review.submit`, and `work.complete` with the
    identifiers from the packet. CLI commands for the same methods remain
-   compatibility fallbacks. The supervisor sends stdout and stderr to
-   `DEVNULL`; the agent's only durable output is the artifacts and verdicts it
-   records through the daemon.
+   compatibility fallbacks. The agent's only durable output is the artifacts
+   and verdicts it records through the daemon.
+
+#### Operator-Local PTY Logs
+
+Agent-loop PTY lanes may tee the provider terminal stream to an operator-local
+diagnostic file under `.striatum/scratch/<supervisor_id>/pty.log` (created
+`0600`). The path can be overridden with
+`STRIATUM_AGENT_LOOP_DEBUG_LOG=<path>` or disabled with
+`STRIATUM_AGENT_LOOP_DEBUG_LOG=off` / `/dev/null`.
+
+These PTY logs are operational scratch, not transcript provenance. They are
+not stored in daemon-owned PostgreSQL, not published through
+`publish-artifact`, not included in evidence exports, corpus exports, or run
+archives, not parsed for workflow state, and not used for byline attestation,
+verdicts, completion, or recovery decisions. They may contain provider output,
+tool text, prompts, or secrets visible in the terminal, so operators must treat
+them as private diagnostics and never commit them. Deleting them does not
+change workflow truth.
 
 A working supervised lane therefore needs an agent that knows the
 Striatum protocol — a project skill, an embedded loop, or a wrapper

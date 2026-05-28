@@ -15,7 +15,7 @@
   "lanes": {
     "codex": {
       "adapter": "process",
-      "display_model": "Codex GPT-5.5",
+      "display_model": "Codex GPT-5.5 xhigh",
       "command": [
         ".striatum/bin/codex-supervised-wrapper.sh"
       ],

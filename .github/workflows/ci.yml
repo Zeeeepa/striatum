@@ -55,9 +55,6 @@ jobs:
       - name: Fresh clone smoke
         run: make smoke
 
-      - name: Guard no active Python trace
-        run: make python-trace-guardrail
-
   frontend:
     name: Frontend bundle check
     runs-on: ubuntu-latest

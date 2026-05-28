@@ -177,6 +177,7 @@ func TestWorkflowValidateRefusesSameModelPairingUnlessAllowed(t *testing.T) {
 }
 
 func TestDaemonRouteDispatchesThroughRPC(t *testing.T) {
+	t.Setenv("STRIATUM_REPOSITORY_ID", "")
 	socket := filepath.Join(t.TempDir(), "daemon.sock")
 	server := rpc.NewServer()
 	server.Register("repo.resolve", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
@@ -205,6 +206,7 @@ func TestDaemonRouteDispatchesThroughRPC(t *testing.T) {
 }
 
 func TestDaemonErrorExitCode(t *testing.T) {
+	t.Setenv("STRIATUM_REPOSITORY_ID", "")
 	socket := filepath.Join(t.TempDir(), "daemon.sock")
 	server := rpc.NewServer()
 	server.Register("repo.resolve", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {

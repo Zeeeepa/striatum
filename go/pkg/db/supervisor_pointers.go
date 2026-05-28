@@ -51,6 +51,8 @@ type PointerRow struct {
 	StdinPipePath   string
 	State           string
 	LostReason      string
+	PIDStartTime    string
+	Metadata        map[string]any
 }
 
 func (s *SupervisorPointerStore) UpsertSupervisorPointer(ctx context.Context, row PointerRow) error {
@@ -72,25 +74,29 @@ func (s *SupervisorPointerStore) UpsertSupervisorPointer(ctx context.Context, ro
 	if err != nil {
 		return fmt.Errorf("supervisor_pointer lookup session run: %w", err)
 	}
-	metadata, err := json.Marshal(map[string]any{
-		"started_at":        row.StartedAt.UTC().Format(time.RFC3339Nano),
-		"last_heartbeat_at": row.LastHeartbeatAt.UTC().Format(time.RFC3339Nano),
-		"stdin_pipe_path":   row.StdinPipePath,
-		"lost_reason":       row.LostReason,
-	})
+	metadataMap := map[string]any{}
+	for key, value := range row.Metadata {
+		metadataMap[key] = value
+	}
+	metadataMap["started_at"] = row.StartedAt.UTC().Format(time.RFC3339Nano)
+	metadataMap["last_heartbeat_at"] = row.LastHeartbeatAt.UTC().Format(time.RFC3339Nano)
+	metadataMap["stdin_pipe_path"] = row.StdinPipePath
+	metadataMap["lost_reason"] = row.LostReason
+	metadata, err := json.Marshal(metadataMap)
 	if err != nil {
 		return fmt.Errorf("supervisor_pointer metadata: %w", err)
 	}
 	_, err = s.pool.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisor_pointers
 		  (repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
-		   pid, state, updated_at, metadata_json)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+		   pid, pid_start_time, state, updated_at, metadata_json)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
 		ON CONFLICT (repository_id, supervisor_id) DO UPDATE SET
 		  daemon_supervisor_id = EXCLUDED.daemon_supervisor_id,
 		  run_id               = EXCLUDED.run_id,
 		  session_id           = EXCLUDED.session_id,
 		  pid                  = EXCLUDED.pid,
+		  pid_start_time       = EXCLUDED.pid_start_time,
 		  state                = EXCLUDED.state,
 		  updated_at           = EXCLUDED.updated_at,
 		  metadata_json        = EXCLUDED.metadata_json
@@ -101,6 +107,7 @@ func (s *SupervisorPointerStore) UpsertSupervisorPointer(ctx context.Context, ro
 		runID,
 		row.SessionID,
 		row.PID,
+		nullable(row.PIDStartTime),
 		row.State,
 		row.LastHeartbeatAt,
 		string(metadata),
@@ -134,7 +141,7 @@ func (s *SupervisorPointerStore) GetSupervisorPointer(ctx context.Context, super
 	var updatedAt time.Time
 	err := s.pool.QueryRow(ctx, `
 		SELECT supervisor_id, repository_id, session_id, COALESCE(pid, 0),
-		       updated_at, state, metadata_json
+		       COALESCE(pid_start_time, ''), updated_at, state, metadata_json
 		  FROM striatumd.process_supervisor_pointers
 		 WHERE supervisor_id = $1
 	`, supervisorID).Scan(
@@ -142,6 +149,7 @@ func (s *SupervisorPointerStore) GetSupervisorPointer(ctx context.Context, super
 		&row.RepositoryID,
 		&row.SessionID,
 		&row.PID,
+		&row.PIDStartTime,
 		&updatedAt,
 		&row.State,
 		&metadataRaw,
@@ -155,6 +163,7 @@ func (s *SupervisorPointerStore) GetSupervisorPointer(ctx context.Context, super
 	row.LastHeartbeatAt = updatedAt
 	metadata := map[string]any{}
 	_ = json.Unmarshal(metadataRaw, &metadata)
+	row.Metadata = metadata
 	if startedAt, ok := metadata["started_at"].(string); ok {
 		if parsed, err := time.Parse(time.RFC3339Nano, startedAt); err == nil {
 			row.StartedAt = parsed

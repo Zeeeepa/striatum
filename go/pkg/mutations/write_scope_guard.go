@@ -36,7 +36,11 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
-	violations := writeScopeViolations(paths, allowed, forbidden)
+	ignoredPaths, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, repoRoot, job, paths)
+	if err != nil {
+		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
+	}
+	violations := writeScopeViolationsWithIgnored(paths, allowed, forbidden, ignoredPaths)
 	if len(violations) == 0 {
 		return nil
 	}
@@ -205,6 +209,10 @@ func parseGitPorcelainZ(output []byte) []string {
 }
 
 func writeScopeViolations(paths []string, allowed []string, forbidden []string) []string {
+	return writeScopeViolationsWithIgnored(paths, allowed, forbidden, nil)
+}
+
+func writeScopeViolationsWithIgnored(paths []string, allowed []string, forbidden []string, ignored map[string]bool) []string {
 	allowedMatchers := normalizedScopeMatchers(allowed)
 	forbiddenMatchers := normalizedScopeMatchers(forbidden)
 	violations := make([]string, 0)
@@ -218,11 +226,62 @@ func writeScopeViolations(paths []string, allowed []string, forbidden []string) 
 			violations = append(violations, clean)
 			continue
 		}
+		if ignored[clean] {
+			continue
+		}
 		if len(allowedMatchers) > 0 && !pathMatchesAny(clean, allowedMatchers) {
 			violations = append(violations, clean)
 		}
 	}
 	return dedupeStrings(violations)
+}
+
+func publishedRunArtifactIgnoredPaths(ctx context.Context, runner any, repositoryID, repoRoot string, job map[string]any, paths []string) (map[string]bool, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	runID := fmt.Sprint(job["run_id"])
+	jobID := fmt.Sprint(job["job_id"])
+	if strings.TrimSpace(runID) == "" || strings.TrimSpace(jobID) == "" {
+		return nil, nil
+	}
+	touched := map[string]bool{}
+	for _, path := range paths {
+		clean, ok := normalizeScopePath(path)
+		if ok {
+			touched[clean] = true
+		}
+	}
+	if len(touched) == 0 {
+		return nil, nil
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT repo_path, content_sha256
+		  FROM striatumd.artifacts
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND job_id != $3`, repositoryID, runID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	ignored := map[string]bool{}
+	for _, row := range rows {
+		clean, ok := normalizeScopePath(fmt.Sprint(row["repo_path"]))
+		if !ok || !touched[clean] {
+			continue
+		}
+		currentHash, err := hashRepoPath(repoRoot, clean)
+		if err != nil {
+			return nil, err
+		}
+		if currentHash != "" && currentHash == fmt.Sprint(row["content_sha256"]) {
+			ignored[clean] = true
+		}
+	}
+	if len(ignored) == 0 {
+		return nil, nil
+	}
+	return ignored, nil
 }
 
 func normalizedScopeMatchers(paths []string) []string {

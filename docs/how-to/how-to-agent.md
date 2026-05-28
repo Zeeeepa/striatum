@@ -160,9 +160,12 @@ and the agent connects to the local MCP server to manage state. The older one-sh
 `-p` / `--print` wrappers, named pipe FIFO transport, and ephemeral stdin packet JSON
 delivery are completely retired.
 
-Stdout and stderr are sent to `DEVNULL`; the supervisor never parses your
-output for state. Use `supervise.stop` or its CLI fallback to shut the
-supervisor down. Do not `kill` the process directly.
+Provider terminal output may be tee'd to a local
+`.striatum/scratch/<supervisor_id>/pty.log` file for operator diagnostics.
+That file is private operational scratch, not workflow state or durable
+provenance. The supervisor never parses your output for state. Use
+`supervise.stop` or its CLI fallback to shut the supervisor down. Do not `kill`
+the process directly.
 
 ## When something goes wrong
 
@@ -196,7 +199,10 @@ or CLI diagnostics, then ask the operator to recover stale work.
 - Do not advance state by printing phrases. Call daemon MCP; use CLI fallback
   only when MCP is unavailable or explicitly required by the packet/operator.
 - Do not capture transcripts, model output, or chain-of-thought
-  as workflow artifacts. D028 is enforced by construction.
+  as workflow artifacts. Local PTY logs under `.striatum/scratch/`
+  are private diagnostics only and must not be committed, cited as
+  evidence, or treated as state. D028 is enforced at the durable
+  artifact/export boundary.
 - Do not derive bylines from job titles. Use the byline supplied
   in your work packet.
 - Do not parse a supervisor's own output for workflow state. The

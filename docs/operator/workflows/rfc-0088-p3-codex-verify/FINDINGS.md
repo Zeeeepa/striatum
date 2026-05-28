@@ -20,7 +20,7 @@ MCP and publishes a `VERIFY.md` artifact (mirror of `rfc-0088-p1-verify/`).
   incomplete (failed: striatum)" banner the pre-fix run did, so codex's MCP
   client successfully reaches the striatum endpoint.
 
-## Open: codex TUI submit semantics differ from claude
+## Resolved in current working tree: codex bootstrap delivery
 
 The bootstrap prompt is written into codex's TUI input box (visible as
 character-by-character renders in the PTY debug log when the
@@ -29,15 +29,15 @@ character-by-character renders in the PTY debug log when the
 does **not** submit in codex's TUI — codex sits with the bootstrap typed but
 never processed, heartbeat frozen at launch time.
 
-This is the per-adapter submit-driver work the RFC's P3 anticipates: each
-TUI has its own submit semantics, and the universal `\r` after 750ms only
-works for claude. Codex may need a different key-sequence (e.g., a second
-Enter, bracketed-paste markers, or Shift+Enter), or a screen-detect step
-that waits for codex's UI to be ready before submitting.
+The fix is to stop typing the bootstrap into codex's TUI. Codex accepts an
+initial prompt argv, so `go/pkg/agentloop/loop.go` now appends the bootstrap
+prompt to the prepared codex command after MCP URL injection and skips the PTY
+submit write for codex only. Claude/agy keep the existing PTY submit path.
+Regression coverage:
 
-The bounded code change is shipped; closing this needs live iteration on
-codex's TUI behavior (similar to the P1 claude submit work) — out of scope
-for this session.
+- `TestPrepareLaneCommandForBootstrapUsesCodexInitialPromptArg`
+- `TestPrepareLaneCommandForBootstrapKeepsClaudePTYSubmit`
+- `TestRunWithIOCodexReceivesBootstrapAsInitialPromptArg`
 
 ## 2026-05-28 second pass
 
@@ -66,3 +66,11 @@ The trajectory log default (per-supervisor `pty.log` under
 launch a codex lane, set `STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE=<candidate>`
 on the daemon, and `tail -f` the pty.log to see exactly what codex's TUI
 renders for each variant until one submits.
+
+## 2026-05-28 third pass
+
+The candidate-key-sequence path is no longer needed for codex bootstrap. The
+current implementation bypasses the codex TUI input editor by using codex's
+documented initial prompt argument. Live verification still requires installing
+or restarting a daemon with this working-tree build before launching the codex
+agent-loop lane.

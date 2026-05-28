@@ -16,6 +16,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -41,6 +42,8 @@ var processExitBlockerKinds = map[string]bool{
 	"process_timeout_exceeded": true,
 }
 
+var recoveryDrainHelperEvents = drainHelperEvents
+
 var terminalJobStates = map[string]bool{
 	"completed": true,
 	"failed":    true,
@@ -62,12 +65,25 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 			return nil, err
 		}
 		rows, err := queryRows(ctx, tx, `
-			SELECT * FROM striatumd.process_executions
-			 WHERE repository_id = $1
-			   AND run_id = $2
-			   AND state = 'running'
-			 ORDER BY started_at
-			 FOR UPDATE`, repositoryID, runID)
+			SELECT pe.*,
+			       p.metadata_json AS supervisor_metadata_json,
+			       p.pid_start_time AS supervisor_pid_start_time,
+			       p.pid AS supervisor_pid
+			  FROM striatumd.process_executions pe
+			  LEFT JOIN LATERAL (
+			    SELECT ptr.metadata_json, ptr.pid_start_time, ptr.pid
+			      FROM striatumd.process_supervisor_pointers ptr
+			     WHERE ptr.repository_id = pe.repository_id
+			       AND ptr.run_id = pe.run_id
+			       AND ptr.session_id = pe.session_id
+			     ORDER BY ptr.updated_at DESC, ptr.supervisor_id DESC
+			     LIMIT 1
+			  ) p ON true
+			 WHERE pe.repository_id = $1
+			   AND pe.run_id = $2
+			   AND pe.state = 'running'
+			 ORDER BY pe.started_at
+			 FOR UPDATE OF pe`, repositoryID, runID)
 		if err != nil {
 			return nil, err
 		}
@@ -76,9 +92,26 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 		now := nowString()
 		for _, row := range rows {
 			pid := intValue(row["pid"])
-			alive := false
-			if pid > 0 {
+			metadata := asMap(row["supervisor_metadata_json"])
+			probePID := pid
+			if supervisorPID := intValue(row["supervisor_pid"]); supervisorPID > 0 {
+				probePID = supervisorPID
+			}
+			expectedStart, _ := row["supervisor_pid_start_time"].(string)
+			live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, metadata, probePID, expectedStart)
+			alive := live.Alive
+			if live.Backed != "tmux" && pid > 0 {
 				alive = pidAlive(pid)
+			}
+			if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
+				stillRunning = append(stillRunning, map[string]any{
+					"process_id": row["process_id"],
+					"job_id":     row["job_id"],
+					"pid":        pid,
+					"started_at": row["started_at"],
+					"liveness":   live.Class,
+				})
+				continue
 			}
 			if alive {
 				stillRunning = append(stillRunning, map[string]any{
@@ -86,6 +119,7 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 					"job_id":     row["job_id"],
 					"pid":        pid,
 					"started_at": row["started_at"],
+					"liveness":   live.Class,
 				})
 				continue
 			}
@@ -99,6 +133,7 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 			if _, err := appendEvent(ctx, tx, repositoryID, runID, "process.lost", row["session_id"], row["job_id"], nil, nil, row["lease_id"], map[string]any{
 				"process_id": processID,
 				"pid":        row["pid"],
+				"reason":     live.Class,
 			}); err != nil {
 				return nil, err
 			}
@@ -460,6 +495,10 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				return nil, err
 			}
 		}
+		helperEvents, err := drainRunHelperEvents(ctx, tx, repositoryID, runID, dryRun)
+		if err != nil {
+			return nil, err
+		}
 		liveness, err := refreshRunLiveness(ctx, tx, repositoryID, runID, dryRun)
 		if err != nil {
 			return nil, err
@@ -471,9 +510,46 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"published":       published,
 			"skipped_count":   len(skipped),
 			"skipped":         skipped,
+			"helper_events":   helperEvents,
 			"liveness":        liveness,
 		}, nil
 	})
+}
+
+func drainRunHelperEvents(ctx context.Context, tx db.TxRunner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {
+	rows, err := queryRows(ctx, tx,
+		`SELECT supervisor_id
+		   FROM striatumd.process_supervisor_pointers
+		  WHERE repository_id = $1
+		    AND run_id = $2
+		    AND state IN ('starting','attached')
+		  ORDER BY supervisor_id`,
+		repositoryID,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	drained := []string{}
+	for _, row := range rows {
+		supervisorID := fmt.Sprint(nullable(row["supervisor_id"]))
+		if supervisorID == "" || supervisorID == "<nil>" {
+			continue
+		}
+		if dryRun {
+			continue
+		}
+		if err := recoveryDrainHelperEvents(ctx, tx, repositoryID, supervisorID, 0); err != nil {
+			return nil, err
+		}
+		drained = append(drained, supervisorID)
+	}
+	return map[string]any{
+		"checked_count": len(rows),
+		"drained_count": len(drained),
+		"drained":       drained,
+		"dry_run":       dryRun,
+	}, nil
 }
 
 func refreshRunLiveness(ctx context.Context, tx db.TxRunner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {

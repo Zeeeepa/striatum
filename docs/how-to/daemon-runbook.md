@@ -172,6 +172,20 @@ Export a stable JSONL manifest for reproducibility:
 striatum trajectory export --run-id <run-id> --profile provenance > manifest.jsonl
 ```
 
+## Operator-local PTY logs
+
+Agent-loop PTY lanes may also write a local terminal log at
+`.striatum/scratch/<supervisor_id>/pty.log`. This exists so the operator can
+debug TUI submit drivers, MCP startup banners, and provider launch failures
+without turning terminal text into Striatum state. Set
+`STRIATUM_AGENT_LOOP_DEBUG_LOG=off` or `/dev/null` to disable it, or set the
+variable to another path for a one-off diagnosis.
+
+These logs are not daemon/PostgreSQL state, not trajectory rows, not evidence
+exports, not corpus/archive contents, and not artifacts. They are private
+diagnostics and may contain terminal-visible secrets; do not commit or share
+them as provenance.
+
 ## Interrogation sessions
 
 [RFC 0082](../rfcs/0082-interrogation-sessions.md) lets a reviewer interrogate a

@@ -2,6 +2,17 @@
 
 ## Unreleased — 2026-05-27
 
+### RFC 0089: tmux-backed lane monitoring substrate
+
+- Replaces attach-client liveness with tmux session/pane liveness for
+  supervised lanes: the supervised pane PID and start token are the lane
+  identity, while operator `tmux attach-session` clients are observer-only.
+- Records helper-owned attach-bridge exits as degraded packet delivery when
+  the pane remains live, so `supervise.send` refuses further delivery instead
+  of reporting a false-healthy lane.
+- Adds tmux session-name hash suffixing, start-token verification/fallbacks,
+  safer tmux-backed teardown, and explicit pipe-reader degradation handling.
+
 ## v2.7.1 — 2026-05-27
 
 ### D147: tailnet-identity UI serves the read-only HTML dashboard
@@ -284,8 +295,8 @@ removed; their behavior is ported to Go or explicitly retired.
 - **Packaging/docs**: `pyproject.toml`, the legacy Python Makefile targets,
   and the remaining Python scripts removed; operator guidance rewritten to
   Go-only; release is Go binary archives.
-- **Guardrail**: `make python-trace-guardrail` is strict (blocked=0) and
-  enforced in CI to keep Python from returning.
+- **Guardrail**: the temporary Python-trace guardrail was retired after active
+  Python runtime surfaces were removed or archived.
 
 Daemon-owned PostgreSQL remains the only live-state substrate. See D134 and
 `docs/operator/artifacts/rfc-0078-closure/`.

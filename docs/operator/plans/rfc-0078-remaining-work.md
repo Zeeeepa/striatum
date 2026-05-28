@@ -1,12 +1,16 @@
 # RFC 0078 Remaining Work Scaffold
 
-Status: active
+Status: superseded / historical
 Date: 2026-05-25
 author: operator-claude-opus-4-7-001
 Supersedes: the 2026-05-25 six-gate scaffold revision of this file
 (`operator-codex-gpt-5.5-001`). The six scaffolding gates ran; this revision
 records the *post-scaffold* reality and the narrower remaining path to
 acceptance.
+
+Superseded by D134 and RFC 0078 acceptance. This plan is retained as operator
+provenance for the deletion run; its `python-trace-*` commands are retired and
+are no longer active validation targets.
 
 ## Corrected State
 

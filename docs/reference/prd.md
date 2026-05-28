@@ -195,6 +195,7 @@ V1 satisfies the Seed Requirements above through the surface documented in
 - A minimal local Python API (`striatum.api.invoke`) for local authoring/test
   compatibility, plus daemon RPC/MCP surfaces for production run authority.
 
-Out of V1: hosted services, transcript capture, web/Slack dashboards,
-plugin marketplaces, automatic commits, and AI-inferred build
-parallelization. Remaining product work is enumerated in `docs/TODO.md`.
+Out of V1: hosted services, durable transcript provenance, web/Slack
+dashboards, plugin marketplaces, automatic commits, and AI-inferred
+build parallelization. Remaining product work is enumerated in
+`docs/TODO.md`.

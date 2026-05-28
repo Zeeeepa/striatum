@@ -1,15 +1,25 @@
 package supervisor
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/creack/pty"
+)
+
+const (
+	tmuxSessionNameMaxLen  = 100
+	tmuxSessionNameHashLen = 12
 )
 
 // LaunchSpec describes a supervised child process. The fields mirror the
@@ -27,12 +37,14 @@ type LaunchSpec struct {
 	Extra         map[string]string // future-use metadata
 }
 
-// LaunchResult is returned by Launch. The PID is the child pid; StdinWriter
-// (if non-nil) is the daemon's handle into the FIFO.
+// LaunchResult is returned by Launch. For tmux-backed PTY launches PID is the
+// pane process pid; AttachPID is the transient attach client pid used only for
+// byte delivery and diagnostics.
 type LaunchResult struct {
 	PID         int
 	StdinWriter io.WriteCloser
 	Cmd         *exec.Cmd
+	AttachPID   int
 	Metadata    map[string]any
 }
 
@@ -133,28 +145,80 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	sessionName := tmuxSessionName(runID, laneID, supervisorID)
 
 	// Kill existing session with the same name if any (to avoid collisions / stale sessions)
-	_ = exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+	_ = runTmuxSetupCommand(ctx, "kill-session", "-t", sessionName)
 
-	// 1. Create the detached tmux session.
+	// 1. Create a detached tmux session with a placeholder process. The real
+	// lane command is respawned only after remain-on-exit is set, so even a
+	// command that exits immediately leaves a dead pane for diagnostics instead
+	// of destroying the session before liveness can classify it.
 	// RFC 0088 P3 follow-up: pass STRIATUM_*/PATH env vars via tmux's `-e
 	// KEY=VAL` so the new session's pane child sees them. A long-running global
 	// tmux server inherits its environment from FIRST launch, not from our
-	// `new-session` call's createCmd.Env — so without `-e`, the pane child gets
-	// the SERVER's stale env (no STRIATUM_RUN_ID/SESSION_ID/REPO etc.) and the
-	// agent-loop wrapper exits code 1 on the env check before any output.
+	// `new-session`/`respawn-pane` call's createCmd.Env — so without `-e`, the
+	// pane child gets the SERVER's stale env (no STRIATUM_RUN_ID/SESSION_ID/REPO
+	// etc.) and the agent-loop wrapper exits code 1 on the env check before any
+	// output.
 	newSessionArgs := []string{"new-session", "-d", "-s", sessionName, "-c", spec.WorkingDir}
-	for _, entry := range spec.Env {
-		newSessionArgs = append(newSessionArgs, "-e", entry)
-	}
-	newSessionArgs = append(newSessionArgs, spec.Command...)
+	newSessionArgs = append(newSessionArgs, tmuxEnvArgs(spec.Env)...)
+	newSessionArgs = append(newSessionArgs, "--")
+	newSessionArgs = append(newSessionArgs, "sh", "-c", "while :; do sleep 3600; done")
 	createCmd := exec.Command("tmux", newSessionArgs...)
 	createCmd.Env = mergeEnv(os.Environ(), spec.Env)
-	if err := createCmd.Run(); err != nil {
+	if err := runPreparedTmuxSetupCommand(ctx, createCmd, newSessionArgs...); err != nil {
 		return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
 	}
+	cleanupTmux := true
+	defer func() {
+		if cleanupTmux {
+			_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		}
+	}()
 
-	// 2. Disable status bar to avoid polluting stdout
-	_ = exec.Command("tmux", "set-option", "-t", sessionName, "status", "off").Run()
+	// 2. Set tmux options before the real command is allowed to run.
+	if err := runTmuxSetupCommand(ctx, "set-option", "-t", sessionName, "status", "off"); err != nil {
+		if spec.RequireTmux {
+			return nil, fmt.Errorf("supervisor: failed to configure tmux status: %w", err)
+		}
+		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		cleanupTmux = false
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
+	}
+	if err := runTmuxSetupCommand(ctx, "set-window-option", "-t", sessionName, "remain-on-exit", "on"); err != nil {
+		if spec.RequireTmux {
+			return nil, fmt.Errorf("supervisor: failed to configure tmux remain-on-exit: %w", err)
+		}
+		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		cleanupTmux = false
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
+	}
+
+	respawnArgs := []string{"respawn-pane", "-k", "-t", sessionName + ":0.0", "-c", spec.WorkingDir}
+	respawnArgs = append(respawnArgs, tmuxEnvArgs(spec.Env)...)
+	respawnArgs = append(respawnArgs, "--")
+	respawnArgs = append(respawnArgs, spec.Command...)
+	respawnCmd := exec.CommandContext(ctx, "tmux", respawnArgs...)
+	respawnCmd.Env = mergeEnv(os.Environ(), spec.Env)
+	if err := runPreparedTmuxSetupCommand(ctx, respawnCmd, respawnArgs...); err != nil {
+		if spec.RequireTmux {
+			return nil, fmt.Errorf("supervisor: failed to respawn tmux lane command: %w", err)
+		}
+		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		cleanupTmux = false
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_respawn_failed"))
+	}
+
+	identity, err := CaptureTmuxIdentity(ctx, DefaultTmuxRunner(), sessionName)
+	if err != nil || identity.WindowID == "" || identity.PaneID == "" || identity.PanePID <= 0 {
+		if spec.RequireTmux {
+			if err != nil {
+				return nil, fmt.Errorf("supervisor: tmux identity capture failed: %w", err)
+			}
+			return nil, fmt.Errorf("supervisor: tmux identity capture failed")
+		}
+		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		cleanupTmux = false
+		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_identity_capture_failed"))
+	}
 
 	// 3. Attach to the session in the PTY
 	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
@@ -165,15 +229,72 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
 	}
+	cleanupTmux = false
 
 	return &LaunchResult{
-		PID:         attachCmd.Process.Pid,
+		PID:         identity.PanePID,
 		StdinWriter: ptmx,
 		Cmd:         attachCmd,
+		AttachPID:   attachCmd.Process.Pid,
 		Metadata: map[string]any{
-			"tmux": tmuxAttachMetadata(sessionName),
+			"tmux": tmuxBackedMetadata(identity, attachCmd.Process.Pid),
 		},
 	}, nil
+}
+
+func tmuxEnvArgs(env []string) []string {
+	args := make([]string, 0, len(env)*2)
+	for _, entry := range env {
+		args = append(args, "-e", entry)
+	}
+	return args
+}
+
+func runTmuxSetupCommand(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
+	return runPreparedTmuxSetupCommand(ctx, cmd, args...)
+}
+
+func runPreparedTmuxSetupCommand(ctx context.Context, cmd *exec.Cmd, args ...string) error {
+	timeout := tmuxSetupTimeout()
+	if timeout <= 0 {
+		timeout = tmuxProbeTimeout()
+	}
+	dir := cmd.Dir
+	env := cmd.Env
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd = exec.CommandContext(runCtx, cmd.Path, cmd.Args[1:]...)
+	cmd.Dir = dir
+	cmd.Env = env
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if runCtx.Err() != nil {
+		return fmt.Errorf("tmux setup command %s timed out: %w", strings.Join(args, " "), runCtx.Err())
+	}
+	if err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return fmt.Errorf("tmux setup command %s failed: %s", strings.Join(args, " "), detail)
+	}
+	return nil
+}
+
+func tmuxSetupTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("STRIATUM_TMUX_SETUP_TIMEOUT"))
+	if raw == "" {
+		return tmuxProbeTimeout()
+	}
+	if duration, err := time.ParseDuration(raw); err == nil && duration > 0 {
+		return duration
+	}
+	if seconds, err := strconv.ParseFloat(raw, 64); err == nil && seconds > 0 {
+		return time.Duration(seconds * float64(time.Second))
+	}
+	return tmuxProbeTimeout()
 }
 
 func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
@@ -193,14 +314,18 @@ func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]an
 }
 
 func tmuxSessionName(runID, laneID, supervisorID string) string {
-	name := "striatum-" + sanitizeTmuxName(runID) + "-" + sanitizeTmuxName(laneID)
+	prefix := "striatum-" + sanitizeTmuxName(runID) + "-" + sanitizeTmuxName(laneID)
 	if supervisorID != "" {
-		name += "-" + sanitizeTmuxName(supervisorID)
+		prefix += "-" + sanitizeTmuxName(supervisorID)
 	}
-	if len(name) > 100 {
-		return name[:100]
+	hashInput := runID + "\x00" + laneID + "\x00" + supervisorID
+	sum := sha256.Sum256([]byte(hashInput))
+	suffix := "-" + hex.EncodeToString(sum[:])[:tmuxSessionNameHashLen]
+	maxPrefix := tmuxSessionNameMaxLen - len(suffix)
+	if len(prefix) > maxPrefix {
+		prefix = prefix[:maxPrefix]
 	}
-	return name
+	return prefix + suffix
 }
 
 func sanitizeTmuxName(value string) string {
@@ -244,20 +369,19 @@ func mergeEnv(base []string, updates []string) []string {
 	return append(out, updates...)
 }
 
-func tmuxAttachMetadata(sessionName string) map[string]any {
+func tmuxBackedMetadata(identity TmuxIdentity, attachPID int) map[string]any {
 	metadata := map[string]any{
-		"session_name":   sessionName,
-		"attach_command": "tmux attach-session -t " + sessionName,
+		"state":             "backed",
+		"session_name":      identity.SessionName,
+		"window_id":         identity.WindowID,
+		"pane_id":           identity.PaneID,
+		"pane_pid":          identity.PanePID,
+		"attach_command":    "tmux attach-session -t " + identity.SessionName,
+		"attach_client_pid": attachPID,
+		"captured_at":       time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	out, err := exec.Command("tmux", "display-message", "-p", "-t", sessionName, "#{window_id} #{pane_id}").Output()
-	if err == nil {
-		parts := strings.Fields(string(out))
-		if len(parts) >= 1 {
-			metadata["window_id"] = parts[0]
-		}
-		if len(parts) >= 2 {
-			metadata["pane_id"] = parts[1]
-		}
+	if identity.PaneStartToken != "" {
+		metadata["pane_start_token"] = identity.PaneStartToken
 	}
 	return metadata
 }
@@ -265,6 +389,7 @@ func tmuxAttachMetadata(sessionName string) map[string]any {
 func tmuxUnavailableMetadata(reason string) map[string]any {
 	return map[string]any{
 		"tmux": map[string]any{
+			"state":              "unavailable",
 			"unavailable_reason": reason,
 		},
 	}

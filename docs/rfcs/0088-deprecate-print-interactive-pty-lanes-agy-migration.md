@@ -115,6 +115,23 @@ the **F45 class of bug structurally impossible** (gemini's stale
 `.gemini/settings.json` port was the F45 root cause). Agent-loop lanes need no
 native config at all — the daemon holds the MCP client.
 
+### 6. PTY logs are local diagnostics, not transcript provenance
+
+Interactive lanes need operator-inspectable terminal trajectories while submit
+drivers and provider TUIs are still being hardened. RFC 0088 therefore permits
+daemon-owned agent-loop PTY sessions to tee their terminal stream to a
+per-supervisor `0600` diagnostic file under `.striatum/scratch/` (default
+`.striatum/scratch/<supervisor_id>/pty.log`, overridable or disabled with
+`STRIATUM_AGENT_LOOP_DEBUG_LOG`).
+
+This revisits D028 narrowly. The forbidden thing is still durable transcript
+capture: no raw provider transcript may become daemon/PostgreSQL state, a
+workflow artifact, a corpus/archive/evidence export, a verdict input, a byline
+input, or a workflow-control signal. The allowed thing is private operational
+scratch for the local operator. These logs may contain secrets or other
+terminal-visible private text; Striatum does not redact them, publish them, or
+treat them as provenance, and deleting them does not change workflow truth.
+
 ## Phasing
 
 Mirrors D140's per-adapter conditional gate: prove each adapter's owned-PTY
@@ -137,9 +154,11 @@ interactive session before deleting the wrapper.
 
 ## Drawbacks / follow-ups
 
-- **Per-adapter submit-sequence fragility.** TUI submit semantics differ per
-  CLI and can drift across CLI versions; the submit driver needs per-adapter
-  fixtures and a liveness check that the prompt was actually accepted.
+- **Per-adapter bootstrap fragility.** TUI submit semantics differ per CLI and
+  can drift across CLI versions. Claude uses the PTY submit path; codex now
+  receives the bootstrap as its initial prompt argument to bypass the TUI input
+  editor. Remaining adapters still need per-adapter fixtures and a liveness
+  check that the prompt was actually accepted.
 - **Long-lived sessions need idle/heartbeat policy.** D141 already flagged that
   liveness beyond `state=active` (idle/heartbeat timeout) may be needed; more
   acute now that every lane is long-lived.
@@ -147,6 +166,9 @@ interactive session before deleting the wrapper.
   processes; needs a reap/limit policy.
 - **agy model pinning.** No `--model` flag means the model is set by the
   Antigravity install, not the workflow; `display_model` must be kept honest.
+- **Local transcript sensitivity.** PTY logs improve debuggability but may
+  contain terminal-visible private text. They must stay in operational scratch
+  unless a later decision accepts retention, redaction, export, or UI viewing.
 - The Go web service is still not mounted in the running daemon (carried from
   RFC 0084 follow-ups); unrelated but adjacent.
 
@@ -162,6 +184,10 @@ interactive session before deleting the wrapper.
 - **D150** — Replace `gemini_cli` with `agy` (canonical family; antigravity
   family dropped; installer reuses the claude bundle); MCP config generated
   fresh at launch and never persisted (Decisions 4, 5). Retires F42–F45.
+- **D151** — Narrow D028 for RFC 0088: operator-local PTY logs under
+  `.striatum/scratch/` are allowed as private diagnostics, while raw provider
+  transcripts remain forbidden as daemon state, artifacts, exports, verdict
+  inputs, byline inputs, or workflow-control signals (Decision 6).
 
 ## Glossary delta (on acceptance)
 

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 func TestWriteScopeViolationsRejectsOutsideAndForbiddenPaths(t *testing.T) {
@@ -30,6 +32,51 @@ func TestWriteScopeViolationsAllowsBroadScopeButStillHonorsForbidden(t *testing.
 	want := []string{".striatum/state"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
+func TestWriteScopeViolationsIgnoresMatchingSiblingArtifacts(t *testing.T) {
+	got := writeScopeViolationsWithIgnored(
+		[]string{
+			"docs/rfc/design/codex/DESIGN.md",
+			"docs/rfc/design/agy/DESIGN.md",
+			"go/pkg/mcp/capabilities.go",
+			".striatum/scratch/pid",
+		},
+		[]string{"docs/rfc/design/codex/"},
+		[]string{".striatum/"},
+		map[string]bool{"docs/rfc/design/agy/DESIGN.md": true},
+	)
+	want := []string{".striatum/scratch/pid", "go/pkg/mcp/capabilities.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
+func TestPublishedRunArtifactIgnoredPathsRequiresMatchingDigest(t *testing.T) {
+	repo := t.TempDir()
+	publishedPath := "docs/rfc/design/agy/DESIGN.md"
+	stalePath := "docs/rfc/design/claude/DESIGN.md"
+	mustWrite(t, filepath.Join(repo, publishedPath), "published sibling\n")
+	mustWrite(t, filepath.Join(repo, stalePath), "current file\n")
+
+	ignored, err := publishedRunArtifactIgnoredPaths(
+		context.Background(),
+		writeScopeArtifactRunner{rows: []map[string]any{
+			{"repo_path": publishedPath, "content_sha256": sha256Hex([]byte("published sibling\n"))},
+			{"repo_path": stalePath, "content_sha256": sha256Hex([]byte("old digest\n"))},
+		}},
+		"repo_1",
+		repo,
+		map[string]any{"run_id": "run_1", "job_id": "job_current"},
+		[]string{publishedPath, stalePath},
+	)
+	if err != nil {
+		t.Fatalf("ignored paths: %v", err)
+	}
+	want := map[string]bool{publishedPath: true}
+	if !reflect.DeepEqual(ignored, want) {
+		t.Fatalf("ignored = %#v, want %#v", ignored, want)
 	}
 }
 
@@ -84,7 +131,18 @@ func runGit(t *testing.T, repo string, args ...string) {
 
 func mustWrite(t *testing.T, path string, body string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+}
+
+type writeScopeArtifactRunner struct {
+	rows []map[string]any
+}
+
+func (r writeScopeArtifactRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return runPrepareRowsFromMaps(r.rows), nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -101,6 +102,7 @@ func (l *Liveness) run(ctx context.Context) {
 	defer close(l.doneCh)
 	tick := time.NewTicker(l.cfg.HeartbeatInterval)
 	defer tick.Stop()
+	tmuxUnavailableTicks := 0
 	for {
 		select {
 		case <-l.stopCh:
@@ -112,20 +114,72 @@ func (l *Liveness) run(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			alive := processAliveAtStartTime(l.pid, row.StartedAt)
+			if tmux := objectValue(row.Metadata["tmux"]); strings.TrimSpace(stringValue(tmux["state"])) == "backed" {
+				if _, ok := TmuxIdentityFromMetadata(row.Metadata); !ok {
+					_ = l.store.MarkSupervisorLost(ctx, l.supervisorID, "tmux_metadata_corrupt")
+					return
+				}
+			}
+			live := ProbeLaneLiveness(ctx, DefaultTmuxRunner(), row.Metadata, l.pid, row.PIDStartTime)
 			row.LastHeartbeatAt = now.UTC()
-			if alive {
+			if live.Alive {
+				tmuxUnavailableTicks = 0
+				recordTmuxProbeOK(row.Metadata, now)
 				row.State = "running"
 				_ = l.store.UpsertSupervisorPointer(ctx, row)
 				l.mu.Lock()
 				l.lastBeat = now
 				l.mu.Unlock()
-			} else {
-				_ = l.store.MarkSupervisorLost(ctx, l.supervisorID, "process_exited")
+				continue
+			}
+			if live.Class == string(TmuxLivenessUnavailable) {
+				tmuxUnavailableTicks++
+				if tmuxUnavailableTicks < 3 {
+					if row.Metadata == nil {
+						row.Metadata = map[string]any{}
+					}
+					row.Metadata["tmux_probe_skipped_at"] = now.UTC().Format(time.RFC3339Nano)
+					recordTmuxProbeUnavailable(row.Metadata, now, tmuxUnavailableTicks, live.Detail)
+					_ = l.store.UpsertSupervisorPointer(ctx, row)
+					continue
+				}
+				_ = l.store.MarkSupervisorLost(ctx, l.supervisorID, "tmux_unavailable_persistent")
 				return
 			}
+			tmuxUnavailableTicks = 0
+			reason := live.Class
+			if reason == "" {
+				reason = "process_exited"
+			}
+			_ = l.store.MarkSupervisorLost(ctx, l.supervisorID, reason)
+			return
 		}
 	}
+}
+
+func recordTmuxProbeOK(metadata map[string]any, now time.Time) {
+	tmux := objectValue(metadata["tmux"])
+	if strings.TrimSpace(stringValue(tmux["state"])) != "backed" {
+		return
+	}
+	tmux["last_ok_at"] = now.UTC().Format(time.RFC3339Nano)
+	delete(tmux, "probe_skipped_at")
+	delete(tmux, "probe_unavailable_count")
+	delete(tmux, "last_unavailable_detail")
+	metadata["tmux"] = tmux
+}
+
+func recordTmuxProbeUnavailable(metadata map[string]any, now time.Time, count int, detail string) {
+	tmux := objectValue(metadata["tmux"])
+	if len(tmux) == 0 {
+		return
+	}
+	tmux["probe_skipped_at"] = now.UTC().Format(time.RFC3339Nano)
+	tmux["probe_unavailable_count"] = count
+	if strings.TrimSpace(detail) != "" {
+		tmux["last_unavailable_detail"] = strings.TrimSpace(detail)
+	}
+	metadata["tmux"] = tmux
 }
 
 // LastHeartbeat exposes the timestamp of the last successful tick. Tests use

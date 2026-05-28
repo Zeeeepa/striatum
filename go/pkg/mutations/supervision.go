@@ -17,6 +17,7 @@ import (
 var superviseReportEventTypes = map[string]bool{
 	gosupervisor.HelperEventPacketAccepted: true,
 	gosupervisor.HelperEventAgentStarted:   true,
+	gosupervisor.HelperEventAttachExited:   true,
 	"artifact_observed":                    true,
 	gosupervisor.HelperEventProgress:       true,
 	gosupervisor.HelperEventAgentExited:    true,
@@ -44,6 +45,10 @@ type supervisorReportRow struct {
 	SessionID          string
 	State              string
 	DaemonSupervisorID string
+	PID                int
+	HasPID             bool
+	PIDStartTime       string
+	Metadata           map[string]any
 }
 
 func HandleSuperviseReport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -200,7 +205,7 @@ func normalizeSuperviseReportEvent(raw map[string]any, defaultSessionID string, 
 		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"requires event_type", nil)
 	}
 	if !superviseReportEventTypes[eventType] {
-		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"event_type must be one of: agent_exited, agent_started, artifact_observed, helper_error, packet_accepted, progress", nil)
+		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"event_type must be one of: agent_exited, agent_started, artifact_observed, attach_client_exited, helper_error, packet_accepted, progress", nil)
 	}
 	supervisorID, err := optionalStringParam(raw, "supervisor_id")
 	if err != nil {
@@ -273,6 +278,21 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 			return nil, err
 		}
 		state = "stopped"
+	} else if event.EventType == gosupervisor.HelperEventAttachExited {
+		event = attachExitWithDaemonObservedLiveness(ctx, supervisor, event)
+		if attachExitPaneStillLive(supervisor, event) {
+			if err := refreshReportSupervisorHeartbeat(ctx, runner, repositoryID, supervisor, now); err != nil {
+				return nil, err
+			}
+			if err := updateReportSupervisorAttachExitMetadata(ctx, runner, repositoryID, supervisor, event, now); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := updateReportSupervisorDetached(ctx, runner, repositoryID, supervisor, now); err != nil {
+				return nil, err
+			}
+			state = "detached"
+		}
 	} else if err := refreshReportSupervisorHeartbeat(ctx, runner, repositoryID, supervisor, now); err != nil {
 		return nil, err
 	}
@@ -289,8 +309,8 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	if event.ReportedAt != "" {
 		payload["reported_at"] = event.ReportedAt
 	}
-	if len(event.Payload) > 0 {
-		payload["payload"] = event.Payload
+	if nested := curatedSuperviseReportPayload(event, now); len(nested) > 0 {
+		payload["payload"] = nested
 	}
 	if _, err := appendEvent(ctx, runner, repositoryID, supervisor.RunID, "supervisor."+event.EventType, supervisor.SessionID, nil, nil, nil, nil, payload); err != nil {
 		return nil, err
@@ -305,21 +325,96 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	}, nil
 }
 
+func curatedSuperviseReportPayload(event superviseReportEvent, now string) map[string]any {
+	switch event.EventType {
+	case gosupervisor.HelperEventPacketAccepted:
+		return copyAllowedPayloadFields(event.Payload, "bytes", "sequence")
+	case gosupervisor.HelperEventProgress:
+		return copyAllowedPayloadFields(event.Payload, "bytes", "total_bytes")
+	case gosupervisor.HelperEventAgentStarted:
+		payload := copyAllowedPayloadFields(event.Payload, "pid", "attach_pid", "attach_client_pid")
+		if metadata := curatedAgentStartedMetadata(asMap(event.Payload["metadata"])); len(metadata) > 0 {
+			payload["metadata"] = metadata
+		}
+		return payload
+	case gosupervisor.HelperEventAgentExited:
+		return copyAllowedPayloadFields(event.Payload, "exit_code", "error", "cause")
+	case gosupervisor.HelperEventAttachExited:
+		payload := copyAllowedPayloadFields(event.Payload,
+			"pid",
+			"attach_pid",
+			"attach_client_pid",
+			"attach_exit_code",
+			"exit_code",
+			"attach_error",
+			"observed_at",
+			"tmux_liveness",
+		)
+		payload["delivery_degraded"] = true
+		payload["delivery_liveness"] = attachExitDeliveryLiveness(event, attachExitObservedAt(event, now))
+		return payload
+	case gosupervisor.HelperEventError:
+		return copyAllowedPayloadFields(event.Payload, "phase", "error")
+	case "artifact_observed":
+		return copyAllowedPayloadFields(event.Payload, "artifact_id", "kind", "logical_name", "path", "sha256")
+	default:
+		return map[string]any{}
+	}
+}
+
+func copyAllowedPayloadFields(source map[string]any, keys ...string) map[string]any {
+	out := map[string]any{}
+	for _, key := range keys {
+		if value, ok := source[key]; ok && value != nil {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func curatedAgentStartedMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	out := copyAllowedPayloadFields(metadata, "stdin_delivery", "transport")
+	if tmux := curatedTmuxMetadata(asMap(metadata["tmux"])); len(tmux) > 0 {
+		out["tmux"] = tmux
+	}
+	return out
+}
+
+func curatedTmuxMetadata(tmux map[string]any) map[string]any {
+	return copyAllowedPayloadFields(tmux,
+		"state",
+		"session_name",
+		"window_id",
+		"pane_id",
+		"pane_pid",
+		"pane_start_time",
+		"pane_start_token",
+		"attach_command",
+	)
+}
+
 func findReportSupervisor(ctx context.Context, runner db.TxRunner, repositoryID string, supervisorID string, sessionID string) (supervisorReportRow, error) {
 	if supervisorID != "" {
 		return scanReportSupervisor(runner.QueryRow(ctx, `
-			SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state, p.daemon_supervisor_id
+			SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state,
+			       ps.pid, ps.pid_start_time,
+			       p.daemon_supervisor_id, COALESCE(p.metadata_json, '{}'::jsonb)
 			  FROM striatumd.process_supervisors ps
 			  LEFT JOIN striatumd.process_supervisor_pointers p
 			    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
 			 WHERE ps.repository_id = $1 AND ps.supervisor_id = $2
 			 LIMIT 1
-			 FOR UPDATE`, repositoryID, supervisorID),
+			 FOR UPDATE OF ps`, repositoryID, supervisorID),
 			rpc.NewError("not_found", fmt.Sprintf("no supervisor recorded for supervisor_id=%q", supervisorID), nil),
 		)
 	}
 	return scanReportSupervisor(runner.QueryRow(ctx, `
-		SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state, p.daemon_supervisor_id
+		SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state,
+		       ps.pid, ps.pid_start_time,
+		       p.daemon_supervisor_id, COALESCE(p.metadata_json, '{}'::jsonb)
 		  FROM striatumd.process_supervisors ps
 		  LEFT JOIN striatumd.process_supervisor_pointers p
 		    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
@@ -327,7 +422,7 @@ func findReportSupervisor(ctx context.Context, runner db.TxRunner, repositoryID 
 		   AND ps.state IN ('starting','attached','detached')
 		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
 		 LIMIT 1
-		 FOR UPDATE`, repositoryID, sessionID),
+		 FOR UPDATE OF ps`, repositoryID, sessionID),
 		rpc.NewError("invalid_transition", fmt.Sprintf("no active supervisor for session_id=%q", sessionID), nil),
 	)
 }
@@ -335,12 +430,18 @@ func findReportSupervisor(ctx context.Context, runner db.TxRunner, repositoryID 
 func scanReportSupervisor(row db.Row, notFound error) (supervisorReportRow, error) {
 	var supervisor supervisorReportRow
 	var daemonSupervisorID *string
+	var pid *int
+	var pidStartTime *string
+	var rawMetadata any
 	err := row.Scan(
 		&supervisor.SupervisorID,
 		&supervisor.RunID,
 		&supervisor.SessionID,
 		&supervisor.State,
+		&pid,
+		&pidStartTime,
 		&daemonSupervisorID,
+		&rawMetadata,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -351,7 +452,150 @@ func scanReportSupervisor(row db.Row, notFound error) (supervisorReportRow, erro
 	if daemonSupervisorID != nil {
 		supervisor.DaemonSupervisorID = *daemonSupervisorID
 	}
+	if pid != nil {
+		supervisor.PID = *pid
+		supervisor.HasPID = true
+	}
+	if pidStartTime != nil {
+		supervisor.PIDStartTime = *pidStartTime
+	}
+	supervisor.Metadata = asMap(rawMetadata)
 	return supervisor, nil
+}
+
+func attachExitWithDaemonObservedLiveness(ctx context.Context, supervisor supervisorReportRow, event superviseReportEvent) superviseReportEvent {
+	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+	if live.Backed != "tmux" {
+		return event
+	}
+	payload := map[string]any{}
+	for key, value := range event.Payload {
+		payload[key] = value
+	}
+	if helperClass, _ := event.Payload["tmux_liveness"].(string); strings.TrimSpace(helperClass) != "" {
+		payload["helper_tmux_liveness"] = helperClass
+	}
+	payload["tmux_liveness"] = live.Class
+	if live.Detail != "" {
+		payload["tmux_liveness_detail"] = live.Detail
+	}
+	event.Payload = payload
+	return event
+}
+
+func attachExitPaneStillLive(supervisor supervisorReportRow, event superviseReportEvent) bool {
+	tmux := asMap(supervisor.Metadata["tmux"])
+	if strings.TrimSpace(fmt.Sprint(tmux["state"])) != "backed" {
+		return false
+	}
+	class, _ := event.Payload["tmux_liveness"].(string)
+	return class == string(gosupervisor.TmuxLivenessOK) || class == string(gosupervisor.TmuxLivenessUnavailable)
+}
+
+func updateReportSupervisorAttachExitMetadata(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, event superviseReportEvent, now string) error {
+	metadata := map[string]any{}
+	for key, value := range supervisor.Metadata {
+		metadata[key] = value
+	}
+	tmux := asMap(metadata["tmux"])
+	if len(tmux) == 0 {
+		tmux = map[string]any{"state": "backed"}
+	}
+	lastExit := map[string]any{
+		"observed_at":   now,
+		"tmux_liveness": event.Payload["tmux_liveness"],
+	}
+	if event.ReportedAt != "" {
+		lastExit["observed_at"] = event.ReportedAt
+		lastExit["reported_at"] = event.ReportedAt
+	}
+	if observedAt, ok := event.Payload["observed_at"].(string); ok && observedAt != "" {
+		lastExit["observed_at"] = observedAt
+	}
+	if pid, ok := event.Payload["attach_client_pid"]; ok {
+		lastExit["attach_pid"] = pid
+	} else if pid, ok := event.Payload["attach_pid"]; ok {
+		lastExit["attach_pid"] = pid
+	}
+	if exitCode, ok := event.Payload["attach_exit_code"]; ok {
+		lastExit["attach_exit_code"] = exitCode
+	} else if exitCode, ok := event.Payload["exit_code"]; ok {
+		lastExit["attach_exit_code"] = exitCode
+	}
+	if panePID, ok := event.Payload["pid"]; ok {
+		lastExit["pane_pid"] = panePID
+	}
+	observedAt, _ := lastExit["observed_at"].(string)
+	deliveryLiveness := attachExitDeliveryLiveness(event, observedAt)
+	lastExit["delivery_liveness"] = deliveryLiveness
+	tmux["attach_client_last_exit"] = lastExit
+	tmux["delivery_liveness"] = deliveryLiveness
+	metadata["tmux"] = tmux
+	metadataArg, err := db.JSONBArg(runner, metadata)
+	if err != nil {
+		return err
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET metadata_json = $1::jsonb,
+		       updated_at = $2
+		 WHERE repository_id = $3 AND supervisor_id = $4`,
+		metadataArg, now, repositoryID, supervisor.SupervisorID,
+	)
+}
+
+func attachExitDeliveryLiveness(event superviseReportEvent, observedAt string) map[string]any {
+	payload := map[string]any{
+		"class":       "degraded",
+		"healthy":     false,
+		"reason":      "attach_client_exited",
+		"observed_at": observedAt,
+	}
+	if observedAt == "" {
+		delete(payload, "observed_at")
+	}
+	return payload
+}
+
+func attachExitObservedAt(event superviseReportEvent, fallback string) string {
+	if observedAt, ok := event.Payload["observed_at"].(string); ok && strings.TrimSpace(observedAt) != "" {
+		return observedAt
+	}
+	if strings.TrimSpace(event.ReportedAt) != "" {
+		return event.ReportedAt
+	}
+	return fallback
+}
+
+func updateReportSupervisorDetached(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, now string) error {
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisors
+		   SET state = 'detached',
+		       heartbeat_at = $1
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		now, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET state = 'detached',
+		       updated_at = $1
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		now, repositoryID, supervisor.SupervisorID,
+	); err != nil {
+		return err
+	}
+	if supervisor.DaemonSupervisorID == "" {
+		return nil
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.daemon_supervisors
+		   SET state = 'detached',
+		       heartbeat_at = $1
+		 WHERE repository_id = $2 AND daemon_supervisor_id = $3`,
+		now, repositoryID, supervisor.DaemonSupervisorID,
+	)
 }
 
 func updateReportSupervisorStopped(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, now string, stopReason string) error {

@@ -122,10 +122,19 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `supervise.start` | `supervise start` | claim | single_repo | pg | real | no | no | Go process-control launch over PG supervisor rows and FIFO/helper transport |
 | `supervise.send` | `supervise send` | claim | single_repo | pg | real | no | no | Go packet delivery with delivered-unacknowledged semantics |
 | `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches |
-| `supervise.stop` | `supervise stop` | claim | single_repo | pg | real | no | no | Go terminal supervisor state update and process signaling |
-| `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only supervisor and protocol-liveness/stall projection; no pointer repair or lost-state mutation |
+| `supervise.stop` | `supervise stop` | claim | single_repo | pg | real | no | no | Go terminal supervisor state update; tmux-backed lanes terminate the tmux session via RFC 0089 pane/session metadata |
+| `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only supervisor and protocol-liveness/stall projection; tmux-backed rows consult RFC 0089 tmux session/pane liveness; no pointer repair or lost-state mutation |
 | `supervise.list` | `supervise list` | read | single_repo | pg | real | no | no | stable |
-| `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO |
+| `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO; classifies tmux-backed rows with RFC 0089 tmux session/pane liveness |
+
+`supervise.status` returns a `tmux` object for tmux-backed lanes, including
+the copyable `attach_command` and derived `tmux.liveness` class. The class
+vocabulary is `tmux_ok`, `tmux_session_missing`, `tmux_pane_missing`,
+`tmux_pane_dead`, `tmux_pane_pid_mismatch`, and `tmux_unavailable`; the same
+strings feed `lane_attestation_reason` on unhealthy tmux-backed lanes. A
+helper-owned attach-bridge exit with a live pane keeps pane liveness
+attached/attested but surfaces `delivery_liveness.class=degraded` and causes
+`supervise.send` to fail closed until the supervisor is rebridged or restarted.
 | `work.send_message` | `send` | write | single_repo | pg | real | no | no | stable |
 | `work.block` | `block` | write | single_repo | pg | real | no | no | stable |
 | `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |
@@ -155,7 +164,7 @@ imports and fails on unlisted direct PostgreSQL client helpers.
 | `recovery.stale_leases` | `recovery stale-leases` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.requeue_stale` | `recovery requeue-stale` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.cancel_job` | `recovery cancel-job` | recovery | single_repo | pg | real | no | no | stable |
-| `recovery.process_reconcile` | `recovery process-reconcile` | recovery | single_repo | pg | real | no | no | stable |
+| `recovery.process_reconcile` | `recovery process-reconcile` | recovery | single_repo | pg | real | no | no | reconciles running process rows; tmux-backed rows consult RFC 0089 tmux session/pane liveness before marking lost |
 | `recovery.resume` | `recovery resume` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.sweep` | `recovery auto` | recovery | single_repo | pg | real | no | no | canonical one-shot recovery sweep; runs workflow-opt-in auto-finalize before lazy lease expiry |
 | `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |

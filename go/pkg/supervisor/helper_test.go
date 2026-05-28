@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +197,260 @@ func TestRunHelperRequireTmuxUnavailableEmitsLaunchError(t *testing.T) {
 		t.Fatalf("helper_error text = %q, want tmux-required refusal", errorText)
 	}
 }
+
+func TestRunHelperAttachClientExitWithLivePaneIsNotAgentExit(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	attachCmd := exec.Command("sh", "-c", "exit 0")
+	if err := attachCmd.Start(); err != nil {
+		t.Fatalf("start attach surrogate: %v", err)
+	}
+	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
+		return &LaunchResult{
+			PID:         48211,
+			AttachPID:   attachCmd.Process.Pid,
+			Cmd:         attachCmd,
+			StdinWriter: eofPTY{},
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run",
+					"pane_id":          "%4",
+					"pane_pid":         48211,
+					"pane_start_token": "1748452211",
+				},
+			},
+		}, nil
+	}
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_attach_exit",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/true"},
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{TmuxRunner: runner}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	seen := map[string]bool{}
+	var attachPayload map[string]any
+	for _, event := range decoded {
+		seen[event.EventType] = true
+		if event.EventType == HelperEventAttachExited {
+			attachPayload = event.Payload
+		}
+	}
+	if !seen[HelperEventAttachExited] {
+		t.Fatalf("missing attach_client_exited event: %#v", decoded)
+	}
+	if seen[HelperEventAgentExited] {
+		t.Fatalf("attach-client exit should not emit agent_exited: %#v", decoded)
+	}
+	delivery, ok := attachPayload["delivery_liveness"].(map[string]any)
+	if !ok || delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("attach exit delivery liveness = %#v", attachPayload)
+	}
+}
+
+func TestRunHelperAttachClientExitWithDeadPaneIsAgentExit(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	attachCmd := exec.Command("sh", "-c", "exit 0")
+	if err := attachCmd.Start(); err != nil {
+		t.Fatalf("start attach surrogate: %v", err)
+	}
+	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
+		return &LaunchResult{
+			PID:         48211,
+			AttachPID:   attachCmd.Process.Pid,
+			Cmd:         attachCmd,
+			StdinWriter: eofPTY{},
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run",
+					"pane_id":          "%4",
+					"pane_pid":         48211,
+					"pane_start_token": "1748452211",
+				},
+			},
+		}, nil
+	}
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_attach_exit_dead_pane",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/true"},
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|1|1748452211\n"},
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|1|1748452211\n"},
+	}}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{TmuxRunner: runner}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var exitEvent *HelperControlEvent
+	for i := range decoded {
+		if decoded[i].EventType == HelperEventAgentExited {
+			exitEvent = &decoded[i]
+		}
+		if decoded[i].EventType == HelperEventAttachExited {
+			t.Fatalf("dead pane should not emit attach_client_exited: %#v", decoded)
+		}
+	}
+	if exitEvent == nil {
+		t.Fatalf("missing agent_exited event: %#v", decoded)
+	}
+	if exitEvent.Payload["cause"] != string(TmuxLivenessPaneDead) {
+		t.Fatalf("agent_exited cause = %#v", exitEvent.Payload)
+	}
+}
+
+func TestTerminateProcessTmuxBackedUsesKillSessionInsteadOfPaneSignal(t *testing.T) {
+	processPIDs, panePIDs := captureHelperSignals(t)
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"kill-session"}},
+	}}
+	result := helperTerminateResult(222, 111, map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run",
+			"pane_start_token": "123",
+		},
+	})
+
+	terminateProcess(context.Background(), result, runner)
+
+	assertIntSlice(t, "process signals", *processPIDs, []int{111})
+	assertIntSlice(t, "pane signals", *panePIDs, nil)
+	if len(runner.calls) != 1 || !argsPrefix(runner.calls[0], []string{"kill-session", "-t", "striatum-run"}) {
+		t.Fatalf("tmux calls = %#v, want kill-session for striatum-run", runner.calls)
+	}
+}
+
+func TestTerminateProcessTmuxBackedSkipsPanePIDWithoutVerifiedToken(t *testing.T) {
+	processPIDs, panePIDs := captureHelperSignals(t)
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"kill-session"}, err: errors.New("can't find session")},
+	}}
+	result := helperTerminateResult(222, 111, map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run",
+			"pane_start_token": "#{pane_start_time}",
+		},
+	})
+
+	terminateProcess(context.Background(), result, runner)
+
+	assertIntSlice(t, "process signals", *processPIDs, []int{111})
+	assertIntSlice(t, "pane signals", *panePIDs, nil)
+	if len(runner.calls) != 1 || !argsPrefix(runner.calls[0], []string{"kill-session", "-t", "striatum-run"}) {
+		t.Fatalf("tmux calls = %#v, want attempted kill-session before skipping unverified pane pid", runner.calls)
+	}
+}
+
+func TestTerminateProcessTmuxBackedSkipsPanePIDOnStartTokenMismatch(t *testing.T) {
+	currentStart, ok := ProcessStartToken(os.Getpid())
+	if !ok || currentStart == "" {
+		t.Skip("current process start token unavailable")
+	}
+	processPIDs, panePIDs := captureHelperSignals(t)
+	result := helperTerminateResult(os.Getpid(), 111, map[string]any{
+		"tmux": map[string]any{
+			"state":            "backed",
+			"pane_start_token": currentStart + "1",
+		},
+	})
+
+	terminateProcess(context.Background(), result, nil)
+
+	assertIntSlice(t, "process signals", *processPIDs, []int{111})
+	assertIntSlice(t, "pane signals", *panePIDs, nil)
+}
+
+func TestTerminateProcessPlainAttachSignalsChildPID(t *testing.T) {
+	processPIDs, panePIDs := captureHelperSignals(t)
+	result := helperTerminateResult(222, 111, nil)
+
+	terminateProcess(context.Background(), result, nil)
+
+	assertIntSlice(t, "process signals", *processPIDs, []int{111})
+	assertIntSlice(t, "pane signals", *panePIDs, []int{222})
+}
+
+func helperTerminateResult(pid, attachPID int, metadata map[string]any) *LaunchResult {
+	return &LaunchResult{
+		PID:       pid,
+		AttachPID: attachPID,
+		Cmd:       &exec.Cmd{Process: &os.Process{Pid: attachPID}},
+		Metadata:  metadata,
+	}
+}
+
+func captureHelperSignals(t *testing.T) (*[]int, *[]int) {
+	t.Helper()
+	origSignalProcess := helperSignalProcess
+	origSignalPID := helperSignalPID
+	var processPIDs []int
+	var panePIDs []int
+	helperSignalProcess = func(process *os.Process) error {
+		processPIDs = append(processPIDs, process.Pid)
+		return nil
+	}
+	helperSignalPID = func(pid int) error {
+		panePIDs = append(panePIDs, pid)
+		return nil
+	}
+	t.Cleanup(func() {
+		helperSignalProcess = origSignalProcess
+		helperSignalPID = origSignalPID
+	})
+	return &processPIDs, &panePIDs
+}
+
+func assertIntSlice(t *testing.T, name string, got, want []int) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s: got %#v want %#v", name, got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("%s: got %#v want %#v", name, got, want)
+		}
+	}
+}
+
+type eofPTY struct{}
+
+func (eofPTY) Read([]byte) (int, error)    { return 0, io.EOF }
+func (eofPTY) Write(p []byte) (int, error) { return len(p), nil }
+func (eofPTY) Close() error                { return nil }
 
 func helperEventsFromJSONL(data []byte) ([]HelperControlEvent, error) {
 	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))

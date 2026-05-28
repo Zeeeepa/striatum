@@ -23,7 +23,7 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 	if runID == "" || role == "" || lane == "" {
 		return nil, rpc.NewError("schema_invalid", "session.register requires run_id, role, and lane", nil)
 	}
-	capabilities := stringSliceParam(envelope, "capabilities", "capability")
+	requestedCapabilities := stringSliceParam(envelope, "capabilities", "capability")
 	fresh := boolParam(envelope, "fresh")
 	parentSessionID := nullable(stringParam(envelope, "parent_session_id"))
 	forceNonFresh := boolParam(envelope, "force_non_fresh")
@@ -48,8 +48,13 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("unknown role %q for run", role), nil)
 		}
 		lanes := asMap(workflow["lanes"])
-		if _, ok := lanes[lane]; !ok {
+		laneConfig, ok := lanes[lane]
+		if !ok {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("unknown lane %q for run", lane), nil)
+		}
+		capabilities := normalizeSessionCapabilities(requestedCapabilities)
+		if len(capabilities) == 0 {
+			capabilities = workflowLaneCapabilities(asMap(laneConfig))
 		}
 		var recordedLabel any
 		if operatorLabel != "" {
@@ -158,6 +163,31 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			"supervise_hint":          "striatum supervise start --session-id " + sessionID,
 		}, nil
 	})
+}
+
+func workflowLaneCapabilities(lane map[string]any) []string {
+	capabilities := []string{}
+	for _, item := range asList(lane["capabilities"]) {
+		capabilities = append(capabilities, fmt.Sprint(item))
+	}
+	return normalizeSessionCapabilities(capabilities)
+}
+
+func normalizeSessionCapabilities(capabilities []string) []string {
+	result := make([]string, 0, len(capabilities))
+	seen := map[string]struct{}{}
+	for _, capability := range capabilities {
+		cleaned := strings.TrimSpace(capability)
+		if cleaned == "" {
+			continue
+		}
+		if _, ok := seen[cleaned]; ok {
+			continue
+		}
+		seen[cleaned] = struct{}{}
+		result = append(result, cleaned)
+	}
+	return result
 }
 
 func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

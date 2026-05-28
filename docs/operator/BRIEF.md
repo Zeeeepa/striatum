@@ -141,15 +141,14 @@ On 2026-05-25 the remaining RFC 0078 workflows were executed with six parallel
 sub-agents. Landed slices include the generated Go CLI RPC router from
 `contracts/daemon_methods.json`, shared Go artifact contracts, expanded Go
 workflow validation/lint/generator reuse, Go web service/security/static/SSE
-scaffolding, Go-only archive release and smoke scripts, and a checked-in
+scaffolding, Go-only archive release and smoke scripts, and the now-retired
 Python-trace deletion guardrail. Aggregate validation passed after integration:
 `go test ./...`, `make check`, all seven RFC 0078 workflow validates,
 frontend API-client tests, release/package/fresh-clone smoke scripts, doc
 link/current-brief tests, route generation freshness, shell syntax checks, and
 `make release-check`.
-The strict deletion guardrail intentionally fails with active blockers, so
-Python source/tests/packaging/scripts remain until the next deletion/parity
-slice closes those rows.
+The strict deletion guardrail was retired after active Python surfaces were
+removed or archived; remaining Python mentions are historical provenance.
 
 ## Next Actions
 
@@ -164,11 +163,9 @@ slice closes those rows.
    bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
    rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
    local multi-operator tenancy.
-4. Continue RFC 0078 from the deletion blockers, not from scaffold. The next
-   bounded slice should reduce `make python-trace-guardrail` blockers by
-   porting or retiring active Python source/tests/scripts/docs; do not delete
-   active Python files until the coverage ledger names a Go replacement,
-   explicit retirement, or accepted historical-provenance exception.
+4. Treat RFC 0078 as closed for active runtime surfaces. Historical archived
+   Python references are provenance; do not reintroduce Python runtime,
+   packaging, or test surfaces without a new accepted decision.
 
 ## Blockers
 
@@ -178,9 +175,8 @@ slice closes those rows.
 - RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
   Remaining CLI compatibility cleanup is a future deprecation policy question,
   not an active parity blocker.
-- RFC 0078 final deletion is blocked by the Python-trace guardrail. As of the
-  integrated 2026-05-25 run, report mode shows active blockers for Python
-  source, the Python test suite, `pyproject.toml`, tracked Python scripts, and current docs.
+- RFC 0078 final deletion is no longer blocked by the retired Python-trace
+  guardrail. Any new Striatum runtime language is a future product decision.
 - Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
   memory tools are out of core unless later optional-extension decisions
   accept them.

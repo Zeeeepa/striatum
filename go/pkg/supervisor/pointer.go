@@ -38,6 +38,8 @@ type PointerRow struct {
 	StdinPipePath   string
 	State           string
 	LostReason      string
+	PIDStartTime    string
+	Metadata        map[string]any
 }
 
 // WritePidfile writes the pid to <scratch>/<supervisor_id>/pid atomically via

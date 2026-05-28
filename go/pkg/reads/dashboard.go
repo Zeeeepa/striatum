@@ -144,6 +144,9 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		        active_lease.acquired_at AS active_lease_acquired_at,
 		        active_lease.expires_at AS active_lease_expires_at,
 		        active_lease.last_heartbeat_at AS active_lease_last_heartbeat_at,
+		        ps.supervisor_id AS supervisor_id,
+		        ps.pid AS pid,
+		        ps.pid_start_time AS pid_start_time,
 		        ptr.metadata_json AS supervisor_metadata_json,
 		        CASE WHEN ps.supervisor_id IS NOT NULL THEN 'attested' ELSE 'unattested' END AS lane_attestation,
 		        CASE WHEN ps.supervisor_id IS NOT NULL THEN NULL ELSE 'no_attached_supervisor' END AS lane_attestation_reason
@@ -175,7 +178,11 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	for _, session := range sessions {
 		session["liveness"] = sessionliveness.ProjectionFromRow(session, now)
 		sessionliveness.RemoveProjectionSourceFields(session)
+		metadata := superviseObject(session["supervisor_metadata_json"])
 		attachSupervisorTmux(session, "supervisor_metadata_json")
+		pid, _ := intValueOptional(session["pid"])
+		live := attachTmuxLivenessFromMetadata(ctx, session, metadata, pid, superviseString(session["pid_start_time"]))
+		applySupervisorLaneAttestation(session, superviseString(session["supervisor_id"]) != "", live)
 	}
 	escalationReports, err := latestSessionEscalationReportsForRun(ctx, runner, repositoryID, runID)
 	if err != nil {

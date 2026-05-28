@@ -31,10 +31,9 @@ an umbrella tracker under `docs/operator/workflows/rfc-0078-*`; all workflow
 JSON files validate. Those six gates were then executed with six parallel
 sub-agents. The integrated result lands Go CLI RPC routing, Go artifact
 contracts and workflow/generator parity slices, Go web service scaffolding,
-Go-only release archives and smoke scripts, and the Python-trace guardrail.
-RFC 0078 is still not accepted: final deletion is blocked by remaining active
-Python source, pytest, packaging, scripts, and current guidance reported by
-`make python-trace-guardrail`.
+and Go-only release archives and smoke scripts. RFC 0078 is accepted: active
+Python source, pytest, packaging, scripts, and current runtime guidance are
+removed or archived.
 
 ## Problem
 
@@ -259,9 +258,8 @@ Python product surface.
   not return as transition bridges.
 - `go test ./...` passes, plus the replacement aggregate validation command
   defined by this RFC's implementation workflow.
-- The Python-trace guardrail passes on tracked HEAD, with only explicitly
-  accepted historical-provenance exceptions if strict zero-reference cleanup
-  is not chosen.
+- The temporary Python-trace guardrail is retired after final deletion;
+  historical Python references live only in archived/provenance material.
 
 ## Implementation Plan
 
@@ -282,7 +280,7 @@ Python product surface.
 7. **Deletion gate.** Delete remaining Python files and add guardrails that
    keep them gone.
 8. **Aggregate validation.** Run the Go test suite, package smoke, workflow
-   validation replacement, web smoke if retained, and Python-trace scan.
+   validation replacement, and web smoke if retained.
 
 ## Risks
 
