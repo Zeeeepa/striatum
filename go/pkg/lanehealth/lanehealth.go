@@ -31,6 +31,13 @@ const (
 	ReasonPIDIdentityUnavailable   LaneReason = "pid_identity_unavailable"
 )
 
+// deliveryReasonAttachClientExited is the delivery_liveness reason emitted when
+// the `tmux attach-session` observer client exits. Per RFC 0089 that client is
+// an OBSERVER only and is not the delivery transport, so its exit must not
+// degrade packet delivery while the pane is alive and the real transport
+// (persistent FIFO / pty helper) is healthy. See #63 F7.
+const deliveryReasonAttachClientExited = "attach_client_exited"
+
 type Health struct {
 	Bound, Alive, Attested, Deliverable bool
 	Stall         sessionliveness.Result
@@ -141,11 +148,27 @@ type Facts struct {
 
 // Classify computes composite lane health using a pure state machine.
 func Classify(f Facts, now time.Time) Health {
+	// #63 F7: the exit of the `tmux attach-session` observer client is not a
+	// delivery failure. When the only recorded delivery degradation is
+	// attach_client_exited and the pane is alive (the active probe reports the
+	// lane alive), the real delivery transport (persistent FIFO / pty helper)
+	// is intact, so the lane is still deliverable. Genuine transport failures
+	// (helper_process_gone, stdin_reader_missing) are recorded under a
+	// different reason — the upstream reader in Check overrides the reason to
+	// helper_process_gone when the helper PID is dead — so they are preserved
+	// here untouched.
+	deliveryDegraded := f.DeliveryDegraded
+	deliveryReason := f.DeliveryReason
+	if deliveryDegraded && deliveryReason == deliveryReasonAttachClientExited && paneAlive(f) {
+		deliveryDegraded = false
+		deliveryReason = ""
+	}
+
 	h := Health{
 		SupervisorID:   f.SupervisorID,
 		PID:            f.PID,
-		Deliverable:    !f.DeliveryDegraded,
-		DeliveryReason: f.DeliveryReason,
+		Deliverable:    !deliveryDegraded,
+		DeliveryReason: deliveryReason,
 	}
 
 	// 1. Basic attachment checks
@@ -217,6 +240,14 @@ func Classify(f Facts, now time.Time) Health {
 
 	h.Attested = true
 	return h
+}
+
+// paneAlive reports whether the active probe gives positive evidence the lane's
+// pane/process is alive. It is the gate for treating an attach-observer exit as
+// benign (#63 F7): without a probe that says the lane is alive we keep the
+// recorded delivery degradation rather than assume the transport is healthy.
+func paneAlive(f Facts) bool {
+	return f.ProbePerformed && f.ProbeResult.Alive
 }
 
 // Checker aggregates database loading with liveness probing.

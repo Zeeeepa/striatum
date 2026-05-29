@@ -248,6 +248,87 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// healthyBoundFacts returns Facts for a fully attached, bound, probe-alive lane
+// (the structural prerequisites for delivery classification), parameterized by
+// the recorded delivery degradation.
+func healthyBoundFacts(deliveryDegraded bool, deliveryReason string, probeAlive bool) Facts {
+	return Facts{
+		SupervisorRecorded:        true,
+		SupervisorState:           "attached",
+		PID:                       123,
+		HasPointer:                true,
+		PointerDaemonSupervisorID: "dsup_1",
+		PointerState:              "attached",
+		HasDaemonSupervisor:       true,
+		DaemonSupervisorID:        "dsup_1",
+		DaemonState:               "attached",
+		PointerPID:                123,
+		ProbePerformed:            true,
+		ProbeResult:               gosupervisor.LaneLiveness{Alive: probeAlive, Class: "alive"},
+		DeliveryDegraded:          deliveryDegraded,
+		DeliveryReason:            deliveryReason,
+	}
+}
+
+// TestClassifyAttachClientExitedDeliveryReconciliation guards #63 F7: an exited
+// tmux attach-session OBSERVER client must not mark packet delivery degraded
+// while the pane is alive and the real transport is healthy. Genuine transport
+// failures (helper_process_gone, stdin_reader_missing) must still degrade
+// delivery, and an attach exit on a NOT-alive pane must not be silently cleared.
+func TestClassifyAttachClientExitedDeliveryReconciliation(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name            string
+		facts           Facts
+		wantDeliverable bool
+		wantReason      string
+	}{
+		{
+			name:            "benign attach exit on a live pane is deliverable",
+			facts:           healthyBoundFacts(true, "attach_client_exited", true),
+			wantDeliverable: true,
+			wantReason:      "",
+		},
+		{
+			name:            "helper_process_gone still degrades delivery",
+			facts:           healthyBoundFacts(true, "helper_process_gone", true),
+			wantDeliverable: false,
+			wantReason:      "helper_process_gone",
+		},
+		{
+			name:            "stdin_reader_missing still degrades delivery",
+			facts:           healthyBoundFacts(true, "stdin_reader_missing", true),
+			wantDeliverable: false,
+			wantReason:      "stdin_reader_missing",
+		},
+		{
+			// Without positive probe evidence that the pane is alive we keep the
+			// recorded degradation rather than assume the transport is healthy.
+			name:            "attach exit on a dead pane is not cleared",
+			facts:           healthyBoundFacts(true, "attach_client_exited", false),
+			wantDeliverable: false,
+			wantReason:      "attach_client_exited",
+		},
+		{
+			name:            "healthy lane stays deliverable",
+			facts:           healthyBoundFacts(false, "", true),
+			wantDeliverable: true,
+			wantReason:      "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Classify(tt.facts, now)
+			if got.Deliverable != tt.wantDeliverable {
+				t.Fatalf("Deliverable = %v, want %v (health=%#v)", got.Deliverable, tt.wantDeliverable, got)
+			}
+			if got.DeliveryReason != tt.wantReason {
+				t.Fatalf("DeliveryReason = %q, want %q", got.DeliveryReason, tt.wantReason)
+			}
+		})
+	}
+}
+
 func TestLegacyMapCompatibility(t *testing.T) {
 	tests := []struct {
 		name     string

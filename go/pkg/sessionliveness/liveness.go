@@ -253,12 +253,25 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		}
 		return Result{Protocol: "live", Lease: leaseState(activity, "")}
 	}
+	// An active lease is the authoritative liveness signal for a working lane.
+	// The lease-heartbeat rung is the terminal classification for any lease
+	// holder: the work-lease subsystem requires a heartbeat at least every
+	// LeaseHeartbeatSeconds to keep the lease alive, so a lane that is still
+	// heartbeating its lease is by definition actively working — even when it
+	// is mid-generation and issues no other MCP call for longer than the
+	// protocol-idle window (#63 F8). A genuinely dead lease holder stops
+	// heartbeating and trips StallLeaseHeartbeat at LeaseHeartbeatSeconds +
+	// slack, which the dead process cannot forge; the lease heartbeat cannot be
+	// kept fresh without the lane being alive, so this does not weaken
+	// dead-lane detection. Lanes with no active lease still fall through to the
+	// protocol-idle catch-all below, unchanged.
 	if activity.ActiveLeaseID != "" {
 		base := latestTime(activity.LastWorkHeartbeatAt, activity.ActiveLeaseHeartbeatAt, activity.ActiveLeaseAcquiredAt)
 		threshold := policy.LeaseHeartbeatSeconds + policy.LeaseHeartbeatSlack
 		if missed(base, threshold, now) {
 			return stallResult(activity, StallLeaseHeartbeat, DeadlineLeaseHeartbeat, threshold, base)
 		}
+		return Result{Protocol: "live", Lease: leaseState(activity, "")}
 	}
 	base := latestTime(
 		activity.LastMCPRequestAt,

@@ -214,6 +214,7 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			legMap := lanehealth.LegacyMap(health)
 			session["lane_attestation"] = legMap["state"]
 			session["lane_attestation_reason"] = legMap["reason"]
+			reconcileBenignAttachExit(session, health)
 		} else {
 			session["lane_attestation"] = "unattested"
 			session["lane_attestation_reason"] = "no_attached_supervisor"

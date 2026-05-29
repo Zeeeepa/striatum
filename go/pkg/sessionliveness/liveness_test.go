@@ -170,6 +170,116 @@ func TestClassifyDiscoverySatisfiedByOtherMCPActivity(t *testing.T) {
 	}
 }
 
+// TestClassifyActiveLeaseGovernsWorkingLane guards #63 F8: a lane holding an
+// active lease and still heartbeating it is actively working and must NOT be
+// flagged StallProtocolIdle merely because it issued no other MCP call within
+// the protocol-idle window (a long mid-generation gap). The lease-heartbeat
+// rung is the terminal classification for lease holders: a genuinely dead lease
+// holder stops heartbeating and STILL trips StallLeaseHeartbeat, so dead-lane
+// detection is preserved. Lanes with no active lease keep the protocol-idle
+// catch-all (no new escape hatch).
+func TestClassifyActiveLeaseGovernsWorkingLane(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	// Past discovery/await/ack: the lane already drove the protocol and now
+	// holds a lease while generating.
+	settled := func() Activity {
+		return Activity{
+			SessionState:          "active",
+			RegisteredAt:          at(now.Add(-30 * time.Minute)),
+			LastToolsListAt:       at(now.Add(-29 * time.Minute)),
+			LastAwaitPacketAt:     at(now.Add(-28 * time.Minute)),
+			LastPacketDeliveredAt: at(now.Add(-27 * time.Minute)),
+			LastAckAt:             at(now.Add(-26 * time.Minute)),
+		}
+	}
+
+	tests := []struct {
+		name      string
+		mutate    func(Activity) Activity
+		wantStall string
+		wantLease string
+	}{
+		{
+			// False-positive gone: lease heartbeat is fresh (lane is working)
+			// but last MCP request is far past the 300s protocol-idle window.
+			name: "working lane with fresh lease heartbeat is not protocol idle",
+			mutate: func(a Activity) Activity {
+				a.LastMCPRequestAt = at(now.Add(-10 * time.Minute)) // stale MCP
+				a.ActiveLeaseID = "lease_1"
+				a.ActiveLeaseAcquiredAt = at(now.Add(-20 * time.Minute))
+				a.ActiveLeaseHeartbeatAt = at(now.Add(-30 * time.Second)) // fresh
+				return a
+			},
+			wantStall: "",
+			wantLease: "live",
+		},
+		{
+			// work.heartbeat stamps LastWorkHeartbeatAt; it must also count as a
+			// fresh lease heartbeat.
+			name: "working lane with fresh work heartbeat is not protocol idle",
+			mutate: func(a Activity) Activity {
+				a.LastMCPRequestAt = at(now.Add(-10 * time.Minute))
+				a.ActiveLeaseID = "lease_1"
+				a.ActiveLeaseAcquiredAt = at(now.Add(-20 * time.Minute))
+				a.LastWorkHeartbeatAt = at(now.Add(-20 * time.Second)) // fresh
+				return a
+			},
+			wantStall: "",
+			wantLease: "live",
+		},
+		{
+			// Dead-lane detection preserved: lease holder stopped heartbeating
+			// past LeaseHeartbeatSeconds + slack (330s) => StallLeaseHeartbeat.
+			name: "dead lease holder still trips lease heartbeat stall",
+			mutate: func(a Activity) Activity {
+				a.LastMCPRequestAt = at(now.Add(-10 * time.Minute))
+				a.ActiveLeaseID = "lease_1"
+				a.ActiveLeaseAcquiredAt = at(now.Add(-20 * time.Minute))
+				a.ActiveLeaseHeartbeatAt = at(now.Add(-331 * time.Second)) // stale
+				return a
+			},
+			wantStall: StallLeaseHeartbeat,
+			wantLease: "stalled",
+		},
+		{
+			// Dead lane that acquired a lease and never heartbeat: base is
+			// acquired_at, so it trips lease-heartbeat once past the threshold.
+			name: "lease holder that never heartbeat still stalls",
+			mutate: func(a Activity) Activity {
+				a.LastMCPRequestAt = at(now.Add(-10 * time.Minute))
+				a.ActiveLeaseID = "lease_1"
+				a.ActiveLeaseAcquiredAt = at(now.Add(-400 * time.Second)) // > 330s
+				return a
+			},
+			wantStall: StallLeaseHeartbeat,
+			wantLease: "stalled",
+		},
+		{
+			// No escape hatch: a lane WITHOUT a lease and stale MCP still trips
+			// protocol idle exactly as before.
+			name: "no lease with stale mcp still trips protocol idle",
+			mutate: func(a Activity) Activity {
+				a.LastMCPRequestAt = at(now.Add(-301 * time.Second))
+				return a
+			},
+			wantStall: StallProtocolIdle,
+			wantLease: "no_lease",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.mutate(settled()), policy, now)
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+			if got.Lease != tc.wantLease {
+				t.Fatalf("lease = %q, want %q; result = %#v", got.Lease, tc.wantLease, got)
+			}
+		})
+	}
+}
+
 func TestRecordUpdatesMCPRequestAndRequestedColumns(t *testing.T) {
 	runner := &recordFakeRunner{}
 	err := Record(context.Background(), runner, "repo_1", "sess_1", LastToolsListAt)
