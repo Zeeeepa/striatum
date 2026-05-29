@@ -236,7 +236,12 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		}
 		return Result{Protocol: "live", Lease: leaseState(activity, "")}
 	}
-	if !after(activity.LastAwaitPacketAt, activity.LastToolsListAt) {
+	// The await-packet deadline is anchored on LastToolsListAt, so it is only
+	// meaningful once tools/list has been recorded. A lane discovered via other
+	// MCP activity (LastToolsListAt still nil) must NOT short-circuit to "live"
+	// here — doing so would skip the protocol-idle catch-all and let a lane that
+	// pinged once then died read as live forever (#63 F4 regression guard).
+	if activity.LastToolsListAt != nil && !after(activity.LastAwaitPacketAt, activity.LastToolsListAt) {
 		if missed(activity.LastToolsListAt, policy.AwaitPacketSeconds, now) {
 			return stallResult(activity, StallAwaitPacket, DeadlineAwaitPacket, policy.AwaitPacketSeconds, activity.LastToolsListAt)
 		}

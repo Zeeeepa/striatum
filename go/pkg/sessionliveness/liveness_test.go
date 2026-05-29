@@ -146,6 +146,19 @@ func TestClassifyDiscoverySatisfiedByOtherMCPActivity(t *testing.T) {
 			},
 			wantStall: "",
 		},
+		{
+			// #63 F4 zombie guard: a lane that pinged MCP once then went silent
+			// (stale last_mcp_request_at, null tools_list/await_packet) must fall
+			// through to the protocol-idle catch-all, not short-circuit to "live"
+			// via the await-packet branch. Before the fix this read as live forever.
+			name: "stale lone mcp request trips protocol idle",
+			in: Activity{
+				SessionState:     "active",
+				RegisteredAt:     at(now.Add(-10 * time.Minute)),
+				LastMCPRequestAt: at(now.Add(-10 * time.Minute)),
+			},
+			wantStall: StallProtocolIdle,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
