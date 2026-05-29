@@ -84,6 +84,7 @@ var (
 		return syscall.Mkfifo(path, 0o600)
 	}
 	supervisionLaunch         = launchSupervisedProcess
+	supervisionRebridgeLaunch = launchRebridgeHelper
 	supervisionWrite          = writeSupervisorPayload
 	supervisionTmuxRunner     = gosupervisor.DefaultTmuxRunner()
 	errSupervisorPipeNoReader = errors.New("supervisor pipe has no reader")
@@ -523,17 +524,21 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 		return nil, err
 	}
 
-	launch, err := launchRebridgeHelper(ctx, supervisor, identity, eventPath)
+	launch, err := supervisionRebridgeLaunch(ctx, supervisor, identity, eventPath)
 	if err != nil {
 		return nil, rpc.NewError("invalid_transition", "supervise.rebridge could not attach delivery bridge: "+err.Error(), nil)
 	}
 	rebridgedAt := nowString()
 	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		hasAttachExit := false
 		if len(launch.InitialHelperEvents) > 0 {
 			for _, event := range launch.InitialHelperEvents {
 				normalized, normErr := normalizeSuperviseReportEvent(event, "", supervisor.SupervisorID, 0)
 				if normErr != nil {
 					return nil, normErr
+				}
+				if normalized.EventType == string(gosupervisor.HelperEventAttachExited) {
+					hasAttachExit = true
 				}
 				if _, recErr := recordSuperviseReportEvent(ctx, tx, repositoryID, normalized); recErr != nil {
 					return nil, recErr
@@ -549,16 +554,22 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 		updated["helper_pid_start_time"] = launch.HelperPIDStartTime
 		updated["helper_events_path"] = eventPath
 		updated["helper_events_offset"] = launch.InitialHelperOffset
-		delete(updated, "delivery_liveness")
+		if !hasAttachExit {
+			delete(updated, "delivery_liveness")
+		}
 		if tmux := asMap(updated["tmux"]); len(tmux) > 0 {
-			delete(tmux, "delivery_liveness")
+			if !hasAttachExit {
+				delete(tmux, "delivery_liveness")
+			}
 			tmux["attach_client_pid"] = launch.Metadata["attach_client_pid"]
 			tmux["last_rebridged_at"] = rebridgedAt
 			if launchTmux := asMap(launch.Metadata["tmux"]); len(launchTmux) > 0 {
 				for key, value := range launchTmux {
 					tmux[key] = value
 				}
-				delete(tmux, "delivery_liveness")
+				if !hasAttachExit {
+					delete(tmux, "delivery_liveness")
+				}
 			}
 			updated["tmux"] = tmux
 		}
@@ -579,12 +590,16 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 		if err != nil {
 			return nil, err
 		}
+		deliveryStateVal := "healthy"
+		if hasAttachExit {
+			deliveryStateVal = "degraded"
+		}
 		return map[string]any{
 			"supervisor_id":     supervisor.SupervisorID,
 			"session_id":        sessionID,
 			"run_id":            supervisor.RunID,
 			"state":             "attached",
-			"delivery_state":    "healthy",
+			"delivery_state":    deliveryStateVal,
 			"helper_pid":        launch.HelperPID,
 			"attach_client_pid": launch.Metadata["attach_client_pid"],
 			"rebridged_at":      rebridgedAt,

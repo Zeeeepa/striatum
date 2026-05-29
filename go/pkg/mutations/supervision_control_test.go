@@ -967,7 +967,7 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 	switch {
 	case strings.Contains(sql, "SELECT supervisor_id, state") && strings.Contains(sql, "state = ANY"):
 		return superviseControlFakeRow{err: pgx.ErrNoRows}
-	case strings.Contains(sql, "SELECT ps.supervisor_id"):
+	case strings.Contains(sql, "SELECT ps.supervisor_id") && strings.Contains(sql, "ps.scratch_path"):
 		var pid any
 		if tx.pid > 0 {
 			pid = tx.pid
@@ -977,6 +977,16 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
 		}
 		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", filepath.Dir(tx.pipePath), tx.pipePath, pid, tx.pidStart, "dsup_1", metadata}}
+	case strings.Contains(sql, "SELECT ps.supervisor_id"):
+		var pid any
+		if tx.pid > 0 {
+			pid = tx.pid
+		}
+		metadata := tx.metadata
+		if metadata == nil {
+			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
+		}
+		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", pid, tx.pidStart, "dsup_1", metadata}}
 	case strings.Contains(sql, "FROM striatumd.work_packets"):
 		return superviseControlFakeRow{values: []any{"packet_1", "run_1", "job_1", "lease_1", "sess_1", map[string]any{"packet": "body"}}}
 	case strings.Contains(sql, "FROM striatumd.leases"):
@@ -1136,4 +1146,135 @@ func (r superviseControlFakeRow) Scan(dest ...any) error {
 		}
 	}
 	return nil
+}
+
+func TestSuperviseRebridgePreservesDegradedDelivery(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	origRebridgeLaunch := supervisionRebridgeLaunch
+	defer func() {
+		supervisionTmuxRunner = origRunner
+		supervisionRebridgeLaunch = origRebridgeLaunch
+	}()
+
+	panePID := os.Getpid()
+	token := "1748452211"
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|" + strconv.Itoa(panePID) + "|0|" + token,
+	}
+
+	dir := t.TempDir()
+	pipePath := filepath.Join(dir, "stdin.pipe")
+	tx1 := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      panePID,
+		pidStart: token,
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":            "backed",
+				"session_name":     "striatum-run",
+				"pane_id":          "%4",
+				"pane_pid":         panePID,
+				"pane_start_token": token,
+			},
+		},
+	}
+	tx2 := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      panePID,
+		pidStart: token,
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":            "backed",
+				"session_name":     "striatum-run",
+				"pane_id":          "%4",
+				"pane_pid":         panePID,
+				"pane_start_token": token,
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx1, tx2}}
+
+	// Mock rebridge launch to return an attach_client_exited event in its initial events batch!
+	supervisionRebridgeLaunch = func(ctx context.Context, supervisor supervisorControlRow, identity gosupervisor.TmuxIdentity, eventPath string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{
+			PID:          panePID,
+			PIDStartTime: token,
+			HelperPID:    1234,
+			InitialHelperEvents: []map[string]any{
+				{
+					"schema_version": gosupervisor.HelperEventSchemaVersion,
+					"event_type":     gosupervisor.HelperEventAgentStarted,
+					"supervisor_id":  "sup_1",
+					"session_id":     "sess_1",
+					"payload": map[string]any{
+						"pid":               panePID,
+						"attach_pid":        1234,
+						"attach_client_pid": 1234,
+					},
+				},
+				{
+					"schema_version": gosupervisor.HelperEventSchemaVersion,
+					"event_type":     gosupervisor.HelperEventAttachExited,
+					"supervisor_id":  "sup_1",
+					"session_id":     "sess_1",
+					"payload": map[string]any{
+						"attach_exit_code": 1,
+						"tmux_liveness":    string(gosupervisor.TmuxLivenessOK),
+					},
+				},
+			},
+			InitialHelperOffset: 120,
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":        "backed",
+					"session_name": "striatum-run",
+					"pane_id":      "%4",
+					"pane_pid":     panePID,
+				},
+			},
+		}, nil
+	}
+
+	result, err := HandleSuperviseRebridge(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_rebridge_preserve_degraded",
+		Method:        "supervise.rebridge",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseRebridge: %v", err)
+	}
+
+	if result["delivery_state"] != "degraded" {
+		t.Fatalf("expected delivery_state to be degraded, got %v", result["delivery_state"])
+	}
+
+	// Verify that pointer metadata replacement update in tx2 actually kept delivery_liveness!
+	var replaceUpdate map[string]any
+	for _, exec := range tx2.execs {
+		if strings.Contains(exec.sql, "UPDATE striatumd.process_supervisor_pointers") {
+			if m, ok := exec.args[0].(map[string]any); ok {
+				replaceUpdate = m
+			}
+		}
+	}
+	if replaceUpdate == nil {
+		t.Fatalf("missing process_supervisor_pointers metadata update")
+	}
+	tmux := asMap(replaceUpdate["tmux"])
+	if len(tmux) == 0 {
+		t.Fatalf("expected tmux block in replaced metadata")
+	}
+	delivery := asMap(tmux["delivery_liveness"])
+	if len(delivery) == 0 {
+		t.Fatalf("expected delivery_liveness block to be preserved in replaced metadata, got: %#v", replaceUpdate)
+	}
+	if delivery["class"] != "degraded" || delivery["reason"] != "attach_client_exited" {
+		t.Fatalf("unexpected delivery_liveness in replaced metadata: %#v", delivery)
+	}
 }

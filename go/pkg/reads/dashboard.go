@@ -178,11 +178,34 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	for _, session := range sessions {
 		session["liveness"] = sessionliveness.ProjectionFromRow(session, now)
 		sessionliveness.RemoveProjectionSourceFields(session)
+		supervisorID := stringFrom(session, "supervisor_id")
+		if supervisorID != "" && DrainHelperEventsHook != nil {
+			if tx, err := runner.BeginTx(ctx); err == nil {
+				_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
+				_ = tx.Commit(ctx)
+				metaRows, err := collectRows(ctx, runner,
+					`SELECT metadata_json FROM striatumd.process_supervisor_pointers
+					  WHERE repository_id = $1 AND supervisor_id = $2`,
+					repositoryID, supervisorID,
+				)
+				if err == nil && len(metaRows) > 0 {
+					session["supervisor_metadata_json"] = metaRows[0]["metadata_json"]
+				}
+			}
+		}
 		metadata := superviseObject(session["supervisor_metadata_json"])
 		attachSupervisorTmux(session, "supervisor_metadata_json")
+		if stringFrom(session, "supervisor_id") == "" {
+			session["lane_attestation"] = "unattested"
+			session["lane_attestation_reason"] = "no_attached_supervisor"
+			session["pid"] = nil
+			session["lane_backend"] = "none"
+			session["delivery_state"] = "unknown"
+			continue
+		}
 		pid, _ := intValueOptional(session["pid"])
 		live := attachTmuxLivenessFromMetadata(ctx, session, metadata, pid, superviseString(session["pid_start_time"]))
-		applySupervisorLaneAttestation(session, superviseString(session["supervisor_id"]) != "", live)
+		applySupervisorLaneAttestation(session, true, live)
 	}
 	escalationReports, err := latestSessionEscalationReportsForRun(ctx, runner, repositoryID, runID)
 	if err != nil {

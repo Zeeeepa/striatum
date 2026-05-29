@@ -489,7 +489,7 @@ func TestHandleSuperviseStatusSurfacesLatestEscalationReport(t *testing.T) {
 					"report_kind":  "escalate",
 					"phase":        "await_packet",
 					"blocker_kind": "other",
-					"message":      "turn-driver parked floor for conv_1 after 2 attempt(s)",
+					"message":      "lane parked floor for conv_1 after 2 attempt(s)",
 				},
 			},
 		},
@@ -674,3 +674,183 @@ func currentStartTokenForTest() string {
 	}
 	return token
 }
+
+type doctorDeliveryDegradedFakeRunner struct {
+	execCount int
+}
+
+func (r *doctorDeliveryDegradedFakeRunner) Exec(context.Context, string, ...any) error {
+	r.execCount++
+	return nil
+}
+
+func (r *doctorDeliveryDegradedFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	return superviseReadFakeRow{}
+}
+
+func (r *doctorDeliveryDegradedFakeRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
+	if strings.Contains(sql, "substrate_version") {
+		return "8", nil
+	}
+	return "", nil
+}
+
+func (r *doctorDeliveryDegradedFakeRunner) BeginTx(ctx context.Context) (db.TxRunner, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *doctorDeliveryDegradedFakeRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "striatumd.process_supervisors ps") {
+		token := currentStartTokenForTest()
+		now := time.Date(2026, 5, 17, 12, 0, 0, 0, time.UTC)
+		row := superviseBaseRow("sup_degraded", os.Getpid(), token)
+		row["started_at"] = now
+		row["pointer_daemon_supervisor_id"] = "dsup_sup_degraded"
+		row["pointer_pid"] = os.Getpid()
+		row["pointer_pid_start_time"] = token
+		row["pointer_state"] = "attached"
+		row["pointer_updated_at"] = now
+		row["pointer_metadata_json"] = map[string]any{
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run_1-lane_1-sup_degraded",
+				"pane_id":      "%2",
+				"pane_pid":     os.Getpid(),
+				"delivery_liveness": map[string]any{
+					"class":  "degraded",
+					"reason": "attach_client_exited",
+				},
+			},
+		}
+		row["daemon_supervisor_id"] = "dsup_sup_degraded"
+		row["daemon_instance_id"] = "daemon_1"
+		row["daemon_pid"] = os.Getpid()
+		row["daemon_pid_start_time"] = token
+		row["daemon_state"] = "attached"
+		row["daemon_heartbeat_at"] = now
+		row["daemon_ended_at"] = nil
+		row["daemon_stop_reason"] = nil
+		return dashboardAllRowsFromMaps([]map[string]any{row}), nil
+	}
+	return dashboardAllRowsFromMaps([]map[string]any{}), nil
+}
+
+func TestHandleDoctorDeliveryDegradedSurfacesProblem(t *testing.T) {
+	runner := &doctorDeliveryDegradedFakeRunner{}
+	result, err := HandleDoctor(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleDoctor: %v", err)
+	}
+	if result["ok"] == true {
+		t.Fatalf("expected doctor ok to be false, got true")
+	}
+	problems := result["problems"].([]string)
+	found := false
+	for _, p := range problems {
+		if strings.HasPrefix(p, "supervisor_delivery_degraded.sup_degraded") {
+			found = true
+			if !strings.Contains(p, "attach_client_exited") {
+				t.Fatalf("expected problem to mention attach_client_exited, got %q", p)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected supervisor_delivery_degraded problem to be listed, got: %v", problems)
+	}
+	supervisors := result["supervisors"].([]map[string]any)
+	if len(supervisors) != 1 {
+		t.Fatalf("expected 1 supervisor, got: %#v", supervisors)
+	}
+	sup := supervisors[0]
+	rem := superviseString(sup["remediation"])
+	if !strings.Contains(rem, "striatum supervise rebridge") || !strings.Contains(rem, "--session-id sess_1") {
+		t.Fatalf("expected rebridge remediation, got: %q", rem)
+	}
+}
+
+type noSupervisorFakeRunner struct{}
+
+func (r *noSupervisorFakeRunner) Exec(ctx context.Context, sql string, args ...any) error { return nil }
+func (r *noSupervisorFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	return superviseReadFakeRow{}
+}
+func (r *noSupervisorFakeRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
+	return "", nil
+}
+func (r *noSupervisorFakeRunner) BeginTx(ctx context.Context) (db.TxRunner, error) {
+	return nil, errors.New("not implemented")
+}
+func (r *noSupervisorFakeRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "FROM striatumd.sessions") {
+		return dashboardAllRowsFromMaps([]map[string]any{
+			{
+				"session_id":               "sess_no_sup",
+				"run_id":                   "run_1",
+				"role_id":                  "implementer",
+				"lane_id":                  "lane_1",
+				"slug":                     "sess_no_sup",
+				"ordinal":                  1,
+				"state":                    "active",
+				"registered_at":            time.Now().UTC(),
+				"supervisor_id":            "",
+				"pid":                      nil,
+				"supervisor_metadata_json": nil,
+			},
+		}), nil
+	}
+	return dashboardAllRowsFromMaps([]map[string]any{}), nil
+}
+
+func TestNoSupervisorRowDefaultsToNoneAndUnknown(t *testing.T) {
+	runner := &noSupervisorFakeRunner{}
+	sessions, err := statusSessions(context.Background(), runner, "repo_1", "run_1")
+	if err != nil {
+		t.Fatalf("statusSessions: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("expected 1 session, got: %v", sessions)
+	}
+	sess := sessions[0]
+	if sess["lane_backend"] != "none" {
+		t.Errorf("expected lane_backend to be 'none', got: %q", sess["lane_backend"])
+	}
+	if sess["delivery_state"] != "unknown" {
+		t.Errorf("expected delivery_state to be 'unknown', got: %q", sess["delivery_state"])
+	}
+	if sess["lane_attestation"] != "unattested" {
+		t.Errorf("expected lane_attestation to be 'unattested', got: %q", sess["lane_attestation"])
+	}
+	if sess["lane_attestation_reason"] != "no_attached_supervisor" {
+		t.Errorf("expected lane_attestation_reason to be 'no_attached_supervisor', got: %q", sess["lane_attestation_reason"])
+	}
+}
+
+func TestRemediationCoverageTable(t *testing.T) {
+	tmuxClasses := []gosupervisor.TmuxLivenessClass{
+		gosupervisor.TmuxLivenessSessionMissing,
+		gosupervisor.TmuxLivenessPaneMissing,
+		gosupervisor.TmuxLivenessPaneDead,
+		gosupervisor.TmuxLivenessPanePIDMismatch,
+		gosupervisor.TmuxLivenessUnavailable,
+	}
+	for _, class := range tmuxClasses {
+		rem := tmuxLivenessRemediation(string(class), "reason", "sess_1")
+		if rem == "" {
+			t.Errorf("expected non-empty remediation for tmux class %s", class)
+		}
+	}
+
+	deliveryReasons := []string{
+		"attach_client_exited",
+		"stdin_reader_missing",
+	}
+	for _, reason := range deliveryReasons {
+		rem := deliveryRemediation(reason, "sess_1")
+		if rem == "" {
+			t.Errorf("expected non-empty remediation for delivery reason %s", reason)
+		}
+	}
+}
+

@@ -233,12 +233,29 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 	for _, row := range rows {
 		row["liveness"] = sessionliveness.ProjectionFromRow(row, now)
 		sessionliveness.RemoveProjectionSourceFields(row)
+		supervisorID := stringFrom(row, "supervisor_id")
+		if supervisorID != "" && DrainHelperEventsHook != nil {
+			if tx, err := runner.BeginTx(ctx); err == nil {
+				_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
+				_ = tx.Commit(ctx)
+				metaRows, err := collectRows(ctx, runner,
+					`SELECT metadata_json FROM striatumd.process_supervisor_pointers
+					  WHERE repository_id = $1 AND supervisor_id = $2`,
+					repositoryID, supervisorID,
+				)
+				if err == nil && len(metaRows) > 0 {
+					row["supervisor_metadata_json"] = metaRows[0]["metadata_json"]
+				}
+			}
+		}
 		metadata := superviseObject(row["supervisor_metadata_json"])
 		attachSupervisorTmux(row, "supervisor_metadata_json")
 		if stringFrom(row, "supervisor_id") == "" {
 			row["lane_attestation"] = "unattested"
 			row["lane_attestation_reason"] = "no_attached_supervisor"
 			row["pid"] = nil
+			row["lane_backend"] = "none"
+			row["delivery_state"] = "unknown"
 			continue
 		}
 		pid, hasPID := intValueOptional(row["pid"])

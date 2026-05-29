@@ -17,6 +17,11 @@ import (
 
 const defaultSupervisorStallAfterSeconds = 300
 
+// DrainHelperEventsHook is registered by the mutations package at startup.
+// It allows read-layer projections to lazily drain PTY helper events without
+// introducing package circular dependencies.
+var DrainHelperEventsHook func(ctx context.Context, runner db.TxRunner, repositoryID string, supervisorID string) error
+
 var supervisorTerminalStates = map[string]bool{
 	"lost":    true,
 	"stopped": true,
@@ -82,6 +87,26 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	}
 	if len(rows) == 0 {
 		return nil, rpc.NewError("not_found", fmt.Sprintf("no supervisor recorded for session_id=%q", sessionID), nil)
+	}
+
+	supervisorID := stringFrom(rows[0], "supervisor_id")
+	if supervisorID != "" && DrainHelperEventsHook != nil {
+		if tx, err := runner.BeginTx(ctx); err == nil {
+			_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
+			_ = tx.Commit(ctx)
+			// Re-fetch rows so that rows[0]["pointer_metadata_json"] is updated!
+			rows, _ = collectRows(ctx, runner,
+				`SELECT ps.*, p.metadata_json AS pointer_metadata_json
+				   FROM striatumd.process_supervisors ps
+				   LEFT JOIN striatumd.process_supervisor_pointers p
+				     ON p.repository_id = ps.repository_id
+				    AND p.supervisor_id = ps.supervisor_id
+				  WHERE ps.repository_id = $1 AND ps.session_id = $2
+				  ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+				  LIMIT 1`,
+				repositoryID, sessionID,
+			)
+		}
 	}
 
 	supervisor := supervisorView(rows[0])
@@ -384,7 +409,7 @@ func reattachStatusRows(ctx context.Context, runner db.Runner, repositoryID, run
 		args = append(args, supervisorID)
 		where += " AND ps.supervisor_id = $" + strconv.Itoa(len(args))
 	}
-	return collectRows(ctx, runner,
+	rows, err := collectRows(ctx, runner,
 		`SELECT
 		      ps.supervisor_id,
 		      ps.run_id,
@@ -425,6 +450,29 @@ func reattachStatusRows(ctx context.Context, runner db.Runner, repositoryID, run
 		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC`,
 		args...,
 	)
+	if err != nil {
+		return nil, err
+	}
+	if DrainHelperEventsHook != nil {
+		for _, row := range rows {
+			supID := superviseString(row["supervisor_id"])
+			if supID != "" {
+				if tx, err := runner.BeginTx(ctx); err == nil {
+					_ = DrainHelperEventsHook(ctx, tx, repositoryID, supID)
+					_ = tx.Commit(ctx)
+					metaRows, err := collectRows(ctx, runner,
+						`SELECT metadata_json FROM striatumd.process_supervisor_pointers
+						  WHERE repository_id = $1 AND supervisor_id = $2`,
+						repositoryID, supID,
+					)
+					if err == nil && len(metaRows) > 0 {
+						row["pointer_metadata_json"] = metaRows[0]["metadata_json"]
+					}
+				}
+			}
+		}
+	}
+	return rows, nil
 }
 
 func reattachStatusView(row map[string]any) map[string]any {
@@ -445,11 +493,19 @@ func reattachStatusView(row map[string]any) map[string]any {
 	if live.Backed == "tmux" {
 		remediation = tmuxLivenessRemediation(live.Class, live.Detail, superviseString(row["session_id"]))
 	}
+	var deliveryLiveness map[string]any
+	if tmux := superviseObject(pointerMetadata["tmux"]); len(tmux) > 0 {
+		deliveryLiveness = superviseObject(tmux["delivery_liveness"])
+	}
+	if len(deliveryLiveness) == 0 {
+		deliveryLiveness = superviseObject(pointerMetadata["delivery_liveness"])
+	}
 	return map[string]any{
 		"supervisor_id":          row["supervisor_id"],
 		"run_id":                 row["run_id"],
 		"session_id":             row["session_id"],
 		"state":                  row["state"],
+		"delivery_liveness":      deliveryLiveness,
 		"pid":                    optionalIntValue(pid, hasPID),
 		"pid_liveness":           pidLiveness(pidAlive),
 		"lane_liveness_class":    live.Class,

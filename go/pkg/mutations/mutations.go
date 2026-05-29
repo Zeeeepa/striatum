@@ -16,6 +16,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
@@ -50,6 +51,9 @@ var packageBlobClient *blob.Client
 func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	if runner == nil {
 		return
+	}
+	reads.DrainHelperEventsHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, supervisorID string) error {
+		return drainHelperEvents(ctx, tx, repositoryID, supervisorID, 0)
 	}
 	var o Options
 	if len(opts) > 0 {
