@@ -58,6 +58,42 @@ func TestPrepareLaneCommandForBootstrapUsesCodexInitialPromptArg(t *testing.T) {
 	}
 }
 
+func TestPrepareLaneCommandForBootstrapUsesAgyInitialPromptArg(t *testing.T) {
+	repo := t.TempDir()
+	prompt := "bootstrap prompt\nwith multiple lines"
+	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
+		[]string{"/home/x/.local/bin/agy", "--dangerously-skip-permissions"},
+		repo,
+		"http://127.0.0.1:42727/mcp",
+		TokenMaterial{Token: "dtok_secret"},
+		prompt,
+	)
+	if err != nil {
+		t.Fatalf("prepare agy: %v", err)
+	}
+	defer cleanup()
+	if mode != bootstrapDeliveryArgv {
+		t.Fatalf("mode = %q, want %q (agy must not use the PTY-submit path; its TUI buffers the prompt unsubmitted)", mode, bootstrapDeliveryArgv)
+	}
+	// agy takes the initial prompt as the VALUE of --prompt-interactive, not a
+	// trailing positional like codex.
+	if got := cmd[len(cmd)-1]; got != prompt {
+		t.Fatalf("last arg = %q, want bootstrap prompt", got)
+	}
+	if got := cmd[len(cmd)-2]; got != "--prompt-interactive" {
+		t.Fatalf("arg before prompt = %q, want --prompt-interactive", got)
+	}
+	// agy has NO --mcp-config flag (those make it print usage and exit); its
+	// MCP config goes through .gemini/settings.json instead.
+	joined := strings.Join(cmd, "\x00")
+	if strings.Contains(joined, "--mcp-config") || strings.Contains(joined, "--strict-mcp-config") {
+		t.Fatalf("agy command must not carry claude-shaped MCP flags: %#v", cmd)
+	}
+	if _, err := os.Stat(repo + "/.gemini/settings.json"); err != nil {
+		t.Fatalf("agy MCP config should be written to .gemini/settings.json: %v", err)
+	}
+}
+
 func TestPrepareLaneCommandForBootstrapKeepsClaudePTYSubmit(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(repo+"/.striatum/scratch", 0o755); err != nil {
