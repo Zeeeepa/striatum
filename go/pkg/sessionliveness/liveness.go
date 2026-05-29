@@ -230,7 +230,7 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		}
 		return stallResult(activity, StallEscalationPending, DeadlineEscalation, 0, at)
 	}
-	if activity.LastToolsListAt == nil {
+	if !discovered(activity) {
 		if missed(activity.RegisteredAt, policy.DiscoverySeconds, now) {
 			return stallResult(activity, StallDiscovery, DeadlineDiscovery, policy.DiscoverySeconds, activity.RegisteredAt)
 		}
@@ -363,6 +363,35 @@ func attentionPending(activity Activity) (string, *time.Time) {
 		return "", nil
 	}
 	return kind, at
+}
+
+// discovered reports whether the session has demonstrably discovered MCP. The
+// discovery deadline exists to catch a lane that never reached the daemon over
+// MCP at all. A tools/list call is the canonical discovery signal, but any
+// other recorded MCP protocol activity (await_packet, ack, work block/release/
+// complete, heartbeat, session report, packet delivery) is conclusive proof the
+// lane discovered MCP and bound its session — even if the initial tools/list
+// was issued before the session_id was bound and therefore never recorded
+// against the session. Gating discovery solely on last_tools_list_at would
+// otherwise demote actively-working supervised agent-loop lanes to the
+// agent_mcp_discovery_stall class, which in turn demotes their attested byline
+// (RFC 0026 / D149). last_mcp_request_at is stamped on every recorded mutation,
+// so it captures the general case; the explicit columns guard against future
+// callers that bypass that default.
+func discovered(activity Activity) bool {
+	return activity.LastToolsListAt != nil ||
+		activity.LastMCPRequestAt != nil ||
+		activity.LastAwaitPacketAt != nil ||
+		activity.LastPacketDeliveredAt != nil ||
+		activity.LastAckAt != nil ||
+		activity.LastWorkBlockAt != nil ||
+		activity.LastWorkReleaseAt != nil ||
+		activity.LastWorkCompleteAt != nil ||
+		activity.LastWorkHeartbeatAt != nil ||
+		activity.LastSessionReadyAt != nil ||
+		activity.LastSessionHeartbeatAt != nil ||
+		activity.LastSessionQuestionAt != nil ||
+		activity.LastSessionEscalateAt != nil
 }
 
 func progressAfter(activity Activity, at *time.Time) bool {
