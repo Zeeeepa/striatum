@@ -218,6 +218,67 @@ func TestLintReportsReviewDiversityFindingsWithFingerprints(t *testing.T) {
 	}
 }
 
+func TestLintReportsSameModelCollaborationAdjudicator(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":       "process",
+		"command":       []any{"true"},
+		"display_model": "codex-gpt-5",
+	}
+	roles := workflow["roles"].(map[string]any)
+	roles["adjudicator"] = map[string]any{}
+	jobs := workflow["jobs"].([]any)
+	jobs = append(jobs, map[string]any{
+		"id":                     "adjudicate",
+		"type":                   "review",
+		"role_id":                "adjudicator",
+		"lane_id":                "codex",
+		"fresh_session_required": true,
+		"write_scope": map[string]any{
+			"mode":            "review_only_artifact",
+			"allowed_paths":   []any{"reviews/adjudicator/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": "collaboration_ledger",
+			"kind":         "collaboration_ledger",
+			"path":         "reviews/adjudicator/COLLABORATION_LEDGER.md",
+			"required":     true,
+		}},
+	})
+	workflow["jobs"] = jobs
+	edges := workflow["edges"].([]any)
+	workflow["edges"] = append(edges, map[string]any{"from": "draft", "to": "adjudicate", "on": "completed"})
+
+	payload, err := Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	warnings := payload["warnings"].([]map[string]any)
+	found := false
+	for _, warning := range warnings {
+		if warning["rule"] == "same_model_adjudicator_pair" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("missing same_model_adjudicator_pair warning: %#v", warnings)
+	}
+	coverage := payload["coverage"].(map[string]any)
+	checks := coverage["checks"].([]map[string]any)
+	independenceFailed := false
+	for _, check := range checks {
+		if check["id"] == "reviewer_independence" && check["passed"] == false {
+			independenceFailed = true
+		}
+	}
+	if !independenceFailed {
+		t.Fatalf("coverage = %#v", coverage)
+	}
+}
+
 func TestWorkflowFingerprintMatchesCanonicalJSON(t *testing.T) {
 	workflow := validWorkflow()
 	fingerprint, err := WorkflowFingerprint(workflow)

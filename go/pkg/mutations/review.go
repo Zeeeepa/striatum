@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
@@ -58,7 +60,7 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
-		if err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText); err != nil {
+		if err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText, verdict); err != nil {
 			return nil, err
 		}
 		if fmt.Sprint(job["state"]) == "claimed" && nullable(job["current_message_id"]) != nil {
@@ -448,6 +450,15 @@ func recordVerdict(
 	if err := verifyRequiredArtifacts(ctx, runner, repositoryID, jobID); err != nil {
 		return nil, err
 	}
+	// Build finding 2: enforce collaboration_ledger verdict consistency on the
+	// primitive verdict path too. Without this, an adjudicator could publish a
+	// `verdict: needs_revision` ledger then record `accept` to clear the gate,
+	// bypassing RFC 0093's substance gate. The submit-review path already guards
+	// this in prevalidateSubmitReview; this closes the publish_artifact +
+	// review.verdict path.
+	if err := enforceCollaborationLedgerVerdict(ctx, runner, repositoryID, job, verdict); err != nil {
+		return nil, err
+	}
 	if findingsArtifactID != nil {
 		artifact, err := rowByID(ctx, runner, repositoryID, "artifacts", "artifact_id", fmt.Sprint(findingsArtifactID), false)
 		if err != nil {
@@ -566,7 +577,7 @@ func verdictCapableJobLabel(jobType string) string {
 	return "review"
 }
 
-func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText string) error {
+func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict string) error {
 	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
 		return rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
 	}
@@ -583,7 +594,14 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 	if err := enforceRequiredAttestationForVerdict(ctx, runner, repositoryID, job, sessionID); err != nil {
 		return err
 	}
-	for _, item := range asList(job["expected_artifacts_json"]) {
+	if err := prevalidateSubmitReviewArtifactVerdict(ctx, runner, repositoryID, job, kind, pathText, verdict); err != nil {
+		return err
+	}
+	// Build finding 1: resolve cycle placeholders against the job attempt so the
+	// submit-review pre-check compares against the attempt-scoped logical name +
+	// path the adjudicator published to (cycle_<attempt>), matching the work
+	// packet and verifyRequiredArtifacts.
+	for _, item := range resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), intValue(job["attempt"])) {
 		expected := asMap(item)
 		if expected["required"] != true {
 			continue
@@ -613,6 +631,37 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 				expected["path"],
 			), nil)
 		}
+	}
+	return nil
+}
+
+func prevalidateSubmitReviewArtifactVerdict(ctx context.Context, runner any, repositoryID string, job map[string]any, kind, pathText, submittedVerdict string) error {
+	if kind != "collaboration_ledger" {
+		return nil
+	}
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return err
+	}
+	repoRoot := fmt.Sprint(run["repo_root"])
+	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
+		return rpc.NewError("artifact_error", "artifact path is outside the job write scope", nil)
+	}
+	path, err := repoRelativePath(repoRoot, pathText, false)
+	if err != nil {
+		return rpc.NewError("artifact_error", err.Error(), nil)
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return rpc.NewError("artifact_error", "artifact file does not exist", nil)
+	}
+	frontMatter, err := artifactcontracts.ParseAndValidateFrontMatter(kind, path, payload)
+	if err != nil {
+		return rpc.NewError("artifact_error", err.Error(), nil)
+	}
+	ledgerVerdict := fmt.Sprint(frontMatter["verdict"])
+	if ledgerVerdict != submittedVerdict {
+		return rpc.NewError("artifact_error", fmt.Sprintf("review.submit verdict %q must match collaboration_ledger front matter verdict %q", submittedVerdict, ledgerVerdict), nil)
 	}
 	return nil
 }

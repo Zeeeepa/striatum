@@ -28,6 +28,12 @@ func TestLoadCurrentCatalogListsAndInjectsMultiPhase(t *testing.T) {
 	if ids["implementation_panel"] != "shape" {
 		t.Fatalf("implementation_panel shape missing from catalog: %#v", ids)
 	}
+	if ids["falsification_gate"] != "shape" {
+		t.Fatalf("falsification_gate shape missing from catalog: %#v", ids)
+	}
+	if ids["cross_examination"] != "shape" {
+		t.Fatalf("cross_examination shape missing from catalog: %#v", ids)
+	}
 	if ids["implementation_panel_roles"] != "role_pack" {
 		t.Fatalf("implementation_panel role pack missing from catalog: %#v", ids)
 	}
@@ -86,6 +92,28 @@ func TestGetReturnsTemplateEntry(t *testing.T) {
 	}
 	if stringValue(entry, "kind") != "lane_set" {
 		t.Fatalf("kind = %v, want lane_set", entry["kind"])
+	}
+}
+
+func TestCatalogCollaborationShapesDeclarePackAndExamples(t *testing.T) {
+	catalog, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for _, id := range []string{"falsification_gate", "cross_examination"} {
+		entry, err := catalog.Get(id)
+		if err != nil {
+			t.Fatalf("Get(%s): %v", id, err)
+		}
+		if stringValue(entry, "shape_family") != "collaboration" {
+			t.Fatalf("%s shape_family = %#v", id, entry["shape_family"])
+		}
+		if stringValue(entry, "collaboration_shape_pack") != "substance_gate_v1" {
+			t.Fatalf("%s collaboration_shape_pack = %#v", id, entry["collaboration_shape_pack"])
+		}
+		if !strings.Contains(stringValue(entry, "example_workflow_path"), "examples/") {
+			t.Fatalf("%s example_workflow_path = %#v", id, entry["example_workflow_path"])
+		}
 	}
 }
 

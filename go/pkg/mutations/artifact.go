@@ -248,6 +248,7 @@ var blobRoutedKinds = map[string]struct{}{
 	"synthesis":                    {},
 	"support_ledger":               {},
 	"action_item_ledger":           {},
+	"collaboration_ledger":         {},
 	"harness_improvement_proposal": {},
 	"progress_note":                {},
 }

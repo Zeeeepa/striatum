@@ -30,6 +30,60 @@
       }
     },
     {
+      "template_id": "falsification_gate",
+      "kind": "shape",
+      "display_name": "Falsification gate",
+      "summary": "Keep a proposal holder live while falsifiers challenge it, then gate downstream work on an adjudicator's collaboration ledger.",
+      "recommended_for": ["proposal readiness checks", "assumption falsification", "substance-gated live dialogue"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "generation_status": "generated",
+      "shape_family": "collaboration",
+      "collaboration_shape_pack": "substance_gate_v1",
+      "example_workflow_path": "examples/falsification-gate-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "holder", "label": "Holder"},
+          {"id": "falsifiers", "label": "Falsifiers"},
+          {"id": "adjudicate", "label": "Adjudicator ledger"},
+          {"id": "commit", "label": "Commit"}
+        ],
+        "edges": [
+          {"from": "holder", "to": "falsifiers"},
+          {"from": "falsifiers", "to": "adjudicate"},
+          {"from": "adjudicate", "to": "commit"}
+        ],
+        "cycles": [{"from": "adjudicate", "to": "falsifiers", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
+      "template_id": "cross_examination",
+      "kind": "shape",
+      "display_name": "Cross-examination gate",
+      "summary": "Require falsifying cross-examination and a rebuttal record before a finding or proposal can publish downstream.",
+      "recommended_for": ["finding readiness checks", "proposal publication gates", "challenge/rebuttal provenance"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "generation_status": "generated",
+      "shape_family": "collaboration",
+      "collaboration_shape_pack": "substance_gate_v1",
+      "example_workflow_path": "examples/cross-examination-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "author", "label": "Author draft"},
+          {"id": "cross_exam", "label": "Cross-examiner"},
+          {"id": "adjudicate", "label": "Adjudicator ledger"},
+          {"id": "commit", "label": "Commit"}
+        ],
+        "edges": [
+          {"from": "author", "to": "cross_exam"},
+          {"from": "cross_exam", "to": "adjudicate"},
+          {"from": "adjudicate", "to": "commit"}
+        ],
+        "cycles": [{"from": "adjudicate", "to": "cross_exam", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
       "template_id": "custom",
       "kind": "shape",
       "display_name": "Custom safe block plan",

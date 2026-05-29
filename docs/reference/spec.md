@@ -158,9 +158,12 @@ before returning output. The legacy Python generator API is retired.
 workflow from RFC 0074 role/adversary pack options such as
 `implementation_panel_roles`, `maintainer_cost`, and `operator_ergonomics`;
 it remains a normal workflow tree and does not use RFC 0052 typed
-committee artifacts. Other built-in shapes emit V1. `workflow init --style`
-is compatibility sugar over this generator with
-`lane_set: "local"`.
+committee artifacts. RFC 0093 collaboration shapes
+(`falsification_gate`, `cross_examination`) emit V1.1 phased workflows with a
+`phase_synthesis` adjudicator job, a `collaboration_ledger` artifact, and a
+bounded `needs_revision` cycle back into the dialogue phase. Other built-in
+shapes emit V1. `workflow init --style` is compatibility sugar over this
+generator with `lane_set: "local"`.
 Generator preview envelopes also include the same advisory workflow lint
 payload exposed by `workflow lint`, including warning count and coverage
 summary; lint remains informational and does not change validation
@@ -619,7 +622,9 @@ Durable Markdown artifacts may include an optional YAML-style `---`-delimited
 front-matter block at the top of the file. When the artifact kind has a
 registered schema and a front-matter block is present, `publish-artifact`
 validates the parsed metadata against the schema. Files without a front-matter
-block remain accepted as before; the publisher never rewrites artifact files.
+block remain accepted as before, except `collaboration_ledger` where the
+front-matter block is required because the verdict gate reads structured
+metadata. The publisher never rewrites artifact files.
 
 Front-matter values are written as `key: <json-value>` lines so the parser is
 unambiguous without adding a YAML dependency. Strings must be JSON-quoted,
@@ -722,6 +727,18 @@ V1 schemas:
   did not itself make live auto-finalize the global default. D133 is the
   separate decision that flips default-live allowance after the gate is
   satisfied.
+- `striatum.collaboration_ledger.v1` (kind `collaboration_ledger`, RFC 0093):
+  required `schema_version`, `artifact_kind: collaboration_ledger`, `shape`
+  (one of `falsification_gate`, `cross_examination`, `fog_of_war_review`,
+  `synaptic_prune`), `topic`, `participants` (non-empty list), `entries`
+  (list of objects with `kind`, `by`, `refs`, and `text`), `verdict` (one of
+  `accept`, `accept_with_findings`, `needs_revision`, `reject`), and
+  `rationale`. Entry kinds are `claim`, `challenge`, `rebuttal`,
+  `constraint`, or `nomination`; `by` must name a participant; every ref must
+  be a `dialogue:<sequence>` turn reference. Clearing verdicts must include at
+  least one referenced `claim`, `challenge`, and `rebuttal`. `review.submit`
+  rejects a `collaboration_ledger` artifact when the submitted verdict differs
+  from the ledger front-matter verdict.
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a

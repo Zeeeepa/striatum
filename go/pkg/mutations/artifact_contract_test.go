@@ -14,6 +14,7 @@ func TestGoArtifactKindsIncludeOperatorAndGitContracts(t *testing.T) {
 		"commit_request",
 		"pr_request",
 		"auto_finalize_gate_evidence",
+		"collaboration_ledger",
 	} {
 		if !allowedArtifactKinds[kind] {
 			t.Fatalf("artifact kind %q is not allowed", kind)

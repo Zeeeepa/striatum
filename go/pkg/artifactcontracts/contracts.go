@@ -42,6 +42,7 @@ var allowedKinds = map[string]bool{
 	"commit_request":               true,
 	"pr_request":                   true,
 	"auto_finalize_gate_evidence":  true,
+	"collaboration_ledger":         true,
 }
 
 var Schemas = map[string]Schema{
@@ -225,6 +226,18 @@ var Schemas = map[string]Schema{
 			"created_at":                   {true, isNonEmptyStringValue},
 		},
 	},
+	"collaboration_ledger": {
+		Fields: map[string]Field{
+			"schema_version": {true, equalsValue("striatum.collaboration_ledger.v1")},
+			"artifact_kind":  {true, equalsValue("collaboration_ledger")},
+			"shape":          {true, oneOfValue("falsification_gate", "cross_examination", "fog_of_war_review", "synaptic_prune")},
+			"topic":          {true, isNonEmptyStringValue},
+			"participants":   {true, isNonEmptyStringListValue},
+			"entries":        {true, isCollaborationLedgerEntriesValue},
+			"verdict":        {true, oneOfValue("accept", "accept_with_findings", "needs_revision", "reject")},
+			"rationale":      {true, isNonEmptyStringValue},
+		},
+	},
 }
 
 func IsAllowedKind(kind string) bool {
@@ -276,6 +289,9 @@ func ValidateFrontMatter(kind string, path string, payload []byte) error {
 	}
 	block, ok := FrontMatterBlock(string(payload))
 	if !ok {
+		if kind == "collaboration_ledger" {
+			return fmt.Errorf("%s artifact front matter is required", kind)
+		}
 		return nil
 	}
 	parsed, err := ParseFrontMatterBlock(block)
@@ -474,6 +490,8 @@ func validateKindSpecific(kind string, path string, parsed map[string]any, paylo
 		}
 	case "auto_finalize_gate_evidence":
 		return validateAutoFinalizeGateEvidence(parsed)
+	case "collaboration_ledger":
+		return validateCollaborationLedger(parsed)
 	}
 	_ = path
 	return nil
@@ -525,6 +543,40 @@ func validateAutoFinalizeGateEvidence(parsed map[string]any) error {
 	}
 	if contestedEvents != 0 {
 		return fmt.Errorf("auto_finalize_gate_evidence artifact front matter field 'contested_audit_chain_events' must be 0 when gate_status is 'satisfied'")
+	}
+	return nil
+}
+
+func validateCollaborationLedger(parsed map[string]any) error {
+	participants, _ := stringList(parsed["participants"])
+	participantSet := map[string]bool{}
+	for _, participant := range participants {
+		participantSet[participant] = true
+	}
+	seen := map[string]bool{}
+	for idx, entry := range collaborationLedgerEntryList(parsed["entries"]) {
+		kind := fmt.Sprint(entry["kind"])
+		if !participantSet[fmt.Sprint(entry["by"])] {
+			return fmt.Errorf("collaboration_ledger artifact front matter entries[%d].by must name a participant", idx)
+		}
+		refs, _ := stringList(entry["refs"])
+		if len(refs) == 0 {
+			return fmt.Errorf("collaboration_ledger artifact front matter entries[%d].refs must be non-empty", idx)
+		}
+		for refIdx, ref := range refs {
+			if !isDialogueRef(ref) {
+				return fmt.Errorf("collaboration_ledger artifact front matter entries[%d].refs[%d] must match dialogue:<seq>", idx, refIdx)
+			}
+		}
+		seen[kind] = true
+	}
+	verdict := fmt.Sprint(parsed["verdict"])
+	if verdict == "accept" || verdict == "accept_with_findings" {
+		for _, requiredKind := range []string{"claim", "challenge", "rebuttal"} {
+			if !seen[requiredKind] {
+				return fmt.Errorf("collaboration_ledger clearing verdict requires at least one %s entry with refs", requiredKind)
+			}
+		}
 	}
 	return nil
 }
@@ -613,6 +665,78 @@ func isNonEmptyStringListValue(value any) bool {
 	}
 	for _, item := range values {
 		if strings.TrimSpace(item) == "" {
+			return false
+		}
+	}
+	return true
+}
+
+func isCollaborationLedgerEntriesValue(value any) bool {
+	entries := collaborationLedgerEntryList(value)
+	if len(entries) == 0 {
+		return false
+	}
+	allowedKeys := map[string]bool{"kind": true, "by": true, "refs": true, "text": true}
+	for _, entry := range entries {
+		for key := range entry {
+			if !allowedKeys[key] {
+				return false
+			}
+		}
+		if len(entry) != len(allowedKeys) {
+			return false
+		}
+		if !oneOfValue("claim", "challenge", "rebuttal", "constraint", "nomination")(entry["kind"]) {
+			return false
+		}
+		if !isNonEmptyStringValue(entry["by"]) {
+			return false
+		}
+		refs, ok := stringList(entry["refs"])
+		if !ok || len(refs) == 0 {
+			return false
+		}
+		for _, ref := range refs {
+			if !isDialogueRef(ref) {
+				return false
+			}
+		}
+		if !isNonEmptyStringValue(entry["text"]) {
+			return false
+		}
+	}
+	return true
+}
+
+func collaborationLedgerEntryList(value any) []map[string]any {
+	switch typed := value.(type) {
+	case []map[string]any:
+		return typed
+	case []any:
+		result := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			entry, ok := item.(map[string]any)
+			if !ok {
+				return nil
+			}
+			result = append(result, entry)
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func isDialogueRef(value string) bool {
+	if !strings.HasPrefix(value, "dialogue:") {
+		return false
+	}
+	seq := strings.TrimPrefix(value, "dialogue:")
+	if seq == "" {
+		return false
+	}
+	for _, ch := range seq {
+		if ch < '0' || ch > '9' {
 			return false
 		}
 	}

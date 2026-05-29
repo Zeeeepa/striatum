@@ -176,6 +176,75 @@ func TestWorkflowValidateRefusesSameModelPairingUnlessAllowed(t *testing.T) {
 	}
 }
 
+func TestWorkflowValidateRefusesSameModelAdjudicatorPairUnlessAllowed(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, sameModelAdjudicatorWorkflow())
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldwd)
+	})
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	// Default refusal: an adjudicator sharing a model family with the upstream
+	// holder it adjudicates is refused (RFC 0093 + RFC 0064 same-model gate).
+	exitCode := run([]string{"workflow", "validate", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 8 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "adjudicator job") || !strings.Contains(stderr.String(), "same model family") {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+	// Override path: the audited --allow-same-model-pairing flag clears it.
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = run([]string{"workflow", "validate", "--allow-same-model-pairing", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("allowed exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+}
+
+func sameModelAdjudicatorWorkflow() string {
+	return `{
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "go-cli-adjudicator-test",
+  "workflow_version": "test",
+  "name": "Go CLI Adjudicator Test",
+  "context_docs": [],
+  "coordinator": {"role_id": "holder", "lane_id": "codex"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "lanes": {"codex": {"adapter": "process", "command": ["true"], "model": "codex", "display_model": "Codex"}},
+  "roles": {"holder": {"description": "Holder"}, "adjudicator": {"description": "Adjudicator"}},
+  "jobs": [
+    {
+      "id": "holder",
+      "type": "build",
+      "role_id": "holder",
+      "lane_id": "codex",
+      "task_prompt": {"inline": "hold"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["dialogue/holder/"], "forbidden_paths": []},
+      "expected_artifacts": []
+    },
+    {
+      "id": "adjudicate",
+      "type": "phase_synthesis",
+      "role_id": "adjudicator",
+      "lane_id": "codex",
+      "task_prompt": {"inline": "adjudicate"},
+      "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["dialogue/adjudicator/"], "forbidden_paths": []},
+      "expected_artifacts": [{"logical_name": "collaboration_ledger_${cycle}", "kind": "collaboration_ledger", "path": "dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "required": true}]
+    }
+  ],
+  "edges": [{"from": "holder", "to": "adjudicate", "on": "completed"}],
+  "cycles": []
+}`
+}
+
 func TestDaemonRouteDispatchesThroughRPC(t *testing.T) {
 	t.Setenv("STRIATUM_REPOSITORY_ID", "")
 	socket := filepath.Join(t.TempDir(), "daemon.sock")

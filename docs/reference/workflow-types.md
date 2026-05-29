@@ -87,6 +87,8 @@ striatum workflow generate striatum/workflows/implementation-panel \
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
 | Compare implementation choices before deciding | Implementation panel | `workflow generate --shape implementation_panel` |
 | N-turn, M-model alternating speaker dialogue | Conversation | `workflow generate --shape conversation --option topic=...` |
+| Keep a proposal live until falsifying challenges are answered | Falsification gate | `workflow generate --shape falsification_gate --option topic=...` |
+| Require challenge/rebuttal provenance before publishing a finding | Cross-examination gate | `workflow generate --shape cross_examination --option topic=...` |
 | Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
 
 ## Lane Selection Heuristic
@@ -437,6 +439,36 @@ striatum interrogation close --session-id <reviewer> --interrogation-id <id>
 ```
 
 The same verbs are exposed as `interrogation.*` MCP tools to lane agents.
+
+## Live Collaboration Substance Gates
+
+Use these when the point is not merely to collect more reviews, but to keep the
+relevant participants live until a material challenge is answered. RFC 0093 V1
+ships two generated shapes:
+
+- `falsification_gate`: a holder produces the leading proposal, falsifiers try
+  to disprove it, and an adjudicator gates downstream work on a
+  `collaboration_ledger`.
+- `cross_examination`: an author drafts a finding or proposal, peers ask
+  falsifying cross-examination questions, and the challenge/rebuttal refs are
+  recorded before publication.
+
+```mermaid
+flowchart TD
+  A["author or holder"] --> B["challenge lane(s)"]
+  B --> C["adjudicator phase_synthesis"]
+  C -->|accept / accept_with_findings| D["commit or publish"]
+  C -.->|needs_revision, bounded| B
+```
+
+Both shapes emit `striatum.workflow.v1.1`, use ordinary `phase_synthesis` jobs
+and cycle routing, and publish a `striatum.collaboration_ledger.v1` artifact.
+The adjudicator reads the curated RFC 0081 `dialogue` trajectory, not raw PTY
+logs or provider output. A clearing verdict requires at least one referenced
+claim, challenge, and rebuttal.
+
+Starter fixtures live at `examples/falsification-gate-flow/` and
+`examples/cross-examination-flow/`.
 
 ## Iterated Interrogating Panel
 

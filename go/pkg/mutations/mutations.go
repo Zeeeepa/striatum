@@ -310,7 +310,10 @@ func verifyRequiredArtifacts(ctx context.Context, runner any, repositoryID, jobI
 	if err != nil {
 		return err
 	}
-	expected := asList(job["expected_artifacts_json"])
+	// Build finding 1: resolve cycle placeholders against the job attempt so a
+	// revision-cycle re-run verifies the attempt-scoped logical name + path the
+	// adjudicator actually published to (cycle_<attempt>), not the raw template.
+	expected := resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), intValue(job["attempt"]))
 	if len(expected) == 0 {
 		return nil
 	}

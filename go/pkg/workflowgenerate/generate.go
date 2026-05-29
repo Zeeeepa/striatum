@@ -8,6 +8,7 @@ import (
 	"path"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ var (
 		"minimal", "review", "code_change", "human_checkpoint",
 		"evidence_backed", "implementation_panel", "multi_review_synthesis",
 		"multi_phase", "custom", "conversation",
+		"falsification_gate", "cross_examination",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -36,7 +38,7 @@ var (
 		"reviewer_count", "role_pack", "role_packs", "adversary_pack",
 		"adversary_packs", "proposal_count", "score_dimensions",
 		"custom_job_artifacts", "supervision_compatible", "phases",
-		"topic", "turns",
+		"topic", "turns", "max_dialog_rounds", "falsifier_count", "include_scribe",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
@@ -289,7 +291,7 @@ func Generate(spec Spec) (Generated, error) {
 		parallelism = defaultParallelism(spec)
 	}
 	schemaVersion := WorkflowSchemaVersion
-	if spec.Shape == "multi_phase" {
+	if spec.Shape == "multi_phase" || isCollaborationShape(spec.Shape) {
 		schemaVersion = WorkflowSchemaVersionV11
 	}
 	workflow := map[string]any{
@@ -307,8 +309,18 @@ func Generate(spec Spec) (Generated, error) {
 		"edges":            edges,
 		"cycles":           cycles,
 	}
-	if spec.Shape == "multi_phase" {
+	if spec.Shape == "multi_phase" || isCollaborationShape(spec.Shape) {
 		workflow["phases"] = phases
+	}
+	// RFC 0093 / RFC 0064: a collaboration shape on the single-lane `local`
+	// fixture set runs the adjudicator on the same lane as the holder/proposer it
+	// adjudicates, so the same_model_adjudicator_pair lint (now CLI-refused)
+	// would otherwise reject the generated starter workflow. A local fixture lane
+	// is inherently same-model and is exactly the documented legitimate override
+	// case, so record the inline acceptance — matching the cycle.allow_same_model
+	// the local collaboration cycle already sets.
+	if isCollaborationShape(spec.Shape) && spec.LaneSet == "local" {
+		workflow["allow_same_model_review_pairing"] = true
 	}
 	if hasModifier(spec, "harness_profiled") {
 		profiles, err := harnessProfiles(spec)
@@ -355,6 +367,11 @@ func Generate(spec Spec) (Generated, error) {
 		metadata["adversary_packs"] = adversaryPacks
 		metadata["proposal_count"] = proposalCount
 		metadata["score_dimensions"] = scoreDimensions
+	}
+	if isCollaborationShape(spec.Shape) {
+		metadata["shape_family"] = "collaboration"
+		metadata["collaboration_shape_pack"] = "substance_gate_v1"
+		metadata["topic"] = collaborationTopic(spec)
 	}
 	return Generated{
 		Workflow:   workflow,
@@ -541,6 +558,8 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			}
 		}
 		return jobs, edges, nil, nil, nil
+	case "falsification_gate", "cross_examination":
+		return compileCollaborationShape(spec)
 	case "implementation_panel":
 		jobs, edges, cycles, err := compileImplementationPanel(spec)
 		if err != nil {
@@ -704,6 +723,211 @@ func compileImplementationPanel(spec Spec) ([]map[string]any, []map[string]any, 
 		},
 	}
 	return jobs, edges, cycles, nil
+}
+
+func compileCollaborationShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
+	max, err := maxCycles(spec)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	switch spec.Shape {
+	case "falsification_gate":
+		return compileFalsificationGate(spec, max)
+	case "cross_examination":
+		return compileCrossExamination(spec, max)
+	default:
+		return nil, nil, nil, nil, genErr("unknown collaboration shape", "spec.shape")
+	}
+}
+
+func compileFalsificationGate(spec Spec, maxCycles int) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
+	base := spec.ArtifactRoot
+	topic := collaborationTopic(spec)
+	holder := job("holder", "build", "Hold leading proposal", "holder", authorLane(spec), base+"/dialogue/holder", "HOLDER.md", "handoff", "holder_handoff", "collaboration_holder", "Produce the leading proposal for "+topic+" and stay live for falsification.")
+	holder["phase_id"] = "dialogue"
+	holder["interrogable"] = true
+	jobs := []map[string]any{holder}
+	edges := []map[string]any{}
+	previousID := "holder"
+	falsifiers, err := falsifierCount(spec)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	firstDialogueTarget := ""
+	for idx := 1; idx <= falsifiers; idx++ {
+		id := fmt.Sprintf("falsifier_%d", idx)
+		falsifier := job(id, "build", fmt.Sprintf("Falsifier %d", idx), "falsifier", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/falsifier_%d", base, idx), "FALSIFIER.md", "handoff", id, "collaboration_falsifier", "Use interrogation against the holder to try to falsify the proposal for "+topic+".")
+		falsifier["phase_id"] = "dialogue"
+		jobs = append(jobs, falsifier)
+		edges = append(edges, map[string]any{"from": previousID, "to": id, "on": "completed"})
+		if firstDialogueTarget == "" {
+			firstDialogueTarget = id
+		}
+		previousID = id
+	}
+	if includeScribe(spec) {
+		scribe := job("scribe_note", "build", "Scribe dialogue trail", "scribe", collaborationAdjudicatorLane(spec), base+"/dialogue/scribe", "PROGRESS_NOTE.md", "progress_note", "scribe_note", "collaboration_scribe", "Record only the decision trail visible in the dialogue trajectory for "+topic+".")
+		scribe["phase_id"] = "dialogue"
+		jobs = append(jobs, scribe)
+		edges = append(edges, map[string]any{"from": previousID, "to": "scribe_note", "on": "completed"})
+		previousID = "scribe_note"
+	}
+	jobs = append(jobs, collaborationAdjudicatorJob(spec, topic))
+	edges = append(edges, map[string]any{"from": previousID, "to": "adjudicate", "on": "completed"})
+	commit, final := collaborationCommitJobs(spec, "Commit falsification-cleared proposal", "Publish the proposal only after the adjudicator ledger records a clearing verdict.")
+	jobs = append(jobs, commit, final)
+	edges = append(edges,
+		map[string]any{"from": "adjudicate", "to": "commit_proposal", "on": "completed"},
+		map[string]any{"from": "commit_proposal", "to": "final_summary", "on": "completed"},
+	)
+	cycle := map[string]any{
+		"from":            "adjudicate",
+		"to":              firstDialogueTarget,
+		"on_verdict":      "needs_revision",
+		"max_iterations":  maxCycles,
+		"allow_same_lane": true,
+	}
+	if spec.LaneSet == "local" {
+		cycle["allow_same_model"] = true
+	}
+	cycles := []map[string]any{cycle}
+	return jobs, edges, cycles, collaborationPhases(), nil
+}
+
+func compileCrossExamination(spec Spec, maxCycles int) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
+	base := spec.ArtifactRoot
+	topic := collaborationTopic(spec)
+	draft := job("author_draft", "build", "Draft finding for cross-examination", "author", authorLane(spec), base+"/dialogue/author", "DRAFT.md", "handoff", "author_draft", "collaboration_author_draft", "Draft the finding or proposal for "+topic+" and stay live for cross-examination.")
+	draft["phase_id"] = "dialogue"
+	draft["interrogable"] = true
+	jobs := []map[string]any{draft}
+	edges := []map[string]any{}
+	previousID := "author_draft"
+	examiners := crossExaminerCount(spec)
+	firstDialogueTarget := ""
+	for idx := 1; idx <= examiners; idx++ {
+		id := fmt.Sprintf("cross_examiner_%d", idx)
+		examiner := job(id, "build", fmt.Sprintf("Cross-examiner %d", idx), "cross_examiner", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/cross_examiner_%d", base, idx), "CROSS_EXAM.md", "handoff", id, "collaboration_cross_examiner", "Ask one falsifying interrogation question about "+topic+" and record the challenge/rebuttal reference.")
+		examiner["phase_id"] = "dialogue"
+		jobs = append(jobs, examiner)
+		edges = append(edges, map[string]any{"from": previousID, "to": id, "on": "completed"})
+		if firstDialogueTarget == "" {
+			firstDialogueTarget = id
+		}
+		previousID = id
+	}
+	if includeScribe(spec) {
+		scribe := job("scribe_note", "build", "Scribe cross-examination trail", "scribe", collaborationAdjudicatorLane(spec), base+"/dialogue/scribe", "PROGRESS_NOTE.md", "progress_note", "scribe_note", "collaboration_scribe", "Record only the decision trail visible in the dialogue trajectory for "+topic+".")
+		scribe["phase_id"] = "dialogue"
+		jobs = append(jobs, scribe)
+		edges = append(edges, map[string]any{"from": previousID, "to": "scribe_note", "on": "completed"})
+		previousID = "scribe_note"
+	}
+	jobs = append(jobs, collaborationAdjudicatorJob(spec, topic))
+	edges = append(edges, map[string]any{"from": previousID, "to": "adjudicate", "on": "completed"})
+	commit, final := collaborationCommitJobs(spec, "Publish cross-examined finding", "Publish the finding only after the cross-examination ledger records a clearing verdict.")
+	jobs = append(jobs, commit, final)
+	edges = append(edges,
+		map[string]any{"from": "adjudicate", "to": "commit_proposal", "on": "completed"},
+		map[string]any{"from": "commit_proposal", "to": "final_summary", "on": "completed"},
+	)
+	cycle := map[string]any{
+		"from":            "adjudicate",
+		"to":              firstDialogueTarget,
+		"on_verdict":      "needs_revision",
+		"max_iterations":  maxCycles,
+		"allow_same_lane": true,
+	}
+	if spec.LaneSet == "local" {
+		cycle["allow_same_model"] = true
+	}
+	cycles := []map[string]any{cycle}
+	return jobs, edges, cycles, collaborationPhases(), nil
+}
+
+func collaborationAdjudicatorJob(spec Spec, topic string) map[string]any {
+	// Build finding 1: the adjudicator's collaboration_ledger is cycle-scoped.
+	// Each `needs_revision` revision cycle re-runs this job with a bumped attempt
+	// and the daemon resolves the ${cycle} placeholder to a distinct
+	// cycle_<attempt> segment, so the attempt-2 ledger publishes under a new
+	// logical name + path instead of colliding with attempt-1's content-hash
+	// guard (which would deadlock the revision cycle). See RFC 0093 design
+	// synthesis §4.6 (cycle_<N> naming) and pkg/mutations/collaboration_ledger.go
+	// for the runtime resolver.
+	result := job("adjudicate", "phase_synthesis", "Adjudicate dialogue substance", "adjudicator", collaborationAdjudicatorLane(spec), spec.ArtifactRoot+"/dialogue/adjudicator", "COLLABORATION_LEDGER_${cycle}.md", "collaboration_ledger", "collaboration_ledger_${cycle}", "adjudicate_collaboration", "Read only the dialogue trajectory for "+topic+" and publish the collaboration ledger verdict.")
+	result["phase_id"] = "dialogue"
+	result["fresh_session_required"] = true
+	return result
+}
+
+func collaborationCommitJobs(spec Spec, title, objective string) (map[string]any, map[string]any) {
+	commit := job("commit_proposal", "synthesis", title, "committer", authorLane(spec), spec.ArtifactRoot+"/commit/proposal", "PROPOSAL.md", "synthesis", "commit_proposal", "collaboration_commit", objective)
+	commit["phase_id"] = "commit"
+	final := job("final_summary", "phase_synthesis", "Finalize collaboration run", "adjudicator", collaborationAdjudicatorLane(spec), spec.ArtifactRoot+"/commit/final", "FINAL_SUMMARY.md", "synthesis", "final_summary", "collaboration_final_summary", "Summarize the cleared collaboration gate and downstream publication.")
+	final["phase_id"] = "commit"
+	return commit, final
+}
+
+func collaborationPhases() []map[string]any {
+	return []map[string]any{
+		{"id": "dialogue", "name": "Dialogue", "description": "Preserved-context challenge and adjudication", "synthesis_job_id": "adjudicate"},
+		{"id": "commit", "name": "Commit", "description": "Downstream work gated by the collaboration ledger", "synthesis_job_id": "final_summary"},
+	}
+}
+
+func collaborationTopic(spec Spec) string {
+	if topic, ok := spec.Options["topic"].(string); ok && strings.TrimSpace(topic) != "" {
+		return strings.TrimSpace(topic)
+	}
+	return "unspecified collaboration topic"
+}
+
+func falsifierCount(spec Spec) (int, error) {
+	value, ok := intFrom(defaultAny(spec.Options["falsifier_count"], 2))
+	if !ok || value < 1 {
+		return 0, genErr("falsifier_count must be a positive integer", "spec.options.falsifier_count")
+	}
+	return value, nil
+}
+
+func crossExaminerCount(spec Spec) int {
+	if spec.LaneSet == "multi_review" {
+		count := reviewerCount(spec) - 1
+		if count > 0 {
+			return count
+		}
+	}
+	return 1
+}
+
+func collaborationReviewerLane(spec Spec, idx int) string {
+	if spec.LaneSet != "multi_review" {
+		return reviewerLane(spec, 1)
+	}
+	maxReviewer := reviewerCount(spec) - 1
+	if maxReviewer < 1 {
+		maxReviewer = 1
+	}
+	if idx > maxReviewer {
+		idx = maxReviewer
+	}
+	return reviewerLane(spec, idx)
+}
+
+func collaborationAdjudicatorLane(spec Spec) string {
+	if spec.LaneSet == "multi_review" {
+		return reviewerLane(spec, reviewerCount(spec))
+	}
+	return reviewerLane(spec, 1)
+}
+
+func includeScribe(spec Spec) bool {
+	raw, ok := spec.Options["include_scribe"]
+	if !ok {
+		return false
+	}
+	value, ok := boolFrom(raw)
+	return ok && value
 }
 
 func compileMultiPhase(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
@@ -1286,6 +1510,12 @@ func roleStub(role string) string {
 		"arbitrator":        "# Arbitrator Role\n\nYou select or compose the preferred implementation path from the tradeoff ledger and supporting evidence.\n",
 		"dissent_reviewer":  "# Dissent Reviewer Role\n\nYou try to falsify the arbitration before final decision. Publish only the review artifact at the declared path.\n",
 		"principal_decider": "# Principal Decider Role\n\nYou record the final implementation decision and required follow-up work at the declared artifact path.\n",
+		"holder":            "# Holder Role\n\nYou hold the leading proposal in preserved context. Publish the declared holder artifact, remain live for interrogation, and answer falsifying questions from the dialogue participants.\n",
+		"falsifier":         "# Falsifier Role\n\nYou use the existing interrogation tools to challenge the holder's claim. Ask for a concrete gap, record the dialogue turn references, and do not publish the collaboration ledger.\n",
+		"cross_examiner":    "# Cross-Examiner Role\n\nYou ask one falsifying interrogation question before the finding or proposal publishes. Record the challenge and rebuttal turn references in your declared artifact.\n",
+		"adjudicator":       "# Adjudicator Role\n\nYou read only the curated dialogue trajectory, never raw terminal output. Publish the collaboration ledger and verdict according to the substance rubric.\n",
+		"scribe":            "# Scribe Role\n\nYou record only the decision trail visible in the dialogue trajectory. Do not hypothesize, infer hidden reasoning, or add claims that are not present in the curated dialogue.\n",
+		"committer":         "# Committer Role\n\nYou publish the downstream proposal or finding only after the collaboration ledger verdict clears the phase gate.\n",
 	}
 	if content, ok := panelRoles[role]; ok {
 		return content
@@ -1304,12 +1534,31 @@ func promptStub(prompt string) string {
 		return "Review the upstream draft and record a finding with one of the supported verdicts. Replace this stub with reviewer guidance.\n"
 	case "apply.md":
 		return "Apply the accepted review by producing the final synthesis artifact. Replace this stub with concrete apply instructions.\n"
+	case "collaboration_holder.md":
+		return "Produce the leading proposal and stay live for interrogation. Do not treat dialogue completion as acceptance; the adjudicator ledger decides whether the gate clears.\n"
+	case "collaboration_falsifier.md":
+		return "Use the existing interrogation tools to ask a material falsifying question. Record the challenge and relevant dialogue refs in the declared artifact.\n"
+	case "collaboration_author_draft.md":
+		return "Draft the finding or proposal and stay live for cross-examination. The downstream publication is gated by the adjudicator's collaboration ledger.\n"
+	case "collaboration_cross_examiner.md":
+		return "Use the existing interrogation tools to ask one falsifying cross-examination question. Record the challenge and rebuttal refs in the declared artifact.\n"
+	case "adjudicate_collaboration.md":
+		return "Read only the curated dialogue trajectory. Publish a collaboration_ledger whose verdict reflects whether a material challenge landed and was directly rebutted.\n"
+	case "collaboration_scribe.md":
+		return "Record only the visible dialogue decision trail. Do not invent missing reasoning or copy raw terminal/provider output.\n"
+	case "collaboration_commit.md":
+		return "Publish the downstream proposal or finding after the adjudicator ledger verdict clears the phase gate.\n"
+	case "collaboration_final_summary.md":
+		return "Summarize the collaboration gate result and downstream publication in a final synthesis artifact.\n"
 	default:
 		return fmt.Sprintf("Complete the %s step declared by the workflow.\n", strings.ReplaceAll(strings.TrimSuffix(prompt, ".md"), "_", " "))
 	}
 }
 
 func validateModifierMatrix(spec Spec, warnings *[]string) error {
+	if isCollaborationShape(spec.Shape) && spec.LaneSet == "single_agent" {
+		return &Error{Message: "collaboration shapes require at least a fixture or independent adjudication lane set", FieldPath: "spec.lane_set", Hint: "Use lane_set local for fixtures or author_reviewer/multi_review for real runs."}
+	}
 	for idx, modifier := range spec.LaneModifiers {
 		if (modifier == "supervised" || modifier == "harness_profiled") && spec.LaneSet == "local" {
 			return &Error{Message: "lane modifier is incompatible with lane set", FieldPath: fmt.Sprintf("spec.lane_modifiers[%d]", idx), Hint: fmt.Sprintf("modifier %q is forbidden for lane_set 'local'", modifier)}
@@ -1484,6 +1733,12 @@ func coordinator(spec Spec, lanes map[string]any) map[string]any {
 	if spec.Shape == "implementation_panel" {
 		return map[string]any{"role_id": "problem_framer", "lane_id": panelProposalLane(spec)}
 	}
+	if spec.Shape == "falsification_gate" {
+		return map[string]any{"role_id": "holder", "lane_id": authorLane(spec)}
+	}
+	if spec.Shape == "cross_examination" {
+		return map[string]any{"role_id": "author", "lane_id": authorLane(spec)}
+	}
 	lane := "local"
 	if lanes[lane] == nil {
 		if lanes["author"] != nil {
@@ -1542,6 +1797,15 @@ func reviewerCount(spec Spec) int {
 	if postures, ok := spec.Options["review_postures"].([]any); ok && len(postures) > 0 {
 		return len(postures)
 	}
+	if isCollaborationShape(spec.Shape) && spec.LaneSet == "multi_review" {
+		if spec.Shape == "falsification_gate" {
+			if falsifiers, err := falsifierCount(spec); err == nil {
+				return falsifiers + 1
+			}
+			return 3
+		}
+		return 2
+	}
 	return 2
 }
 
@@ -1580,6 +1844,10 @@ func maxCycles(spec Spec) (int, error) {
 		return 0, genErr("max_revision_cycles must be a positive integer", "spec.options.max_revision_cycles")
 	}
 	return value, nil
+}
+
+func isCollaborationShape(shape string) bool {
+	return shape == "falsification_gate" || shape == "cross_examination"
 }
 
 func validatePosture(posture, fieldPath string) error {
@@ -1910,8 +2178,26 @@ func intFrom(value any) (int, bool) {
 		if err == nil {
 			return int(i), true
 		}
+	case string:
+		i, err := strconv.Atoi(strings.TrimSpace(typed))
+		if err == nil {
+			return i, true
+		}
 	}
 	return 0, false
+}
+
+func boolFrom(value any) (bool, bool) {
+	switch typed := value.(type) {
+	case bool:
+		return typed, true
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(typed))
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return false, false
 }
 
 func set(values ...string) map[string]struct{} {

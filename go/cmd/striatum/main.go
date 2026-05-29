@@ -471,7 +471,12 @@ func refuseSameModelLint(workflow map[string]any) error {
 			continue
 		}
 		rule, _ := item["rule"].(string)
-		if rule == "same_model_review_pair" || rule == "same_model_revision_cycle" {
+		// RFC 0093: the adjudicator lane must differ from the holder/proposer it
+		// adjudicates, with the RFC 0064 same-model refusal/override applying. The
+		// same_model_adjudicator_pair lint is refused here alongside the review and
+		// revision-cycle same-model pairings unless the operator records an audited
+		// override.
+		if rule == "same_model_review_pair" || rule == "same_model_revision_cycle" || rule == "same_model_adjudicator_pair" {
 			message, _ := item["message"].(string)
 			if strings.TrimSpace(message) == "" {
 				message = "same-model review pairing refused"

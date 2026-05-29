@@ -303,6 +303,27 @@ RFC 0084 D141) is the entire point. The commit job is unreachable until the
 adjudicator clears, by ordinary phase gating. Inverting the holder seat to a
 *human or new lane* turns the same wiring into a comprehension/onboarding audit.
 
+## Implementation Status (V1)
+
+The first implementation slice lands the shared substance-gate substrate:
+
+- `falsification_gate` and `cross_examination` compile through
+  `workflow generate` into `striatum.workflow.v1.1` phased workflows.
+- `collaboration_ledger` is a registered Markdown artifact kind with
+  `striatum.collaboration_ledger.v1` front-matter validation. Clearing verdicts
+  require at least one referenced claim, challenge, and rebuttal.
+- `review.submit` rejects a collaboration ledger when the submitted verdict
+  disagrees with the ledger front-matter verdict.
+- The workflow catalog includes both generated collaboration shapes under
+  `collaboration_shape_pack: substance_gate_v1`, with starter fixtures in
+  `examples/falsification-gate-flow/` and `examples/cross-examination-flow/`.
+
+Deferred from V1: `fog_of_war_review`, `synaptic_prune`, the
+`post_dialog_hook` liveness hook, floor-control primitives, semantic
+anti-theater scoring beyond structural ledger validation, and any new daemon
+method. The adjudicator role remains responsible for Check B substance judgment
+over the curated `dialogue` trajectory.
+
 ## Acceptance Criteria
 
 1. `workflow generate --shape falsification_gate` (and `cross_examination`)

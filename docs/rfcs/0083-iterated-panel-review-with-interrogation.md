@@ -12,6 +12,7 @@ Context:
 [`RFC 0082`](0082-interrogation-sessions.md) (interrogation sessions, `interrogable`, `awaiting_interrogation`),
 [`docs/operator/workflows/interrogating-panel-2026-05-25/PATTERN_SPEC.md`](../operator/workflows/interrogating-panel-2026-05-25/PATTERN_SPEC.md) (ground-truth pattern spec),
 [`docs/WORKFLOW_TYPES.md` § "Review By Interrogation"](../reference/workflow-types.md),
+[`go/pkg/workflowtemplates/catalog.json`](../../go/pkg/workflowtemplates/catalog.json) (`iterated_interrogating_panel` catalog entry),
 [`examples/three-lane-design-build-review/workflow.json`](../../examples/three-lane-design-build-review/workflow.json),
 [`examples/implementation-panel-flow/workflow.json`](../../examples/implementation-panel-flow/workflow.json).
 
@@ -63,6 +64,14 @@ both iteration budgets bounded so a run cannot loop forever.
   competing diffs (see Proposal §1).
 
 ## Proposal
+
+The reusable example is now represented as catalog shape
+`iterated_interrogating_panel`, with
+`examples/iterated-interrogating-panel/workflow.json` as the checked-in
+fixture. Treat it as the larger design/build sibling of RFC 0093's
+substance-gate collaboration shapes: both rely on preserved-context
+interrogation and bounded revision, but RFC 0083 uses a panel review pattern
+instead of an adjudicator-owned `collaboration_ledger`.
 
 ### 1. The pattern shape
 
@@ -201,7 +210,8 @@ or validator rule is required.
 ## Rollout
 
 1. Land `examples/iterated-interrogating-panel/` (workflow + role prompts) using
-   only existing schema fields (§4).
+   only existing schema fields (§4) and expose it as catalog shape
+   `iterated_interrogating_panel`.
 2. Run Phase A of the live run to validate the agent-loop per adapter
    (claude / codex / gemini) and the interrogation round / revision cycle
    behavior end to end.

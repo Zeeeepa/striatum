@@ -230,6 +230,108 @@ func TestImplementationPanelShapeUsesRoleAndAdversaryPacks(t *testing.T) {
 	}
 }
 
+func TestCollaborationShapesEmitSubstanceGateV11Graphs(t *testing.T) {
+	for _, shape := range []string{"falsification_gate", "cross_examination"} {
+		t.Run(shape, func(t *testing.T) {
+			spec := collaborationGeneratorSpec(shape)
+			generated, err := GenerateFromMap(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workflow := generated.Workflow
+			if err := ValidateWorkflow(workflow); err != nil {
+				t.Fatal(err)
+			}
+			if workflow["schema_version"] != WorkflowSchemaVersionV11 {
+				t.Fatalf("schema_version = %#v", workflow["schema_version"])
+			}
+			jobs := jobsByID(workflow["jobs"])
+			adjudicate := jobs["adjudicate"]
+			if adjudicate["type"] != "phase_synthesis" || adjudicate["role_id"] != "adjudicator" {
+				t.Fatalf("adjudicate job = %#v", adjudicate)
+			}
+			artifacts := listFrom(adjudicate["expected_artifacts"])
+			if len(artifacts) != 1 || mapFrom(artifacts[0])["kind"] != "collaboration_ledger" {
+				t.Fatalf("adjudicate artifacts = %#v", adjudicate["expected_artifacts"])
+			}
+			// Build finding 1: the adjudicator ledger is cycle-scoped so a
+			// needs_revision re-run publishes to a distinct logical name + path
+			// instead of deadlocking on the content-hash guard.
+			ledger := mapFrom(artifacts[0])
+			if ledger["logical_name"] != "collaboration_ledger_${cycle}" {
+				t.Fatalf("adjudicate ledger logical_name = %#v", ledger["logical_name"])
+			}
+			if path, _ := ledger["path"].(string); !strings.Contains(path, "COLLABORATION_LEDGER_${cycle}.md") {
+				t.Fatalf("adjudicate ledger path = %#v", ledger["path"])
+			}
+			if !hasEdge(workflow["edges"], "adjudicate", "commit_proposal") {
+				t.Fatalf("missing adjudicate -> commit_proposal edge: %#v", workflow["edges"])
+			}
+			cycles := listFrom(workflow["cycles"])
+			if len(cycles) != 1 || mapFrom(cycles[0])["from"] != "adjudicate" || mapFrom(cycles[0])["on_verdict"] != "needs_revision" {
+				t.Fatalf("cycles = %#v", workflow["cycles"])
+			}
+			phases := listFrom(workflow["phases"])
+			if len(phases) != 2 || mapFrom(phases[0])["synthesis_job_id"] != "adjudicate" {
+				t.Fatalf("phases = %#v", workflow["phases"])
+			}
+			if generated.Metadata["shape_family"] != "collaboration" {
+				t.Fatalf("metadata = %#v", generated.Metadata)
+			}
+		})
+	}
+}
+
+func TestFalsificationGateCanIncludeScribeModifier(t *testing.T) {
+	spec := collaborationGeneratorSpec("falsification_gate")
+	mapFrom(spec["options"])["include_scribe"] = true
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := jobsByID(generated.Workflow["jobs"])
+	if jobs["scribe_note"]["role_id"] != "scribe" {
+		t.Fatalf("scribe_note = %#v", jobs["scribe_note"])
+	}
+	artifacts := listFrom(jobs["scribe_note"]["expected_artifacts"])
+	if len(artifacts) != 1 || mapFrom(artifacts[0])["kind"] != "progress_note" {
+		t.Fatalf("scribe artifact = %#v", jobs["scribe_note"]["expected_artifacts"])
+	}
+}
+
+func TestCollaborationLocalFixtureAllowsSameModelCycle(t *testing.T) {
+	spec := collaborationGeneratorSpec("cross_examination")
+	spec["lane_set"] = "local"
+	spec["lanes"] = map[string]any{}
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cycles := listFrom(generated.Workflow["cycles"])
+	if len(cycles) != 1 || mapFrom(cycles[0])["allow_same_model"] != true {
+		t.Fatalf("cycles = %#v", generated.Workflow["cycles"])
+	}
+	// Build finding 4: a single-lane local fixture is inherently same-model, so
+	// the generator records the inline same-model review-pairing override; the
+	// CLI same_model_adjudicator_pair refusal would otherwise reject the starter
+	// workflow.
+	if generated.Workflow["allow_same_model_review_pairing"] != true {
+		t.Fatalf("allow_same_model_review_pairing = %#v", generated.Workflow["allow_same_model_review_pairing"])
+	}
+}
+
+func TestCollaborationShapeRejectsSingleAgentLaneSet(t *testing.T) {
+	spec := collaborationGeneratorSpec("cross_examination")
+	spec["lane_set"] = "single_agent"
+	spec["lanes"] = map[string]any{
+		"agent": map[string]any{"command": []any{"agent", "run"}, "display_model": "Agent"},
+	}
+	_, err := GenerateFromMap(spec)
+	if err == nil || !strings.Contains(err.Error(), "collaboration shapes require") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGenerateUsesSharedAuthoringLintPayload(t *testing.T) {
 	generated := mustGenerate(t, map[string]any{
 		"schema_version":   GeneratorSchemaVersion,
@@ -546,6 +648,31 @@ func implementationPanelGeneratorSpec() map[string]any {
 			"role_packs":      []any{"implementation_panel_roles"},
 			"adversary_packs": []any{"operator_ergonomics"},
 			"proposal_count":  2,
+		},
+	}
+}
+
+func collaborationGeneratorSpec(shape string) map[string]any {
+	return map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            shape,
+		"lane_set":         "multi_review",
+		"workflow_id":      shape + "-test",
+		"name":             shape + " test",
+		"workflow_version": "2026-05-29",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/" + shape, "allow_dirty": false},
+		"scaffold_root":    "workflows/" + shape,
+		"artifact_root":    "striatum/" + shape,
+		"lanes": map[string]any{
+			"author":     map[string]any{"command": []any{"author", "run"}, "display_model": "Claude Opus"},
+			"reviewer_1": map[string]any{"command": []any{"reviewer1", "run"}, "display_model": "Codex GPT-5.5"},
+			"reviewer_2": map[string]any{"command": []any{"reviewer2", "run"}, "display_model": "Agy Gemini 2.5"},
+			"reviewer_3": map[string]any{"command": []any{"reviewer3", "run"}, "display_model": "Codex GPT-5.4"},
+		},
+		"options": map[string]any{
+			"topic":               "substance gate",
+			"max_dialog_rounds":   3,
+			"max_revision_cycles": 1,
 		},
 	}
 }

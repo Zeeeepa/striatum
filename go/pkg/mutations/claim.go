@@ -205,7 +205,10 @@ func buildPacket(
 	roles := asMap(workflow["roles"])
 	roleDef := asMap(roles[fmt.Sprint(job["role_id"])])
 	writeScope := asMap(job["write_scope_json"])
-	expectedArtifacts := asList(job["expected_artifacts_json"])
+	// Build finding 1: resolve cycle-scoped expected artifacts (e.g. the
+	// adjudicator's collaboration_ledger) against the job attempt so the agent is
+	// told the concrete cycle_<attempt> logical name + path to publish to.
+	expectedArtifacts := resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), intValue(job["attempt"]))
 	laneSelector := asMap(job["lane_selector_json"])
 	laneID, _ := laneSelector["lane_id"].(string)
 	if laneID == "" {

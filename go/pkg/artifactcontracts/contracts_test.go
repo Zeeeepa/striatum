@@ -123,3 +123,145 @@ invalid yaml logic here`
 		t.Fatalf("expected error to mention line 4, got %v", err)
 	}
 }
+
+func TestCollaborationLedgerValidClearingLedgerExercisesEntryKinds(t *testing.T) {
+	if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validCollaborationLedger("accept"))); err != nil {
+		t.Fatalf("valid collaboration ledger refused: %v", err)
+	}
+}
+
+func TestCollaborationLedgerRequiresFrontMatter(t *testing.T) {
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte("# Ledger\n"))
+	if err == nil || !strings.Contains(err.Error(), "front matter is required") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsUnknownTopLevelField(t *testing.T) {
+	payload := strings.Replace(validCollaborationLedger("needs_revision"), "rationale: \"A challenge landed but has not been rebutted.\"", "rationale: \"A challenge landed but has not been rebutted.\"\nstdout: \"raw provider stream\"", 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "unknown fields") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsInvalidEntryKind(t *testing.T) {
+	payload := strings.Replace(validCollaborationLedger("needs_revision"), "kind: challenge", "kind: gossip", 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), `field "entries" is invalid`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsClearingVerdictWithoutChallengeAndRebuttal(t *testing.T) {
+	payload := `---
+schema_version: "striatum.collaboration_ledger.v1"
+artifact_kind: "collaboration_ledger"
+shape: "falsification_gate"
+topic: "substance gate"
+participants: ["sess_holder", "sess_falsifier"]
+entries:
+  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+verdict: "accept"
+rationale: "Hollow dialogue should not clear."
+---
+
+# Ledger
+`
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "clearing verdict requires") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsEntryByOutsideParticipants(t *testing.T) {
+	payload := strings.Replace(validCollaborationLedger("needs_revision"), "by: sess_falsifier", "by: sess_intruder", 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "must name a participant") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsInvalidVerdict(t *testing.T) {
+	payload := strings.Replace(validCollaborationLedger("accept"), `verdict: "accept"`, `verdict: "maybe"`, 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), `field "verdict" is invalid`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerRejectsMalformedRefs(t *testing.T) {
+	payload := strings.Replace(validCollaborationLedger("needs_revision"), `refs: ["dialogue:2"]`, `refs: ["turn-2"]`, 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), `field "entries" is invalid`) {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCollaborationLedgerAllowsNeedsRevisionWithUnrebuttedChallenge(t *testing.T) {
+	if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validCollaborationLedger("needs_revision"))); err != nil {
+		t.Fatalf("needs_revision collaboration ledger refused: %v", err)
+	}
+}
+
+func validCollaborationLedger(verdict string) string {
+	if verdict == "needs_revision" {
+		return `---
+schema_version: "striatum.collaboration_ledger.v1"
+artifact_kind: "collaboration_ledger"
+shape: "falsification_gate"
+topic: "substance gate"
+participants: ["sess_holder", "sess_falsifier"]
+entries:
+  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+  - kind: challenge
+    by: sess_falsifier
+    refs: ["dialogue:2"]
+    text: "The proposal lacks migration evidence."
+verdict: "needs_revision"
+rationale: "A challenge landed but has not been rebutted."
+---
+
+# Ledger
+`
+	}
+	return `---
+schema_version: "striatum.collaboration_ledger.v1"
+artifact_kind: "collaboration_ledger"
+shape: "falsification_gate"
+topic: "substance gate"
+participants: ["sess_holder", "sess_falsifier", "sess_adjudicator"]
+entries:
+  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+  - kind: challenge
+    by: sess_falsifier
+    refs: ["dialogue:2"]
+    text: "The proposal lacks migration evidence."
+  - kind: rebuttal
+    by: sess_holder
+    refs: ["dialogue:3"]
+    text: "The migration evidence is in the linked fixture."
+  - kind: constraint
+    by: sess_adjudicator
+    refs: ["dialogue:4"]
+    text: "The migration evidence must be cited in the handoff."
+  - kind: nomination
+    by: sess_falsifier
+    refs: ["dialogue:5"]
+    text: "Retire the unsupported no-migration claim."
+verdict: "` + verdict + `"
+rationale: "A material challenge landed and was rebutted on the record."
+---
+
+# Ledger
+`
+}

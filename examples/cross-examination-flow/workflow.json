@@ -1,0 +1,251 @@
+{
+  "allow_same_model_review_pairing": true,
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/cross-examination-flow"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "allow_same_model": true,
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "cross_examiner_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "author_draft",
+      "on": "completed",
+      "to": "cross_examiner_1"
+    },
+    {
+      "from": "cross_examiner_1",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "author_draft",
+          "path": "examples/cross-examination-flow/artifacts/dialogue/author/DRAFT.md",
+          "required": true
+        }
+      ],
+      "id": "author_draft",
+      "interrogable": true,
+      "lane_id": "local",
+      "objective": "Draft the finding or proposal for finding-readiness and stay live for cross-examination.",
+      "phase_id": "dialogue",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/collaboration_author_draft.md"
+      },
+      "title": "Draft finding for cross-examination",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/cross-examination-flow/artifacts/dialogue/author/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_1",
+          "path": "examples/cross-examination-flow/artifacts/dialogue/cross_examiner_1/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_1",
+      "lane_id": "local",
+      "objective": "Ask one falsifying interrogation question about finding-readiness and record the challenge/rebuttal reference.",
+      "phase_id": "dialogue",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/collaboration_cross_examiner.md"
+      },
+      "title": "Cross-examiner 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/cross-examination-flow/artifacts/dialogue/cross_examiner_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "examples/cross-examination-flow/artifacts/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "local",
+      "objective": "Read only the dialogue trajectory for finding-readiness and publish the collaboration ledger verdict.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/cross-examination-flow/artifacts/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "examples/cross-examination-flow/artifacts/commit/proposal/PROPOSAL.md",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "local",
+      "objective": "Publish the finding only after the cross-examination ledger records a clearing verdict.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Publish cross-examined finding",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/cross-examination-flow/artifacts/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "examples/cross-examination-flow/artifacts/commit/final/FINAL_SUMMARY.md",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "local",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/cross-examination-flow/artifacts/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "cross-examination-flow",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "cross_examiner": {
+      "definition_path": "roles/cross_examiner.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "cross-examination-flow",
+  "workflow_version": "2026-05-29"
+}

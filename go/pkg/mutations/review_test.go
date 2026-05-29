@@ -3,11 +3,14 @@ package mutations
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -133,6 +136,227 @@ func TestOverrideVerdictAlreadyAcceptingDoesNotMutate(t *testing.T) {
 	if tx.sawEvent("queue.message_enqueued") {
 		t.Fatalf("unexpected downstream enqueue event: %#v", tx.events)
 	}
+}
+
+func TestSubmitReviewRejectsCollaborationLedgerVerdictMismatch(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixture(t, ctx, runner, "needs_revision")
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+		"verdict":      "accept",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "must match collaboration_ledger front matter verdict") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSubmitReviewAcceptsMatchingCollaborationLedgerVerdict(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixture(t, ctx, runner, "accept")
+
+	result, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+		"verdict":      "accept",
+	}))
+	if err != nil {
+		t.Fatalf("submit review: %v", err)
+	}
+	if result["job_state"] != "completed" {
+		t.Fatalf("job_state = %#v; result=%#v", result["job_state"], result)
+	}
+}
+
+// TestRecordVerdictRejectsCollaborationLedgerVerdictMismatch covers build
+// finding 2: the primitive path (publish_artifact then review.verdict /
+// recordVerdict) must enforce the same collaboration_ledger verdict
+// consistency the submit path does. The adjudicator here published a
+// `verdict: needs_revision` ledger and tries to record `accept` to clear the
+// gate; the daemon must refuse.
+func TestRecordVerdictRejectsCollaborationLedgerVerdictMismatch(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixture(t, ctx, runner, "needs_revision")
+	seedPublishedCollaborationLedgerArtifact(t, ctx, runner, repoID, sessionID, jobID)
+
+	_, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"verdict":    "accept",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "must match collaboration_ledger front matter verdict") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+// TestRecordVerdictAcceptsMatchingCollaborationLedgerVerdict is the green
+// counterpart: a matching verdict on the primitive path is accepted and
+// completes the gate job.
+func TestRecordVerdictAcceptsMatchingCollaborationLedgerVerdict(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixture(t, ctx, runner, "accept")
+	seedPublishedCollaborationLedgerArtifact(t, ctx, runner, repoID, sessionID, jobID)
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"verdict":    "accept",
+	}))
+	if err != nil {
+		t.Fatalf("record verdict: %v", err)
+	}
+	if result["status"] != "completed" {
+		t.Fatalf("status = %#v; result=%#v", result["status"], result)
+	}
+}
+
+// seedPublishedCollaborationLedgerArtifact inserts the artifacts row that the
+// adjudicator's publish_artifact call would have created, so the primitive
+// verdict path's verifyRequiredArtifacts finds the expected ledger and
+// enforceCollaborationLedgerVerdict can read it from disk.
+func seedPublishedCollaborationLedgerArtifact(t *testing.T, ctx context.Context, runner db.Runner, repoID, sessionID, jobID string) {
+	t.Helper()
+	runID := "run_" + repoID
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
+		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode, created_at
+		) VALUES ($1,$2,$3,$4,$5,'collaboration_ledger','collaboration_ledger',
+		  'artifacts/gate/LEDGER.md','sha_'||$2,1,'create',$6)`,
+		repoID, "art_ledger_"+repoID, runID, jobID, sessionID, now); err != nil {
+		t.Fatalf("insert collaboration ledger artifact: %v", err)
+	}
+}
+
+func seedCollaborationLedgerSubmitFixture(t *testing.T, ctx context.Context, runner db.Runner, verdict string) (repoID, sessionID, jobID, leaseID string) {
+	t.Helper()
+	repoID = "repo_collab_" + strings.ReplaceAll(verdict, "_", "")
+	runID := "run_" + repoID
+	sessionID = "sess_adjudicator_" + repoID
+	jobID = "job_adjudicate_" + repoID
+	leaseID = "lease_" + repoID
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "artifacts", "gate"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "artifacts", "gate", "LEDGER.md"), []byte(collaborationLedgerSubmitPayload(verdict)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intgSeedRepo(t, ctx, runner, repoID)
+	workflow := map[string]any{
+		"workflow_id": "collaboration_gate",
+		"lanes": map[string]any{
+			"adjudicator": map[string]any{"display_model": "Codex GPT-5.5"},
+		},
+		"jobs": []any{
+			map[string]any{"id": "adjudicate", "type": "phase_synthesis", "role_id": "adjudicator"},
+		},
+	}
+	intgSeedRun(t, ctx, runner, repoID, runID, workflow)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs SET repo_root = $1
+		 WHERE repository_id = $2 AND run_id = $3`, repoRoot, repoID, runID); err != nil {
+		t.Fatalf("update run repo root: %v", err)
+	}
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "adjudicator", "adjudicator", []string{"review"}, "active")
+	now := time.Now().UTC()
+	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "adjudicator"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":            "review_only_artifact",
+		"repo_write":      false,
+		"allowed_paths":   []string{"artifacts/gate/"},
+		"forbidden_paths": []string{".striatum/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedArg, err := db.JSONBArg(runner, []map[string]any{{
+		"logical_name": "collaboration_ledger",
+		"kind":         "collaboration_ledger",
+		"path":         "artifacts/gate/LEDGER.md",
+		"required":     true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// run.prepare maps a `phase_synthesis` WORKFLOW job to the stored
+	// job_type='review' (see run.go: the jobs_job_type_check constraint does not
+	// permit 'phase_synthesis'). Seed the live stored shape so the test exercises
+	// the real row and the collaboration-ledger verdict guard fires on the same
+	// path production does. The workflow_json snapshot still carries
+	// type=phase_synthesis for the `adjudicate` job def, matching production.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, lane_selector_json, write_scope_json,
+		  expected_artifacts_json, idempotency_key, created_at, started_at
+		) VALUES ($1,$2,$3,'adjudicate',1,'running','adjudicator','Adjudicate','review',
+		  $4::jsonb,$5::jsonb,$6::jsonb,'idem_'||$2,$7,$7)`,
+		repoID, jobID, runID, laneSelectorArg, writeScopeArg, expectedArg, now); err != nil {
+		t.Fatalf("insert adjudication job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7)`,
+		repoID, leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	return repoID, sessionID, jobID, leaseID
+}
+
+func collaborationLedgerSubmitPayload(verdict string) string {
+	entries := `  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+  - kind: challenge
+    by: sess_falsifier
+    refs: ["dialogue:2"]
+    text: "The proposal lacks migration evidence."`
+	rationale := "A challenge landed but has not been rebutted."
+	if verdict == "accept" {
+		entries += `
+  - kind: rebuttal
+    by: sess_holder
+    refs: ["dialogue:3"]
+    text: "The migration evidence is in the linked fixture."`
+		rationale = "A material challenge landed and was rebutted on the record."
+	}
+	return `---
+schema_version: "striatum.collaboration_ledger.v1"
+artifact_kind: "collaboration_ledger"
+shape: "falsification_gate"
+topic: "substance gate"
+participants: ["sess_holder", "sess_falsifier"]
+entries:
+` + entries + `
+verdict: "` + verdict + `"
+rationale: "` + rationale + `"
+---
+
+# Ledger
+`
 }
 
 type reviewOverrideFakeRunner struct {
@@ -542,7 +766,7 @@ func (tx *submitReviewFakeTx) Query(_ context.Context, sql string, args ...any) 
 			"artifact_id":    "art_existing",
 			"run_id":         "run_1",
 			"job_id":         "job_review",
-			"logical_name":  "review_art",
+			"logical_name":   "review_art",
 			"artifact_kind":  "finding",
 			"repo_path":      "finding.md",
 			"content_sha256": "some-sha",

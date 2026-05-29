@@ -124,6 +124,33 @@ func lintSameModelReviewPairs(workflow map[string]any, jobMap map[string]map[str
 				"model_family":   reviewFamily,
 			})
 		}
+		for _, edge := range edges {
+			fromID := stringValue(edge["from"])
+			toID := stringValue(edge["to"])
+			upstream := jobMap[fromID]
+			adjudicatorJob := jobMap[toID]
+			if upstream == nil || adjudicatorJob == nil || !isCollaborationAdjudicatorJob(adjudicatorJob) {
+				continue
+			}
+			upstreamFamily := familyForJob(upstream)
+			adjudicatorFamily := familyForJob(adjudicatorJob)
+			if upstreamFamily == "" || adjudicatorFamily == "" || upstreamFamily != adjudicatorFamily {
+				continue
+			}
+			key := "adjudicator\x00" + fromID + "\x00" + toID
+			if emitted[key] {
+				continue
+			}
+			emitted[key] = true
+			*findings = append(*findings, map[string]any{
+				"rule":           "same_model_adjudicator_pair",
+				"severity":       "warning",
+				"message":        "adjudicator job '" + toID + "' and upstream job '" + fromID + "' use the same model family '" + adjudicatorFamily + "'; use an independent adjudicator lane or record an explicit override rationale",
+				"job_id":         toID,
+				"related_job_id": fromID,
+				"model_family":   adjudicatorFamily,
+			})
+		}
 	}
 	for _, item := range anySlice(workflow["cycles"]) {
 		cycle, ok := item.(map[string]any)
@@ -156,6 +183,19 @@ func lintSameModelReviewPairs(workflow map[string]any, jobMap map[string]map[str
 			"model_family":   reviewFamily,
 		})
 	}
+}
+
+func isCollaborationAdjudicatorJob(job map[string]any) bool {
+	if stringValue(job["role_id"]) == "adjudicator" {
+		return true
+	}
+	for _, item := range anySlice(job["expected_artifacts"]) {
+		artifact, ok := item.(map[string]any)
+		if ok && stringValue(artifact["kind"]) == "collaboration_ledger" {
+			return true
+		}
+	}
+	return false
 }
 
 func lintReviewFreshness(jobMap map[string]map[string]any, findings *[]map[string]any) {
@@ -264,7 +304,7 @@ func lintCoverage(workflow map[string]any, jobMap map[string]map[string]any, fin
 			reviewJobs = append(reviewJobs, job)
 		}
 	}
-	reviewerIndependent := !rules["same_model_review_pair"] && !rules["same_model_revision_cycle"]
+	reviewerIndependent := !rules["same_model_review_pair"] && !rules["same_model_revision_cycle"] && !rules["same_model_adjudicator_pair"]
 	freshContext := !rules["review_without_fresh_context"]
 	writeIsolated := !rules["broad_write_scope"] && !rules["repo_write_without_worktree_isolation"]
 	hasRevisionOrEscalation := !rules["missing_review_escalation_path"]
