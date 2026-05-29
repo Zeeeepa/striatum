@@ -102,6 +102,61 @@ func TestClassifyDiscoveryAwaitAckLeaseAndAttention(t *testing.T) {
 	}
 }
 
+// TestClassifyDiscoverySatisfiedByOtherMCPActivity guards #63 F4: a supervised
+// agent-loop lane that issued its initial tools/list before binding session_id
+// (so last_tools_list_at stays null) but is actively driving the protocol over
+// MCP must NOT be classified agent_mcp_discovery_stall once it is past the
+// discovery deadline. The discovery deadline only protects against lanes that
+// never reached the daemon at all; any recorded MCP activity disproves that.
+func TestClassifyDiscoverySatisfiedByOtherMCPActivity(t *testing.T) {
+	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	registered := at(now.Add(-2 * time.Minute)) // well past DiscoverySeconds (60s)
+
+	tests := []struct {
+		name      string
+		in        Activity
+		wantStall string
+	}{
+		{
+			// Baseline preserved: no MCP activity at all => discovery stall.
+			name:      "no activity still stalls discovery",
+			in:        Activity{SessionState: "active", RegisteredAt: registered},
+			wantStall: StallDiscovery,
+		},
+		{
+			// await_packet recorded last_mcp_request_at + last_await_packet_at,
+			// proving discovery despite a null last_tools_list_at.
+			name: "await packet without tools list is not discovery stall",
+			in: Activity{
+				SessionState:      "active",
+				RegisteredAt:      registered,
+				LastMCPRequestAt:  at(now.Add(-5 * time.Second)),
+				LastAwaitPacketAt: at(now.Add(-5 * time.Second)),
+			},
+			wantStall: "",
+		},
+		{
+			// A bare last_mcp_request_at (any recorded mutation) clears discovery.
+			name: "mcp request without tools list is not discovery stall",
+			in: Activity{
+				SessionState:     "active",
+				RegisteredAt:     registered,
+				LastMCPRequestAt: at(now.Add(-5 * time.Second)),
+			},
+			wantStall: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.in, policy, now)
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+		})
+	}
+}
+
 func TestRecordUpdatesMCPRequestAndRequestedColumns(t *testing.T) {
 	runner := &recordFakeRunner{}
 	err := Record(context.Background(), runner, "repo_1", "sess_1", LastToolsListAt)
