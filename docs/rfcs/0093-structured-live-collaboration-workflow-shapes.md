@@ -168,15 +168,21 @@ the intention-level live-PG tests pass (`TestInterrogationEndToEndPreservedConte
 contradiction is closed by D141 (accept `awaiting_interrogation` targets) and
 D149 (owned-PTY first-class attestation, RFC 0088).
 
-Two substrate risks bound this RFC's scope:
+Two substrate notes bound this RFC's scope:
 
-1. **Third-lane completion (GH #51).** claude and codex owned-PTY agent-loops
-   are live-verified end-to-end (D148); **agy** (the gemini replacement) reliably
-   takes conversation *turns* but does not yet reliably *complete* a claimed
-   packet. Shapes that need three reliably-completing participants
-   (`falsification_gate` with two rotating falsifiers, `fog_of_war_review`)
-   inherit this ceiling; the V1 catalog should be validated first on the
-   known-good claude+codex pair, with agy as the third seat once #51 closes.
+1. **Third-lane maturity (GH #51, resolved).** All three adapters now complete
+   owned-PTY agent-loop packets end-to-end: claude and codex per D148, and
+   **agy** (the gemini replacement) per the three-part fix landed today — submit
+   driver (#52, `loop.go:153,169`) + `.gemini/settings.json` MCP wiring + inline-
+   execution steering (#55) — live-verified through the full
+   `claim → ack → execute → publish → complete → close` lifecycle. So a three-
+   lane shape (`falsification_gate` with two rotating falsifiers,
+   `fog_of_war_review`) is supported. Two caveats remain: agy's path is the
+   newest, so the V1 catalog should still be validated on the known-good
+   claude+codex pair before leaning on agy as a third seat; and a low-risk
+   hygiene residue persists — the ephemeral `.gemini/settings.json` is not
+   removed on lane teardown (gitignored, per-launch rotating token, so a stale-
+   token-on-disk concern, not a leak/commit).
 2. **Concurrency / liveness bounds.** Interrogation liveness is `state=active`
    with no idle/heartbeat timeout (D141 revisit), and concurrent interrogations
    against one target are unspecified (D139 revisit). A multi-falsifier round
