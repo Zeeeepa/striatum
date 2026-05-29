@@ -1,6 +1,45 @@
 # Changelog
 
-## Unreleased — 2026-05-27
+## Unreleased
+
+## v2.8.0 — 2026-05-29
+
+### RFC 0093: structured live-collaboration workflow shapes (substance-gated dialog)
+
+- Adds the `striatum.collaboration_ledger.v1` artifact contract: clearing
+  verdicts require referenced `claim`/`challenge`/`rebuttal` entries (Check A),
+  entry refs resolve to `dialogue:<seq>` turns and `by` names a participant
+  (Check B), and the recorded verdict must equal the ledger front-matter
+  verdict on BOTH `review.submit` and the primitive `recordVerdict` path
+  (closing the publish-then-accept bypass).
+- Adds the `adjudicator` role + a `phase_synthesis` substance gate, and the
+  generator shapes `falsification_gate` and `cross_examination` plus a `scribe`
+  participant modifier; cycle-scoped (`cycle_<attempt>`) ledger naming lets a
+  `needs_revision` revision iteration re-publish without a content-hash
+  collision. `workflow validate` now refuses `same_model_adjudicator_pair`
+  unless overridden. Example fixtures + docs (spec, ubiquitous-language,
+  workflow-types, RFC 0083 re-expression) included.
+- Deferred: `fog_of_war_review`, `synaptic_prune`, `post_dialog_hook`. No new
+  daemon method. (RFC 0093 accepted, D155.)
+
+### GH #63: revision-routing, retriable cycle targets, attestation-stall (daemon fixes)
+
+- Cycle router (F1): a `needs_revision` verdict now routes to its declared
+  workflow cycle — re-opening the target, re-blocking the downstream reviews,
+  and superseding their stale verdicts — instead of always opening a human
+  checkpoint. Completed cycle-target jobs are retriable for revision (F3);
+  budget exhaustion falls back to the checkpoint.
+- Discovery-stall classifier (F4): any recorded MCP activity now satisfies the
+  discovery deadline, so live agent-loop lanes no longer trip
+  `agent_mcp_discovery_stall` and demote attested bylines to `author: operator`;
+  a zombie-guard keeps the protocol-idle catch-all for lanes that pinged once
+  then died.
+
+### RFC 0092 follow-up: live-dialogue SSE allowlisted over the tailnet identity socket
+
+- Adds `GET /v1/runs/{run_id}/live-dialogue` to the RFC 0085 identity
+  read-route allowlist so the live agent dialogue feed is reachable over
+  `tailscale serve` (it returned `route_forbidden` before).
 
 ### RFC 0089: tmux-backed lane monitoring substrate
 

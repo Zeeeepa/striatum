@@ -1,8 +1,15 @@
 # RFC 0093: Structured Live-Collaboration Workflow Shapes (Substance-Gated Dialog)
 
-Status: proposed
+Status: accepted (V1 landed 2026-05-29, D155)
 Date: 2026-05-29
 author: proposer-claude-opus-4-8-001
+Accepted: 2026-05-29 (D155). V1 landed on `main` `7d465fd` (impl `81a746b`):
+the `collaboration_ledger.v1` contract, the cycle router (shared with #63
+F1/F3), the `adjudicator` role + `phase_synthesis` substance gate, and the
+`falsification_gate` / `cross_examination` generator shapes + `scribe`
+modifier. `fog_of_war_review`, `synaptic_prune`, and `post_dialog_hook` are
+deferred. Built via a 3-lane design+build dogfood whose interrogating panel
+caught the cycle-ledger deadlock and the verdict-bypass before merge.
 Context:
 - [RFC 0082](0082-interrogation-sessions.md) — interrogation sessions: the 1→1
   asymmetric live primitive (`interrogation.{open,ask,answer,close,list,show}`)
