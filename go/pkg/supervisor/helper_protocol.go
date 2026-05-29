@@ -24,14 +24,15 @@ const (
 // supervisor helper. It is deliberately process-only: the daemon core owns
 // supervise.* RPC, Postgres rows, packet construction, and domain validation.
 type HelperLaunchSpec struct {
-	SchemaVersion   string   `json:"schema_version,omitempty"`
-	SupervisorID    string   `json:"supervisor_id"`
-	ScratchDir      string   `json:"scratch_dir"`
-	Command         []string `json:"command"`
-	Env             []string `json:"env,omitempty"`
-	WorkingDir      string   `json:"working_dir,omitempty"`
-	PacketInputPath string   `json:"packet_input_path,omitempty"`
-	RequireTmux     bool     `json:"require_tmux,omitempty"`
+	SchemaVersion   string        `json:"schema_version,omitempty"`
+	SupervisorID    string        `json:"supervisor_id"`
+	ScratchDir      string        `json:"scratch_dir"`
+	Command         []string      `json:"command"`
+	Env             []string      `json:"env,omitempty"`
+	WorkingDir      string        `json:"working_dir,omitempty"`
+	PacketInputPath string        `json:"packet_input_path,omitempty"`
+	RequireTmux     bool          `json:"require_tmux,omitempty"`
+	RebridgeTmux    *TmuxIdentity `json:"rebridge_tmux,omitempty"`
 }
 
 // HelperControlEvent is emitted as one JSON object per line on the helper's
@@ -61,7 +62,7 @@ func decodeHelperLaunchSpec(decoder *json.Decoder) (HelperLaunchSpec, error) {
 	if strings.TrimSpace(spec.ScratchDir) == "" {
 		return HelperLaunchSpec{}, fmt.Errorf("scratch_dir is required")
 	}
-	if len(spec.Command) == 0 || strings.TrimSpace(spec.Command[0]) == "" {
+	if spec.RebridgeTmux == nil && (len(spec.Command) == 0 || strings.TrimSpace(spec.Command[0]) == "") {
 		return HelperLaunchSpec{}, fmt.Errorf("command is required")
 	}
 	for i, part := range spec.Command {

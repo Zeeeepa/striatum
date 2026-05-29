@@ -1691,6 +1691,9 @@ The supervise CLI surface:
   Delivery degradation is stored under `tmux.delivery_liveness` for tmux-shaped
   supervisors and under top-level `delivery_liveness` for no-tmux/plain
   supervisor metadata; send guards and read projections must honor both shapes.
+  A transient `tmux_unavailable` probe stores a degraded tmux liveness record
+  and refuses delivery without marking the lane lost until the consecutive
+  unavailable threshold is reached.
   Agent-loop lanes default to persistent PTY-helper supervision with preserved
   context. The older `supervision.stdin_delivery: "one_shot_eof"` named-pipe
   transport remains an explicit compatibility path for lanes that cannot yet
@@ -1716,9 +1719,13 @@ The supervise CLI surface:
   `state: "backed"`, `session_name`, `window_id`, `pane_id`, `pane_pid`,
   optional `pane_start_token`, `attach_command`, diagnostic
   `attach_client_pid`, `captured_at`, and probe visibility fields such as
-  `last_ok_at`, `probe_skipped_at`, `probe_unavailable_count`, and
-  `last_unavailable_detail`. `tmux attach-session` is an observer and
-  packet-delivery handle only; its PID is not the lane liveness identity.
+  `last_ok_at`, `probe_skipped_at`, `probe_unavailable_count`,
+  `last_unavailable_detail`, `liveness_state`, and `liveness`. Tmux liveness
+  payloads include `state: healthy|degraded|lost`; failures also include a
+  typed `probe_failure` record with `failure_class`, optional `exit_code`,
+  optional `errno`, optional `pane_process_alive`, and optional
+  `observed_pane_pid`. `tmux attach-session` is an observer and packet-delivery
+  handle only; its PID is not the lane liveness identity.
 - Helper-local teardown paths, including context cancellation and
   packet-forward failure, send `tmux kill-session -t <session>` for
   tmux-backed lanes before considering any direct pane-PID cleanup. A direct
@@ -1734,6 +1741,16 @@ The supervise CLI surface:
   `supervisor.stopped` event. Plain PTY lanes keep the existing SIGTERM then
   SIGKILL path only when the recorded start token still matches. The row is
   marked `stopped` and `supervisor.stopped` is recorded.
+- `striatum supervise rebridge --session-id <id>` re-attaches the
+  helper-owned tmux delivery bridge in place for an attached tmux-backed
+  supervisor. It first performs the same tmux session/pane liveness probe used
+  by status and send. The command is valid only when the recorded pane process
+  is still live; `tmux_pane_dead`, missing/mismatched pane identity, or
+  unverifiable `tmux_unavailable` probe results fail closed with remediation
+  guidance. Rebridge recreates the per-supervisor stdin FIFO when missing,
+  starts a fresh helper attach path, updates helper/attach-client pointer
+  metadata, clears delivery degradation, and records `supervisor.rebridged`.
+  It does not kill, reset, or respawn the tmux pane.
 - `striatum supervise status --session-id <id>` probes tmux-backed liveness
   with `tmux has-session` plus a pane identity query (`pane_id`, `pane_pid`,
   `pane_dead`, `pane_start_time`). Plain PTY rows continue to use PID/start-token
@@ -1752,7 +1769,10 @@ The supervise CLI surface:
   lane is alive but whose active lease has stale progress
   returns `liveness: "stalled"` plus `last_progress_at`,
   `last_progress_age_seconds`, active lease metadata, and
-  `stall_after_seconds`. Status itself never starts or kills processes.
+  `stall_after_seconds`. Status also exposes `lane_backend`
+  (`tmux`, `plain_pty_fallback`, or `plain_pty`), `delivery_state`,
+  `pane_liveness`, and failure-class-derived remediation hints. Status itself
+  never starts or kills processes.
 - `striatum supervise list --run-id <id> [--state <state>]` lists rows
   for a run, optionally filtered by state.
 - Daemon RPC `supervise.reattach_status` returns a read-only
@@ -1761,10 +1781,11 @@ The supervise CLI surface:
   rows, PID/tmux liveness, and PID or pane start-time identity, classifying each row
   as `reattachable`, `lost_candidate`, `needs_repair`,
   `needs_verification`, or `terminal`. It does not mutate state; actual
-  restart/lost-state transitions remain daemon lifecycle work. This build does
-  not expose an in-place `supervise.reattach` verb; terminal tmux liveness
-  failures require stopping the broken supervisor and starting/reclaiming a
-  replacement lane through daemon workflow controls.
+  restart/lost-state transitions remain daemon lifecycle work. In-place
+  delivery repair is handled by `supervise.rebridge` and is deliberately
+  limited to live tmux panes; terminal tmux liveness failures still require
+  stopping the broken supervisor and starting/reclaiming a replacement lane
+  through daemon workflow controls.
 
 Recovery: before ordinary stale-lease handling, `recovery.sweep` evaluates
 attached supervisors with active claimed/running work. A stale-but-unexpired
@@ -1791,10 +1812,10 @@ attached or move it to `detached`. When the daemon-observed pane is live and the
 attach observer was the helper-owned delivery bridge, the daemon keeps pane
 liveness attached/attested, records `tmux.attach_client_last_exit`, and marks
 `delivery_liveness` degraded with reason `attach_client_exited`; later
-`supervise.send` calls refuse that supervisor until a rebridge/restart or a
-future alternate delivery path clears the degradation. Non-tmux or unproven
-attach exits still move the supervisor to `detached` instead of treating the
-lane as lost.
+`supervise.send` calls refuse that supervisor until `supervise.rebridge`,
+restart, or a future alternate delivery path clears the degradation. Non-tmux
+or unproven attach exits still move the supervisor to `detached` instead of
+treating the lane as lost.
 Daemon `supervise.report` can consume those helper events as JSONL text, a
 path, or an object list and records them through the same durable
 `supervisor.<event>` event path used by wrapper reports. Helper timestamps are

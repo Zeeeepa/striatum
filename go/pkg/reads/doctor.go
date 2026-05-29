@@ -91,6 +91,9 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 					"state":         view["reattach_state"],
 					"reason":        view["reattach_reason"],
 				}
+				if remediation := tmuxLivenessRemediation(class, superviseString(view["reattach_reason"]), superviseString(view["session_id"])); remediation != "" {
+					item["remediation"] = remediation
+				}
 				supervisorLiveness = append(supervisorLiveness, item)
 				if view["reattach_state"] != "terminal" && class != string(gosupervisor.TmuxLivenessOK) && class != string(gosupervisor.TmuxLivenessUnavailable) {
 					problems = append(problems, "supervisor_liveness."+superviseString(view["supervisor_id"])+": "+class)

@@ -198,10 +198,22 @@ func TestRecordTmuxProbeUnavailableMetadata(t *testing.T) {
 			"last_ok_at": "2026-05-28T17:59:00Z",
 		},
 	}
-	recordTmuxProbeUnavailable(metadata, now, 2, "probe_timeout")
+	recordTmuxProbeUnavailable(metadata, now, 2, LaneLiveness{
+		Backed: "tmux",
+		Class:  string(TmuxLivenessUnavailable),
+		Detail: "probe_timeout",
+		Tmux: &TmuxLiveness{
+			Class:  TmuxLivenessUnavailable,
+			State:  "degraded",
+			Detail: "probe_timeout",
+		},
+	})
 	tmux := metadata["tmux"].(map[string]any)
 	if tmux["probe_unavailable_count"] != 2 || tmux["last_unavailable_detail"] != "probe_timeout" {
 		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	if tmux["liveness_state"] != "degraded" {
+		t.Fatalf("tmux metadata missing degraded liveness state: %#v", tmux)
 	}
 	if tmux["probe_skipped_at"] == "" {
 		t.Fatalf("tmux metadata missing probe_skipped_at: %#v", tmux)
@@ -213,6 +225,70 @@ func TestRecordTmuxProbeUnavailableMetadata(t *testing.T) {
 	if tmux["last_ok_at"] == "2026-05-28T17:59:00Z" {
 		t.Fatalf("last_ok_at was not refreshed: %#v", tmux)
 	}
+}
+
+func TestLivenessDegradesBeforeLostOnPersistentTmuxUnavailable(t *testing.T) {
+	origRunner := livenessTmuxRunner
+	defer func() { livenessTmuxRunner = origRunner }()
+	livenessTmuxRunner = &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: exec.ErrNotFound},
+	}}
+	t.Setenv("STRIATUM_TMUX_UNAVAILABLE_LOST_THRESHOLD", "3")
+
+	store := newFakeStore()
+	supID := "sup_tmux_unavailable"
+	store.UpsertSupervisorPointer(context.Background(), PointerRow{
+		SupervisorID: supID,
+		RepositoryID: "repo_test",
+		PID:          os.Getpid(),
+		State:        "running",
+		Metadata: map[string]any{
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run",
+				"pane_id":      "%4",
+				"pane_pid":     os.Getpid(),
+			},
+		},
+	})
+
+	l := NewLiveness(LivenessConfig{HeartbeatInterval: 30 * time.Millisecond, GraceOnTerm: 10 * time.Millisecond}, store, supID, os.Getpid())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l.Start(ctx)
+	defer l.Stop(context.Background(), false)
+
+	waitForSupervisorTest(t, 500*time.Millisecond, func() bool {
+		row, err := store.GetSupervisorPointer(context.Background(), supID)
+		if err != nil {
+			return false
+		}
+		tmux := row.Metadata["tmux"].(map[string]any)
+		return row.State == "running" && tmux["liveness_state"] == "degraded" && tmux["probe_unavailable_count"] == 1
+	})
+	if store.lostCall != "" {
+		t.Fatalf("supervisor marked lost before degraded warning: %q", store.lostCall)
+	}
+
+	waitForSupervisorTest(t, time.Second, func() bool {
+		row, err := store.GetSupervisorPointer(context.Background(), supID)
+		return err == nil && row.State == "lost" && row.LostReason == "tmux_unavailable_persistent"
+	})
+}
+
+func waitForSupervisorTest(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if condition() {
+		return
+	}
+	t.Fatalf("condition was not satisfied within %s", timeout)
 }
 
 func TestLaunchEmptyCommandRejected(t *testing.T) {

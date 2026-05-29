@@ -36,6 +36,7 @@ func TestDispatchRoutesReadThroughRPC(t *testing.T) {
 		Invoker:     invoker,
 		ResolveRepo: true,
 		Cwd:         "/cwd",
+		Env:         []string{},
 	})
 	if exit != 0 {
 		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())

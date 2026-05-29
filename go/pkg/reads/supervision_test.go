@@ -392,9 +392,15 @@ func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
 	if result["liveness"] != "alive" || result["lane_attestation"] != "attested" {
 		t.Fatalf("pane liveness projection = %#v", result)
 	}
+	if result["lane_backend"] != "tmux" || result["pane_liveness"] != string(gosupervisor.TmuxLivenessOK) || result["delivery_state"] != "degraded" {
+		t.Fatalf("distinct lane signals = %#v", result)
+	}
 	delivery := result["delivery_liveness"].(map[string]any)
 	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
 		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	if !strings.Contains(superviseString(delivery["remediation"]), "striatum supervise rebridge --session-id sess_1") {
+		t.Fatalf("delivery remediation = %#v", delivery["remediation"])
 	}
 	tmux := result["tmux"].(map[string]any)
 	if tmux["delivery_liveness"] == nil || tmux["attach_client_last_exit"] == nil {
@@ -422,9 +428,15 @@ func TestHandleSuperviseStatusSurfacesRootDeliveryDegradedWithoutTmuxMetadata(t 
 	if _, ok := result["tmux"]; ok {
 		t.Fatalf("plain supervisor unexpectedly has tmux metadata: %#v", result)
 	}
+	if result["lane_backend"] != "plain_pty" || result["delivery_state"] != "degraded" {
+		t.Fatalf("plain delivery signals = %#v", result)
+	}
 	delivery := result["delivery_liveness"].(map[string]any)
 	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "stdin_reader_missing" {
 		t.Fatalf("delivery liveness = %#v", delivery)
+	}
+	if !strings.Contains(superviseString(delivery["remediation"]), "striatum supervise rebridge --session-id sess_1") {
+		t.Fatalf("delivery remediation = %#v", delivery["remediation"])
 	}
 }
 

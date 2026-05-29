@@ -66,3 +66,24 @@ func TestVisibleToolsHideProductionUnsupportedMethods(t *testing.T) {
 		t.Fatalf("workflow.generate.preview should remain visible for authorized production MCP tokens")
 	}
 }
+
+func TestVisibleToolsIncludesRuntimeRegisteredMethods(t *testing.T) {
+	previous, existed := rpc.MethodRegistry["supervise.dynamic_test"]
+	rpc.MethodRegistry["supervise.dynamic_test"] = rpc.NewMethod("supervise.dynamic_test", rpc.CapPtr(rpc.CapabilityClaim), true, rpc.ScopeSingleRepo)
+	t.Cleanup(func() {
+		if existed {
+			rpc.MethodRegistry["supervise.dynamic_test"] = previous
+			return
+		}
+		delete(rpc.MethodRegistry, "supervise.dynamic_test")
+	})
+
+	tools := VisibleTools(context.Background(), allowAllAuthorizer{}, "tok", "repo_1")
+	names := map[string]struct{}{}
+	for _, tool := range tools {
+		names[tool.Name] = struct{}{}
+	}
+	if _, ok := names["supervise.dynamic_test"]; !ok {
+		t.Fatalf("runtime registered method was not visible in tools/list")
+	}
+}

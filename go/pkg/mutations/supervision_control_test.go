@@ -636,6 +636,52 @@ func TestSuperviseSendMarksDeliveryDegradedWhenPipeHasNoReader(t *testing.T) {
 	}
 }
 
+func TestSuperviseRebridgeRefusesDeadPane(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	panePID := os.Getpid()
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|" + strconv.Itoa(panePID) + "|1|",
+	}
+
+	dir := t.TempDir()
+	pipePath := filepath.Join(dir, "stdin.pipe")
+	tx := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      panePID,
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run",
+				"pane_id":      "%4",
+				"pane_pid":     panePID,
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+
+	_, err := HandleSuperviseRebridge(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_rebridge_dead_pane",
+		Method:        "supervise.rebridge",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected rebridge to refuse a dead tmux pane")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "pane liveness is tmux_pane_dead") {
+		t.Fatalf("err = %#v", err)
+	}
+	if len(tx.execs) != 0 {
+		t.Fatalf("rebridge refusal should not mutate rows: %#v", tx.execs)
+	}
+}
+
 func TestSuperviseStopMarksSupervisorStoppedAndUnlinksPipe(t *testing.T) {
 	dir := t.TempDir()
 	pipePath := dir + "/stdin.pipe"
@@ -890,7 +936,7 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 	case strings.Contains(sql, "SELECT session_id") && strings.Contains(sql, "FROM striatumd.sessions"):
 		return superviseControlFakeRow{values: []any{"sess_1"}}
 	case strings.Contains(sql, "SELECT ps.supervisor_id"):
-		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", r.pipePath, nil, "", "dsup_1", map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}}}
+		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", filepath.Join(r.repoRoot, ".striatum", "scratch", "sup_1"), r.pipePath, nil, "", "dsup_1", map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}}}
 	default:
 		return superviseControlFakeRow{err: errors.New("unexpected runner query: " + sql)}
 	}
@@ -930,7 +976,7 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 		if metadata == nil {
 			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
 		}
-		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", tx.pipePath, pid, tx.pidStart, "dsup_1", metadata}}
+		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", filepath.Dir(tx.pipePath), tx.pipePath, pid, tx.pidStart, "dsup_1", metadata}}
 	case strings.Contains(sql, "FROM striatumd.work_packets"):
 		return superviseControlFakeRow{values: []any{"packet_1", "run_1", "job_1", "lease_1", "sess_1", map[string]any{"packet": "body"}}}
 	case strings.Contains(sql, "FROM striatumd.leases"):

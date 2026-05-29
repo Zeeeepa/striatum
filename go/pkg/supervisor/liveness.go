@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -47,6 +48,8 @@ type Liveness struct {
 	stopped  bool
 	lastBeat time.Time
 }
+
+var livenessTmuxRunner = DefaultTmuxRunner()
 
 // NewLiveness constructs a Liveness controller. Callers must invoke Start to
 // begin the heartbeat goroutine and Stop to drain it.
@@ -102,7 +105,6 @@ func (l *Liveness) run(ctx context.Context) {
 	defer close(l.doneCh)
 	tick := time.NewTicker(l.cfg.HeartbeatInterval)
 	defer tick.Stop()
-	tmuxUnavailableTicks := 0
 	for {
 		select {
 		case <-l.stopCh:
@@ -120,10 +122,9 @@ func (l *Liveness) run(ctx context.Context) {
 					return
 				}
 			}
-			live := ProbeLaneLiveness(ctx, DefaultTmuxRunner(), row.Metadata, l.pid, row.PIDStartTime)
+			live := ProbeLaneLiveness(ctx, livenessTmuxRunner, row.Metadata, l.pid, row.PIDStartTime)
 			row.LastHeartbeatAt = now.UTC()
 			if live.Alive {
-				tmuxUnavailableTicks = 0
 				recordTmuxProbeOK(row.Metadata, now)
 				row.State = "running"
 				_ = l.store.UpsertSupervisorPointer(ctx, row)
@@ -133,20 +134,19 @@ func (l *Liveness) run(ctx context.Context) {
 				continue
 			}
 			if live.Class == string(TmuxLivenessUnavailable) {
-				tmuxUnavailableTicks++
-				if tmuxUnavailableTicks < 3 {
+				count := tmuxProbeUnavailableCount(row.Metadata) + 1
+				if count < TmuxUnavailableLostThreshold() {
 					if row.Metadata == nil {
 						row.Metadata = map[string]any{}
 					}
 					row.Metadata["tmux_probe_skipped_at"] = now.UTC().Format(time.RFC3339Nano)
-					recordTmuxProbeUnavailable(row.Metadata, now, tmuxUnavailableTicks, live.Detail)
+					recordTmuxProbeUnavailable(row.Metadata, now, count, live)
 					_ = l.store.UpsertSupervisorPointer(ctx, row)
 					continue
 				}
 				_ = l.store.MarkSupervisorLost(ctx, l.supervisorID, "tmux_unavailable_persistent")
 				return
 			}
-			tmuxUnavailableTicks = 0
 			reason := live.Class
 			if reason == "" {
 				reason = "process_exited"
@@ -162,6 +162,8 @@ func recordTmuxProbeOK(metadata map[string]any, now time.Time) {
 	if strings.TrimSpace(stringValue(tmux["state"])) != "backed" {
 		return
 	}
+	tmux["liveness_state"] = "healthy"
+	tmux["liveness"] = TmuxLivenessPayload(TmuxLiveness{Class: TmuxLivenessOK, State: "healthy", Healthy: true})
 	tmux["last_ok_at"] = now.UTC().Format(time.RFC3339Nano)
 	delete(tmux, "probe_skipped_at")
 	delete(tmux, "probe_unavailable_count")
@@ -169,17 +171,42 @@ func recordTmuxProbeOK(metadata map[string]any, now time.Time) {
 	metadata["tmux"] = tmux
 }
 
-func recordTmuxProbeUnavailable(metadata map[string]any, now time.Time, count int, detail string) {
+func recordTmuxProbeUnavailable(metadata map[string]any, now time.Time, count int, live LaneLiveness) {
 	tmux := objectValue(metadata["tmux"])
 	if len(tmux) == 0 {
 		return
 	}
+	tmux["liveness_state"] = "degraded"
 	tmux["probe_skipped_at"] = now.UTC().Format(time.RFC3339Nano)
 	tmux["probe_unavailable_count"] = count
-	if strings.TrimSpace(detail) != "" {
-		tmux["last_unavailable_detail"] = strings.TrimSpace(detail)
+	if live.Tmux != nil {
+		tmux["liveness"] = TmuxLivenessPayload(*live.Tmux)
+	}
+	if strings.TrimSpace(live.Detail) != "" {
+		tmux["last_unavailable_detail"] = strings.TrimSpace(live.Detail)
 	}
 	metadata["tmux"] = tmux
+}
+
+func tmuxProbeUnavailableCount(metadata map[string]any) int {
+	tmux := objectValue(metadata["tmux"])
+	count, ok := intValue(tmux["probe_unavailable_count"])
+	if !ok || count < 0 {
+		return 0
+	}
+	return count
+}
+
+func TmuxUnavailableLostThreshold() int {
+	raw := strings.TrimSpace(os.Getenv("STRIATUM_TMUX_UNAVAILABLE_LOST_THRESHOLD"))
+	if raw == "" {
+		return 3
+	}
+	threshold, err := strconv.Atoi(raw)
+	if err != nil || threshold < 1 {
+		return 3
+	}
+	return threshold
 }
 
 // LastHeartbeat exposes the timestamp of the last successful tick. Tests use

@@ -68,6 +68,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"worktree.release",
 		"supervise.start",
 		"supervise.send",
+		"supervise.rebridge",
 		"supervise.stop",
 		"workflow.init",
 		"workflow.generate",
@@ -113,6 +114,22 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		if !errors.As(err, &rpcErr) || rpcErr.Code != "repo_not_registered" {
 			t.Fatalf("%s handler did not run expected repo-scope validation: %v", method, err)
 		}
+	}
+}
+
+func TestRegisterExposesSuperviseRebridgeMethodMetadata(t *testing.T) {
+	server := rpc.NewServer()
+	Register(server, inertRunner{})
+
+	if _, ok := server.Handlers["supervise.rebridge"]; !ok {
+		t.Fatalf("supervise.rebridge handler was not registered")
+	}
+	entry, ok := rpc.MethodRegistry["supervise.rebridge"]
+	if !ok {
+		t.Fatalf("supervise.rebridge method metadata was not registered")
+	}
+	if entry.RequiredCapability == nil || *entry.RequiredCapability != rpc.CapabilityClaim || entry.RepositoryScopeMode != rpc.ScopeSingleRepo {
+		t.Fatalf("supervise.rebridge metadata = %#v", entry)
 	}
 }
 

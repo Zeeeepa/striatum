@@ -221,7 +221,20 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	}
 
 	// 3. Attach to the session in the PTY
-	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", sessionName)
+	result, err := attachTmuxPTY(ctx, identity, spec)
+	if err != nil {
+		return nil, err
+	}
+	cleanupTmux = false
+
+	return result, nil
+}
+
+func attachTmuxPTY(ctx context.Context, identity TmuxIdentity, spec LaunchSpec) (*LaunchResult, error) {
+	if strings.TrimSpace(identity.SessionName) == "" {
+		return nil, fmt.Errorf("supervisor: tmux session name is required")
+	}
+	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", identity.SessionName)
 	attachCmd.Dir = spec.WorkingDir
 	attachCmd.Env = mergeEnv(os.Environ(), spec.Env)
 
@@ -229,8 +242,6 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pty.Start (tmux attach): %w", err)
 	}
-	cleanupTmux = false
-
 	return &LaunchResult{
 		PID:         identity.PanePID,
 		StdinWriter: ptmx,

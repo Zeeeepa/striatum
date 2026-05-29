@@ -41,10 +41,21 @@ const (
 
 type TmuxLiveness struct {
 	Class            TmuxLivenessClass
+	State            string
 	Healthy          bool
 	ObservedPanePID  int
 	ObservedStartTok string
 	Detail           string
+	Failure          *TmuxProbeFailure
+}
+
+type TmuxProbeFailure struct {
+	FailureClass    TmuxLivenessClass
+	Detail          string
+	ExitCode        *int
+	Errno           string
+	PaneProcessLive *bool
+	ObservedPanePID int
 }
 
 type LaneLiveness struct {
@@ -143,35 +154,35 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 		r = DefaultTmuxRunner()
 	}
 	if strings.TrimSpace(id.SessionName) == "" {
-		return TmuxLiveness{Class: TmuxLivenessSessionMissing, Healthy: false, Detail: "tmux session name missing"}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessSessionMissing, "tmux session name missing", nil, 0)
 	}
 	if _, err := r.Run(ctx, "has-session", "-t", id.SessionName); err != nil {
 		if tmuxProbeUnavailable(err) {
-			return TmuxLiveness{Class: TmuxLivenessUnavailable, Healthy: false, Detail: tmuxProbeDetail(err)}
+			return tmuxLivenessFailure(ctx, r, id, TmuxLivenessUnavailable, tmuxProbeDetail(err), err, 0)
 		}
-		return TmuxLiveness{Class: TmuxLivenessSessionMissing, Healthy: false, Detail: tmuxProbeDetail(err)}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessSessionMissing, tmuxProbeDetail(err), err, 0)
 	}
 	if strings.TrimSpace(id.PaneID) == "" {
-		return TmuxLiveness{Class: TmuxLivenessPaneMissing, Healthy: false, Detail: "tmux pane id missing"}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, "tmux pane id missing", nil, 0)
 	}
 	out, err := r.Run(ctx, "display-message", "-p", "-t", id.PaneID, "#{pane_id}|#{pane_pid}|#{pane_dead}|#{pane_start_time}")
 	if err != nil {
 		if tmuxProbeUnavailable(err) {
-			return TmuxLiveness{Class: TmuxLivenessUnavailable, Healthy: false, Detail: tmuxProbeDetail(err)}
+			return tmuxLivenessFailure(ctx, r, id, TmuxLivenessUnavailable, tmuxProbeDetail(err), err, 0)
 		}
-		return TmuxLiveness{Class: TmuxLivenessPaneMissing, Healthy: false, Detail: tmuxProbeDetail(err)}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, tmuxProbeDetail(err), err, 0)
 	}
 	parts := strings.Split(strings.TrimSpace(out), "|")
 	if len(parts) < 3 {
-		return TmuxLiveness{Class: TmuxLivenessPaneMissing, Healthy: false, Detail: "tmux pane query returned incomplete identity"}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, "tmux pane query returned incomplete identity", nil, 0)
 	}
 	observedPaneID := strings.TrimSpace(parts[0])
 	if observedPaneID != id.PaneID {
-		return TmuxLiveness{Class: TmuxLivenessPaneMissing, Healthy: false, Detail: "tmux pane id mismatch"}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, "tmux pane id mismatch", nil, 0)
 	}
 	observedPID, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil || observedPID <= 0 {
-		return TmuxLiveness{Class: TmuxLivenessPaneMissing, Healthy: false, Detail: "tmux pane pid missing"}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, "tmux pane pid missing", nil, 0)
 	}
 	observedStart := ""
 	if len(parts) >= 4 {
@@ -184,13 +195,17 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 		}
 	}
 	if strings.TrimSpace(parts[2]) == "1" {
-		return TmuxLiveness{Class: TmuxLivenessPaneDead, Healthy: false, ObservedPanePID: observedPID, ObservedStartTok: observedStart}
+		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneDead, "tmux pane is dead", nil, observedPID)
 	}
 	if observedPID != id.PanePID {
-		return TmuxLiveness{Class: TmuxLivenessPanePIDMismatch, Healthy: false, ObservedPanePID: observedPID, ObservedStartTok: observedStart}
+		live := tmuxLivenessFailure(ctx, r, id, TmuxLivenessPanePIDMismatch, "tmux pane pid mismatch", nil, observedPID)
+		live.ObservedStartTok = observedStart
+		return live
 	}
 	if expectedStart != "" && observedStart != "" && observedStart != expectedStart {
-		return TmuxLiveness{Class: TmuxLivenessPanePIDMismatch, Healthy: false, ObservedPanePID: observedPID, ObservedStartTok: observedStart}
+		live := tmuxLivenessFailure(ctx, r, id, TmuxLivenessPanePIDMismatch, "tmux pane start token mismatch", nil, observedPID)
+		live.ObservedStartTok = observedStart
+		return live
 	}
 	detail := ""
 	if expectedStart == "" || observedStart == "" {
@@ -198,11 +213,81 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 	}
 	return TmuxLiveness{
 		Class:            TmuxLivenessOK,
+		State:            "healthy",
 		Healthy:          true,
 		ObservedPanePID:  observedPID,
 		ObservedStartTok: observedStart,
 		Detail:           detail,
 	}
+}
+
+func tmuxLivenessFailure(ctx context.Context, r TmuxRunner, id TmuxIdentity, class TmuxLivenessClass, detail string, err error, observedPID int) TmuxLiveness {
+	failure := TmuxProbeFailure{
+		FailureClass:    class,
+		Detail:          detail,
+		Errno:           tmuxProbeErrno(err),
+		ObservedPanePID: observedPID,
+	}
+	if exitCode, ok := tmuxProbeExitCode(err); ok {
+		failure.ExitCode = &exitCode
+	}
+	if observedPID > 0 {
+		live := pidSignalable(observedPID)
+		failure.PaneProcessLive = &live
+	} else if panePID, live, ok := tmuxPaneProcessLive(ctx, r, id); ok {
+		failure.ObservedPanePID = panePID
+		failure.PaneProcessLive = &live
+	}
+	return TmuxLiveness{
+		Class:           class,
+		State:           tmuxLivenessState(class),
+		Healthy:         false,
+		ObservedPanePID: observedPID,
+		Detail:          detail,
+		Failure:         &failure,
+	}
+}
+
+func tmuxLivenessState(class TmuxLivenessClass) string {
+	switch class {
+	case TmuxLivenessOK:
+		return "healthy"
+	case TmuxLivenessUnavailable:
+		return "degraded"
+	default:
+		return "lost"
+	}
+}
+
+func tmuxPaneProcessLive(ctx context.Context, r TmuxRunner, id TmuxIdentity) (int, bool, bool) {
+	if r == nil {
+		r = DefaultTmuxRunner()
+	}
+	out, err := r.Run(ctx, "list-panes", "-a", "-F", "#{pane_id}|#{pane_pid}")
+	if err != nil {
+		return 0, false, false
+	}
+	foundRelevantPane := false
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.Split(strings.TrimSpace(line), "|")
+		if len(parts) < 2 {
+			continue
+		}
+		paneID := strings.TrimSpace(parts[0])
+		pid, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil || pid <= 0 {
+			continue
+		}
+		if paneID != id.PaneID && (id.PanePID <= 0 || pid != id.PanePID) {
+			continue
+		}
+		foundRelevantPane = true
+		return pid, pidSignalable(pid), true
+	}
+	if foundRelevantPane {
+		return 0, false, true
+	}
+	return 0, false, true
 }
 
 func ProbeLaneLiveness(ctx context.Context, r TmuxRunner, metadata map[string]any, pid int, expectedStartToken string) LaneLiveness {
@@ -291,8 +376,13 @@ func TmuxLivenessLost(class string) bool {
 }
 
 func TmuxLivenessPayload(live TmuxLiveness) map[string]any {
+	state := live.State
+	if state == "" {
+		state = tmuxLivenessState(live.Class)
+	}
 	payload := map[string]any{
 		"class":     string(live.Class),
+		"state":     state,
 		"healthy":   live.Healthy,
 		"detail":    nil,
 		"backed_by": "tmux",
@@ -305,6 +395,32 @@ func TmuxLivenessPayload(live TmuxLiveness) map[string]any {
 	}
 	if live.Detail != "" {
 		payload["detail"] = live.Detail
+	}
+	if live.Failure != nil {
+		payload["probe_failure"] = TmuxProbeFailurePayload(*live.Failure)
+	}
+	return payload
+}
+
+func TmuxProbeFailurePayload(failure TmuxProbeFailure) map[string]any {
+	payload := map[string]any{
+		"failure_class": string(failure.FailureClass),
+		"detail":        nil,
+	}
+	if failure.Detail != "" {
+		payload["detail"] = failure.Detail
+	}
+	if failure.ExitCode != nil {
+		payload["exit_code"] = *failure.ExitCode
+	}
+	if failure.Errno != "" {
+		payload["errno"] = failure.Errno
+	}
+	if failure.PaneProcessLive != nil {
+		payload["pane_process_alive"] = *failure.PaneProcessLive
+	}
+	if failure.ObservedPanePID > 0 {
+		payload["observed_pane_pid"] = failure.ObservedPanePID
 	}
 	return payload
 }
@@ -321,6 +437,36 @@ func tmuxProbeDetail(err error) string {
 		return "probe_timeout"
 	default:
 		return strings.TrimSpace(err.Error())
+	}
+}
+
+func tmuxProbeExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var exit interface {
+		ExitCode() int
+	}
+	if errors.As(err, &exit) {
+		return exit.ExitCode(), true
+	}
+	return 0, false
+}
+
+func tmuxProbeErrno(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, exec.ErrNotFound), errors.Is(err, syscall.ENOENT):
+		return "ENOENT"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "ETIMEDOUT"
+	case errors.Is(err, syscall.EACCES):
+		return "EACCES"
+	case errors.Is(err, syscall.ECONNREFUSED):
+		return "ECONNREFUSED"
+	default:
+		return ""
 	}
 }
 

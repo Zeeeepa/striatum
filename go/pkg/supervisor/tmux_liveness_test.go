@@ -124,6 +124,56 @@ func TestProbeTmuxLivenessFailureClasses(t *testing.T) {
 	}
 }
 
+func TestProbeTmuxUnavailableCarriesTypedFailure(t *testing.T) {
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: exec.ErrNotFound},
+	}}
+	live := ProbeTmuxLiveness(context.Background(), runner, TmuxIdentity{
+		SessionName: "striatum-run",
+		PaneID:      "%4",
+		PanePID:     48211,
+	})
+	if live.Class != TmuxLivenessUnavailable || live.State != "degraded" || live.Healthy {
+		t.Fatalf("liveness = %#v, want degraded tmux_unavailable", live)
+	}
+	if live.Failure == nil {
+		t.Fatalf("missing typed failure record: %#v", live)
+	}
+	if live.Failure.FailureClass != TmuxLivenessUnavailable || live.Failure.Errno != "ENOENT" {
+		t.Fatalf("failure = %#v, want tmux_unavailable ENOENT", live.Failure)
+	}
+	payload := TmuxLivenessPayload(live)
+	if payload["state"] != "degraded" {
+		t.Fatalf("payload = %#v, want degraded state", payload)
+	}
+	failure := payload["probe_failure"].(map[string]any)
+	if failure["failure_class"] != string(TmuxLivenessUnavailable) || failure["errno"] != "ENOENT" {
+		t.Fatalf("payload failure = %#v", failure)
+	}
+}
+
+func TestProbeTmuxFailureRecordsPaneProcessLiveness(t *testing.T) {
+	pid := os.Getpid()
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: errors.New("can't find session")},
+		{prefix: []string{"list-panes"}, out: "%4|" + strconv.Itoa(pid) + "\n"},
+	}}
+	live := ProbeTmuxLiveness(context.Background(), runner, TmuxIdentity{
+		SessionName: "striatum-run",
+		PaneID:      "%4",
+		PanePID:     pid,
+	})
+	if live.Class != TmuxLivenessSessionMissing || live.State != "lost" {
+		t.Fatalf("liveness = %#v", live)
+	}
+	if live.Failure == nil || live.Failure.ObservedPanePID != pid || live.Failure.PaneProcessLive == nil || !*live.Failure.PaneProcessLive {
+		t.Fatalf("failure did not record live pane process: %#v", live.Failure)
+	}
+	if len(runner.calls) != 2 || !argsPrefix(runner.calls[1], []string{"list-panes"}) {
+		t.Fatalf("tmux calls = %#v, want list-panes fallback", runner.calls)
+	}
+}
+
 func TestProbeTmuxLivenessEmptyStartTokenIsUnverifiedNotLost(t *testing.T) {
 	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
 		{prefix: []string{"has-session"}},
