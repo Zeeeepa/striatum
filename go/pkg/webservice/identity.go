@@ -39,6 +39,11 @@ func IdentityReadRoutes() []IdentityReadRoute {
 		{http.MethodGet, "/v1/runs/{run_id}/interrogations/{interrogation_id}", "/v1/runs/run_1/interrogations/intg_1"},
 		{http.MethodGet, "/v1/runs/{run_id}/conversations", "/v1/runs/run_1/conversations"},
 		{http.MethodGet, "/v1/runs/{run_id}/conversations/{conversation_id}", "/v1/runs/run_1/conversations/conv_1"},
+		// Live dialogue SSE feed (RFC 0092): read-only stream of the curated
+		// RFC 0081 dialogue trajectory (interrogation/conversation turns; D028
+		// authored text only — same data class as the list/show routes above),
+		// so the human dialogue feed is reachable over `tailscale serve`.
+		{http.MethodGet, "/v1/runs/{run_id}/live-dialogue", "/v1/runs/run_1/live-dialogue"},
 		// Read-only HTML dashboard (server-rendered status page) + its static
 		// assets, so the human web UI is reachable over `tailscale serve` and not
 		// only the JSON API. All GET, no mutation; the page renders the same
@@ -82,9 +87,11 @@ func PermitIdentityRoute(method, rawPath string) bool {
 			// /v1/runs/{run_id}
 			return true
 		case 2:
-			// /v1/runs/{run_id}/interrogations — sibling read routes
-			// (why, dashboard, artifacts, events) are intentionally NOT here.
-			return parts[1] == "interrogations" || parts[1] == "conversations"
+			// /v1/runs/{run_id}/{interrogations|conversations|live-dialogue}.
+			// live-dialogue is the RFC 0092 SSE feed over the curated dialogue
+			// trajectory (D028 authored text). Other siblings (why, dashboard,
+			// artifacts, events) are intentionally NOT here.
+			return parts[1] == "interrogations" || parts[1] == "conversations" || parts[1] == "live-dialogue"
 		case 3:
 			// /v1/runs/{run_id}/interrogations/{interrogation_id} (incl ?view=chat)
 			return (parts[1] == "interrogations" || parts[1] == "conversations") && parts[2] != ""
