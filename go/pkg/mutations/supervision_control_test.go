@@ -385,7 +385,7 @@ func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 		t.Fatalf("open FIFO reader: %v", err)
 	}
 	reader := os.NewFile(uintptr(readerFD), "stdin.pipe.reader")
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	tx := &superviseControlFakeTx{pipePath: pipePath, pid: os.Getpid()}
 	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}

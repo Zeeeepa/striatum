@@ -121,12 +121,11 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	pointerMetadata := superviseObject(rows[0]["pointer_metadata_json"])
 	liveness := "gone"
 	var progress map[string]any
-	var pidIdentityReason string
 	if hasPID && supervisorActiveStatesRead[state] {
 		live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(supervisor["pid_start_time"]))
 		attachTmuxLiveness(supervisor, live)
 		if live.Backed == "plain_pty" {
-			pidIdentityReason = live.Class
+			pidIdentityReason := live.Class
 			if live.Alive {
 				pidIdentityReason = ""
 			}
@@ -143,9 +142,6 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 				liveness = "stalled"
 			}
 		} else {
-			if live.Backed == "tmux" {
-				pidIdentityReason = live.Class
-			}
 			if state == "attached" {
 				if tx, txErr := runner.BeginTx(ctx); txErr == nil {
 					now := nowString()
@@ -156,13 +152,11 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 					supervisor["state"] = "stopped"
 					supervisor["ended_at"] = now
 					supervisor["stop_reason"] = stopReason
-					state = "stopped"
 				}
 			}
 		}
 	} else if hasPID && state == "stopped" {
 		alive, currentStart, reason := pidLiveWithStartToken(pid, superviseString(supervisor["pid_start_time"]))
-		pidIdentityReason = reason
 		supervisor["current_pid_start_time"] = nullableText(currentStart)
 		supervisor["pid_identity"] = pidIdentityFromReason(alive, reason)
 		if alive {
@@ -905,8 +899,6 @@ func attachTmuxLivenessFromMetadata(ctx context.Context, view map[string]any, me
 	attachTmuxLiveness(view, live)
 	return live
 }
-
-
 
 func tmuxMetadata(metadata map[string]any) map[string]any {
 	raw := superviseObject(metadata["tmux"])

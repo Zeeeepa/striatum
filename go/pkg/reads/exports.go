@@ -213,10 +213,10 @@ func renderEvidenceMarkdown(run map[string]any, payload map[string]any) (string,
 	}
 	var b strings.Builder
 	b.WriteString("# Striatum Evidence Export\n\n")
-	b.WriteString(fmt.Sprintf("- run_id: `%s`\n", fmt.Sprint(run["run_id"])))
-	b.WriteString(fmt.Sprintf("- state: `%s`\n", fmt.Sprint(run["state"])))
+	_, _ = fmt.Fprintf(&b, "- run_id: `%s`\n", fmt.Sprint(run["run_id"]))
+	_, _ = fmt.Fprintf(&b, "- state: `%s`\n", fmt.Sprint(run["state"]))
 	if branch := fmt.Sprint(run["branch_name"]); branch != "" && branch != "<nil>" {
-		b.WriteString(fmt.Sprintf("- branch: `%s`\n", branch))
+		_, _ = fmt.Fprintf(&b, "- branch: `%s`\n", branch)
 	}
 	b.WriteString("\n## Snapshot\n\n")
 	b.WriteString("```json\n")

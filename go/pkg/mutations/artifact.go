@@ -612,9 +612,9 @@ func linkEscalationArtifact(
 	payloadJSONRaw := blocker["payload_json"]
 	var payloadJSON map[string]any
 	if payloadStr, ok := payloadJSONRaw.(string); ok {
-		json.Unmarshal([]byte(payloadStr), &payloadJSON)
+		_ = json.Unmarshal([]byte(payloadStr), &payloadJSON)
 	} else if payloadBytes, ok := payloadJSONRaw.([]byte); ok {
-		json.Unmarshal(payloadBytes, &payloadJSON)
+		_ = json.Unmarshal(payloadBytes, &payloadJSON)
 	} else if payloadMap, ok := payloadJSONRaw.(map[string]any); ok {
 		payloadJSON = payloadMap
 	}

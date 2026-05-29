@@ -267,7 +267,6 @@ func tmuxPaneProcessLive(ctx context.Context, r TmuxRunner, id TmuxIdentity) (in
 	if err != nil {
 		return 0, false, false
 	}
-	foundRelevantPane := false
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		parts := strings.Split(strings.TrimSpace(line), "|")
 		if len(parts) < 2 {
@@ -281,11 +280,7 @@ func tmuxPaneProcessLive(ctx context.Context, r TmuxRunner, id TmuxIdentity) (in
 		if paneID != id.PaneID && (id.PanePID <= 0 || pid != id.PanePID) {
 			continue
 		}
-		foundRelevantPane = true
 		return pid, pidSignalable(pid), true
-	}
-	if foundRelevantPane {
-		return 0, false, true
 	}
 	return 0, false, true
 }

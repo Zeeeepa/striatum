@@ -42,7 +42,7 @@ const daemonTomlScaffold = `# Striatum daemon configuration (scaffolded by ` + "
 // systemd user unit, scaffold daemon.toml, and report runtime layout.
 func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db} [flags]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db} [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -55,7 +55,7 @@ func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 	case "migrate-db":
 		return runDaemonMigrate(args[1:], stdout, stderr, version)
 	default:
-		fmt.Fprintf(stderr, "unknown daemon command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown daemon command: %s\n", args[0])
 		return 2
 	}
 }
@@ -82,7 +82,7 @@ func runDaemonMigrate(args []string, stdout, stderr io.Writer, version string) i
 		case "--json":
 			jsonOutput = true
 		default:
-			fmt.Fprintf(stderr, "unknown daemon migrate flag: %s\n", args[i])
+			_, _ = fmt.Fprintf(stderr, "unknown daemon migrate flag: %s\n", args[i])
 			return 2
 		}
 	}
@@ -92,7 +92,7 @@ func runDaemonMigrate(args []string, stdout, stderr io.Writer, version string) i
 	// ResolveConfig("") falls back to STRIATUM_DAEMON_DB_URL / daemon.toml.
 	cfg := db.ResolveConfig(adminURL)
 	if cfg.URL == "" {
-		fmt.Fprintln(stderr, "daemon migrate: no Postgres DSN; pass --admin-url, set STRIATUM_DAEMON_ADMIN_DB_URL, or configure daemon.toml")
+		_, _ = fmt.Fprintln(stderr, "daemon migrate: no Postgres DSN; pass --admin-url, set STRIATUM_DAEMON_ADMIN_DB_URL, or configure daemon.toml")
 		return 1
 	}
 	if version == "" {
@@ -100,14 +100,14 @@ func runDaemonMigrate(args []string, stdout, stderr io.Writer, version string) i
 	}
 	pool, schemaVersion, err := db.ConnectAndMigrate(context.Background(), cfg.URL, version)
 	if err != nil {
-		fmt.Fprintf(stderr, "daemon migrate failed: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "daemon migrate failed: %v\n", err)
 		return 1
 	}
 	defer pool.Close()
 	if jsonOutput {
 		return writeDaemonJSON(stdout, stderr, map[string]any{"ok": true, "data": map[string]any{"schema_version": schemaVersion, "dsn_source": cfg.Source}})
 	}
-	fmt.Fprintf(stdout, "migrations applied; schema_version=%d (dsn source: %s)\n", schemaVersion, cfg.Source)
+	_, _ = fmt.Fprintf(stdout, "migrations applied; schema_version=%d (dsn source: %s)\n", schemaVersion, cfg.Source)
 	return 0
 }
 
@@ -144,17 +144,17 @@ func renderUnit() string {
 func runDaemonInstall(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseDaemonFlags(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	if flags.printUnit {
-		fmt.Fprint(stdout, renderUnit())
+		_, _ = fmt.Fprint(stdout, renderUnit())
 		return 0
 	}
 
 	layout, err := resolveLayout()
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
 
@@ -162,7 +162,7 @@ func runDaemonInstall(args []string, stdout, stderr io.Writer) int {
 	// regardless of whether systemd is present.
 	tomlCreated, err := scaffoldDaemonTOML(layout.configTOML)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
 
@@ -183,27 +183,27 @@ func runDaemonInstall(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if err := os.MkdirAll(filepath.Dir(layout.unitPath), 0o755); err != nil {
-		fmt.Fprintf(stderr, "create unit directory: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "create unit directory: %v\n", err)
 		return 1
 	}
 	if err := os.WriteFile(layout.unitPath, []byte(renderUnit()), 0o644); err != nil {
-		fmt.Fprintf(stderr, "write unit: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "write unit: %v\n", err)
 		return 1
 	}
 
 	if err := systemctl(stderr, "daemon-reload"); err != nil {
-		fmt.Fprintf(stderr, "systemctl daemon-reload: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "systemctl daemon-reload: %v\n", err)
 		return 1
 	}
 	started := false
 	if flags.noStart {
 		if err := systemctl(stderr, "enable", unitName); err != nil {
-			fmt.Fprintf(stderr, "systemctl enable: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "systemctl enable: %v\n", err)
 			return 1
 		}
 	} else {
 		if err := systemctl(stderr, "enable", "--now", unitName); err != nil {
-			fmt.Fprintf(stderr, "systemctl enable --now: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "systemctl enable --now: %v\n", err)
 			return 1
 		}
 		started = true
@@ -225,37 +225,37 @@ func runDaemonInstall(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 
-	fmt.Fprintf(stdout, "installed unit: %s\n", layout.unitPath)
+	_, _ = fmt.Fprintf(stdout, "installed unit: %s\n", layout.unitPath)
 	if tomlCreated {
-		fmt.Fprintf(stdout, "scaffolded config: %s (set postgres_url before first start)\n", layout.configTOML)
+		_, _ = fmt.Fprintf(stdout, "scaffolded config: %s (set postgres_url before first start)\n", layout.configTOML)
 	} else {
-		fmt.Fprintf(stdout, "config (unchanged): %s\n", layout.configTOML)
+		_, _ = fmt.Fprintf(stdout, "config (unchanged): %s\n", layout.configTOML)
 	}
 	if started {
-		fmt.Fprintln(stdout, "daemon: enabled and started")
+		_, _ = fmt.Fprintln(stdout, "daemon: enabled and started")
 	} else {
-		fmt.Fprintln(stdout, "daemon: enabled (not started; --no-start)")
+		_, _ = fmt.Fprintln(stdout, "daemon: enabled (not started; --no-start)")
 	}
-	fmt.Fprintf(stdout, "socket:       %s\n", layout.socket)
-	fmt.Fprintf(stdout, "token:        %s\n", layout.token)
-	fmt.Fprintf(stdout, "mcp endpoint: %s\n", layout.mcpEndpoint)
+	_, _ = fmt.Fprintf(stdout, "socket:       %s\n", layout.socket)
+	_, _ = fmt.Fprintf(stdout, "token:        %s\n", layout.token)
+	_, _ = fmt.Fprintf(stdout, "mcp endpoint: %s\n", layout.mcpEndpoint)
 	return 0
 }
 
 func runDaemonUninstall(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseDaemonFlags(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	layout, err := resolveLayout()
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
 	if !systemdAvailable() {
-		fmt.Fprintln(stdout, "systemd not detected; nothing to uninstall.")
-		fmt.Fprintf(stdout, "If you ran the daemon in the foreground, stop that process. Config left at %s.\n", layout.configTOML)
+		_, _ = fmt.Fprintln(stdout, "systemd not detected; nothing to uninstall.")
+		_, _ = fmt.Fprintf(stdout, "If you ran the daemon in the foreground, stop that process. Config left at %s.\n", layout.configTOML)
 		return 0
 	}
 	// Best-effort disable; ignore failures so uninstall is idempotent even when
@@ -265,7 +265,7 @@ func runDaemonUninstall(args []string, stdout, stderr io.Writer) int {
 	if err := os.Remove(layout.unitPath); err == nil {
 		removed = true
 	} else if !os.IsNotExist(err) {
-		fmt.Fprintf(stderr, "remove unit: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "remove unit: %v\n", err)
 		return 1
 	}
 	_ = systemctl(stderr, "daemon-reload")
@@ -281,23 +281,23 @@ func runDaemonUninstall(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 	if removed {
-		fmt.Fprintf(stdout, "removed unit: %s\n", layout.unitPath)
+		_, _ = fmt.Fprintf(stdout, "removed unit: %s\n", layout.unitPath)
 	} else {
-		fmt.Fprintf(stdout, "no unit to remove at %s\n", layout.unitPath)
+		_, _ = fmt.Fprintf(stdout, "no unit to remove at %s\n", layout.unitPath)
 	}
-	fmt.Fprintf(stdout, "left config and data intact (%s)\n", layout.configTOML)
+	_, _ = fmt.Fprintf(stdout, "left config and data intact (%s)\n", layout.configTOML)
 	return 0
 }
 
 func runDaemonStatus(args []string, stdout, stderr io.Writer) int {
 	flags, err := parseDaemonFlags(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	layout, err := resolveLayout()
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
 
@@ -334,17 +334,17 @@ func runDaemonStatus(args []string, stdout, stderr io.Writer) int {
 		})
 	}
 
-	fmt.Fprintln(stdout, "striatum daemon status")
+	_, _ = fmt.Fprintln(stdout, "striatum daemon status")
 	if systemdAvailable() {
-		fmt.Fprintf(stdout, "  unit:    %s (installed=%t, enabled=%s, active=%s)\n", layout.unitPath, unitInstalled, orDash(enabled), orDash(active))
+		_, _ = fmt.Fprintf(stdout, "  unit:    %s (installed=%t, enabled=%s, active=%s)\n", layout.unitPath, unitInstalled, orDash(enabled), orDash(active))
 	} else {
-		fmt.Fprintf(stdout, "  unit:    systemd not detected (foreground mode; unit path %s)\n", layout.unitPath)
+		_, _ = fmt.Fprintf(stdout, "  unit:    systemd not detected (foreground mode; unit path %s)\n", layout.unitPath)
 	}
-	fmt.Fprintf(stdout, "  socket:  %s (present=%t)\n", layout.socket, socketPresent)
-	fmt.Fprintf(stdout, "  token:   %s\n", layout.token)
-	fmt.Fprintf(stdout, "  mcp:     %s\n", layout.mcpEndpoint)
-	fmt.Fprintf(stdout, "  config:  %s (dsn_configured=%t)\n", layout.configTOML, dsnConfigured)
-	fmt.Fprintf(stdout, "  doctor:  %s\n", doctor)
+	_, _ = fmt.Fprintf(stdout, "  socket:  %s (present=%t)\n", layout.socket, socketPresent)
+	_, _ = fmt.Fprintf(stdout, "  token:   %s\n", layout.token)
+	_, _ = fmt.Fprintf(stdout, "  mcp:     %s\n", layout.mcpEndpoint)
+	_, _ = fmt.Fprintf(stdout, "  config:  %s (dsn_configured=%t)\n", layout.configTOML, dsnConfigured)
+	_, _ = fmt.Fprintf(stdout, "  doctor:  %s\n", doctor)
 	return 0
 }
 
@@ -450,11 +450,11 @@ func runDoctor() string {
 }
 
 func printForegroundRecipe(stdout io.Writer, l layout) {
-	fmt.Fprintln(stdout, "systemd user services not detected on this host.")
-	fmt.Fprintln(stdout, "Run the daemon in the foreground instead:")
-	fmt.Fprintf(stdout, "  1. Set a Postgres DSN in %s (postgres_url) or export STRIATUM_DAEMON_DB_URL.\n", l.configTOML)
-	fmt.Fprintf(stdout, "  2. striatumd -socket %s\n", l.socket)
-	fmt.Fprintln(stdout, "  3. In another shell, run `striatum doctor` to confirm health.")
+	_, _ = fmt.Fprintln(stdout, "systemd user services not detected on this host.")
+	_, _ = fmt.Fprintln(stdout, "Run the daemon in the foreground instead:")
+	_, _ = fmt.Fprintf(stdout, "  1. Set a Postgres DSN in %s (postgres_url) or export STRIATUM_DAEMON_DB_URL.\n", l.configTOML)
+	_, _ = fmt.Fprintf(stdout, "  2. striatumd -socket %s\n", l.socket)
+	_, _ = fmt.Fprintln(stdout, "  3. In another shell, run `striatum doctor` to confirm health.")
 }
 
 func fileExists(path string) bool {
@@ -472,9 +472,9 @@ func orDash(s string) string {
 func writeDaemonJSON(stdout, stderr io.Writer, payload map[string]any) int {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, string(encoded))
+	_, _ = fmt.Fprintln(stdout, string(encoded))
 	return 0
 }

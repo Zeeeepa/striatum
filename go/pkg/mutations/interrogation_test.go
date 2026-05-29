@@ -463,10 +463,6 @@ func TestInterrogationMultiTurn(t *testing.T) {
 		if fmt.Sprint(turn["body"]) != want[i] {
 			t.Fatalf("turn %d body = %v, want %v", i, turn["body"], want[i])
 		}
-		if fmt.Sprint(turn["interrogation_id"]) != id {
-			// interrogation_id correlation is on the row payload, not surfaced
-			// in the turn map directly; verify via the show interrogation block.
-		}
 	}
 }
 

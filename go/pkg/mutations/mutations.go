@@ -569,7 +569,7 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 	eventType := "run.canceled"
 	source := "run_canceled"
 	reason := "run_canceled"
-	var payload map[string]any = map[string]any{"reason": "all_jobs_canceled"}
+	payload := map[string]any{"reason": "all_jobs_canceled"}
 	if hasCompleted {
 		state = "completed"
 		eventType = "run.completed"

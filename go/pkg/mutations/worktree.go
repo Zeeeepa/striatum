@@ -397,10 +397,7 @@ func worktreePathHasSymlinkComponent(root, target string) bool {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return false
-			}
-			return true
+			return !errors.Is(err, os.ErrNotExist)
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return true

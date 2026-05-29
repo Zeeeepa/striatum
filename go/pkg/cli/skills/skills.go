@@ -20,14 +20,14 @@ import (
 // (empty → current working directory). version stamps written manifests.
 func Run(args []string, stdout, stderr io.Writer, repoRoot, version string) int {
 	if len(args) < 2 {
-		fmt.Fprintf(stderr, "usage: striatum %s install ...\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "usage: striatum %s install ...\n", args[0])
 		return 2
 	}
 	repo := repoRoot
 	if repo == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
 		repo = wd
@@ -35,7 +35,7 @@ func Run(args []string, stdout, stderr io.Writer, repoRoot, version string) int 
 	switch args[0] {
 	case "skills":
 		if args[1] != "install" {
-			fmt.Fprintf(stderr, "unknown skills command: %s\n", args[1])
+			_, _ = fmt.Fprintf(stderr, "unknown skills command: %s\n", args[1])
 			return 2
 		}
 		return runSkillsInstall(args[2:], stdout, stderr, repo, version)
@@ -46,11 +46,11 @@ func Run(args []string, stdout, stderr io.Writer, repoRoot, version string) int 
 		case "uninstall":
 			return runPluginUninstall(args[2:], stdout, stderr, repo, version)
 		default:
-			fmt.Fprintf(stderr, "unknown plugin command: %s\n", args[1])
+			_, _ = fmt.Fprintf(stderr, "unknown plugin command: %s\n", args[1])
 			return 2
 		}
 	}
-	fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
+	_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 	return 2
 }
 
@@ -143,10 +143,7 @@ func runPluginInstall(args []string, stdout, stderr io.Writer, repo, version str
 		return emitError(stdout, stderr, fs.bools["json"], err, 2)
 	}
 	jsonOut := fs.bools["json"]
-	withMarketplace := true
-	if fs.bools["no-marketplace"] {
-		withMarketplace = false
-	}
+	withMarketplace := !fs.bools["no-marketplace"]
 	target := repo
 	if t := fs.value("target", ""); t != "" {
 		target = t
@@ -230,13 +227,13 @@ func emit(stdout, stderr io.Writer, jsonOut bool, data any, human string) int {
 	if jsonOut {
 		encoded, err := json.Marshal(map[string]any{"ok": true, "data": data})
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
-		fmt.Fprintln(stdout, string(encoded))
+		_, _ = fmt.Fprintln(stdout, string(encoded))
 		return 0
 	}
-	fmt.Fprintln(stdout, human)
+	_, _ = fmt.Fprintln(stdout, human)
 	return 0
 }
 
@@ -247,11 +244,11 @@ func emitError(stdout, stderr io.Writer, jsonOut bool, err error, code int) int 
 			"error": map[string]any{"message": err.Error(), "code": code},
 		})
 		if mErr == nil {
-			fmt.Fprintln(stdout, string(encoded))
+			_, _ = fmt.Fprintln(stdout, string(encoded))
 			return code
 		}
 	}
-	fmt.Fprintln(stderr, err.Error())
+	_, _ = fmt.Fprintln(stderr, err.Error())
 	return code
 }
 
@@ -261,9 +258,9 @@ func skillsHuman(r installers.SkillsResult) string {
 
 func skillsAllHuman(r installers.SkillsAllResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "skills all (%s):", r.Scope)
+	_, _ = fmt.Fprintf(&b, "skills all (%s):", r.Scope)
 	for _, sub := range r.Results {
-		fmt.Fprintf(&b, "\n  %s: %d files → %s", sub.Profile, len(sub.Files), sub.ManifestPath)
+		_, _ = fmt.Fprintf(&b, "\n  %s: %d files → %s", sub.Profile, len(sub.Files), sub.ManifestPath)
 	}
 	return b.String()
 }

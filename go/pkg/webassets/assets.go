@@ -151,10 +151,7 @@ func RenderConversation(meta ConversationMeta, turns []ConversationTurn) ([]byte
 		Turns []viewTurn
 	}{ConversationMeta: meta}
 	for _, turn := range turns {
-		view.Turns = append(view.Turns, viewTurn{
-			Speaker: turn.Speaker,
-			Body:    turn.Body,
-		})
+		view.Turns = append(view.Turns, viewTurn(turn))
 	}
 	var builder strings.Builder
 	if err := tmpl.Execute(&builder, view); err != nil {

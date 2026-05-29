@@ -183,12 +183,12 @@ func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(),
 	path := f.Name()
 	cleanup := func() { _ = os.Remove(path) }
 	if err := os.Chmod(path, 0o600); err != nil {
-		f.Close()
+		_ = f.Close()
 		cleanup()
 		return "", func() {}, err
 	}
 	if _, err := f.Write(body); err != nil {
-		f.Close()
+		_ = f.Close()
 		cleanup()
 		return "", func() {}, err
 	}

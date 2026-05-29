@@ -173,7 +173,7 @@ func (h *Handler) streamLivePTY(w http.ResponseWriter, r *http.Request, sessionI
 			}
 		}
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Seek to end minus 32KB for some initial history, or start from 0 if small.
 	fi, err := file.Stat()

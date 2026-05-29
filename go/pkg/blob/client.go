@@ -144,7 +144,7 @@ func (c *Client) GetBytes(ctx context.Context, bucket, key, expectedSha256 strin
 	if err != nil {
 		return nil, fmt.Errorf("blob.GetBytes: get: %w", err)
 	}
-	defer obj.Close()
+	defer func() { _ = obj.Close() }()
 	body, err := io.ReadAll(obj)
 	if err != nil {
 		return nil, fmt.Errorf("blob.GetBytes: read: %w", err)

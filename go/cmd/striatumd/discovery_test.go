@@ -20,7 +20,7 @@ func TestWriteDaemonDiscoveryFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	webOpts := webServiceOptions{
 		ServiceToken: "secret_token_123",

@@ -275,7 +275,7 @@ func TestHTTPHandlerStreamsMessageResponsesFromSSEAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open stream: %v", err)
 	}
-	defer stream.Body.Close()
+	defer func() { _ = stream.Body.Close() }()
 	reader := bufio.NewReader(stream.Body)
 
 	event, data := readTestSSEEvent(t, reader)
@@ -492,9 +492,10 @@ func readTestSSEEvent(t *testing.T, reader *bufio.Reader) (string, string) {
 			continue
 		}
 		value = strings.TrimPrefix(value, " ")
-		if field == "event" {
+		switch field {
+		case "event":
 			event = value
-		} else if field == "data" {
+		case "data":
 			data = append(data, value)
 		}
 	}

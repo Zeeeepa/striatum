@@ -128,7 +128,7 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 }
 
 func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -153,7 +153,7 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 const MaxEnvelopeBytes = 8 * 1024 * 1024
 
 func (s *Server) ServeConn(ctx context.Context, rwc io.ReadWriteCloser, connectionID string) error {
-	defer rwc.Close()
+	defer func() { _ = rwc.Close() }()
 	reader := bufio.NewScanner(rwc)
 	reader.Buffer(make([]byte, 64*1024), MaxEnvelopeBytes)
 	writer := bufio.NewWriter(rwc)

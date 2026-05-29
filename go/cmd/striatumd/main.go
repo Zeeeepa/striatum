@@ -89,9 +89,9 @@ func (a *supervisorPointerStoreAdapter) GetSupervisorPointer(ctx context.Context
 }
 
 var (
-	daemonVersion = "go-dev"
-	buildGitSHA   = "unknown"
-	buildDirty    = "unknown"
+	daemonVersion    = "go-dev"
+	buildGitSHA      = "unknown"
+	buildDirty       = "unknown"
 	globalSocketPath string
 )
 
@@ -231,9 +231,7 @@ func main() {
 	server.SubstrateSchema = substrateSchema
 	server.SealedApplyFunc = daemonapply.FallbackSigningKeyStatus
 	server.Authorizer = authorizer
-	if recorder != nil {
-		server.AuditRecorder = recorder
-	}
+	server.AuditRecorder = recorder
 	var shutdownOnce sync.Once
 	shutdownHook := func(context.Context) error {
 		go func() {

@@ -1276,7 +1276,7 @@ func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, err
 		return 0, err
 	}
 	file := os.NewFile(uintptr(fd), pipePath)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	buffered := buf.PopAll()
 	for _, pkt := range buffered {
@@ -1349,7 +1349,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		return supervisionLaunchResult{}, fmt.Errorf("open stdin fifo: %w", err)
 	}
 	stdin := os.NewFile(uintptr(fd), "stdin.pipe")
-	defer stdin.Close()
+	defer func() { _ = stdin.Close() }()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
 	cmd.Env = supervisedEnv(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
@@ -1358,12 +1358,12 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stdout.Close()
+	defer func() { _ = stdout.Close() }()
 	stderr, err := openSupervisedStderr()
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if runtime.GOOS != "windows" {
@@ -1409,7 +1409,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer eventFile.Close()
+	defer func() { _ = eventFile.Close() }()
 	cmd := exec.CommandContext(ctx, helper)
 	cmd.Dir = config.RepoRoot
 	cmd.Stdout = eventFile
@@ -1417,7 +1417,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -1488,7 +1488,7 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer eventFile.Close()
+	defer func() { _ = eventFile.Close() }()
 	startOffset, err := eventFile.Seek(0, io.SeekEnd)
 	if err != nil {
 		return supervisionLaunchResult{}, err
@@ -1513,7 +1513,7 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
