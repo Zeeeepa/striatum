@@ -1,0 +1,270 @@
+package mutations
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
+)
+
+// revisionCycle is the runtime view of a workflow `cycles[]` entry that the
+// engine consults when a review job records a `needs_revision` verdict.
+// See RFC 0083 §2 (bounded revision cycle) and RFC 0045 for the schema shape.
+type revisionCycle struct {
+	from          string
+	to            string
+	onVerdict     string
+	maxIterations int
+	allowSameLane bool
+}
+
+// workflowCyclesForJob loads the run's workflow snapshot and returns the
+// declared cycles whose `from` matches the given review job's workflow_job_id.
+func workflowCyclesForJob(ctx context.Context, runner any, repositoryID string, job map[string]any) ([]revisionCycle, error) {
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", fmt.Sprint(run["workflow_snapshot_id"]), false)
+	if err != nil {
+		return nil, err
+	}
+	fromID := fmt.Sprint(job["workflow_job_id"])
+	cycles := []revisionCycle{}
+	for _, item := range asList(asMap(snapshot["workflow_json"])["cycles"]) {
+		def := asMap(item)
+		if fmt.Sprint(def["from"]) != fromID {
+			continue
+		}
+		cycles = append(cycles, revisionCycle{
+			from:          fromID,
+			to:            fmt.Sprint(def["to"]),
+			onVerdict:     fmt.Sprint(def["on_verdict"]),
+			maxIterations: intValue(def["max_iterations"]),
+			allowSameLane: boolValue(def["allow_same_lane"]),
+		})
+	}
+	return cycles, nil
+}
+
+// matchRevisionCycle returns the cycle whose `from` is the review job and whose
+// `on_verdict` matches the recorded verdict. An absent/empty on_verdict defaults
+// to "needs_revision" per RFC 0083 (the only verdict that drives a revision
+// cycle today).
+func matchRevisionCycle(cycles []revisionCycle, verdict string) (revisionCycle, bool) {
+	for _, cycle := range cycles {
+		on := cycle.onVerdict
+		if on == "" {
+			on = "needs_revision"
+		}
+		if on == verdict {
+			return cycle, true
+		}
+	}
+	return revisionCycle{}, false
+}
+
+// countRevisionRoutings returns how many times this cycle (review job ->
+// target) has already been fired for the run, so max_iterations can be
+// enforced. It counts emitted revision.cycle_routed events for the review job's
+// workflow_job_id, which is monotonic and crash-safe (events are append-only).
+func countRevisionRoutings(ctx context.Context, runner any, repositoryID string, job map[string]any, cycle revisionCycle) (int, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND event_type = 'revision.cycle_routed'
+		   AND payload_json->>'from_workflow_job_id' = $3
+		   AND payload_json->>'to_workflow_job_id' = $4`,
+		repositoryID, fmt.Sprint(job["run_id"]), cycle.from, cycle.to)
+	if err != nil {
+		return 0, err
+	}
+	return intValue(row["n"]), nil
+}
+
+// routeRevisionCycle handles a `needs_revision` verdict that matches a declared
+// workflow cycle: it completes the review job, then re-opens the cycle target
+// job for revision. Returns false (and no error) when the cycle's iteration
+// budget is exhausted or the target job is absent, so the caller can fall back
+// to a human checkpoint.
+func routeRevisionCycle(
+	ctx context.Context,
+	runner any,
+	repositoryID string,
+	job map[string]any,
+	sessionID, leaseID string,
+	cycle revisionCycle,
+	verdict string,
+) (map[string]any, bool, error) {
+	priorRoutings, err := countRevisionRoutings(ctx, runner, repositoryID, job, cycle)
+	if err != nil {
+		return nil, false, err
+	}
+	// max_iterations bounds how many revision re-works the cycle may drive.
+	// Enforce it only when a positive budget is declared; once exhausted the
+	// caller opens a human checkpoint instead of looping forever.
+	if cycle.maxIterations > 0 && priorRoutings >= cycle.maxIterations {
+		return nil, false, nil
+	}
+
+	target, err := latestJobForWorkflowID(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), cycle.to)
+	if err != nil {
+		return nil, false, err
+	}
+	if target == nil {
+		// The declared cycle target does not exist in this run's job graph;
+		// fall back to a human checkpoint rather than silently dropping it.
+		return nil, false, nil
+	}
+
+	now := nowString()
+
+	// Complete the review job (the verdict is recorded; the review is done).
+	if err := completeReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID, "needs_revision routed to revision cycle"); err != nil {
+		return nil, false, err
+	}
+
+	iteration := priorRoutings + 1
+	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "revision.cycle_routed", sessionID, job["job_id"], nil, nil, leaseID, map[string]any{
+		"from_workflow_job_id": cycle.from,
+		"to_workflow_job_id":   cycle.to,
+		"target_job_id":        target["job_id"],
+		"verdict":              verdict,
+		"iteration":            iteration,
+		"max_iterations":       cycle.maxIterations,
+		"allow_same_lane":      cycle.allowSameLane,
+	}); err != nil {
+		return nil, false, err
+	}
+
+	// Re-open the cycle target for revision. The target may be `completed`
+	// (the usual case: an upstream synthesis/implement job that already
+	// finished); re-opening it as part of an accepted revision cycle is a
+	// legitimate transition (F3). Reset it to a clean state and re-enqueue.
+	if err := reopenJobForRevision(ctx, runner, repositoryID, target, now); err != nil {
+		return nil, false, err
+	}
+	messageID, err := enqueueJob(ctx, runner, repositoryID, fmt.Sprint(target["job_id"]))
+	if err != nil {
+		return nil, false, err
+	}
+
+	if err := maybeCompleteRun(ctx, runner, repositoryID, fmt.Sprint(job["run_id"])); err != nil {
+		return nil, false, err
+	}
+
+	return map[string]any{
+		"status":               "revision_routed",
+		"job_id":               job["job_id"],
+		"verdict":              verdict,
+		"cycle_target_job_id":  target["job_id"],
+		"cycle_to":             cycle.to,
+		"cycle_iteration":      iteration,
+		"cycle_max_iterations": cycle.maxIterations,
+		"target_message_id":    messageID,
+	}, true, nil
+}
+
+// isDeclaredCycleTarget reports whether the given job's workflow_job_id is the
+// `to` target of any declared revision cycle in the run's workflow. This lets
+// the operator retry path (run.retry_job) re-open a completed cycle target for
+// a manual revision (F3) without opening retries on arbitrary completed jobs.
+func isDeclaredCycleTarget(ctx context.Context, runner any, repositoryID string, job map[string]any) (bool, error) {
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return false, err
+	}
+	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", fmt.Sprint(run["workflow_snapshot_id"]), false)
+	if err != nil {
+		return false, err
+	}
+	workflowJobID := fmt.Sprint(job["workflow_job_id"])
+	for _, item := range asList(asMap(snapshot["workflow_json"])["cycles"]) {
+		if fmt.Sprint(asMap(item)["to"]) == workflowJobID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// latestJobForWorkflowID returns the highest-attempt job row for a given
+// workflow_job_id in a run, or nil when no such job exists.
+func latestJobForWorkflowID(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) (map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT * FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2 AND workflow_job_id = $3
+		 ORDER BY attempt DESC, created_at DESC
+		 LIMIT 1
+		 FOR UPDATE`, repositoryID, runID, workflowJobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return rows[0], nil
+}
+
+// reopenJobForRevision resets a (typically completed) cycle-target job back to
+// a blocked state so enqueueJob can re-issue its work. It releases any active
+// lease, cancels in-flight work messages and open blockers, clears terminal
+// timestamps, and bumps the attempt counter.
+func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, job map[string]any, now string) error {
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+	state := fmt.Sprint(job["state"])
+	switch state {
+	case "completed", "failed", "canceled", "skipped", "waiting_human", "blocked":
+		// re-openable below
+	default:
+		return rpc.NewError("invalid_transition", fmt.Sprintf("cycle target job state %q cannot be re-opened for revision", state), nil)
+	}
+	// Release any active lease still pinned to the target.
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = $1, release_reason = 'revision_cycle'
+		 WHERE repository_id = $2 AND resource_id = $3 AND state = 'active'`,
+		now, repositoryID, job["job_id"]); err != nil {
+		return err
+	}
+	// Cancel any in-flight work messages so enqueueJob can publish a fresh one
+	// (the uq_active_work_message_per_job partial unique index would otherwise
+	// reject a new pending message).
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.queue_messages
+		   SET state = 'canceled', updated_at = $1, current_lease_id = NULL
+		 WHERE repository_id = $2 AND job_id = $3
+		   AND state IN ('pending','claimed','acked')`,
+		now, repositoryID, job["job_id"]); err != nil {
+		return err
+	}
+	// Cancel any open blockers on the target.
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.blockers
+		   SET state = 'canceled', resolved_at = $1
+		 WHERE repository_id = $2 AND job_id = $3 AND resolved_at IS NULL`,
+		now, repositoryID, job["job_id"]); err != nil {
+		return err
+	}
+	// Reset the job to a clean blocked state and bump the attempt. enqueueJob
+	// transitions blocked->queued and attaches a fresh message.
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'blocked',
+		       started_at = NULL,
+		       completed_at = NULL,
+		       current_lease_id = NULL,
+		       current_message_id = NULL,
+		       attempt = attempt + 1
+		 WHERE repository_id = $1 AND job_id = $2`,
+		repositoryID, job["job_id"]); err != nil {
+		return err
+	}
+	return nil
+}

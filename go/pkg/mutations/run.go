@@ -249,8 +249,21 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return nil, rpc.NewError("invalid_transition", "job does not belong to the requested run", nil)
 		}
 		previousState := fmt.Sprint(job["state"])
-		if previousState != "failed" && previousState != "canceled" && previousState != "blocked" {
-			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("job state %q is not retriable (must be failed, canceled, or blocked)", previousState), nil)
+		retriable := previousState == "failed" || previousState == "canceled" || previousState == "blocked"
+		// A `completed` job is retriable only when it is the declared target of
+		// a revision cycle: re-opening a completed upstream synthesis/implement
+		// job for a manual revision is a legitimate transition (F3, RFC 0083).
+		// This keeps arbitrary completed jobs non-retriable while giving the
+		// operator a path to drive a revision when auto-routing did not fire.
+		if !retriable && previousState == "completed" {
+			isCycleTarget, err := isDeclaredCycleTarget(ctx, tx, repositoryID, job)
+			if err != nil {
+				return nil, err
+			}
+			retriable = isCycleTarget
+		}
+		if !retriable {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("job state %q is not retriable (must be failed, canceled, or blocked, or a completed revision-cycle target)", previousState), nil)
 		}
 		now := nowString()
 		if err := tx.Exec(ctx, `
