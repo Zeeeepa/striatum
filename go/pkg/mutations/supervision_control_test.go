@@ -595,35 +595,64 @@ func TestSuperviseSendMarksDeliveryDegradedWhenPipeHasNoReader(t *testing.T) {
 			"pane_pid":     os.Getpid(),
 		},
 	}
-	tx1 := &superviseControlFakeTx{pipePath: pipePath, pid: os.Getpid(), metadata: metadata}
-	tx2 := &superviseControlFakeTx{metadata: metadata}
-	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx1, tx2}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+
+	// 10 successful buffered sends, plus 1 failing overflow send, plus 1 degradation update tx
+	var txs []*superviseControlFakeTx
+	for i := 0; i < 11; i++ {
+		txs = append(txs, &superviseControlFakeTx{pipePath: pipePath, pid: os.Getpid(), metadata: metadata})
+	}
+	degradeTx := &superviseControlFakeTx{metadata: metadata}
+	txs = append(txs, degradeTx)
+
+	runner := &superviseControlFakeRunner{txs: txs}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
+	// Perform 10 successful sends (which are buffered)
+	for i := 1; i <= 10; i++ {
+		_, err := HandleSuperviseSend(ctx, runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			RequestID:     "req_send_no_reader_" + strconv.Itoa(i),
+			Method:        "supervise.send",
+			Params: map[string]any{
+				"repository_id": "repo_1",
+				"session_id":    "sess_1",
+				"packet_id":     "packet_" + strconv.Itoa(i),
+			},
+		})
+		if err != nil {
+			t.Fatalf("send %d failed unexpectedly: %v", i, err)
+		}
+	}
+
+	// The 11th send must fail with queue overflow / degraded status
 	_, err := HandleSuperviseSend(ctx, runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "req_send_no_reader",
+		RequestID:     "req_send_no_reader_11",
 		Method:        "supervise.send",
 		Params: map[string]any{
 			"repository_id": "repo_1",
 			"session_id":    "sess_1",
-			"packet_id":     "packet_1",
+			"packet_id":     "packet_11",
 		},
 	})
 	if err == nil {
-		t.Fatalf("expected supervise send to reject missing stdin reader")
+		t.Fatalf("expected 11th supervise send to fail due to buffer overflow")
 	}
+
 	rpcErr, ok := err.(*rpc.Error)
 	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: stdin_reader_missing") {
 		t.Fatalf("err = %#v", err)
 	}
-	if !tx1.rolledBack || !tx2.committed {
-		t.Fatalf("transactions rollback/commit = tx1:%v tx2:%v", tx1.rolledBack, tx2.committed)
+
+	// Verify that the failing tx (the 11th) rolled back, and the degrade update tx (the 12th) committed
+	if !txs[10].rolledBack || !degradeTx.committed {
+		t.Fatalf("transactions rollback/commit = tx11:%v degradeTx:%v", txs[10].rolledBack, degradeTx.committed)
 	}
-	update := tx2.pointerMetadataUpdate()
+
+	update := degradeTx.pointerMetadataUpdate()
 	if update == nil {
-		t.Fatalf("missing persisted delivery degradation metadata update: %#v", tx2.execs)
+		t.Fatalf("missing persisted delivery degradation metadata update: %#v", degradeTx.execs)
 	}
 	updated := update.args[0].(map[string]any)
 	tmux := updated["tmux"].(map[string]any)
@@ -631,8 +660,8 @@ func TestSuperviseSendMarksDeliveryDegradedWhenPipeHasNoReader(t *testing.T) {
 	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "stdin_reader_missing" {
 		t.Fatalf("delivery liveness = %#v", delivery)
 	}
-	if len(tx1.eventInserts()) != 0 {
-		t.Fatalf("missing-reader send should not record packet delivery: %#v", tx1.execs)
+	if len(txs[10].eventInserts()) != 0 {
+		t.Fatalf("missing-reader send should not record packet delivery: %#v", txs[10].execs)
 	}
 }
 
@@ -1014,6 +1043,42 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 
 func (tx *superviseControlFakeTx) QueryScalar(context.Context, string, ...any) (string, error) {
 	return "", errors.New("unexpected query scalar")
+}
+
+func (tx *superviseControlFakeTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "LEFT JOIN striatumd.process_supervisors ps") && strings.Contains(sql, "FROM striatumd.sessions s") {
+		var pid any
+		if tx.pid > 0 {
+			pid = tx.pid
+		}
+		metadata := tx.metadata
+		if metadata == nil {
+			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}
+		}
+		now := time.Now().UTC()
+		merged := map[string]any{
+			"supervisor_id":                "sup_1",
+			"pid":                          pid,
+			"pid_start_time":               tx.pidStart,
+			"supervisor_state":             "attached",
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  pid,
+			"pointer_pid_start_time":       tx.pidStart,
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        metadata,
+			"daemon_supervisor_id":         "dsup_1",
+			"daemon_state":                 "attached",
+			"state":                        "active",
+			"registered_at":                now.Add(-10 * time.Minute),
+			"last_tools_list_at":           now.Add(-9 * time.Minute),
+			"last_await_packet_at":         now.Add(-8 * time.Minute),
+			"last_mcp_request_at":          now.Add(-1 * time.Minute),
+			"liveness_stall_class":         nil,
+			"liveness_stall_since":         nil,
+		}
+		return runPrepareRowsFromMaps([]map[string]any{merged}), nil
+	}
+	return nil, errors.New("unexpected tx query: " + sql)
 }
 
 func (tx *superviseControlFakeTx) Commit(context.Context) error {

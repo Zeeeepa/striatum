@@ -9,6 +9,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -52,7 +53,7 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if sessionID == "" || jobID == "" || leaseID == "" || pathText == "" || verdict == "" {
 		return nil, rpc.NewError("schema_invalid", "review.submit requires session_id, job_id, lease_id, path, and verdict", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	res, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err
@@ -94,6 +95,49 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"downstream_jobs": downstream,
 		}, nil
 	})
+	var pgErr *pgconn.PgError
+	if err != nil && errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		fmt.Printf("Artifact already published under logical name %s, proceeding with verdict recording.\n", logicalName)
+		return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+			if err != nil {
+				return nil, err
+			}
+			existing, qErr := oneRow(ctx, tx, `
+				SELECT artifact_id FROM striatumd.artifacts
+				 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3 AND logical_name = $4
+				 LIMIT 1`, repositoryID, job["run_id"], jobID, logicalName)
+			if qErr != nil {
+				return nil, fmt.Errorf("lookup existing artifact: %w", qErr)
+			}
+			existingArtifactID := fmt.Sprint(existing["artifact_id"])
+			verdictResult, err := recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, existingArtifactID, rationale)
+			if err != nil {
+				return nil, err
+			}
+			finalJob, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, false)
+			if err != nil {
+				return nil, err
+			}
+			run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", fmt.Sprint(finalJob["run_id"]), false)
+			if err != nil {
+				return nil, err
+			}
+			downstream, err := downstreamJobs(ctx, tx, repositoryID, jobID)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"artifact":        map[string]any{"artifact_id": existingArtifactID, "status": "already_published"},
+				"verdict":         verdictResult,
+				"job_state":       finalJob["state"],
+				"run_state":       run["state"],
+				"blocker_id":      verdictResult["blocker_id"],
+				"downstream_jobs": downstream,
+			}, nil
+		})
+	}
+	return res, err
 }
 
 func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

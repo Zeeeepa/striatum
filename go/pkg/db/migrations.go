@@ -79,14 +79,32 @@ func Migrations() ([]Migration, error) {
 	return migrations, nil
 }
 
+func deriveMigrationLockKey(ctx context.Context, runner Runner) (int64, error) {
+	dbName, err := runner.QueryScalar(ctx, "SELECT current_database()")
+	if err != nil {
+		return 0, err
+	}
+	schemaName := "striatumd"
+	sum := sha256.Sum256([]byte(dbName + ":" + schemaName))
+	var val uint64
+	for i := 0; i < 8; i++ {
+		val = (val << 8) | uint64(sum[i])
+	}
+	return int64(val), nil
+}
+
 func ApplyMigrations(ctx context.Context, runner Runner, daemonVersion string) (int, error) {
-	if err := runner.Exec(ctx, "SELECT pg_advisory_lock($1)", MigrationLockKey); err != nil {
+	lockKey, err := deriveMigrationLockKey(ctx, runner)
+	if err != nil {
+		return 0, err
+	}
+	if err := runner.Exec(ctx, "SELECT pg_advisory_lock($1)", lockKey); err != nil {
 		return 0, err
 	}
 	unlocked := false
 	defer func() {
 		if !unlocked {
-			_ = runner.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", MigrationLockKey)
+			_ = runner.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockKey)
 		}
 	}()
 	if err := ensureMetaTable(ctx, runner); err != nil {
@@ -115,7 +133,7 @@ func ApplyMigrations(ctx context.Context, runner Runner, daemonVersion string) (
 		}
 		current = migration.Version
 	}
-	if err := runner.Exec(ctx, "SELECT pg_advisory_unlock($1)", MigrationLockKey); err != nil {
+	if err := runner.Exec(ctx, "SELECT pg_advisory_unlock($1)", lockKey); err != nil {
 		return current, err
 	}
 	unlocked = true

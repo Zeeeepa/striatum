@@ -3,12 +3,14 @@ package mutations
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestOverrideVerdictRecoversCompletedReviewWithoutPriorVerdict(t *testing.T) {
@@ -354,4 +356,200 @@ func (r reviewOverrideFakeRow) Scan(dest ...any) error {
 		}
 	}
 	return nil
+}
+
+func TestSubmitReviewDuplicateArtifactHandling(t *testing.T) {
+	tmpDir := t.TempDir()
+	artPath := filepath.Join(tmpDir, "finding.md")
+	mustWrite(t, artPath, `---
+schema_version: striatum.finding.v1
+artifact_kind: finding
+verdict_intent: accept
+---
+author: operator
+
+Everything looks perfect.`)
+
+	runner := &submitReviewFakeRunner{
+		repoRoot: tmpDir,
+	}
+
+	result, err := HandleSubmitReview(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_submit_duplicate",
+		Method:        "review.submit",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_review",
+			"job_id":        "job_review",
+			"lease_id":      "lease_1",
+			"path":          "finding.md",
+			"verdict":       "accept",
+			"logical_name":  "review_art",
+			"kind":          "finding",
+			"rationale":     "looks great",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSubmitReview failed: %v", err)
+	}
+
+	if result == nil {
+		t.Fatalf("expected result, got nil")
+	}
+
+	artifact := result["artifact"].(map[string]any)
+	if artifact["artifact_id"] != "art_existing" {
+		t.Fatalf("expected artifact_id to be 'art_existing', got %v", artifact["artifact_id"])
+	}
+	if artifact["status"] != "already_published" {
+		t.Fatalf("expected status to be 'already_published', got %v", artifact["status"])
+	}
+
+	if runner.tx1 == nil || !runner.tx1.rolledBack {
+		t.Fatalf("expected first transaction to be rolled back")
+	}
+	if runner.tx2 == nil || !runner.tx2.committed {
+		t.Fatalf("expected second transaction to be committed")
+	}
+}
+
+type submitReviewFakeRunner struct {
+	repoRoot string
+	tx1      *submitReviewFakeTx
+	tx2      *submitReviewFakeTx
+	txCount  int
+}
+
+func (r *submitReviewFakeRunner) Exec(context.Context, string, ...any) error {
+	return errors.New("unexpected runner exec outside tx")
+}
+
+func (r *submitReviewFakeRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return reviewOverrideFakeRow{err: errors.New("unexpected runner query row outside tx")}
+}
+
+func (r *submitReviewFakeRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", errors.New("unexpected runner query scalar outside tx")
+}
+
+func (r *submitReviewFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	r.txCount++
+	if r.txCount == 1 {
+		r.tx1 = &submitReviewFakeTx{repoRoot: r.repoRoot, failPublish: true}
+		return r.tx1, nil
+	}
+	r.tx2 = &submitReviewFakeTx{repoRoot: r.repoRoot, failPublish: false}
+	return r.tx2, nil
+}
+
+type submitReviewFakeTx struct {
+	repoRoot    string
+	failPublish bool
+	committed   bool
+	rolledBack  bool
+}
+
+func (tx *submitReviewFakeTx) Commit(context.Context) error {
+	tx.committed = true
+	return nil
+}
+
+func (tx *submitReviewFakeTx) Rollback(context.Context) error {
+	tx.rolledBack = true
+	return nil
+}
+
+func (tx *submitReviewFakeTx) Exec(_ context.Context, sql string, args ...any) error {
+	if strings.Contains(sql, "INSERT INTO striatumd.artifacts") {
+		if tx.failPublish {
+			return &pgconn.PgError{Code: "23505", Message: "duplicate key violates unique constraint"}
+		}
+	}
+	return nil
+}
+
+func (tx *submitReviewFakeTx) QueryRow(_ context.Context, sql string, _ ...any) db.Row {
+	switch {
+	case strings.Contains(sql, "repo_event_chain_heads"):
+		return reviewOverrideFakeRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "nextval"):
+		return reviewOverrideFakeRow{values: []any{int64(1)}}
+	default:
+		return reviewOverrideFakeRow{err: pgx.ErrNoRows}
+	}
+}
+
+func (tx *submitReviewFakeTx) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", nil
+}
+
+func (tx *submitReviewFakeTx) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "FROM striatumd.jobs"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"job_id":             "job_review",
+			"run_id":             "run_1",
+			"job_type":           "review",
+			"state":              "running",
+			"current_message_id": "msg_review",
+			"role_id":            "author",
+			"workflow_job_id":    "review",
+			"lane_selector_json": map[string]any{},
+			"write_scope_json": map[string]any{
+				"allowed_paths": []any{"."},
+			},
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.leases"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"lease_id":         "lease_1",
+			"owner_session_id": "sess_review",
+			"resource_id":      "job_review",
+			"state":            "active",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.sessions"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"session_id": "sess_review",
+			"run_id":     "run_1",
+			"state":      "active",
+			"ordinal":    1,
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.runs"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"run_id":               "run_1",
+			"repo_root":            tx.repoRoot,
+			"workflow_snapshot_id": "snap_1",
+			"state":                "running",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.workflow_snapshots"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"workflow_snapshot_id": "snap_1",
+			"workflow_json": map[string]any{
+				"jobs": []any{
+					map[string]any{"id": "review", "type": "review"},
+				},
+			},
+		}}), nil
+	case strings.Contains(sql, "SELECT artifact_id FROM striatumd.artifacts"):
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"artifact_id": "art_existing",
+		}}), nil
+	case strings.Contains(sql, "SELECT * FROM striatumd.artifacts"):
+		if strings.Contains(sql, "logical_name") {
+			return runPrepareRowsFromMaps(nil), nil
+		}
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"artifact_id":    "art_existing",
+			"run_id":         "run_1",
+			"job_id":         "job_review",
+			"logical_name":  "review_art",
+			"artifact_kind":  "finding",
+			"repo_path":      "finding.md",
+			"content_sha256": "some-sha",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.job_dependencies"):
+		return runPrepareRowsFromMaps(nil), nil
+	default:
+		return runPrepareRowsFromMaps(nil), nil
+	}
 }

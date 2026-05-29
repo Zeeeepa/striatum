@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
@@ -121,10 +122,8 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	liveness := "gone"
 	var progress map[string]any
 	var pidIdentityReason string
-	var laneLive gosupervisor.LaneLiveness
 	if hasPID && supervisorActiveStatesRead[state] {
 		live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(supervisor["pid_start_time"]))
-		laneLive = live
 		attachTmuxLiveness(supervisor, live)
 		if live.Backed == "plain_pty" {
 			pidIdentityReason = live.Class
@@ -143,8 +142,23 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 			if progress != nil && boolValue(progress["stalled"]) {
 				liveness = "stalled"
 			}
-		} else if live.Backed == "tmux" {
-			pidIdentityReason = live.Class
+		} else {
+			if live.Backed == "tmux" {
+				pidIdentityReason = live.Class
+			}
+			if state == "attached" {
+				if tx, txErr := runner.BeginTx(ctx); txErr == nil {
+					now := nowString()
+					stopReason := "unexpected exit (probed gone)"
+					daemonSupervisorID := superviseString(supervisor["daemon_supervisor_id"])
+					_ = updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "stopped", now, 0, "", "", &now, &stopReason)
+					_ = tx.Commit(ctx)
+					supervisor["state"] = "stopped"
+					supervisor["ended_at"] = now
+					supervisor["stop_reason"] = stopReason
+					state = "stopped"
+				}
+			}
 		}
 	} else if hasPID && state == "stopped" {
 		alive, currentStart, reason := pidLiveWithStartToken(pid, superviseString(supervisor["pid_start_time"]))
@@ -187,26 +201,40 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		reattachState = superviseString(reattachView["reattach_state"])
 		reattachReason = superviseString(reattachView["reattach_reason"])
 	}
-	reattachAttested := reattachState == "" || reattachState == "reattachable"
-	startTokenUnverified := tmuxStartTokenUnverified(laneLive)
-	if state == "attached" && liveness == "alive" && reattachAttested && !startTokenUnverified {
-		supervisor["lane_attestation"] = "attested"
-		supervisor["lane_attestation_reason"] = nil
-		return supervisor, nil
+	// Call unified checker to resolve lane attestation
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: superviseTmuxRunner},
 	}
-	supervisor["lane_attestation"] = "unattested"
-	switch {
-	case liveness == "stalled":
-		supervisor["lane_attestation_reason"] = "supervisor_stalled"
-	case pidIdentityReason == "pid_identity_mismatch" || pidIdentityReason == "pid_identity_unavailable":
-		supervisor["lane_attestation_reason"] = pidIdentityReason
-	case startTokenUnverified:
-		supervisor["lane_attestation_reason"] = "start_token_unverified"
-	case reattachState == "needs_repair" || reattachState == "needs_verification":
+	health, err := checker.Check(ctx, runner, repositoryID, sessionID)
+	if err == nil {
+		legMap := lanehealth.LegacyMap(health)
+		supervisor["lane_attestation"] = legMap["state"]
+		supervisor["lane_attestation_reason"] = legMap["reason"]
+		if !health.Deliverable && health.DeliveryReason == "helper_process_gone" {
+			delivery := map[string]any{
+				"healthy":     false,
+				"reason":      health.DeliveryReason,
+				"class":       health.DeliveryReason,
+				"remediation": deliveryRemediation(health.DeliveryReason, sessionID),
+			}
+			supervisor["delivery_liveness"] = delivery
+			supervisor["delivery_state"] = health.DeliveryReason
+		}
+	} else {
+		supervisor["lane_attestation"] = "unattested"
+		supervisor["lane_attestation_reason"] = "no_attached_supervisor"
+	}
+
+	if reattachState == "needs_repair" || reattachState == "needs_verification" {
+		supervisor["lane_attestation"] = "unattested"
 		supervisor["lane_attestation_reason"] = nullableText(reattachReason)
-	default:
-		supervisor["lane_attestation_reason"] = "no_live_attached_supervisor"
+	} else if supervisor["lane_attestation"] == "unattested" {
+		reason := superviseString(supervisor["lane_attestation_reason"])
+		if reason == "pid_missing" || reason == "no_attached_supervisor" || reason == "" {
+			supervisor["lane_attestation_reason"] = "no_live_attached_supervisor"
+		}
 	}
+
 	return supervisor, nil
 }
 
@@ -500,6 +528,16 @@ func reattachStatusView(row map[string]any) map[string]any {
 	if len(deliveryLiveness) == 0 {
 		deliveryLiveness = superviseObject(pointerMetadata["delivery_liveness"])
 	}
+	helperPID, hasHelperPID := intValueOptional(pointerMetadata["helper_pid"])
+	helperStart := superviseString(pointerMetadata["helper_pid_start_time"])
+	if hasHelperPID && helperPID > 0 && !lanehealth.IsHelperAlive(helperPID, helperStart) {
+		deliveryLiveness = map[string]any{
+			"healthy":     false,
+			"reason":      "helper_process_gone",
+			"class":       "helper_process_gone",
+			"remediation": deliveryRemediation("helper_process_gone", superviseString(row["session_id"])),
+		}
+	}
 	return map[string]any{
 		"supervisor_id":          row["supervisor_id"],
 		"run_id":                 row["run_id"],
@@ -616,7 +654,7 @@ func reattachState(row map[string]any, pidAlive bool, currentStart string, live 
 	if live.Backed == "tmux" {
 		switch live.Class {
 		case string(gosupervisor.TmuxLivenessOK):
-			if tmuxStartTokenUnverified(live) {
+			if live.Backed == "tmux" && live.Alive && live.Detail == "start_token_unverified" {
 				return "needs_verification", "start_token_unverified", "verify_before_reattach"
 			}
 			// Keep checking pointer and daemon consistency below.
@@ -831,6 +869,16 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 			view["delivery_liveness"] = delivery
 		}
 	}
+	helperPID, hasHelperPID := intValueOptional(metadata["helper_pid"])
+	helperStart := superviseString(metadata["helper_pid_start_time"])
+	if hasHelperPID && helperPID > 0 && !lanehealth.IsHelperAlive(helperPID, helperStart) {
+		view["delivery_liveness"] = map[string]any{
+			"healthy":     false,
+			"reason":      "helper_process_gone",
+			"class":       "helper_process_gone",
+			"remediation": deliveryRemediation("helper_process_gone", superviseString(view["session_id"])),
+		}
+	}
 	view["delivery_state"] = deliveryState(view["delivery_liveness"])
 }
 
@@ -858,33 +906,7 @@ func attachTmuxLivenessFromMetadata(ctx context.Context, view map[string]any, me
 	return live
 }
 
-func applySupervisorLaneAttestation(view map[string]any, hasSupervisor bool, live gosupervisor.LaneLiveness) {
-	if !hasSupervisor {
-		view["lane_attestation"] = "unattested"
-		view["lane_attestation_reason"] = "no_attached_supervisor"
-		return
-	}
-	if tmuxStartTokenUnverified(live) {
-		view["lane_attestation"] = "unattested"
-		view["lane_attestation_reason"] = "start_token_unverified"
-		return
-	}
-	if !live.Alive {
-		reason := live.Class
-		if reason == "" {
-			reason = "pid_gone"
-		}
-		view["lane_attestation"] = "unattested"
-		view["lane_attestation_reason"] = reason
-		return
-	}
-	view["lane_attestation"] = "attested"
-	view["lane_attestation_reason"] = nil
-}
 
-func tmuxStartTokenUnverified(live gosupervisor.LaneLiveness) bool {
-	return live.Backed == "tmux" && live.Alive && live.Detail == "start_token_unverified"
-}
 
 func tmuxMetadata(metadata map[string]any) map[string]any {
 	raw := superviseObject(metadata["tmux"])
@@ -1253,4 +1275,69 @@ func parseTimeValue(value any) (time.Time, bool) {
 		return parsed.UTC(), true
 	}
 	return time.Time{}, false
+}
+
+func updateSupervisorState(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID, daemonSupervisorID, state, updatedAt string, pid int, pidStartTime, heartbeatAt string, endedAt *string, stopReason *string) error {
+	pidArg := any(nil)
+	if pid > 0 {
+		pidArg = pid
+	}
+	pidStartArg := nullableString(pidStartTime)
+	heartbeatArg := nullableString(heartbeatAt)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisors
+		   SET state = $1,
+		       pid = COALESCE($2, pid),
+		       pid_start_time = COALESCE($3, pid_start_time),
+		       heartbeat_at = COALESCE($4, heartbeat_at),
+		       ended_at = $5,
+		       stop_reason = $6
+		 WHERE repository_id = $7 AND supervisor_id = $8`,
+		state, pidArg, pidStartArg, heartbeatArg, nullableStringPointer(endedAt), nullableStringPointer(stopReason), repositoryID, supervisorID,
+	); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET state = $1,
+		       pid = COALESCE($2, pid),
+		       pid_start_time = COALESCE($3, pid_start_time),
+		       updated_at = $4
+		 WHERE repository_id = $5 AND supervisor_id = $6`,
+		state, pidArg, pidStartArg, updatedAt, repositoryID, supervisorID,
+	); err != nil {
+		return err
+	}
+	if daemonSupervisorID == "" {
+		return nil
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.daemon_supervisors
+		   SET state = $1,
+		       pid = COALESCE($2, pid),
+		       pid_start_time = COALESCE($3, pid_start_time),
+		       heartbeat_at = COALESCE($4, heartbeat_at),
+		       ended_at = $5,
+		       stop_reason = $6
+		 WHERE repository_id = $7 AND daemon_supervisor_id = $8`,
+		state, pidArg, pidStartArg, heartbeatArg, nullableStringPointer(endedAt), nullableStringPointer(stopReason), repositoryID, daemonSupervisorID,
+	)
+}
+
+func nullableString(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableStringPointer(value *string) any {
+	if value == nil || *value == "" {
+		return nil
+	}
+	return *value
+}
+
+func nowString() string {
+	return time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
 }

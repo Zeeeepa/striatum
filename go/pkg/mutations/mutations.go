@@ -16,9 +16,9 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
-	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -652,103 +652,20 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 }
 
 func sessionLaneAttestation(ctx context.Context, runner any, repositoryID, sessionID string) map[string]any {
-	row, err := oneRow(ctx, runner, `
-		SELECT ps.supervisor_id,
-		       ps.pid,
-		       COALESCE(ps.pid_start_time, '') AS pid_start_time,
-		       ps.state,
-		       p.daemon_supervisor_id AS pointer_daemon_supervisor_id,
-		       p.pid AS pointer_pid,
-		       COALESCE(p.pid_start_time, '') AS pointer_pid_start_time,
-		       p.state AS pointer_state,
-		       COALESCE(p.metadata_json, '{}'::jsonb) AS pointer_metadata_json,
-		       ds.daemon_supervisor_id AS daemon_supervisor_id,
-		       ds.state AS daemon_state
-		  FROM striatumd.process_supervisors ps
-		  LEFT JOIN striatumd.process_supervisor_pointers p
-		    ON p.repository_id = ps.repository_id
-		   AND p.supervisor_id = ps.supervisor_id
-		  LEFT JOIN striatumd.daemon_supervisors ds
-		    ON ds.repository_id = ps.repository_id
-		   AND ds.daemon_supervisor_id = p.daemon_supervisor_id
-		 WHERE ps.repository_id = $1 AND ps.session_id = $2 AND ps.state = 'attached'
-		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
-		 LIMIT 1`, repositoryID, sessionID)
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: supervisionTmuxRunner},
+	}
+	health, err := checker.Check(ctx, runner, repositoryID, sessionID)
 	if err != nil {
-		return unattestedLane(nil, nil, "no_attached_supervisor")
-	}
-	supervisorID := row["supervisor_id"]
-	pid, hasPID := intValueOptional(row["pid"])
-	if !hasPID || pid <= 0 {
-		return unattestedLane(supervisorID, nil, "pid_missing")
-	}
-	if attestationText(row["pointer_daemon_supervisor_id"]) == "" {
-		return unattestedLane(supervisorID, pid, "daemon_supervisor_missing")
-	}
-	if attestationText(row["pointer_state"]) != "attached" {
-		return unattestedLane(supervisorID, pid, "pointer_state_mismatch")
-	}
-	if attestationText(row["daemon_supervisor_id"]) == "" {
-		return unattestedLane(supervisorID, pid, "daemon_supervisor_missing")
-	}
-	if attestationText(row["daemon_state"]) != "attached" {
-		return unattestedLane(supervisorID, pid, "daemon_state_mismatch")
-	}
-	if pointerPID, ok := intValueOptional(row["pointer_pid"]); ok && pointerPID > 0 && pointerPID != pid {
-		return unattestedLane(supervisorID, pid, "pointer_pid_mismatch")
-	}
-
-	metadata := asMap(row["pointer_metadata_json"])
-	if tmux := asMap(metadata["tmux"]); strings.TrimSpace(attestationText(tmux["state"])) == "backed" {
-		if _, ok := gosupervisor.TmuxIdentityFromMetadata(metadata); !ok {
-			return unattestedLane(supervisorID, pid, "tmux_metadata_corrupt")
+		return map[string]any{
+			"attested":      false,
+			"state":         "unattested",
+			"supervisor_id": nil,
+			"pid":           nil,
+			"reason":        "no_attached_supervisor",
 		}
 	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, metadata, pid, attestationText(row["pid_start_time"]))
-	if !live.Alive {
-		reason := live.Class
-		if reason == "" {
-			reason = "pid_gone"
-		}
-		return unattestedLane(supervisorID, pid, reason)
-	}
-	if live.Backed == "tmux" && live.Detail == "start_token_unverified" {
-		return unattestedLane(supervisorID, pid, "start_token_unverified")
-	}
-	return map[string]any{
-		"attested":      true,
-		"state":         "attested",
-		"supervisor_id": supervisorID,
-		"pid":           pid,
-		"reason":        nil,
-		"liveness":      live.Class,
-	}
-}
-
-func unattestedLane(supervisorID any, pid any, reason string) map[string]any {
-	return map[string]any{
-		"attested":      false,
-		"state":         "unattested",
-		"supervisor_id": nullable(supervisorID),
-		"pid":           nullable(pid),
-		"reason":        reason,
-	}
-}
-
-func attestationText(value any) string {
-	switch typed := value.(type) {
-	case nil:
-		return ""
-	case string:
-		return strings.TrimSpace(typed)
-	case *string:
-		if typed == nil {
-			return ""
-		}
-		return strings.TrimSpace(*typed)
-	default:
-		return strings.TrimSpace(fmt.Sprint(typed))
-	}
+	return lanehealth.LegacyMap(health)
 }
 
 func appendEvent(

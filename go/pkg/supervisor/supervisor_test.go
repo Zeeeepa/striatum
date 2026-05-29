@@ -50,6 +50,21 @@ func (f *fakeStore) GetSupervisorPointer(ctx context.Context, id string) (Pointe
 	if !ok {
 		return PointerRow{}, fmt.Errorf("no row")
 	}
+	if row.Metadata != nil {
+		copied := make(map[string]any)
+		for k, v := range row.Metadata {
+			if m, ok := v.(map[string]any); ok {
+				subCopied := make(map[string]any)
+				for sk, sv := range m {
+					subCopied[sk] = sv
+				}
+				copied[k] = subCopied
+			} else {
+				copied[k] = v
+			}
+		}
+		row.Metadata = copied
+	}
 	return row, nil
 }
 

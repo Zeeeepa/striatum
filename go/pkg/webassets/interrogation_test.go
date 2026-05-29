@@ -105,3 +105,63 @@ func mustRender(t *testing.T, meta webassets.InterrogationMeta, turns []webasset
 	}
 	return body
 }
+
+func TestRenderConversation(t *testing.T) {
+	meta := webassets.ConversationMeta{
+		ConversationID: "conv_123",
+		RunID:          "run_1",
+		Topic:          "sync meeting",
+		State:          "active",
+		OpenedAt:       "2026-05-25T00:00:00Z",
+		ClosedAt:       "",
+	}
+	turns := []webassets.ConversationTurn{
+		{Speaker: "agent_A", Body: "hello team"},
+		{Speaker: "agent_B", Body: "hello back"},
+	}
+	body, err := webassets.RenderConversation(meta, turns)
+	if err != nil {
+		t.Fatalf("RenderConversation: %v", err)
+	}
+	html := string(body)
+
+	for _, want := range []string{
+		"sync meeting", "conv_123", "active", "2026-05-25T00:00:00Z",
+		"agent_A", "agent_B", "hello team", "hello back",
+	} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("rendered output missing %q\n%s", want, html)
+		}
+	}
+}
+
+func TestRenderConversationEscaping(t *testing.T) {
+	meta := webassets.ConversationMeta{Topic: "x"}
+	turns := []webassets.ConversationTurn{
+		{Speaker: "agent_A", Body: `<script>alert(1)</script>`},
+		{Speaker: "agent_B", Body: `<img src=x onerror=alert(1)>`},
+	}
+	body, err := webassets.RenderConversation(meta, turns)
+	if err != nil {
+		t.Fatalf("RenderConversation: %v", err)
+	}
+	html := string(body)
+
+	for _, raw := range []string{
+		"<script>alert(1)</script>",
+		"<img src=x onerror=alert(1)>",
+	} {
+		if strings.Contains(html, raw) {
+			t.Fatalf("raw executable payload leaked into output: %q\n%s", raw, html)
+		}
+	}
+
+	for _, escaped := range []string{
+		"&lt;script&gt;alert(1)&lt;/script&gt;",
+		"&lt;img src=x onerror=alert(1)&gt;",
+	} {
+		if !strings.Contains(html, escaped) {
+			t.Fatalf("expected escaped form %q not present\n%s", escaped, html)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,6 +36,13 @@ func DB(t *testing.T) db.Runner {
 // is unset and drops the database during test cleanup.
 func Pool(t *testing.T) *db.Pool {
 	t.Helper()
+	p, _ := Pools(t)
+	return p
+}
+
+// Pools returns both privileged and unprivileged connection pools.
+func Pools(t *testing.T) (*db.Pool, *db.Pool) {
+	t.Helper()
 	baseURL := os.Getenv(EnvPGTestURL)
 	if strings.TrimSpace(baseURL) == "" {
 		t.Skip(EnvPGTestURL + " not set; skipping live PostgreSQL test")
@@ -53,7 +61,65 @@ func Pool(t *testing.T) *db.Pool {
 		t.Fatalf("schema version = %d, want %d", version, db.LatestDaemonDBVersion)
 	}
 	t.Cleanup(pool.Close)
-	return pool
+
+	currentUser, err := pool.Runner.QueryScalar(ctx, "SELECT current_user")
+	if err != nil {
+		t.Fatalf("failed to query current user: %v", err)
+	}
+
+	parsed, err := url.Parse(testURL)
+	if err != nil {
+		t.Fatalf("parse test URL: %v", err)
+	}
+	dbName := strings.TrimPrefix(parsed.Path, "/")
+	roleName := "striatumd_rw_" + dbName
+
+	_, err = pool.RawPool.Exec(ctx, fmt.Sprintf(`
+		DROP ROLE IF EXISTS %s;
+		CREATE ROLE %s;
+		GRANT CONNECT ON DATABASE %s TO %s;
+		GRANT USAGE ON SCHEMA striatumd TO %s;
+		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA striatumd TO %s;
+		GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA striatumd TO %s;
+		REVOKE UPDATE, DELETE ON striatumd.events FROM %s;
+		REVOKE UPDATE, DELETE ON striatumd.artifacts FROM %s;
+		GRANT %s TO %s;
+	`, quoteIdent(roleName), quoteIdent(roleName), quoteIdent(dbName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(currentUser)))
+	if err != nil {
+		t.Fatalf("setup unprivileged role: %v", err)
+	}
+
+	t.Cleanup(func() {
+		adminPool, err := pgxpool.New(context.Background(), baseURL)
+		if err == nil {
+			_, _ = adminPool.Exec(context.Background(), fmt.Sprintf("DROP ROLE IF EXISTS %s", quoteIdent(roleName)))
+			adminPool.Close()
+		}
+	})
+
+	unprivilegedCfg, err := pgxpool.ParseConfig(testURL)
+	if err != nil {
+		t.Fatalf("parse unprivileged pgtest url: %v", err)
+	}
+	unprivilegedCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, fmt.Sprintf("SET ROLE %s", quoteIdent(roleName)))
+		return err
+	}
+
+	unprivilegedPgPool, err := pgxpool.NewWithConfig(ctx, unprivilegedCfg)
+	if err != nil {
+		t.Fatalf("create unprivileged pgtest pool: %v", err)
+	}
+	t.Cleanup(unprivilegedPgPool.Close)
+
+	unprivilegedPool := &db.Pool{
+		URL:     testURL,
+		Runner:  db.PgxRunner{Pool: unprivilegedPgPool},
+		RawPool: unprivilegedPgPool,
+		Close:   unprivilegedPgPool.Close,
+	}
+
+	return pool, unprivilegedPool
 }
 
 type txRunner struct {

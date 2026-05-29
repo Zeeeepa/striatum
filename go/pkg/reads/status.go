@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
@@ -127,6 +128,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		result["auto_finalize_dry_run"] = autoFinalize
 		result["current_phase_id"] = phase["current_phase_id"]
 		result["phases"] = phase["phases"]
+		result["selected_run_id"] = runID
 		result["next_actions"] = statusNextActions(claimable, openBlockers, humanCheckpoints, nonAccepting, hasOrphanSupervisor, hasStaleLeases, processHealth, supervisorStalls, autoFinalize)
 	}
 	return result, nil
@@ -258,25 +260,20 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 			row["delivery_state"] = "unknown"
 			continue
 		}
-		pid, hasPID := intValueOptional(row["pid"])
-		live := attachTmuxLivenessFromMetadata(ctx, row, metadata, pid, "")
-		if !hasPID && live.Backed != "tmux" {
-			row["lane_attestation"] = "unattested"
-			row["lane_attestation_reason"] = "pid_gone"
-			continue
+		pid, _ := intValueOptional(row["pid"])
+		_ = attachTmuxLivenessFromMetadata(ctx, row, metadata, pid, "")
+		checker := lanehealth.Checker{
+			Probe: lanehealth.ProdProbe{Runner: superviseTmuxRunner},
 		}
-		if !live.Alive {
+		health, err := checker.Check(ctx, runner, repositoryID, superviseString(row["session_id"]))
+		if err == nil {
+			legMap := lanehealth.LegacyMap(health)
+			row["lane_attestation"] = legMap["state"]
+			row["lane_attestation_reason"] = legMap["reason"]
+		} else {
 			row["lane_attestation"] = "unattested"
-			row["lane_attestation_reason"] = live.Class
-			continue
+			row["lane_attestation_reason"] = "no_attached_supervisor"
 		}
-		if tmuxStartTokenUnverified(live) {
-			row["lane_attestation"] = "unattested"
-			row["lane_attestation_reason"] = "start_token_unverified"
-			continue
-		}
-		row["lane_attestation"] = "attested"
-		row["lane_attestation_reason"] = nil
 	}
 	return rows, nil
 }

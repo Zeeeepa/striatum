@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
@@ -83,6 +84,86 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 				return nil, err
 			}
 		}
+		activeSessions, err := queryRows(ctx, tx, `
+			SELECT session_id, role_id, lane_id
+			  FROM striatumd.sessions
+			 WHERE repository_id = $1 AND run_id = $2
+			   AND role_id = $3 AND lane_id = $4
+			   AND state = 'active'
+			 FOR UPDATE`, repositoryID, runID, role, lane)
+		if err != nil {
+			return nil, err
+		}
+		for _, oldSess := range activeSessions {
+			oldSessID := fmt.Sprint(oldSess["session_id"])
+			now := nowString()
+			err = tx.Exec(ctx, `
+				UPDATE striatumd.sessions
+				   SET state = 'closed', closed_at = $1, close_reason = 'superseded'
+				 WHERE repository_id = $2 AND session_id = $3`, now, repositoryID, oldSessID)
+			if err != nil {
+				return nil, err
+			}
+			_, err = appendEvent(ctx, tx, repositoryID, runID, "session.closed", oldSessID, nil, nil, nil, nil, map[string]any{
+				"session_id": oldSessID,
+				"role_id":    oldSess["role_id"],
+				"lane_id":    oldSess["lane_id"],
+				"reason":     "superseded",
+				"source":     "supersession",
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			leases, err := queryRows(ctx, tx, `
+				SELECT lease_id, resource_id
+				  FROM striatumd.leases
+				 WHERE repository_id = $1 AND owner_session_id = $2 AND state = 'active'`, repositoryID, oldSessID)
+			if err != nil {
+				return nil, err
+			}
+			for _, lease := range leases {
+				leaseID := fmt.Sprint(lease["lease_id"])
+				jobID := fmt.Sprint(lease["resource_id"])
+
+				err = tx.Exec(ctx, `
+					UPDATE striatumd.leases
+					   SET state = 'released', released_at = $1
+					 WHERE repository_id = $2 AND lease_id = $3`, now, repositoryID, leaseID)
+				if err != nil {
+					return nil, err
+				}
+				_, err = appendEvent(ctx, tx, repositoryID, runID, "lease.released", oldSessID, jobID, nil, nil, leaseID, map[string]any{
+					"reason": "superseded",
+				})
+				if err != nil {
+					return nil, err
+				}
+
+				err = tx.Exec(ctx, `
+					UPDATE striatumd.jobs
+					   SET state = 'queued', current_message_id = NULL, current_lease_id = NULL
+					 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
+				if err != nil {
+					return nil, err
+				}
+				_, err = appendEvent(ctx, tx, repositoryID, runID, "job.queued", oldSessID, jobID, nil, nil, nil, map[string]any{
+					"reason": "superseded",
+				})
+				if err != nil {
+					return nil, err
+				}
+
+				err = tx.Exec(ctx, `
+					UPDATE striatumd.queue_messages
+					   SET state = 'pending', current_lease_id = NULL, updated_at = $1
+					 WHERE repository_id = $2 AND job_id = $3 AND state IN ('claimed', 'acked')`, now, repositoryID, jobID)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+
 		rows, err := queryRows(ctx, tx, `
 			SELECT ordinal
 			  FROM striatumd.sessions
@@ -247,6 +328,18 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		}); err != nil {
 			return nil, err
 		}
+
+		var repoRoot string
+		if err := tx.QueryRow(ctx, `SELECT repo_root FROM striatumd.repositories WHERE repository_id = $1`, repositoryID).Scan(&repoRoot); err == nil && repoRoot != "" {
+			if rows, err := queryRows(ctx, tx, `SELECT DISTINCT supervisor_id FROM striatumd.process_supervisor_pointers WHERE repository_id = $1 AND session_id = $2`, repositoryID, sessionID); err == nil {
+				for _, row := range rows {
+					if sID, ok := row["supervisor_id"].(string); ok && sID != "" {
+						agentloop.CleanupGeminiSettings(repoRoot, sID)
+					}
+				}
+			}
+		}
+
 		return map[string]any{
 			"session_id":   sessionID,
 			"run_id":       session["run_id"],

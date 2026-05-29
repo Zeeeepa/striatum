@@ -41,6 +41,40 @@ func (r *superviseReadFakeRunner) BeginTx(context.Context) (db.TxRunner, error) 
 
 func (r *superviseReadFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
 	switch {
+	case strings.Contains(sql, "LEFT JOIN striatumd.process_supervisors ps") && strings.Contains(sql, "FROM striatumd.sessions s"):
+		sup := r.statusRow
+		if sup == nil {
+			sup = superviseBaseRow("sup_gone", 0, "stale-start-token")
+		}
+		now := time.Now().UTC()
+		merged := map[string]any{
+			"supervisor_id":                sup["supervisor_id"],
+			"pid":                          sup["pid"],
+			"pid_start_time":               sup["pid_start_time"],
+			"supervisor_state":             sup["state"],
+			"pointer_daemon_supervisor_id": "dsup_1",
+			"pointer_pid":                  sup["pid"],
+			"pointer_pid_start_time":       sup["pid_start_time"],
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        sup["pointer_metadata_json"],
+			"daemon_supervisor_id":         "dsup_1",
+			"daemon_state":                 "attached",
+			"state":                        "active",
+			"registered_at":                now.Add(-10 * time.Minute),
+			"last_tools_list_at":           now.Add(-9 * time.Minute),
+			"last_await_packet_at":         now.Add(-8 * time.Minute),
+			"last_mcp_request_at":          now.Add(-1 * time.Minute),
+			"liveness_stall_class":         nil,
+			"liveness_stall_since":         nil,
+		}
+		if meta, ok := sup["pointer_metadata_json"].(map[string]any); ok {
+			merged["pointer_metadata_json"] = meta
+			merged["supervisor_metadata_json"] = meta
+		} else if metaBytes, ok := sup["pointer_metadata_json"].([]byte); ok {
+			merged["pointer_metadata_json"] = metaBytes
+			merged["supervisor_metadata_json"] = metaBytes
+		}
+		return dashboardAllRowsFromMaps([]map[string]any{merged}), nil
 	case strings.Contains(sql, "FROM striatumd.runs"):
 		return dashboardAllRowsFromMaps([]map[string]any{{"run_id": "run_1"}}), nil
 	case strings.Contains(sql, "FROM striatumd.sessions") && strings.Contains(sql, "last_mcp_request_at"):
@@ -335,18 +369,6 @@ func TestReattachStatusViewUsesTmuxObservedStartToken(t *testing.T) {
 	}
 }
 
-func TestApplySupervisorLaneAttestationTreatsTmuxStartTokenUnverifiedAsUnattested(t *testing.T) {
-	view := map[string]any{}
-	applySupervisorLaneAttestation(view, true, gosupervisor.LaneLiveness{
-		Backed: "tmux",
-		Alive:  true,
-		Class:  string(gosupervisor.TmuxLivenessOK),
-		Detail: "start_token_unverified",
-	})
-	if view["lane_attestation"] != "unattested" || view["lane_attestation_reason"] != "start_token_unverified" {
-		t.Fatalf("lane attestation = %#v", view)
-	}
-}
 
 func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
 	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
@@ -405,6 +427,43 @@ func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
 	tmux := result["tmux"].(map[string]any)
 	if tmux["delivery_liveness"] == nil || tmux["attach_client_last_exit"] == nil {
 		t.Fatalf("tmux delivery metadata = %#v", tmux)
+	}
+}
+
+func TestHandleSuperviseStatusSurfacesHelperProcessGone(t *testing.T) {
+	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
+		{prefix: []string{"has-session"}},
+		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
+	}})
+	defer restore()
+
+	row := superviseBaseRow("sup_tmux", 48211, "1748452211")
+	// Seed a dead helper PID inside metadata
+	row["pointer_metadata_json"] = map[string]any{
+		"helper_pid": 999999,
+		"helper_pid_start_time": "some-start-time",
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run_1-lane_1-sup_tmux",
+			"pane_id":          "%4",
+			"pane_pid":         48211,
+			"pane_start_token": "1748452211",
+			"attach_command":   "tmux attach-session -t striatum-run_1-lane_1-sup_tmux",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["delivery_state"] != "helper_process_gone" {
+		t.Fatalf("expected delivery_state to be 'helper_process_gone', got %v", result["delivery_state"])
+	}
+	delivery := result["delivery_liveness"].(map[string]any)
+	if delivery["healthy"] != false || delivery["reason"] != "helper_process_gone" || delivery["class"] != "helper_process_gone" {
+		t.Fatalf("expected delivery_liveness to reflect helper process gone, got %#v", delivery)
 	}
 }
 
@@ -854,3 +913,72 @@ func TestRemediationCoverageTable(t *testing.T) {
 	}
 }
 
+type statusTxFakeRunner struct {
+	execs []string
+}
+
+func (tx *statusTxFakeRunner) Exec(ctx context.Context, sql string, args ...any) error {
+	tx.execs = append(tx.execs, sql)
+	return nil
+}
+
+func (tx *statusTxFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	return superviseReadFakeRow{}
+}
+
+func (tx *statusTxFakeRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
+	return "", nil
+}
+
+func (tx *statusTxFakeRunner) Commit(ctx context.Context) error {
+	return nil
+}
+
+func (tx *statusTxFakeRunner) Rollback(ctx context.Context) error {
+	return nil
+}
+
+type statusRunnerWithTxFake struct {
+	superviseReadFakeRunner
+	tx *statusTxFakeRunner
+}
+
+func (r *statusRunnerWithTxFake) BeginTx(ctx context.Context) (db.TxRunner, error) {
+	return r.tx, nil
+}
+
+func TestHandleSuperviseStatusTransitionsToStoppedOnUnexpectedExit(t *testing.T) {
+	txFake := &statusTxFakeRunner{}
+	runner := &statusRunnerWithTxFake{
+		tx: txFake,
+	}
+	// Row has pid > 0 but with mismatch start token, making ProbeLaneLiveness return Alive=false
+	row := superviseBaseRow("sup_mismatch", os.Getpid(), "different-start-token")
+	runner.statusRow = row
+
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+
+	// Verify the returned state is immediately stopped
+	if result["state"] != "stopped" || result["liveness"] != "gone" {
+		t.Fatalf("expected state stopped, got: %#v", result)
+	}
+
+	// Verify database updates were executed in the transaction
+	if len(txFake.execs) == 0 {
+		t.Fatalf("expected Exec calls in transaction, got 0")
+	}
+	hasUpdate := false
+	for _, sql := range txFake.execs {
+		if strings.Contains(sql, "UPDATE striatumd.process_supervisors") {
+			hasUpdate = true
+		}
+	}
+	if !hasUpdate {
+		t.Fatalf("expected UPDATE striatumd.process_supervisors in execs, got: %v", txFake.execs)
+	}
+}

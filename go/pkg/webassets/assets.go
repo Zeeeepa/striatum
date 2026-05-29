@@ -49,6 +49,7 @@ func RenderPage(title string, payload any) ([]byte, error) {
 	err = tmpl.Execute(&builder, map[string]any{
 		"Title":   title,
 		"Payload": string(encoded),
+		"Data":    payload,
 	})
 	if err != nil {
 		return nil, err
@@ -111,6 +112,49 @@ func RenderInterrogation(meta InterrogationMeta, turns []InterrogationTurn) ([]b
 			vt.Question = true
 		}
 		view.Turns = append(view.Turns, vt)
+	}
+	var builder strings.Builder
+	if err := tmpl.Execute(&builder, view); err != nil {
+		return nil, err
+	}
+	return []byte(builder.String()), nil
+}
+
+// ConversationMeta carries the curated header fields for a conversation thread.
+type ConversationMeta struct {
+	ConversationID string
+	RunID          string
+	Topic          string
+	State          string
+	OpenedAt       string
+	ClosedAt       string
+}
+
+// ConversationTurn is one curated turn: Speaker (author_session_id) and the Body.
+type ConversationTurn struct {
+	Speaker string
+	Body    string
+}
+
+// RenderConversation renders a conversation thread as a chat thread.
+func RenderConversation(meta ConversationMeta, turns []ConversationTurn) ([]byte, error) {
+	tmpl, err := template.ParseFS(embedded, "templates/conversation.html")
+	if err != nil {
+		return nil, err
+	}
+	type viewTurn struct {
+		Speaker string
+		Body    string
+	}
+	view := struct {
+		ConversationMeta
+		Turns []viewTurn
+	}{ConversationMeta: meta}
+	for _, turn := range turns {
+		view.Turns = append(view.Turns, viewTurn{
+			Speaker: turn.Speaker,
+			Body:    turn.Body,
+		})
 	}
 	var builder strings.Builder
 	if err := tmpl.Execute(&builder, view); err != nil {

@@ -143,6 +143,8 @@ func TestIdentityRouteAuditMatchesAllowlist(t *testing.T) {
 		{http.MethodGet, "/v1/runs/run_1/interrogations"},
 		{http.MethodGet, "/v1/runs/run_1/interrogations/intg_1"},
 		{http.MethodGet, "/v1/runs/run_1/interrogations/intg_1?view=chat"},
+		{http.MethodGet, "/v1/runs/run_1/conversations"},
+		{http.MethodGet, "/v1/runs/run_1/conversations/conv_1"},
 		// GET read routes deliberately excluded from the identity allowlist:
 		{http.MethodGet, "/v1/runs/run_1/why?id=run_1"},
 		{http.MethodGet, "/v1/runs/run_1/dashboard"},

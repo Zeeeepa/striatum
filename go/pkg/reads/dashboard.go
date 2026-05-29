@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
@@ -204,8 +205,19 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			continue
 		}
 		pid, _ := intValueOptional(session["pid"])
-		live := attachTmuxLivenessFromMetadata(ctx, session, metadata, pid, superviseString(session["pid_start_time"]))
-		applySupervisorLaneAttestation(session, true, live)
+		_ = attachTmuxLivenessFromMetadata(ctx, session, metadata, pid, superviseString(session["pid_start_time"]))
+		checker := lanehealth.Checker{
+			Probe: lanehealth.ProdProbe{Runner: superviseTmuxRunner},
+		}
+		health, err := checker.Check(ctx, runner, repositoryID, superviseString(session["session_id"]))
+		if err == nil {
+			legMap := lanehealth.LegacyMap(health)
+			session["lane_attestation"] = legMap["state"]
+			session["lane_attestation_reason"] = legMap["reason"]
+		} else {
+			session["lane_attestation"] = "unattested"
+			session["lane_attestation_reason"] = "no_attached_supervisor"
+		}
 	}
 	escalationReports, err := latestSessionEscalationReportsForRun(ctx, runner, repositoryID, runID)
 	if err != nil {

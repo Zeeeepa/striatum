@@ -6,6 +6,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/jackc/pgx/v5 v5.7.2
 	github.com/minio/minio-go/v7 v7.1.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

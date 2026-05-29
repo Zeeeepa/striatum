@@ -3,38 +3,47 @@
 package supervisor
 
 import (
-	"os/exec"
-	"strconv"
-	"strings"
+	"syscall"
 	"time"
+	"unsafe"
+)
+
+const (
+	ctrlKern    = 1
+	kernProc    = 14
+	kernProcPID = 1
 )
 
 // readProcessStartTimeOS reads the kernel-reported process start time on
-// darwin (macOS) via `ps -o lstart= -p <pid>`. The output is parsed in the
-// `Mon Jan 2 15:04:05 2006` BSD format. Returns ok=false on any parse
-// error so the caller falls back to signal-0 only.
-//
-// V1.7 implementation. The `ps` shell-out is intentional: cgo + Mach
-// task_info adds binary-distribution complexity; the `ps` invocation is
-// cheap and works against the standard /bin/ps on every supported macOS
-// release. This is the operational-tool tradeoff documented in RFC 0039
-// V1.7. If `ps` is unavailable (e.g. minimal container build) the
-// fallback to signal-0 only still keeps liveness probing functional.
+// darwin (macOS) via the native sysctl kernel interface. Returns ok=false
+// on any error so the caller falls back to signal-0 only.
 func readProcessStartTimeOS(pid int) (time.Time, bool) {
-	out, err := exec.Command("/bin/ps", "-o", "lstart=", "-p", strconv.Itoa(pid)).Output()
-	if err != nil {
+	mib := []int32{ctrlKern, kernProc, kernProcPID, int32(pid)}
+	var kproc [1024]byte
+	size := uintptr(len(kproc))
+
+	r1, _, errno := syscall.Syscall6(
+		syscall.SYS___SYSCTL,
+		uintptr(unsafe.Pointer(&mib[0])),
+		uintptr(len(mib)),
+		uintptr(unsafe.Pointer(&kproc[0])),
+		uintptr(unsafe.Pointer(&size)),
+		0,
+		0,
+	)
+	if r1 != 0 || errno != 0 {
 		return time.Time{}, false
 	}
-	value := strings.TrimSpace(string(out))
-	if value == "" {
+
+	if size < 28 {
 		return time.Time{}, false
 	}
-	parsed, err := time.Parse("Mon Jan  2 15:04:05 2006", value)
-	if err != nil {
-		parsed, err = time.Parse("Mon Jan 2 15:04:05 2006", value)
-		if err != nil {
-			return time.Time{}, false
-		}
+
+	sec := *(*int64)(unsafe.Pointer(&kproc[16]))
+	usec := *(*int32)(unsafe.Pointer(&kproc[24]))
+
+	if sec == 0 {
+		return time.Time{}, false
 	}
-	return parsed.UTC(), true
+	return time.Unix(sec, int64(usec)*1000).UTC(), true
 }

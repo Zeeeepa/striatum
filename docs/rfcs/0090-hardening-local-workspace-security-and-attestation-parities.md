@@ -1,6 +1,6 @@
 # RFC 0090: Hardening Local Workspace Security and Attestation Parity
 
-Status: proposed
+Status: accepted
 Date: 2026-05-29
 Context: STRIATUM_ARCHITECTURE_REVIEW_TEAMWORK_PREVIEW_2026-05-29.md, RFC 0033, RFC 0043, RFC 0072, RFC 0082, RFC 0089
 Author: architect-antigravity-1

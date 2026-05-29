@@ -235,3 +235,18 @@ func TestApplyMigrationsRecordsVersion(t *testing.T) {
 		t.Fatalf("substrate version was not recorded")
 	}
 }
+
+func TestDeriveMigrationLockKey(t *testing.T) {
+	ctx := context.Background()
+	runner := &fakeRunner{scalars: map[string]string{
+		"current_database": "test_db",
+	}}
+	key, err := deriveMigrationLockKey(ctx, runner)
+	if err != nil {
+		t.Fatalf("deriveMigrationLockKey error: %v", err)
+	}
+	if key == 0 {
+		t.Fatal("expected non-zero migration lock key")
+	}
+}
+

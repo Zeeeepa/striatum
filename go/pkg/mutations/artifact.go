@@ -332,7 +332,7 @@ func pathAllowed(repoRoot, pathText string, writeScope map[string]any) bool {
 	return false
 }
 
-func repoRelativePath(repoRoot, pathText string, allowState bool) (string, error) {
+func ValidateSandboxJail(repoRoot, pathText string) (string, error) {
 	if filepath.IsAbs(pathText) {
 		return "", fmt.Errorf("artifact path must be repo-relative")
 	}
@@ -340,11 +340,61 @@ func repoRelativePath(repoRoot, pathText string, allowState bool) (string, error
 	if err != nil {
 		return "", err
 	}
-	resolved := filepath.Clean(filepath.Join(repoAbs, pathText))
-	if !sameOrInside(resolved, repoAbs) {
-		return "", fmt.Errorf("artifact path must stay inside the repository")
+	repoRootResolved, err := filepath.EvalSymlinks(repoAbs)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve repo root: %w", err)
 	}
-	statePath := filepath.Join(repoAbs, ".striatum")
+	targetAbs := filepath.Clean(filepath.Join(repoRootResolved, pathText))
+	targetResolved, err := filepath.EvalSymlinks(targetAbs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			curr := targetAbs
+			var rest []string
+			for {
+				parent := filepath.Dir(curr)
+				if parent == curr {
+					break
+				}
+				rest = append([]string{filepath.Base(curr)}, rest...)
+				curr = parent
+
+				resolvedParent, err := filepath.EvalSymlinks(curr)
+				if err == nil {
+					targetResolved = filepath.Join(append([]string{resolvedParent}, rest...)...)
+					break
+				}
+				if !os.IsNotExist(err) {
+					return "", err
+				}
+			}
+			if targetResolved == "" {
+				targetResolved = targetAbs
+			}
+		} else {
+			return "", err
+		}
+	}
+
+	if !sameOrInside(targetResolved, repoRootResolved) {
+		return "", fmt.Errorf("artifact path must stay inside the repository: symlink_traversal_blocked")
+	}
+	return targetResolved, nil
+}
+
+func repoRelativePath(repoRoot, pathText string, allowState bool) (string, error) {
+	resolved, err := ValidateSandboxJail(repoRoot, pathText)
+	if err != nil {
+		return "", err
+	}
+	repoAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", err
+	}
+	repoRootResolved, err := filepath.EvalSymlinks(repoAbs)
+	if err != nil {
+		return "", err
+	}
+	statePath := filepath.Join(repoRootResolved, ".striatum")
 	if !allowState && sameOrInside(resolved, statePath) {
 		return "", fmt.Errorf("artifact path cannot be under .striatum")
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/jackc/pgx/v5"
@@ -395,8 +396,11 @@ func requireLiveTarget(ctx context.Context, runner any, repositoryID, targetSess
 	if fmt.Sprint(target["state"]) != "active" {
 		return rpc.NewError("target_unavailable", "target session is not live (must be active)", nil)
 	}
-	attestation := sessionLaneAttestation(ctx, runner, repositoryID, targetSessionID)
-	if attested, _ := attestation["attested"].(bool); attested {
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: supervisionTmuxRunner},
+	}
+	health, err := checker.Check(ctx, runner, repositoryID, targetSessionID)
+	if err == nil && health.LiveTarget() {
 		return nil
 	}
 	// RFC 0084: a wrapper-attested target satisfies D026, but an interrogable

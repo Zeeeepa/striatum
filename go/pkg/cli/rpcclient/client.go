@@ -164,6 +164,8 @@ func ExitCode(err error) int {
 
 func exitCode(code string) int {
 	switch code {
+	case "artifact_error":
+		return 6
 	case "version_incompatible":
 		return 10
 	case "daemon_unreachable":

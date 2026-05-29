@@ -12,10 +12,13 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
@@ -470,6 +473,7 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err != nil {
 			return nil, err
 		}
+		agentloop.CleanupGeminiSettings(supervisorWorkingDir(supervisor), supervisor.SupervisorID)
 		return map[string]any{
 			"supervisor_id":        supervisor.SupervisorID,
 			"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
@@ -1007,54 +1011,7 @@ func ensureActivePacketLease(ctx context.Context, runner db.TxRunner, repository
 }
 
 func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorControlRow, phase string) error {
-	if !supervisor.HasPID {
-		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "pid_missing observed by "+phase, 0, nil); err != nil {
-			return err
-		}
-		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
-	}
-	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded {
-		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
-	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
-	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
-		count := tmuxUnavailableCount(supervisor.Metadata) + 1
-		metadata := tmuxProbeDegradedMetadata(supervisor.Metadata, live, count)
-		if count >= gosupervisor.TmuxUnavailableLostThreshold() {
-			payload := map[string]any{"phase": phase, "tmux_liveness": live.Class, "probe_unavailable_count": count}
-			if live.Tmux != nil && live.Tmux.Failure != nil {
-				payload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
-			}
-			if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "tmux_unavailable_persistent", supervisor.PID, payload); err != nil {
-				return err
-			}
-			return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: tmux_unavailable_persistent", nil)
-		}
-		if err := replacePointerMetadata(ctx, runner, repositoryID, supervisor.SupervisorID, metadata); err != nil {
-			return err
-		}
-		return rpc.NewError("invalid_transition", "supervisor liveness is degraded: tmux_unavailable; "+live.Detail, nil)
-	}
-	if !live.Alive {
-		reason := live.Class
-		if reason == "" {
-			reason = "pid_gone"
-		}
-		lostPayload := map[string]any{"phase": phase, "reattach_reason": reason}
-		if strings.HasPrefix(reason, "tmux_") {
-			lostPayload["tmux_liveness"] = reason
-			if live.Tmux != nil && live.Tmux.Failure != nil {
-				lostPayload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
-			}
-		}
-		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, reason, supervisor.PID, lostPayload); err != nil {
-			return err
-		}
-		if strings.HasPrefix(reason, "tmux_") {
-			return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: "+reason, nil)
-		}
-		return rpc.NewError("invalid_transition", fmt.Sprintf("supervisor pid is gone: %s", supervisor.SupervisorID), nil)
-	}
+	// 1. Transactional FOR UPDATE locks inside the mutation block prior to checker call
 	var pointerState string
 	var daemonSupervisorID *string
 	err := runner.QueryRow(ctx, `
@@ -1070,27 +1027,94 @@ func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, rep
 	if err != nil {
 		return err
 	}
-	if pointerState != supervisor.State {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_state_mismatch", nil)
+	if daemonSupervisorID != nil && *daemonSupervisorID != "" {
+		var daemonState string
+		if err := runner.QueryRow(ctx, `
+			SELECT state
+			  FROM striatumd.daemon_supervisors
+			 WHERE repository_id = $1 AND daemon_supervisor_id = $2
+			 FOR UPDATE`,
+			repositoryID, *daemonSupervisorID,
+		).Scan(&daemonState); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 	}
-	if daemonSupervisorID == nil || *daemonSupervisorID == "" {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
+
+	// 2. Checker call
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: supervisionTmuxRunner},
 	}
-	var daemonState string
-	if err := runner.QueryRow(ctx, `
-		SELECT state
-		  FROM striatumd.daemon_supervisors
-		 WHERE repository_id = $1 AND daemon_supervisor_id = $2
-		 FOR UPDATE`,
-		repositoryID, *daemonSupervisorID,
-	).Scan(&daemonState); errors.Is(err, pgx.ErrNoRows) {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
-	} else if err != nil {
+	health, err := checker.Check(ctx, runner, repositoryID, supervisor.SessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_missing", nil)
+		}
 		return err
 	}
-	if daemonState != supervisor.State {
+
+	if !supervisor.HasPID || health.Reason == lanehealth.ReasonPIDMissing {
+		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "pid_missing observed by "+phase, 0, nil); err != nil {
+			return err
+		}
+		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
+	}
+
+	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded {
+		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
+	}
+
+	if !health.Alive {
+		reason := health.LivenessClass
+		if reason == "" {
+			reason = "pid_gone"
+		}
+		live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+		if reason == string(gosupervisor.TmuxLivenessUnavailable) {
+			count := tmuxUnavailableCount(supervisor.Metadata) + 1
+			metadata := tmuxProbeDegradedMetadata(supervisor.Metadata, live, count)
+			if count >= gosupervisor.TmuxUnavailableLostThreshold() {
+				payload := map[string]any{"phase": phase, "tmux_liveness": live.Class, "probe_unavailable_count": count}
+				if live.Tmux != nil && live.Tmux.Failure != nil {
+					payload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
+				}
+				if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "tmux_unavailable_persistent", supervisor.PID, payload); err != nil {
+					return err
+				}
+				return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: tmux_unavailable_persistent", nil)
+			}
+			if err := replacePointerMetadata(ctx, runner, repositoryID, supervisor.SupervisorID, metadata); err != nil {
+				return err
+			}
+			return rpc.NewError("invalid_transition", "supervisor liveness is degraded: tmux_unavailable; "+live.Detail, nil)
+		}
+
+		lostPayload := map[string]any{"phase": phase, "reattach_reason": reason}
+		if strings.HasPrefix(reason, "tmux_") {
+			lostPayload["tmux_liveness"] = reason
+			if live.Tmux != nil && live.Tmux.Failure != nil {
+				lostPayload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
+			}
+		}
+		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, reason, supervisor.PID, lostPayload); err != nil {
+			return err
+		}
+		if strings.HasPrefix(reason, "tmux_") {
+			return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: "+reason, nil)
+		}
+		return rpc.NewError("invalid_transition", fmt.Sprintf("supervisor pid is gone: %s", supervisor.SupervisorID), nil)
+	}
+
+	// 3. Structural checks from checker results
+	if health.Reason == lanehealth.ReasonPointerStateMismatch {
+		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_state_mismatch", nil)
+	}
+	if health.Reason == lanehealth.ReasonDaemonStateMismatch {
 		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_state_mismatch", nil)
 	}
+	if health.Reason == lanehealth.ReasonDaemonSupervisorMissing {
+		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
+	}
+
 	return nil
 }
 
@@ -1183,16 +1207,88 @@ func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryI
 	return supervisorDeliveryResult{BytesWritten: bytesWritten, StdinDelivery: stdinDelivery, StdinClosedAfterWrite: closed}, nil
 }
 
+type NamedPipeBuffer struct {
+	mu       sync.Mutex
+	queue    [][]byte
+	degraded bool
+}
+
+func (b *NamedPipeBuffer) Push(payload []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.degraded {
+		return fmt.Errorf("buffer is degraded")
+	}
+	if len(b.queue) >= 10 {
+		b.degraded = true
+		return fmt.Errorf("buffer overflow, degraded")
+	}
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+	b.queue = append(b.queue, cp)
+	return nil
+}
+
+func (b *NamedPipeBuffer) PopAll() [][]byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	q := b.queue
+	b.queue = nil
+	return q
+}
+
+func (b *NamedPipeBuffer) IsDegraded() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.degraded
+}
+
+var (
+	pipeBuffersMu sync.Mutex
+	pipeBuffers   = make(map[string]*NamedPipeBuffer)
+)
+
+func getPipeBuffer(pipePath string) *NamedPipeBuffer {
+	pipeBuffersMu.Lock()
+	defer pipeBuffersMu.Unlock()
+	buf, ok := pipeBuffers[pipePath]
+	if !ok {
+		buf = &NamedPipeBuffer{}
+		pipeBuffers[pipePath] = buf
+	}
+	return buf
+}
+
 func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, error) {
+	buf := getPipeBuffer(pipePath)
+	if buf.IsDegraded() {
+		return 0, errSupervisorPipeNoReader
+	}
+
 	fd, err := syscall.Open(pipePath, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ENXIO) {
-			return 0, errSupervisorPipeNoReader
+			if pushErr := buf.Push(payload); pushErr != nil {
+				return 0, errSupervisorPipeNoReader
+			}
+			return len(payload), nil
 		}
 		return 0, err
 	}
 	file := os.NewFile(uintptr(fd), pipePath)
 	defer file.Close()
+
+	buffered := buf.PopAll()
+	for _, pkt := range buffered {
+		if _, err := writeAll(ctx, file, pkt); err != nil {
+			return 0, err
+		}
+	}
+
+	return writeAll(ctx, file, payload)
+}
+
+func writeAll(ctx context.Context, file *os.File, payload []byte) (int, error) {
 	total := 0
 	for total < len(payload) {
 		n, err := file.Write(payload[total:])

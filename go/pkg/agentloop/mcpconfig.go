@@ -112,7 +112,24 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		return noop, fmt.Errorf("write .gemini/settings.json: %w", err)
 	}
+
+	supervisorID := os.Getenv("STRIATUM_SUPERVISOR_ID")
+	var scratchDir string
+	if supervisorID != "" {
+		scratchDir = filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
+		_ = os.MkdirAll(scratchDir, 0o755)
+		if hadExisting {
+			_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.backup"), backup, 0o600)
+		} else {
+			_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.created"), []byte{}, 0o600)
+		}
+	}
+
 	cleanup := func() {
+		if supervisorID != "" {
+			_ = os.Remove(filepath.Join(scratchDir, "settings.json.backup"))
+			_ = os.Remove(filepath.Join(scratchDir, "settings.json.created"))
+		}
 		if hadExisting {
 			_ = os.WriteFile(path, backup, 0o600)
 			return
@@ -120,6 +137,25 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 		_ = os.Remove(path)
 	}
 	return cleanup, nil
+}
+
+// CleanupGeminiSettings locates the scratch directory and restores the pre-existing settings or deletes the created settings.
+func CleanupGeminiSettings(repoRoot, supervisorID string) {
+	if supervisorID == "" || repoRoot == "" {
+		return
+	}
+	scratchDir := filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
+	backupPath := filepath.Join(scratchDir, "settings.json.backup")
+	createdPath := filepath.Join(scratchDir, "settings.json.created")
+	settingsPath := filepath.Join(repoRoot, ".gemini", "settings.json")
+
+	if b, err := os.ReadFile(backupPath); err == nil {
+		_ = os.WriteFile(settingsPath, b, 0o600)
+		_ = os.Remove(backupPath)
+	} else if _, err := os.Stat(createdPath); err == nil {
+		_ = os.Remove(settingsPath)
+		_ = os.Remove(createdPath)
+	}
 }
 
 func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(), error) {

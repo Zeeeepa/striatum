@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Field struct {
@@ -341,30 +343,91 @@ func FrontMatterBlock(text string) (string, bool) {
 }
 
 func ParseFrontMatterBlock(block string) (map[string]any, error) {
-	result := map[string]any{}
-	for _, raw := range strings.Split(block, "\n") {
-		if strings.HasPrefix(raw, " ") || strings.HasPrefix(raw, "\t") {
-			return nil, fmt.Errorf("artifact front matter has invalid line %q", raw)
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(block), &node); err != nil {
+		lineNum := 1
+		errMsg := err.Error()
+		if idx := strings.Index(errMsg, "line "); idx != -1 {
+			sub := errMsg[idx+5:]
+			if colonIdx := strings.Index(sub, ":"); colonIdx != -1 {
+				numStr := sub[:colonIdx]
+				if n, parseErr := strconv.Atoi(numStr); parseErr == nil {
+					lineNum = n
+				}
+			}
 		}
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+		markdownLine := lineNum + 1
+		return nil, fmt.Errorf("yaml: line %d: syntax error: %s", markdownLine, errMsg)
+	}
+
+	if node.Kind == 0 || (node.Kind == yaml.DocumentNode && len(node.Content) == 0) {
+		return map[string]any{}, nil
+	}
+
+	parsed, err := parseYAMLNode(&node)
+	if err != nil {
+		return nil, err
+	}
+	resMap, ok := parsed.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("artifact front matter is not a YAML mapping")
+	}
+	return resMap, nil
+}
+
+func parseYAMLNode(n *yaml.Node) (any, error) {
+	switch n.Kind {
+	case yaml.DocumentNode:
+		if len(n.Content) == 0 {
+			return nil, nil
 		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" {
-			return nil, fmt.Errorf("artifact front matter has invalid line %q", raw)
+		return parseYAMLNode(n.Content[0])
+	case yaml.MappingNode:
+		result := map[string]any{}
+		for i := 0; i < len(n.Content); i += 2 {
+			keyNode := n.Content[i]
+			valNode := n.Content[i+1]
+			key := keyNode.Value
+			if _, exists := result[key]; exists {
+				return nil, fmt.Errorf("artifact front matter field %q is declared more than once", key)
+			}
+			val, err := parseYAMLNode(valNode)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = val
 		}
-		key := strings.TrimSpace(parts[0])
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("artifact front matter field %q is declared more than once", key)
+		return result, nil
+	case yaml.SequenceNode:
+		result := []any{}
+		allStrings := true
+		for _, itemNode := range n.Content {
+			val, err := parseYAMLNode(itemNode)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, val)
+			if _, ok := val.(string); !ok {
+				allStrings = false
+			}
 		}
-		value, err := ParseFrontMatterValue(strings.TrimSpace(parts[1]))
-		if err != nil {
+		if allStrings {
+			strResult := make([]string, len(result))
+			for i, v := range result {
+				strResult[i] = v.(string)
+			}
+			return strResult, nil
+		}
+		return result, nil
+	case yaml.ScalarNode:
+		var val any
+		if err := n.Decode(&val); err != nil {
 			return nil, err
 		}
-		result[key] = value
+		return val, nil
+	default:
+		return nil, nil
 	}
-	return result, nil
 }
 
 func ParseFrontMatterValue(value string) (any, error) {

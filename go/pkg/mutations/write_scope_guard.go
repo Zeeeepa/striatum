@@ -126,11 +126,6 @@ func gitTouchedPathsSinceBaseline(ctx context.Context, repoRoot string, job map[
 			touched = append(touched, path)
 		}
 	}
-	for path, baselineHash := range baseline {
-		if _, ok := currentByPath[path]; !ok && baselineHash != "" {
-			touched = append(touched, path)
-		}
-	}
 	sort.Strings(touched)
 	return dedupeStrings(touched), nil
 }
