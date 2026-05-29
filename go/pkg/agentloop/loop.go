@@ -213,7 +213,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	if err != nil {
 		return fmt.Errorf("agent-loop pty start: %w", err)
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	if inputFile, ok := stdin.(*os.File); ok {
 		_ = pty.InheritSize(inputFile, ptmx)
@@ -227,7 +227,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	// STRIATUM_AGENT_LOOP_DEBUG_LOG explicitly to override the path (e.g. for
 	// debugging from a fixed location); set it to "off" / "/dev/null" to
 	// disable.
-	var sink io.Writer = stdout
+	sink := stdout
 	trajectoryPath := resolveTrajectoryLogPath(cfg.RepoRoot, os.Getenv("STRIATUM_SUPERVISOR_ID"))
 	if explicit := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_DEBUG_LOG")); explicit != "" {
 		switch strings.ToLower(explicit) {
@@ -240,8 +240,8 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	if trajectoryPath != "" {
 		_ = os.MkdirAll(filepath.Dir(trajectoryPath), 0o700)
 		if f, ferr := os.OpenFile(trajectoryPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); ferr == nil {
-			defer f.Close()
-			fmt.Fprintf(f, "\n===== agent-loop session %s @ %s, command=%v =====\n", cfg.SessionID, cfg.RunID, laneCommand)
+			defer func() { _ = f.Close() }()
+			_, _ = fmt.Fprintf(f, "\n===== agent-loop session %s @ %s, command=%v =====\n", cfg.SessionID, cfg.RunID, laneCommand)
 			sink = io.MultiWriter(stdout, f)
 		}
 	}

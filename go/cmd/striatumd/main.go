@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -88,9 +89,10 @@ func (a *supervisorPointerStoreAdapter) GetSupervisorPointer(ctx context.Context
 }
 
 var (
-	daemonVersion = "go-dev"
-	buildGitSHA   = "unknown"
-	buildDirty    = "unknown"
+	daemonVersion    = "go-dev"
+	buildGitSHA      = "unknown"
+	buildDirty       = "unknown"
+	globalSocketPath string
 )
 
 func main() {
@@ -229,9 +231,7 @@ func main() {
 	server.SubstrateSchema = substrateSchema
 	server.SealedApplyFunc = daemonapply.FallbackSigningKeyStatus
 	server.Authorizer = authorizer
-	if recorder != nil {
-		server.AuditRecorder = recorder
-	}
+	server.AuditRecorder = recorder
 	var shutdownOnce sync.Once
 	shutdownHook := func(context.Context) error {
 		go func() {
@@ -254,6 +254,7 @@ func main() {
 		BlobClient:    blobClient,
 	})
 
+	globalSocketPath = socketPath
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		log.Fatalf("create socket directory: %v", err)
 	}
@@ -336,6 +337,12 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		_ = listener.Close()
 		return nil, err
 	}
+	discoveryPath, err := writeDaemonDiscoveryFile(endpoint, webOpts, listener)
+	if err != nil {
+		_ = listener.Close()
+		_ = os.Remove(endpointPath)
+		return nil, err
+	}
 	mcpHandler := mcp.NewHTTPHandler(mcp.Service{
 		RPC:              rpcServer,
 		Authorizer:       authorizer,
@@ -348,6 +355,7 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 	}
 	log.Printf("striatumd-go MCP HTTP/SSE listening on %s (web service mounted at /v1)", endpoint)
 	log.Printf("striatumd-go MCP endpoint file %s", endpointPath)
+	log.Printf("striatumd-go discovery file %s", discoveryPath)
 	go func() {
 		err := httpServer.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -369,7 +377,76 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		if err := os.Remove(endpointPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("remove MCP endpoint file %s: %v", endpointPath, err)
 		}
+		if err := os.Remove(discoveryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("remove discovery file %s: %v", discoveryPath, err)
+		}
 	}, nil
+}
+
+func writeDaemonDiscoveryFile(endpoint string, webOpts webServiceOptions, listener net.Listener) (string, error) {
+	runtimeDir, err := admin.RuntimeDir()
+	if err != nil {
+		return "", err
+	}
+
+	_, portStr, err := net.SplitHostPort(listener.Addr().String())
+	var portInt int
+	if err == nil {
+		portInt, _ = strconv.Atoi(portStr)
+	}
+
+	data := map[string]any{
+		"pid":           os.Getpid(),
+		"socket_path":   globalSocketPath,
+		"mcp_http_url":  endpoint,
+		"mcp_http_port": portInt,
+		"client_token":  webOpts.ServiceToken,
+	}
+
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return "", err
+	}
+
+	discoveryPath := filepath.Join(runtimeDir, "discovery.json")
+	if err := writeOwnerOnlyJSONFile(discoveryPath, encoded); err != nil {
+		return "", err
+	}
+
+	return discoveryPath, nil
+}
+
+func writeOwnerOnlyJSONFile(path string, content []byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	tmpFile, err := os.CreateTemp(dir, "discovery-*.json")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmpFile.Name()
+	defer func() {
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
+	}()
+
+	if err := tmpFile.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := tmpFile.Write(content); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }
 
 func listenMCPHTTP(addr string) (net.Listener, error) {

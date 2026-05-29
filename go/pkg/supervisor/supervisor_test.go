@@ -50,6 +50,21 @@ func (f *fakeStore) GetSupervisorPointer(ctx context.Context, id string) (Pointe
 	if !ok {
 		return PointerRow{}, fmt.Errorf("no row")
 	}
+	if row.Metadata != nil {
+		copied := make(map[string]any)
+		for k, v := range row.Metadata {
+			if m, ok := v.(map[string]any); ok {
+				subCopied := make(map[string]any)
+				for sk, sv := range m {
+					subCopied[sk] = sv
+				}
+				copied[k] = subCopied
+			} else {
+				copied[k] = v
+			}
+		}
+		row.Metadata = copied
+	}
 	return row, nil
 }
 
@@ -91,12 +106,14 @@ func TestLivenessHeartbeatOnLiveProcess(t *testing.T) {
 	store := newFakeStore()
 	supID := "sup_live_001"
 	pid := os.Getpid() // ourselves: definitely alive
-	store.UpsertSupervisorPointer(context.Background(), PointerRow{
+	if err := store.UpsertSupervisorPointer(context.Background(), PointerRow{
 		SupervisorID: supID,
 		RepositoryID: "repo_test",
 		PID:          pid,
 		State:        "starting",
-	})
+	}); err != nil {
+		t.Fatalf("UpsertSupervisorPointer: %v", err)
+	}
 
 	cfg := LivenessConfig{
 		HeartbeatInterval: 25 * time.Millisecond,
@@ -128,15 +145,16 @@ func TestLivenessHeartbeatOnLiveProcess(t *testing.T) {
 func TestLivenessMarksLostOnDeadPid(t *testing.T) {
 	store := newFakeStore()
 	supID := "sup_dead_001"
-	deadPid := 1 // init — signal-0 would normally succeed; use a sentinel guaranteed-dead pid below
 	// Pick a pid we can be confident is not present: a very large pid.
-	deadPid = 999999999
-	store.UpsertSupervisorPointer(context.Background(), PointerRow{
+	deadPid := 999999999
+	if err := store.UpsertSupervisorPointer(context.Background(), PointerRow{
 		SupervisorID: supID,
 		RepositoryID: "repo_test",
 		PID:          deadPid,
 		State:        "starting",
-	})
+	}); err != nil {
+		t.Fatalf("UpsertSupervisorPointer: %v", err)
+	}
 
 	cfg := LivenessConfig{
 		HeartbeatInterval: 25 * time.Millisecond,
@@ -159,7 +177,7 @@ func TestLivenessMarksLostOnDeadPid(t *testing.T) {
 func TestLivenessMarksLostOnCorruptTmuxMetadata(t *testing.T) {
 	store := newFakeStore()
 	supID := "sup_corrupt_tmux"
-	store.UpsertSupervisorPointer(context.Background(), PointerRow{
+	if err := store.UpsertSupervisorPointer(context.Background(), PointerRow{
 		SupervisorID: supID,
 		RepositoryID: "repo_test",
 		PID:          os.Getpid(),
@@ -170,7 +188,9 @@ func TestLivenessMarksLostOnCorruptTmuxMetadata(t *testing.T) {
 				"session_name": "striatum-run",
 			},
 		},
-	})
+	}); err != nil {
+		t.Fatalf("UpsertSupervisorPointer: %v", err)
+	}
 
 	cfg := LivenessConfig{HeartbeatInterval: 25 * time.Millisecond}
 	l := NewLiveness(cfg, store, supID, os.Getpid())
@@ -198,10 +218,22 @@ func TestRecordTmuxProbeUnavailableMetadata(t *testing.T) {
 			"last_ok_at": "2026-05-28T17:59:00Z",
 		},
 	}
-	recordTmuxProbeUnavailable(metadata, now, 2, "probe_timeout")
+	recordTmuxProbeUnavailable(metadata, now, 2, LaneLiveness{
+		Backed: "tmux",
+		Class:  string(TmuxLivenessUnavailable),
+		Detail: "probe_timeout",
+		Tmux: &TmuxLiveness{
+			Class:  TmuxLivenessUnavailable,
+			State:  "degraded",
+			Detail: "probe_timeout",
+		},
+	})
 	tmux := metadata["tmux"].(map[string]any)
 	if tmux["probe_unavailable_count"] != 2 || tmux["last_unavailable_detail"] != "probe_timeout" {
 		t.Fatalf("tmux metadata = %#v", tmux)
+	}
+	if tmux["liveness_state"] != "degraded" {
+		t.Fatalf("tmux metadata missing degraded liveness state: %#v", tmux)
 	}
 	if tmux["probe_skipped_at"] == "" {
 		t.Fatalf("tmux metadata missing probe_skipped_at: %#v", tmux)
@@ -213,6 +245,72 @@ func TestRecordTmuxProbeUnavailableMetadata(t *testing.T) {
 	if tmux["last_ok_at"] == "2026-05-28T17:59:00Z" {
 		t.Fatalf("last_ok_at was not refreshed: %#v", tmux)
 	}
+}
+
+func TestLivenessDegradesBeforeLostOnPersistentTmuxUnavailable(t *testing.T) {
+	origRunner := livenessTmuxRunner
+	defer func() { livenessTmuxRunner = origRunner }()
+	livenessTmuxRunner = &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: exec.ErrNotFound},
+	}}
+	t.Setenv("STRIATUM_TMUX_UNAVAILABLE_LOST_THRESHOLD", "3")
+
+	store := newFakeStore()
+	supID := "sup_tmux_unavailable"
+	if err := store.UpsertSupervisorPointer(context.Background(), PointerRow{
+		SupervisorID: supID,
+		RepositoryID: "repo_test",
+		PID:          os.Getpid(),
+		State:        "running",
+		Metadata: map[string]any{
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-run",
+				"pane_id":      "%4",
+				"pane_pid":     os.Getpid(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("UpsertSupervisorPointer: %v", err)
+	}
+
+	l := NewLiveness(LivenessConfig{HeartbeatInterval: 30 * time.Millisecond, GraceOnTerm: 10 * time.Millisecond}, store, supID, os.Getpid())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	l.Start(ctx)
+	defer func() { _ = l.Stop(context.Background(), false) }()
+
+	waitForSupervisorTest(t, 500*time.Millisecond, func() bool {
+		row, err := store.GetSupervisorPointer(context.Background(), supID)
+		if err != nil {
+			return false
+		}
+		tmux := row.Metadata["tmux"].(map[string]any)
+		return row.State == "running" && tmux["liveness_state"] == "degraded" && tmux["probe_unavailable_count"] == 1
+	})
+	if store.lostCall != "" {
+		t.Fatalf("supervisor marked lost before degraded warning: %q", store.lostCall)
+	}
+
+	waitForSupervisorTest(t, time.Second, func() bool {
+		row, err := store.GetSupervisorPointer(context.Background(), supID)
+		return err == nil && row.State == "lost" && row.LostReason == "tmux_unavailable_persistent"
+	})
+}
+
+func waitForSupervisorTest(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if condition() {
+		return
+	}
+	t.Fatalf("condition was not satisfied within %s", timeout)
 }
 
 func TestLaunchEmptyCommandRejected(t *testing.T) {

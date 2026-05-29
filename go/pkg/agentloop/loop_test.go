@@ -11,7 +11,9 @@ import (
 )
 
 func TestAgentLoopSubmitSequenceDefault(t *testing.T) {
-	os.Unsetenv("STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE")
+	if err := os.Unsetenv("STRIATUM_AGENT_LOOP_SUBMIT_SEQUENCE"); err != nil {
+		t.Fatalf("unset submit sequence env: %v", err)
+	}
 	if got := agentLoopSubmitSequence(); got != "\r" {
 		t.Fatalf("default submit sequence = %q, want carriage return", got)
 	}

@@ -170,3 +170,86 @@ func TestInjectLaneMCPConfigPassthrough(t *testing.T) {
 		t.Fatalf("unknown-adapter passthrough failed: %#v %v", cmd, err)
 	}
 }
+
+func TestCleanupGeminiSettings(t *testing.T) {
+	t.Run("creates backup when settings exist", func(t *testing.T) {
+		repo := t.TempDir()
+		dir := filepath.Join(repo, ".gemini")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		settingsPath := filepath.Join(dir, "settings.json")
+		original := []byte(`{"original":true}`)
+		if err := os.WriteFile(settingsPath, original, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		t.Setenv("STRIATUM_SUPERVISOR_ID", "sup1")
+		cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1/mcp", "tok")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify backup file exists
+		backupPath := filepath.Join(repo, ".striatum", "scratch", "sup1", "settings.json.backup")
+		if _, err := os.Stat(backupPath); err != nil {
+			t.Fatalf("expected backup to exist: %v", err)
+		}
+
+		// Modify settings to simulate crash/no cleanup called
+		_ = os.WriteFile(settingsPath, []byte("garbage"), 0o600)
+
+		// Call CleanupGeminiSettings directly
+		CleanupGeminiSettings(repo, "sup1")
+
+		// Verify settings restored
+		restored, err := os.ReadFile(settingsPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(restored) != string(original) {
+			t.Fatalf("expected restored = %s, got %s", original, restored)
+		}
+
+		// Verify backup file removed
+		if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+			t.Fatalf("expected backup to be removed")
+		}
+
+		// Running cleanup after is safe and noop
+		cleanup()
+	})
+
+	t.Run("creates marker when settings do not exist", func(t *testing.T) {
+		repo := t.TempDir()
+		settingsPath := filepath.Join(repo, ".gemini", "settings.json")
+
+		t.Setenv("STRIATUM_SUPERVISOR_ID", "sup2")
+		cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1/mcp", "tok")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Verify marker file exists
+		createdPath := filepath.Join(repo, ".striatum", "scratch", "sup2", "settings.json.created")
+		if _, err := os.Stat(createdPath); err != nil {
+			t.Fatalf("expected created marker to exist: %v", err)
+		}
+
+		// Call CleanupGeminiSettings directly
+		CleanupGeminiSettings(repo, "sup2")
+
+		// Verify settings removed
+		if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+			t.Fatalf("expected settings file to be removed")
+		}
+
+		// Verify marker file removed
+		if _, err := os.Stat(createdPath); !os.IsNotExist(err) {
+			t.Fatalf("expected created marker to be removed")
+		}
+
+		// Running cleanup after is safe and noop
+		cleanup()
+	})
+}

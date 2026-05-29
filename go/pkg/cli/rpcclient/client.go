@@ -73,7 +73,7 @@ func (c Client) Invoke(ctx context.Context, method string, params map[string]any
 	if err != nil {
 		return nil, &Error{Code: "daemon_unreachable", Message: fmt.Sprintf("daemon unreachable at %s: %v", c.Config.SocketPath, err), ExitCode: 11}
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	reader := bufio.NewReader(conn)
 	if _, err := send(ctx, conn, reader, rpc.Envelope{
@@ -164,6 +164,8 @@ func ExitCode(err error) int {
 
 func exitCode(code string) int {
 	switch code {
+	case "artifact_error":
+		return 6
 	case "version_incompatible":
 		return 10
 	case "daemon_unreachable":

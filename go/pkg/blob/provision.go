@@ -151,7 +151,7 @@ func (c *Client) readClaimMarker(ctx context.Context, bucket string) (string, er
 	if err != nil {
 		return "", nil
 	}
-	defer obj.Close()
+	defer func() { _ = obj.Close() }()
 	buf := make([]byte, size)
 	n, _ := obj.Read(buf)
 	return string(buf[:n]), nil

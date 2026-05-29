@@ -151,6 +151,46 @@ func TestGitTouchedPathsSinceBaselineIgnoresPreExistingUntrackedPaths(t *testing
 	}
 }
 
+func TestGitTouchedPathsSinceBaselineAllowsStashedOrRestoredFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "allowed.txt"), "base\n")
+	runGit(t, repo, "add", "allowed.txt")
+	runGit(t, repo, "commit", "-m", "base")
+
+	// Write outside-stashed.txt which is dirty at baseline but will be removed (restored/stashed to clean) later
+	mustWrite(t, filepath.Join(repo, "outside-stashed.txt"), "will be stashed\n")
+
+	baseline, err := gitChangedPathSnapshots(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+	entries := make([]any, 0, len(baseline))
+	for _, item := range baseline {
+		entries = append(entries, map[string]any{"path": item.Path, "hash": item.Hash})
+	}
+
+	// Delete outside-stashed.txt so it transitions back to clean
+	err = os.Remove(filepath.Join(repo, "outside-stashed.txt"))
+	if err != nil {
+		t.Fatalf("remove outside-stashed: %v", err)
+	}
+
+	mustWrite(t, filepath.Join(repo, "allowed.txt"), "changed\n")
+	touched, err := gitTouchedPathsSinceBaseline(context.Background(), repo, map[string]any{
+		"write_scope_baseline": map[string]any{"changed_paths": entries},
+	})
+	if err != nil {
+		t.Fatalf("touched: %v", err)
+	}
+	want := []string{"allowed.txt"}
+	if !reflect.DeepEqual(touched, want) {
+		t.Fatalf("touched paths = %#v, want %#v (stashed/restored files should not trigger violation)", touched, want)
+	}
+}
+
 func runGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)

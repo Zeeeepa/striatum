@@ -91,13 +91,33 @@ func TestPublishArtifactUsesLaneAttestedAuthorLine(t *testing.T) {
 		now, now.Add(time.Hour)); err != nil {
 		t.Fatalf("insert lease: %v", err)
 	}
+	pid := os.Getpid()
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisors (
 		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
 		  scratch_path, pid, state, started_at
-		) VALUES ('repo_artifact','sup_1','run_1','sess_1','codex','[]'::jsonb,$1,$2,4242,'attached',$3)`,
-		repoRoot, filepath.Join(repoRoot, ".striatum", "scratch"), now); err != nil {
+		) VALUES ('repo_artifact','sup_1','run_1','sess_1','codex','[]'::jsonb,$1,$2,$3,'attached',$4)`,
+		repoRoot, filepath.Join(repoRoot, ".striatum", "scratch"), pid, now); err != nil {
 		t.Fatalf("insert supervisor: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.process_supervisor_pointers (
+		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		  pid, pid_start_time, state, updated_at, metadata_json
+		) VALUES ('repo_artifact', 'sup_1', 'dsup_1', 'run_1', 'sess_1', $1, '', 'attached', $2, '{}'::jsonb)`,
+		pid, now,
+	); err != nil {
+		t.Fatalf("insert pointer: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_supervisors (
+		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
+		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
+		  pid_start_time, state, started_at, heartbeat_at
+		) VALUES ('dsup_1', 'repo_artifact', 'run_1', 'sess_1', 'sup_1', 'inst', 'codex', '[]'::jsonb, 'sha', '/tmp', $1, '', 'attached', $2, $2)`,
+		pid, now,
+	); err != nil {
+		t.Fatalf("insert daemon supervisor: %v", err)
 	}
 	result, err := HandlePublishArtifact(ctx, runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
@@ -120,3 +140,63 @@ func TestPublishArtifactUsesLaneAttestedAuthorLine(t *testing.T) {
 		t.Fatalf("publish result = %#v", result)
 	}
 }
+
+func TestValidateSandboxJail(t *testing.T) {
+	repoRoot := t.TempDir()
+	outsideDir := t.TempDir()
+
+	err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Valid path inside repo root
+	res, err := ValidateSandboxJail(repoRoot, "docs/file.md")
+	if err != nil {
+		t.Fatalf("expected valid path inside repo, got err: %v", err)
+	}
+	expected := filepath.Clean(filepath.Join(repoRoot, "docs/file.md"))
+	if res != expected {
+		t.Fatalf("expected %v, got %v", expected, res)
+	}
+
+	// 2. Absolute target escapes
+	_, err = ValidateSandboxJail(repoRoot, "/etc/passwd")
+	if err == nil {
+		t.Fatal("expected absolute path to fail, but succeeded")
+	}
+
+	// 3. Symlink escaping repo root
+	outsideLink := filepath.Join(repoRoot, "outside_link")
+	err = os.Symlink(outsideDir, outsideLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = ValidateSandboxJail(repoRoot, "outside_link/some_file.md")
+	if err == nil {
+		t.Fatal("expected symlink escape to fail, but succeeded")
+	}
+
+	// 4. Symlink staying inside repo root
+	internalDir := filepath.Join(repoRoot, "internal_dir")
+	err = os.MkdirAll(internalDir, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+	internalLink := filepath.Join(repoRoot, "docs/internal_link")
+	err = os.Symlink(internalDir, internalLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err = ValidateSandboxJail(repoRoot, "docs/internal_link/some_file.md")
+	if err != nil {
+		t.Fatalf("expected internal symlink to succeed, got: %v", err)
+	}
+	expected = filepath.Clean(filepath.Join(internalDir, "some_file.md"))
+	if res != expected {
+		t.Fatalf("expected %v, got %v", expected, res)
+	}
+}
+

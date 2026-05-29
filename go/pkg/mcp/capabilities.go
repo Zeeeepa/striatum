@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"sort"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -16,7 +17,7 @@ type Tool struct {
 
 func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, repositoryID string) []Tool {
 	tools := []Tool{}
-	for _, entry := range rpc.SortedMethods() {
+	for _, entry := range visibleMethodEntries() {
 		if entry.RequiredCapability == nil || isInternal(entry.Method) || isHiddenProductionTool(entry.Method) || entry.Deprecated {
 			continue
 		}
@@ -37,6 +38,24 @@ func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, 
 		})
 	}
 	return tools
+}
+
+func visibleMethodEntries() []rpc.MethodEntry {
+	entries := rpc.SortedMethods()
+	seen := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		seen[entry.Method] = struct{}{}
+	}
+	for method, entry := range rpc.MethodRegistry {
+		if _, ok := seen[method]; ok {
+			continue
+		}
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Method < entries[j].Method
+	})
+	return entries
 }
 
 func inputSchema(entry rpc.MethodEntry) map[string]any {

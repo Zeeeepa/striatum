@@ -1,0 +1,253 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0088-0089-closeout",
+  "workflow_version": "2026-05-29",
+  "name": "RFC 0088 + 0089 two-phase closeout (0089 findings build, then gated 0088 deletion closeout)",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0088-0089-closeout",
+    "allow_dirty": true
+  },
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "codex_builder": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5 xhigh",
+      "command": ["codex", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "interrogate"]
+    },
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5 xhigh",
+      "command": ["codex", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "review", "synthesis", "interrogate"]
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus 4.8",
+      "command": ["claude", "--model", "claude-opus-4-8", "--permission-mode", "bypassPermissions"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write", "review", "synthesis", "interrogate"]
+    },
+    "agy": {
+      "adapter": "process",
+      "display_model": "Gemini 3.5 Flash High",
+      "command": ["sh", "-c", "prompt=$(timeout 60s cat || true); exec agy --dangerously-skip-permissions --print-timeout 30m --print \"$prompt\" </dev/null"],
+      "supervision": {"transport": "pipe", "stdin_delivery": "one_shot_eof"},
+      "capabilities": ["write", "review", "interrogate"]
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "roles/coordinator.md"},
+    "implementer": {"definition_path": "roles/implementer.md"},
+    "reviewer": {"definition_path": "roles/reviewer.md"}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/rfc-0088-0089-closeout/TASK.md", "required": true},
+    {"path": "docs/rfcs/0088-deprecate-print-interactive-pty-lanes-agy-migration.md", "required": true},
+    {"path": "docs/rfcs/0089-tmux-backed-lane-monitoring.md", "required": true},
+    {"path": "docs/operator/workflows/rfc-0088-p3-codex-verify/FINDINGS.md", "required": true}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 3, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {
+      "id": "build_0089_findings",
+      "type": "build",
+      "title": "Phase 1 build: RFC 0089 graded-liveness, rebridge, dashboard signals, doctor hints",
+      "role_id": "implementer",
+      "lane_id": "codex_builder",
+      "fresh_session_required": true,
+      "interrogable": true,
+      "required_review_postures": ["threat_model", "ergonomics_dx", "devils_advocate"],
+      "objective": "Resolve the five accepted RFC 0089 follow-up findings as one graded-liveness state machine, a single in-place rebridge verb, distinct dashboard signals, and failure-class-derived doctor hints. Keep changes focused and stay live for the three-lane interrogation panel.",
+      "task_prompt": {"path": "prompts/build_0089_findings.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "docs/rfcs/0089-tmux-backed-lane-monitoring.md",
+          "docs/reference/spec.md",
+          "docs/reference/ubiquitous-language.md",
+          "docs/reference/command-authority-matrix.md",
+          "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/build_0089/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/"
+        ]
+      },
+      "expected_artifacts": [
+        {"logical_name": "build_0089_handoff", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/build_0089/HANDOFF.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_findings_codex",
+      "type": "review",
+      "title": "Phase 1 review codex threat_model",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "findings_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "threat_model",
+      "objective": "Threat-model the RFC 0089 findings implementation and interrogate the live builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_findings.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/codex/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "findings_review_codex", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/codex/REVIEW.md", "required": true},
+        {"logical_name": "findings_interrogation_chat_codex", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/codex/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_findings_claude",
+      "type": "review",
+      "title": "Phase 1 review claude ergonomics_dx",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "findings_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review the RFC 0089 findings implementation for operator ergonomics and interrogate the live builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_findings.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/claude_code/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "findings_review_claude", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/claude_code/REVIEW.md", "required": true},
+        {"logical_name": "findings_interrogation_chat_claude", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/claude_code/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_findings_agy",
+      "type": "review",
+      "title": "Phase 1 review agy devils_advocate",
+      "role_id": "reviewer",
+      "lane_id": "agy",
+      "parallel_group": "findings_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "devils_advocate",
+      "objective": "Adversarially review the RFC 0089 findings implementation and interrogate the live builder before a verdict. Log the curated interrogation chat.",
+      "task_prompt": {"path": "prompts/review_findings_agy.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/agy/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "findings_review_agy", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/agy/REVIEW.md", "required": true},
+        {"logical_name": "findings_interrogation_chat_agy", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/findings/agy/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "build_0088_closeout",
+      "type": "build",
+      "title": "Phase 2 build: RFC 0088 closeout (delete turn-driver/single_shot/--print, grep gate, D148-D151, docs)",
+      "role_id": "implementer",
+      "lane_id": "codex_builder",
+      "fresh_session_required": true,
+      "interrogable": true,
+      "required_review_postures": ["threat_model", "ergonomics_dx", "devils_advocate"],
+      "objective": "With the codex owned-PTY agent-loop now proven live across Phase 1, perform the irreversible RFC 0088 closeout: apoptosis-clean deletion of the turn-driver, single_shot capability, and --print/exec wrapper; add the retired-vocabulary grep gate; draft decision-log entries D148-D151 with evidence references to this run; land SPEC/glossary updates; flip RFC 0088 status. Stay live for the second interrogation panel.",
+      "task_prompt": {"path": "prompts/build_0088_closeout.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "docs/rfcs/0088-deprecate-print-interactive-pty-lanes-agy-migration.md",
+          "docs/decisions/decision-log.md",
+          "docs/reference/spec.md",
+          "docs/reference/ubiquitous-language.md",
+          "docs/reference/command-authority-matrix.md",
+          "docs/reference/retired-vocabulary.txt",
+          "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/build_0088/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/"
+        ]
+      },
+      "expected_artifacts": [
+        {"logical_name": "build_0088_handoff", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/build_0088/HANDOFF.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_closeout_codex",
+      "type": "review",
+      "title": "Phase 2 review codex threat_model",
+      "role_id": "reviewer",
+      "lane_id": "codex",
+      "parallel_group": "closeout_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "threat_model",
+      "objective": "Threat-model the RFC 0088 closeout: confirm no live authoring/attestation path was deleted before its replacement was proven, that D148-D151 reference real evidence, and interrogate the live builder before a verdict.",
+      "task_prompt": {"path": "prompts/review_closeout.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/codex/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "closeout_review_codex", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/codex/REVIEW.md", "required": true},
+        {"logical_name": "closeout_interrogation_chat_codex", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/codex/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_closeout_claude",
+      "type": "review",
+      "title": "Phase 2 review claude ergonomics_dx",
+      "role_id": "reviewer",
+      "lane_id": "claude_code",
+      "parallel_group": "closeout_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "ergonomics_dx",
+      "objective": "Review whether the RFC 0088 closeout leaves the operator with a coherent, discoverable lane model (no dangling references to deleted turn-driver/single_shot/--print) and interrogate the live builder before a verdict.",
+      "task_prompt": {"path": "prompts/review_closeout.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/claude_code/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "closeout_review_claude", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/claude_code/REVIEW.md", "required": true},
+        {"logical_name": "closeout_interrogation_chat_claude", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/claude_code/INTERROGATION_CHAT.md", "required": true}
+      ]
+    },
+    {
+      "id": "review_closeout_agy",
+      "type": "review",
+      "title": "Phase 2 review agy devils_advocate",
+      "role_id": "reviewer",
+      "lane_id": "agy",
+      "parallel_group": "closeout_review",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "reviewer_access_scope": "repo_level",
+      "review_posture": "devils_advocate",
+      "objective": "Adversarially probe the RFC 0088 closeout for dangling call sites, tests that pass while a real lane is broken, and unproven deletion claims; interrogate the live builder before a verdict.",
+      "task_prompt": {"path": "prompts/review_closeout_agy.md"},
+      "write_scope": {"mode": "review_only_artifact", "repo_write": false, "allowed_paths": ["docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/agy/"], "forbidden_paths": [".striatum/"]},
+      "expected_artifacts": [
+        {"logical_name": "closeout_review_agy", "kind": "finding", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/agy/REVIEW.md", "required": true},
+        {"logical_name": "closeout_interrogation_chat_agy", "kind": "handoff", "path": "docs/operator/workflows/rfc-0088-0089-closeout/artifacts/review/closeout/agy/INTERROGATION_CHAT.md", "required": true}
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "build_0089_findings", "to": "review_findings_codex", "on": "completed"},
+    {"from": "build_0089_findings", "to": "review_findings_claude", "on": "completed"},
+    {"from": "build_0089_findings", "to": "review_findings_agy", "on": "completed"},
+    {"from": "review_findings_codex", "to": "build_0088_closeout", "on": "completed"},
+    {"from": "review_findings_claude", "to": "build_0088_closeout", "on": "completed"},
+    {"from": "review_findings_agy", "to": "build_0088_closeout", "on": "completed"},
+    {"from": "build_0088_closeout", "to": "review_closeout_codex", "on": "completed"},
+    {"from": "build_0088_closeout", "to": "review_closeout_claude", "on": "completed"},
+    {"from": "build_0088_closeout", "to": "review_closeout_agy", "on": "completed"}
+  ],
+  "cycles": [
+    {"from": "review_findings_codex", "to": "build_0089_findings", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true, "allow_same_model": true},
+    {"from": "review_findings_claude", "to": "build_0089_findings", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true},
+    {"from": "review_findings_agy", "to": "build_0089_findings", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true},
+    {"from": "review_closeout_codex", "to": "build_0088_closeout", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true, "allow_same_model": true},
+    {"from": "review_closeout_claude", "to": "build_0088_closeout", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true},
+    {"from": "review_closeout_agy", "to": "build_0088_closeout", "on_verdict": "needs_revision", "max_iterations": 1, "allow_same_lane": true}
+  ]
+}

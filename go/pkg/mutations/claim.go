@@ -73,6 +73,7 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			        WHERE wp.repository_id = qm.repository_id
 			          AND wp.run_id = qm.run_id
 			          AND wp.session_id = $4
+			          AND wp.job_id != qm.job_id
 			     )
 			   )
 			   AND qm.run_id = $5

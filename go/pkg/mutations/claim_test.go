@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
@@ -152,5 +153,131 @@ func TestAugmentationReferencesOmittedForNonOptedInJob(t *testing.T) {
 
 	if got := augmentationReferences(workflow, "review", t.TempDir()); got != nil {
 		t.Fatalf("augmentation references = %#v, want nil", got)
+	}
+}
+
+func TestClaimNextReclaimRequeuedJobWithFreshSessionRequired(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_reclaim"
+	runID := "run_claim_reclaim"
+	sessionID := "sess_1"
+	role := "worker"
+	lane := "claude"
+
+	// 1. Seed Repo and Run
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+
+	// 2. Seed Session
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, lane)
+
+	// 3. Seed Job 1 with fresh_session_required = true
+	jobID1 := "job_1"
+	err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+			repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			title, job_type, fresh_session_required, idempotency_key, created_at
+		) VALUES ($1, $2, $3, 'job_w_1', 1, 'queued', $4, 'Job 1', 'draft', true, 'idem_1', NOW())`,
+		repoID, jobID1, runID, role)
+	if err != nil {
+		t.Fatalf("failed to insert job 1: %v", err)
+	}
+
+	// 4. Seed Queue Message for Job 1
+	msgID1 := "msg_1"
+	err = runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+			repository_id, message_id, run_id, job_id, kind, state, target_role_id, target_lane_id, priority, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'work', 'pending', $5, $6, 10, NOW(), NOW())`,
+		repoID, msgID1, runID, jobID1, role, lane)
+	if err != nil {
+		t.Fatalf("failed to insert queue message 1: %v", err)
+	}
+
+	// 5. First Claim: Claim the job
+	res1, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+	}))
+	if err != nil {
+		t.Fatalf("first claim failed: %v", err)
+	}
+	if res1["status"] != "claimed" {
+		t.Fatalf("expected first claim status to be claimed, got %v", res1["status"])
+	}
+
+	// 6. Simulate job re-queueing (after checkpoint resolution, etc.)
+	// Release the job, release the lease, and reset queue message to pending
+	err = runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'queued', current_lease_id = NULL
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, jobID1)
+	if err != nil {
+		t.Fatalf("failed to reset job 1 state: %v", err)
+	}
+	err = runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released'
+		 WHERE repository_id = $1 AND resource_type = 'job' AND resource_id = $2`, repoID, jobID1)
+	if err != nil {
+		t.Fatalf("failed to release job 1 lease: %v", err)
+	}
+	err = runner.Exec(ctx, `
+		UPDATE striatumd.queue_messages
+		   SET state = 'pending', current_lease_id = NULL
+		 WHERE repository_id = $1 AND message_id = $2`, repoID, msgID1)
+	if err != nil {
+		t.Fatalf("failed to reset queue message 1 state: %v", err)
+	}
+
+	// 7. Second Claim: Try to reclaim the same job with the same session
+	res2, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+	}))
+	if err != nil {
+		t.Fatalf("second claim failed: %v", err)
+	}
+	if res2["status"] != "claimed" {
+		t.Fatalf("expected second claim status to be claimed, got %v", res2["status"])
+	}
+
+	// 8. Seed a DIFFERENT Job 2 with fresh_session_required = true under the same run
+	jobID2 := "job_2"
+	err = runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+			repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			title, job_type, fresh_session_required, idempotency_key, created_at
+		) VALUES ($1, $2, $3, 'job_w_2', 1, 'queued', $4, 'Job 2', 'draft', true, 'idem_2', NOW())`,
+		repoID, jobID2, runID, role)
+	if err != nil {
+		t.Fatalf("failed to insert job 2: %v", err)
+	}
+
+	msgID2 := "msg_2"
+	err = runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+			repository_id, message_id, run_id, job_id, kind, state, target_role_id, target_lane_id, priority, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'work', 'pending', $5, $6, 10, NOW(), NOW())`,
+		repoID, msgID2, runID, jobID2, role, lane)
+	if err != nil {
+		t.Fatalf("failed to insert queue message 2: %v", err)
+	}
+
+	// 9. Third Claim: Try to claim Job 2 (different job) with the same session.
+	// Since Job 1 was already claimed and fresh_session_required is true for Job 2,
+	// this session cannot claim Job 2 because it's a different job in the same run.
+	res3, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+	}))
+	if err != nil {
+		t.Fatalf("third claim failed: %v", err)
+	}
+	if res3["status"] != "no_work" {
+		t.Fatalf("expected third claim status to be no_work, got %v", res3["status"])
 	}
 }

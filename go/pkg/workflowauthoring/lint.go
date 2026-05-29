@@ -264,9 +264,9 @@ func lintCoverage(workflow map[string]any, jobMap map[string]map[string]any, fin
 			reviewJobs = append(reviewJobs, job)
 		}
 	}
-	reviewerIndependent := !(rules["same_model_review_pair"] || rules["same_model_revision_cycle"])
+	reviewerIndependent := !rules["same_model_review_pair"] && !rules["same_model_revision_cycle"]
 	freshContext := !rules["review_without_fresh_context"]
-	writeIsolated := !(rules["broad_write_scope"] || rules["repo_write_without_worktree_isolation"])
+	writeIsolated := !rules["broad_write_scope"] && !rules["repo_write_without_worktree_isolation"]
 	hasRevisionOrEscalation := !rules["missing_review_escalation_path"]
 	checks := []map[string]any{
 		lintCoverageCheck("reviewer_independence", reviewerIndependent, coverageReason(len(reviewJobs) == 0, reviewerIndependent, "workflow has no review jobs", "review lanes are model-family independent", "one or more review lanes share model family with implementation work")),

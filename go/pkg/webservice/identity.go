@@ -37,6 +37,8 @@ func IdentityReadRoutes() []IdentityReadRoute {
 		{http.MethodGet, "/v1/runs/{run_id}", "/v1/runs/run_1"},
 		{http.MethodGet, "/v1/runs/{run_id}/interrogations", "/v1/runs/run_1/interrogations"},
 		{http.MethodGet, "/v1/runs/{run_id}/interrogations/{interrogation_id}", "/v1/runs/run_1/interrogations/intg_1"},
+		{http.MethodGet, "/v1/runs/{run_id}/conversations", "/v1/runs/run_1/conversations"},
+		{http.MethodGet, "/v1/runs/{run_id}/conversations/{conversation_id}", "/v1/runs/run_1/conversations/conv_1"},
 		// Read-only HTML dashboard (server-rendered status page) + its static
 		// assets, so the human web UI is reachable over `tailscale serve` and not
 		// only the JSON API. All GET, no mutation; the page renders the same
@@ -82,10 +84,10 @@ func PermitIdentityRoute(method, rawPath string) bool {
 		case 2:
 			// /v1/runs/{run_id}/interrogations — sibling read routes
 			// (why, dashboard, artifacts, events) are intentionally NOT here.
-			return parts[1] == "interrogations"
+			return parts[1] == "interrogations" || parts[1] == "conversations"
 		case 3:
 			// /v1/runs/{run_id}/interrogations/{interrogation_id} (incl ?view=chat)
-			return parts[1] == "interrogations" && parts[2] != ""
+			return (parts[1] == "interrogations" || parts[1] == "conversations") && parts[2] != ""
 		}
 		return false
 	}

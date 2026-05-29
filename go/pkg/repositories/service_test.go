@@ -278,9 +278,7 @@ func (r *resolveFakeRunner) Query(_ context.Context, sql string, args ...any) (p
 	r.args = args
 	matched := make([]map[string]any, 0, len(r.rows))
 	if len(args) == 0 {
-		for _, row := range r.rows {
-			matched = append(matched, row)
-		}
+		matched = append(matched, r.rows...)
 		return resolveRowsFromMaps(matched), nil
 	}
 	value, _ := args[0].(string)

@@ -1,0 +1,222 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/comprehensive-3lane-review"
+  },
+  "allow_same_model_review_pairing": true,
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "author"
+  },
+  "cycles": [],
+  "edges": [
+    {
+      "from": "review_1",
+      "on": "completed",
+      "to": "synthesis"
+    },
+    {
+      "from": "review_2",
+      "on": "completed",
+      "to": "synthesis"
+    },
+    {
+      "from": "review_3",
+      "on": "completed",
+      "to": "synthesis"
+    },
+    {
+      "from": "synthesis",
+      "on": "completed",
+      "to": "final_review"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/comprehensive-review/review_1/REVIEW.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review_1",
+      "lane_id": "local",
+      "objective": "Review the draft and record a finding.",
+      "review_posture": "devils_advocate",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/comprehensive-review/review_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/comprehensive-review/review_2/REVIEW.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review_2",
+      "lane_id": "local",
+      "objective": "Review the draft and record a finding.",
+      "review_posture": "security",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/comprehensive-review/review_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/comprehensive-review/review_3/REVIEW.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review_3",
+      "lane_id": "local",
+      "objective": "Review the draft and record a finding.",
+      "review_posture": "custom:maintainer_cost",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/comprehensive-review/review_3/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "synthesis",
+          "path": "docs/operator/artifacts/comprehensive-review/SYNTHESIS.md",
+          "required": true
+        }
+      ],
+      "id": "synthesis",
+      "lane_id": "local",
+      "objective": "Synthesize independent reviews",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Synthesize independent reviews",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/comprehensive-review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/comprehensive-review/final/FINAL_REVIEW.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "final_review",
+      "lane_id": "local",
+      "objective": "Review the draft and record a finding.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/comprehensive-review/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "comprehensive-3lane-review",
+  "parallelism": {
+    "max_active_jobs": 2,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "comprehensive-3lane-review",
+  "workflow_version": "2026-05-29"
+}

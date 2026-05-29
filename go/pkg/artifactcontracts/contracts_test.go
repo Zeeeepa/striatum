@@ -93,3 +93,33 @@ func TestParseFrontMatterRejectsDuplicateFields(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestParseFrontMatterAllowsMultilineLists(t *testing.T) {
+	block := `schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+inputs:
+  - "file_a.txt"
+  - "file_b.txt"`
+	parsed, err := ParseFrontMatterBlock(block)
+	if err != nil {
+		t.Fatalf("unexpected error parsing multiline lists: %v", err)
+	}
+	inputs, ok := parsed["inputs"].([]string)
+	if !ok || len(inputs) != 2 || inputs[0] != "file_a.txt" || inputs[1] != "file_b.txt" {
+		t.Fatalf("inputs parsed incorrectly: %v", parsed["inputs"])
+	}
+}
+
+func TestParseFrontMatterReturnsLineNumberedSyntaxErrors(t *testing.T) {
+	// Syntax error on line 3: missing key or invalid formatting
+	block := `schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+invalid yaml logic here`
+	_, err := ParseFrontMatterBlock(block)
+	if err == nil {
+		t.Fatalf("expected error on syntax error, got nil")
+	}
+	if !strings.Contains(err.Error(), "line 4:") {
+		t.Fatalf("expected error to mention line 4, got %v", err)
+	}
+}

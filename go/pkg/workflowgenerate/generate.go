@@ -1500,9 +1500,10 @@ func coordinator(spec Spec, lanes map[string]any) map[string]any {
 
 func defaultParallelism(spec Spec) map[string]any {
 	maxJobs := 1
-	if spec.Shape == "multi_review_synthesis" {
+	switch spec.Shape {
+	case "multi_review_synthesis":
 		maxJobs = reviewerCount(spec)
-	} else if spec.Shape == "implementation_panel" {
+	case "implementation_panel":
 		if count, err := panelProposalCount(spec); err == nil {
 			maxJobs = count
 		}
@@ -1609,7 +1610,7 @@ func customJob(blockID, kind, laneID, artifactPath string, block map[string]any,
 	}
 	title := fmt.Sprint(block["title"])
 	if title == "" || title == "<nil>" {
-		title = strings.Title(strings.ReplaceAll(blockID, "_", " "))
+		title = titleFromBlockID(blockID)
 	}
 	result := job(blockID, jobType, title, role, laneID, path.Dir(artifactPath), path.Base(artifactPath), artifactKind, blockID, kind, "")
 	if role == "reviewer" {
@@ -1953,6 +1954,17 @@ func sortedMapKeys(values map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func titleFromBlockID(blockID string) string {
+	words := strings.Fields(strings.ReplaceAll(blockID, "_", " "))
+	for i, word := range words {
+		if word == "" {
+			continue
+		}
+		words[i] = strings.ToUpper(word[:1]) + word[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 func cloneMap(input map[string]any) map[string]any {

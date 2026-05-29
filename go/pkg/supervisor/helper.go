@@ -91,7 +91,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		return emitter.helperError(spec.SupervisorID, "packet_input", err)
 	}
 	if packetCloser != nil {
-		defer packetCloser.Close()
+		defer func() { _ = packetCloser.Close() }()
 	}
 
 	launchSpec := LaunchSpec{
@@ -101,7 +101,12 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		UsePTY:      true,
 		RequireTmux: spec.RequireTmux,
 	}
-	result, err := helperLaunch(ctx, spec.ScratchDir, spec.SupervisorID, launchSpec)
+	var result *LaunchResult
+	if spec.RebridgeTmux != nil {
+		result, err = attachTmuxPTY(ctx, *spec.RebridgeTmux, launchSpec)
+	} else {
+		result, err = helperLaunch(ctx, spec.ScratchDir, spec.SupervisorID, launchSpec)
+	}
 	if err != nil {
 		return emitter.helperError(spec.SupervisorID, "launch", err)
 	}
@@ -113,9 +118,12 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		_ = result.StdinWriter.Close()
 		return emitter.helperError(spec.SupervisorID, "launch", fmt.Errorf("PTY handle is not read/write/close capable"))
 	}
-	defer ptmx.Close()
+	defer func() { _ = ptmx.Close() }()
 
 	startedPayload := map[string]any{"pid": result.PID}
+	if spec.RebridgeTmux != nil {
+		startedPayload["rebridge"] = true
+	}
 	if result.AttachPID > 0 {
 		startedPayload["attach_client_pid"] = result.AttachPID
 	}

@@ -13,6 +13,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
@@ -61,17 +62,21 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 		return nil, rpc.NewError("schema_invalid", "recovery.process_reconcile requires run_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		if _, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false); err != nil {
+		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+		if err != nil {
 			return nil, err
 		}
+		repoRoot := fmt.Sprint(run["repo_root"])
 		rows, err := queryRows(ctx, tx, `
 			SELECT pe.*,
 			       p.metadata_json AS supervisor_metadata_json,
 			       p.pid_start_time AS supervisor_pid_start_time,
-			       p.pid AS supervisor_pid
+			       p.pid AS supervisor_pid,
+			       p.supervisor_id,
+			       p.daemon_supervisor_id
 			  FROM striatumd.process_executions pe
 			  LEFT JOIN LATERAL (
-			    SELECT ptr.metadata_json, ptr.pid_start_time, ptr.pid
+			    SELECT ptr.metadata_json, ptr.pid_start_time, ptr.pid, ptr.supervisor_id, ptr.daemon_supervisor_id
 			      FROM striatumd.process_supervisor_pointers ptr
 			     WHERE ptr.repository_id = pe.repository_id
 			       AND ptr.run_id = pe.run_id
@@ -129,6 +134,21 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 				   SET state = 'lost', ended_at = $1
 				 WHERE repository_id = $2 AND process_id = $3`, now, repositoryID, processID); err != nil {
 				return nil, err
+			}
+			var supervisorID string
+			if s, ok := row["supervisor_id"].(string); ok {
+				supervisorID = s
+			}
+			var daemonSupervisorID string
+			if ds, ok := row["daemon_supervisor_id"].(string); ok {
+				daemonSupervisorID = ds
+			}
+			if supervisorID != "" {
+				stopReason := "unexpected child exit (lost)"
+				if err := updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "stopped", now, 0, "", "", &now, &stopReason); err != nil {
+					return nil, err
+				}
+				agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
 			}
 			if _, err := appendEvent(ctx, tx, repositoryID, runID, "process.lost", row["session_id"], row["job_id"], nil, nil, row["lease_id"], map[string]any{
 				"process_id": processID,

@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 // --- seeding helpers -------------------------------------------------------
@@ -76,13 +78,34 @@ func intgSeedSessionOrdinal(t *testing.T, ctx context.Context, runner db.Runner,
 func intgAttest(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, sessionID, lane string) {
 	t.Helper()
 	now := time.Now().UTC()
+	supID := "sup_" + sessionID
+	pid := os.Getpid()
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisors (
 		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
 		  scratch_path, pid, state, started_at
-		) VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'/tmp','/tmp/scratch',4242,'attached',$6)`,
-		repoID, "sup_"+sessionID, runID, sessionID, lane, now); err != nil {
+		) VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'/tmp','/tmp/scratch',$6,'attached',$7)`,
+		repoID, supID, runID, sessionID, lane, pid, now); err != nil {
 		t.Fatalf("attest session %s: %v", sessionID, err)
+	}
+
+	dsupID := "dsup_" + sessionID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.process_supervisor_pointers (
+		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		  pid, pid_start_time, state, updated_at, metadata_json
+		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)`,
+		repoID, supID, dsupID, runID, sessionID, pid, now); err != nil {
+		t.Fatalf("attest pointer for %s: %v", sessionID, err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_supervisors (
+		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
+		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
+		  pid_start_time, state, started_at, heartbeat_at
+		) VALUES ($1,$2,$3,$4,$5,'inst',$6,'[]'::jsonb,'sha','/tmp',$7,'','attached',$8,$8)`,
+		dsupID, repoID, runID, sessionID, supID, lane, pid, now); err != nil {
+		t.Fatalf("attest daemon supervisor for %s: %v", sessionID, err)
 	}
 }
 
@@ -415,6 +438,16 @@ func TestInterrogationMultiTurn(t *testing.T) {
 		})); err != nil {
 			t.Fatalf("answer %d: %v", i, err)
 		}
+		// target loops back and heartbeats to signal active progress, clearing any question stall
+		if err := sessionliveness.Record(ctx, runner, repoID, target, sessionliveness.LastSessionHeartbeatAt); err != nil {
+			t.Fatalf("target heartbeat %d: %v", i, err)
+		}
+		if err := runner.Exec(ctx, `
+			UPDATE striatumd.sessions
+			   SET last_session_question_at = NULL
+			 WHERE repository_id = $1 AND session_id = $2`, repoID, target); err != nil {
+			t.Fatalf("clear last_session_question_at: %v", err)
+		}
 	}
 
 	show, err := reads.HandleInterrogationShow(ctx, runner, intgEnv(repoID, map[string]any{"interrogation_id": id}))
@@ -429,10 +462,6 @@ func TestInterrogationMultiTurn(t *testing.T) {
 	for i, turn := range turns {
 		if fmt.Sprint(turn["body"]) != want[i] {
 			t.Fatalf("turn %d body = %v, want %v", i, turn["body"], want[i])
-		}
-		if fmt.Sprint(turn["interrogation_id"]) != id {
-			// interrogation_id correlation is on the row payload, not surfaced
-			// in the turn map directly; verify via the show interrogation block.
 		}
 	}
 }

@@ -84,6 +84,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 				if !strings.HasPrefix(class, "tmux_") {
 					continue
 				}
+				deliveryLiveness := superviseObject(view["delivery_liveness"])
+				deliveryClass := superviseString(deliveryLiveness["class"])
+				deliveryReason := superviseString(deliveryLiveness["reason"])
+
 				item := map[string]any{
 					"supervisor_id": view["supervisor_id"],
 					"session_id":    view["session_id"],
@@ -91,9 +95,19 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 					"state":         view["reattach_state"],
 					"reason":        view["reattach_reason"],
 				}
+				if deliveryClass == "degraded" {
+					if remediation := deliveryRemediation(deliveryReason, superviseString(view["session_id"])); remediation != "" {
+						item["remediation"] = remediation
+					}
+				} else if remediation := tmuxLivenessRemediation(class, superviseString(view["reattach_reason"]), superviseString(view["session_id"])); remediation != "" {
+					item["remediation"] = remediation
+				}
 				supervisorLiveness = append(supervisorLiveness, item)
 				if view["reattach_state"] != "terminal" && class != string(gosupervisor.TmuxLivenessOK) && class != string(gosupervisor.TmuxLivenessUnavailable) {
 					problems = append(problems, "supervisor_liveness."+superviseString(view["supervisor_id"])+": "+class)
+				}
+				if deliveryClass == "degraded" {
+					problems = append(problems, "supervisor_delivery_degraded."+superviseString(view["supervisor_id"])+": "+deliveryReason)
 				}
 			}
 		}

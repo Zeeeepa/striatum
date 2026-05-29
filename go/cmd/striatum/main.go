@@ -33,7 +33,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	globals, err := parseLeadingGlobals(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
@@ -64,7 +64,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		usage(stdout)
 		return 0
 	case "--version":
-		fmt.Fprintln(stdout, version)
+		_, _ = fmt.Fprintln(stdout, version)
 		return 0
 	default:
 		return runDaemonRoute(args, stdout, stderr)
@@ -72,7 +72,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 func usage(out io.Writer) {
-	fmt.Fprintln(out, "usage: striatum [--version] [--repo path|--repository-id id] command ...")
+	_, _ = fmt.Fprintln(out, "usage: striatum [--version] [--repo path|--repository-id id] command ...")
 }
 
 func runDaemonRoute(args []string, stdout io.Writer, stderr io.Writer) int {
@@ -143,7 +143,7 @@ func containsFlag(args []string, flag string) bool {
 
 func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: striatum workflow {validate|generate|templates} ...")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow {validate|generate|templates} ...")
 		return 2
 	}
 	switch args[0] {
@@ -154,7 +154,7 @@ func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOver
 	case "templates":
 		return runWorkflowTemplates(args[1:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown workflow command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown workflow command: %s\n", args[0])
 		return 2
 	}
 }
@@ -198,37 +198,37 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 		case "--option":
 			kv, ok := next()
 			if !ok {
-				fmt.Fprintln(stderr, "--option requires key=value")
+				_, _ = fmt.Fprintln(stderr, "--option requires key=value")
 				return 2
 			}
 			optKey, optVal, ok2 := strings.Cut(kv, "=")
 			if !ok2 || optKey == "" {
-				fmt.Fprintf(stderr, "--option must be key=value, got %q\n", kv)
+				_, _ = fmt.Fprintf(stderr, "--option must be key=value, got %q\n", kv)
 				return 2
 			}
 			options[optKey] = optVal
 		case "--write":
 			parsed, err := optionalBool(value, hasValue)
 			if err != nil {
-				fmt.Fprintln(stderr, "--write must be a boolean")
+				_, _ = fmt.Fprintln(stderr, "--write must be a boolean")
 				return 2
 			}
 			write = parsed
 		case "--json":
 			parsed, err := optionalBool(value, hasValue)
 			if err != nil {
-				fmt.Fprintln(stderr, "--json must be a boolean")
+				_, _ = fmt.Fprintln(stderr, "--json must be a boolean")
 				return 2
 			}
 			jsonOutput = parsed
 		default:
-			fmt.Fprintf(stderr, "unknown workflow generate flag: %s\n", arg)
+			_, _ = fmt.Fprintf(stderr, "unknown workflow generate flag: %s\n", arg)
 			return 2
 		}
 	}
 
 	if shape == "" {
-		fmt.Fprintln(stderr, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
 		return 2
 	}
 
@@ -289,7 +289,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 		if jsonOutput {
 			return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"shape": shape, "workflow_id": workflowID, "written": result}}, stderr)
 		}
-		fmt.Fprintf(stdout, "wrote workflow %s (shape %s) under %s\n", workflowID, shape, scaffoldRoot)
+		_, _ = fmt.Fprintf(stdout, "wrote workflow %s (shape %s) under %s\n", workflowID, shape, scaffoldRoot)
 		return 0
 	}
 
@@ -300,9 +300,9 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 	if jsonOutput {
 		return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"shape": shape, "workflow_id": workflowID, "lane_set": laneSet, "planned": planned}}, stderr)
 	}
-	fmt.Fprintf(stdout, "preview: workflow %s (shape %s, lane_set %s) — %d planned file(s); pass --write to commit\n", workflowID, shape, laneSet, len(planned))
+	_, _ = fmt.Fprintf(stdout, "preview: workflow %s (shape %s, lane_set %s) — %d planned file(s); pass --write to commit\n", workflowID, shape, laneSet, len(planned))
 	for _, p := range planned {
-		fmt.Fprintf(stdout, "  %v %v\n", p["status"], p["path"])
+		_, _ = fmt.Fprintf(stdout, "  %v %v\n", p["status"], p["path"])
 	}
 	return 0
 }
@@ -322,12 +322,12 @@ func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int
 	}
 	args = rest
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: striatum workflow templates {list|show} [--kind <kind>] [--json]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow templates {list|show} [--kind <kind>] [--json]")
 		return 2
 	}
 	catalog, err := workflowtemplates.Load()
 	if err != nil {
-		fmt.Fprintf(stderr, "load workflow template catalog: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "load workflow template catalog: %v\n", err)
 		return 1
 	}
 	switch args[0] {
@@ -344,35 +344,35 @@ func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int
 					kind = args[i]
 				}
 			default:
-				fmt.Fprintf(stderr, "unknown workflow templates list flag: %s\n", args[i])
+				_, _ = fmt.Fprintf(stderr, "unknown workflow templates list flag: %s\n", args[i])
 				return 2
 			}
 		}
 		entries, err := catalog.List(kind)
 		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
+			_, _ = fmt.Fprintf(stderr, "%v\n", err)
 			return 2
 		}
 		if jsonOutput {
 			return writeJSON(stdout, map[string]any{"ok": true, "data": map[string]any{"kind": kind, "templates": entries}}, stderr)
 		}
 		for _, e := range entries {
-			fmt.Fprintf(stdout, "%-22s %-14s %v\n", e["template_id"], e["kind"], e["summary"])
+			_, _ = fmt.Fprintf(stdout, "%-22s %-14s %v\n", e["template_id"], e["kind"], e["summary"])
 		}
 		return 0
 	case "show":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: striatum workflow templates show <template-id> [--json]")
+			_, _ = fmt.Fprintln(stderr, "usage: striatum workflow templates show <template-id> [--json]")
 			return 2
 		}
 		entry, err := catalog.Get(args[1])
 		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
+			_, _ = fmt.Fprintf(stderr, "%v\n", err)
 			return 2
 		}
 		return writeJSON(stdout, map[string]any{"ok": true, "data": entry}, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown workflow templates command: %s\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "unknown workflow templates command: %s\n", args[0])
 		return 2
 	}
 }
@@ -380,11 +380,11 @@ func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int
 func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	allowSameModel, jsonOutput, paths, err := parseWorkflowValidateArgs(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	if len(paths) != 1 {
-		fmt.Fprintln(stderr, "usage: striatum workflow validate [--allow-same-model-pairing] [--json] path")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow validate [--allow-same-model-pairing] [--json] path")
 		return 2
 	}
 	repoRoot := repoRootOverride
@@ -412,7 +412,7 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repo
 			},
 		}, stderr)
 	}
-	fmt.Fprintln(stdout, "valid")
+	_, _ = fmt.Fprintln(stdout, "valid")
 	return 0
 }
 
@@ -496,17 +496,17 @@ func outputWorkflowValidateError(stdout io.Writer, stderr io.Writer, jsonOutput 
 		}, stderr)
 		return exitCode
 	}
-	fmt.Fprintln(stderr, err.Error())
+	_, _ = fmt.Fprintln(stderr, err.Error())
 	return exitCode
 }
 
 func writeJSON(stdout io.Writer, payload map[string]any, stderr io.Writer) int {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, string(encoded))
+	_, _ = fmt.Fprintln(stdout, string(encoded))
 	return 0
 }
 

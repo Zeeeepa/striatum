@@ -52,6 +52,47 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 			{"state": "completed", "count": int64(2)},
 			{"state": "running", "count": int64(1)},
 		}), nil
+	case strings.Contains(sql, "LEFT JOIN striatumd.process_supervisors ps") && strings.Contains(sql, "FROM striatumd.sessions s"):
+		now := time.Now().UTC()
+		merged := map[string]any{
+			"session_id":                   "sess_a",
+			"run_id":                       "run_a",
+			"role_id":                      "author",
+			"lane_id":                      "lane_a",
+			"slug":                         "author-1",
+			"ordinal":                      int64(1),
+			"state":                        "active",
+			"operator_label":               "codex",
+			"supervisor_id":                "sup_a",
+			"pid":                          int64(os.Getpid()),
+			"pid_start_time":               "",
+			"supervisor_state":             "attached",
+			"pointer_daemon_supervisor_id": "dsup_a",
+			"pointer_pid":                  int64(os.Getpid()),
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json": map[string]any{
+				"tmux": map[string]any{
+					"session_name":   "striatum-run_a-lane_a-sup_a",
+					"attach_command": "tmux attach-session -t striatum-run_a-lane_a-sup_a",
+				},
+			},
+			"supervisor_metadata_json": map[string]any{
+				"tmux": map[string]any{
+					"session_name":   "striatum-run_a-lane_a-sup_a",
+					"attach_command": "tmux attach-session -t striatum-run_a-lane_a-sup_a",
+				},
+			},
+			"daemon_supervisor_id":   "dsup_a",
+			"daemon_state":           "attached",
+			"registered_at":          now.Add(-10 * time.Minute),
+			"last_tools_list_at":     now.Add(-9 * time.Minute),
+			"last_await_packet_at":   now.Add(-8 * time.Minute),
+			"last_mcp_request_at":    now.Add(-1 * time.Minute),
+			"liveness_stall_class":   nil,
+			"liveness_stall_since":   nil,
+		}
+		return dashboardAllRowsFromMaps([]map[string]any{merged}), nil
 	case strings.Contains(sql, "SELECT s.session_id") && strings.Contains(sql, "ps.pid AS pid"):
 		return dashboardAllRowsFromMaps([]map[string]any{{
 			"session_id": "sess_a", "run_id": "run_a", "role_id": "author",

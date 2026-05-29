@@ -163,7 +163,7 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 		}
 		now := nowString()
 		downstream := []map[string]any{}
-		nextActions := []string{}
+		var nextActions []string
 		eventType := "checkpoint.resolved"
 		if action == "continue" {
 			if err := tx.Exec(ctx, `

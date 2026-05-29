@@ -106,7 +106,12 @@ Required code shape:
 - Keep attach commands as metadata only.
 - When the helper-owned attach bridge exits but the tmux pane is still live,
   keep pane liveness attached/attested while marking delivery liveness
-  degraded until a rebridge/restart or later send-keys delivery path clears it.
+  degraded until `supervise.rebridge`, restart, or a later send-keys delivery
+  path clears it.
+- Ship `supervise.rebridge` as the in-place repair path for delivery-degraded
+  tmux lanes whose pane process is still live. It recreates the delivery FIFO
+  if needed and starts a fresh helper attach path without killing, resetting,
+  or respawning the pane.
 - Treat helper-reported attach-exit liveness as advisory. The daemon must
   re-probe the recorded tmux session/pane identity before deciding whether the
   supervisor remains attached or moves to detached.
@@ -182,6 +187,11 @@ Failure classes should stay structured:
 
 These classes appear in `supervise.status`, `doctor --verbose`, status
 next-actions, and recovery sweep details. They do not rely on pane text.
+Probe misses also produce a typed `probe_failure` record containing the
+`failure_class`, optional `exit_code`, optional `errno`, optional
+`pane_process_alive`, and optional `observed_pane_pid`. The liveness state
+derived from the class is `healthy` for `tmux_ok`, `degraded` for transient
+`tmux_unavailable`, and `lost` for terminal tmux identity failures.
 During a transient `tmux_unavailable` soft window, pointer metadata and read
 projections should expose the last successful probe time, the most recent
 skipped probe time, and the consecutive unavailable count so operators get a
@@ -198,13 +208,13 @@ tmux attach-session -t <tmux_session_name>
 ```
 
 Attaching and detaching are local operator actions. They must not mutate
-workflow state unless a later explicit command is added.
-
-Phase 1 does not ship an in-place `supervise.reattach` repair verb. When tmux
-liveness is terminal (`tmux_session_missing`, `tmux_pane_missing`,
-`tmux_pane_dead`, or `tmux_pane_pid_mismatch`), delivery must stop and the
-operator path is to stop the broken supervisor and start/reclaim a replacement
-lane through the daemon workflow controls.
+workflow state. Delivery repair is explicit: `striatum supervise rebridge
+--session-id <session_id>` reattaches the helper-owned delivery bridge in place
+only while pane-process liveness still holds. When tmux liveness is terminal
+(`tmux_session_missing`, `tmux_pane_missing`, `tmux_pane_dead`, or
+`tmux_pane_pid_mismatch`), delivery must stop and the operator path is to stop
+the broken supervisor and start/reclaim a replacement lane through the daemon
+workflow controls.
 
 ### 4. Make agent-loop lanes tmux-backed by default
 
@@ -231,8 +241,9 @@ events) remain the durable provenance path.
 - A tmux-backed lane whose operator attach client exits while the tmux session
   continues remains `attached` and lane-attested.
 - A helper-owned attach-bridge exit with a live pane marks delivery liveness
-  degraded, and `supervise.send` refuses that supervisor until rebridge/restart
-  work or a future send-keys delivery path clears the degradation.
+  degraded, and `supervise.send` refuses that supervisor until
+  `supervise.rebridge`, restart, or a future send-keys delivery path clears the
+  degradation.
 - A helper-owned attach-bridge exit whose fresh daemon tmux probe observes a
   dead/missing/mismatched pane moves the supervisor to `detached` even if the
   helper event reported `tmux_ok`.

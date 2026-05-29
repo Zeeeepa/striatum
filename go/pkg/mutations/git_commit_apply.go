@@ -95,7 +95,7 @@ func HandleGitCommitApply(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
-	defer os.RemoveAll(hooksDir)
+	defer func() { _ = os.RemoveAll(hooksDir) }()
 	git := localCommitGit{path: gitPath, hooksPath: hooksDir}
 
 	isRepo, err := gitCommitIsRepository(ctx, git, repoRoot)

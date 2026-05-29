@@ -9,8 +9,530 @@
 </head>
 <body>
   <main>
-    <h1>{{.Title}}</h1>
-    <pre>{{.Payload}}</pre>
+    <div class="header-area">
+      <div class="header-title-group">
+        <h1>Striatum human operator control</h1>
+        <div class="header-meta">Local-first multi-agent orchestration runner</div>
+      </div>
+      <div>
+        <a href="/" style="font-weight: 600; margin-right: 16px;">Dashboard</a>
+        <a href="https://github.com/halbritt/striatum" target="_blank" class="muted">Docs</a>
+      </div>
+    </div>
+
+    <div class="dashboard-container">
+      <!-- Sidebar containing all runs -->
+      <div class="sidebar">
+        <h2>Workflow Runs</h2>
+        <input type="text" id="run-search" class="search-box" placeholder="Search by run ID or branch...">
+        <div class="runs-list" id="runs-sidebar-list">
+          <div class="muted" style="text-align: center; padding: 12px; font-size: 0.85rem;">Loading runs...</div>
+        </div>
+      </div>
+
+      <!-- Main Panel -->
+      <div class="main-content">
+        {{if .Data.selected_run_id}}
+        <!-- A Specific Run is Selected! -->
+        {{range .Data.runs}}
+        <div class="card" style="border-left: 4px solid var(--accent-color);">
+          <div class="card-header">
+            <div>
+              <span class="run-id-label" style="font-size: 1.2rem; display: block; margin-bottom: 4px;">Run: {{.run_id}}</span>
+              <span class="run-branch-label">Branch: {{.branch_name}}</span>
+            </div>
+            <span class="pill {{if eq .state "active"}}pill-active{{else if eq .state "completed"}}pill-completed{{else if eq .state "paused"}}pill-paused{{else}}pill-error{{end}}">
+              {{if eq .state "active"}}<span class="dot-pulsing"></span>{{end}}{{.state}}
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px;">
+            <div>
+              <strong style="font-size: 0.85rem; color: var(--text-secondary); display: block; margin-bottom: 2px;">CURRENT PHASE</strong>
+              <span style="font-family: var(--font-mono); font-size: 0.95rem;">{{if $.Data.current_phase_id}}{{$.Data.current_phase_id}}{{else}}N/A{{end}}</span>
+            </div>
+            <div>
+              <strong style="font-size: 0.85rem; color: var(--text-secondary); display: block; margin-bottom: 2px;">AUTO-FINALIZE</strong>
+              <span style="font-size: 0.9rem;">{{if $.Data.auto_finalize_dry_run}}{{$.Data.auto_finalize_dry_run.status}}{{else}}disabled{{end}}</span>
+            </div>
+            <div>
+              <strong style="font-size: 0.85rem; color: var(--text-secondary); display: block; margin-bottom: 2px;">PROVENANCE</strong>
+              <span style="font-size: 0.9rem; font-family: var(--font-mono);">{{if $.Data.provenance_mode}}{{$.Data.provenance_mode}}{{else}}standard{{end}}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Phases Progress Card -->
+        {{if $.Data.phases}}
+        <div class="card">
+          <div class="card-header">
+            <h2>Phase Workflow Graph</h2>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            {{range $.Data.phases}}
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-color); border-radius: 6px;">
+              <span style="font-family: var(--font-mono); font-weight: 600;">{{.phase_id}}</span>
+              <span class="pill {{if eq .state "completed"}}pill-completed{{else if eq .state "active"}}pill-active{{else if eq .state "paused"}}pill-paused{{else}}pill-error{{end}}">{{.state}}</span>
+            </div>
+            {{end}}
+          </div>
+        </div>
+        {{end}}
+
+        <!-- Sessions List Card -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Active Agent Sessions</h2>
+          </div>
+          {{if $.Data.sessions}}
+          <table style="margin-top: 0;">
+            <thead>
+              <tr>
+                <th>Session ID</th>
+                <th>Role</th>
+                <th>Lane</th>
+                <th>State</th>
+                <th>Liveness</th>
+                <th>Console Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $.Data.sessions}}
+              <tr>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{.session_id}}</td>
+                <td>{{.role_id}}</td>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{.lane_id}}</td>
+                <td>
+                  <span class="pill {{if eq .state "active"}}pill-active{{else if eq .state "closed"}}pill-completed{{else}}pill-error{{end}}">
+                    {{if eq .state "active"}}<span class="dot-pulsing"></span>{{end}}{{.state}}
+                  </span>
+                </td>
+                <td style="font-size: 0.8rem; color: var(--text-secondary);">
+                  {{if .liveness.last_ack_at}}Acked {{.liveness.last_ack_at}}{{else}}unacknowledged{{end}}
+                </td>
+                <td>
+                  {{if eq .state "active"}}
+                  <button type="button" class="search-box" style="width: auto; padding: 4px 8px; font-size: 0.75rem; font-family: var(--font-mono); cursor: pointer;" 
+                          onclick="selectConsoleStream('pty', '{{.session_id}}', '{{.role_id}} @ {{.lane_id}}')">
+                    Tail PTY log
+                  </button>
+                  {{else}}
+                  <span style="font-size: 0.8rem; color: var(--text-secondary);">Inactive</span>
+                  {{end}}
+                </td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="console-empty" style="padding: 24px;">No sessions registered for this run.</div>
+          {{end}}
+        </div>
+
+        <!-- Ephemeral Diagnostic console (RFC 0092) -->
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid #21262d;">
+          <div class="console-header">
+            <div class="console-title">
+              <span class="dot-pulsing" style="color: #39ff14;"></span>
+              <span id="console-stream-label">Live agent dialogue feed</span>
+            </div>
+            <div>
+              <select id="console-stream-selector" onchange="onConsoleStreamSelectorChange(this.value)" 
+                      style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; padding: 2px 8px; outline: none; font-family: var(--font-mono);">
+                <option value="dialogue">Live Dialogue Event Queue</option>
+                {{range $.Data.sessions}}
+                  {{if eq .state "active"}}
+                  <option value="pty:{{.session_id}}">Session PTY: {{.role_id}} ({{.lane_id}})</option>
+                  {{end}}
+                {{end}}
+              </select>
+              <button type="button" onclick="clearConsole()" style="background: transparent; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; margin-left: 8px;">Clear</button>
+            </div>
+          </div>
+          <div id="diagnostic-console-box" class="console-box">
+            <div class="console-empty" id="console-empty-state">Waiting for enqueued agent messages...</div>
+          </div>
+        </div>
+
+        <!-- Conversations and Interrogations table -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Run Conversation Threads</h2>
+          </div>
+          <div id="conversations-table-container">
+            <div class="console-empty" style="padding: 24px;" id="conv-loading-state">Checking PostgreSQL for conversations...</div>
+          </div>
+        </div>
+
+        {{end}} <!-- range .Data.runs -->
+
+        {{else}}
+        <!-- Dashboard Overview (No specific run selected) -->
+        <div class="card" style="border-left: 4px solid var(--accent-color);">
+          <div class="card-header">
+            <h2>Striatum Node Overview</h2>
+          </div>
+          <p style="margin: 0; color: var(--text-secondary); font-size: 0.95rem;">
+            Select a running workflow from the sidebar to inspect real-time agent execution, tail active supervisor PTY logs, or join active human-in-the-loop review conversations.
+          </p>
+        </div>
+
+        <!-- Global Action Items -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Pending Human Actions</h2>
+          </div>
+          
+          <h3 style="font-size: 1rem; font-weight: 600; margin-top: 16px;">Claimable Jobs</h3>
+          {{if .Data.claimable_jobs}}
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Job ID</th>
+                <th>Role</th>
+                <th>Lane</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Data.claimable_jobs}}
+              <tr>
+                <td><a href="/run?id={{.run_id}}">{{.run_id}}</a></td>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{.job_id}}</td>
+                <td>{{.role_id}}</td>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{.lane_id}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div style="font-size: 0.85rem; color: var(--text-secondary); padding: 12px; font-style: italic;">No claimable jobs available.</div>
+          {{end}}
+
+          <h3 style="font-size: 1rem; font-weight: 600; margin-top: 24px;">Active Blockers & Checkpoints</h3>
+          {{if .Data.open_blockers}}
+          <table>
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>Blocker ID</th>
+                <th>Kind</th>
+                <th>Resolved</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range .Data.open_blockers}}
+              <tr>
+                <td><a href="/run?id={{.run_id}}">{{.run_id}}</a></td>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{.blocker_id}}</td>
+                <td>{{.kind}}</td>
+                <td>{{if .resolved}}yes{{else}}no{{end}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div style="font-size: 0.85rem; color: var(--text-secondary); padding: 12px; font-style: italic;">No open blockers or checkpoints.</div>
+          {{end}}
+        </div>
+
+        <!-- Posture Verdict Ledger -->
+        <div class="card">
+          <div class="card-header">
+            <h2>Posture Verdicts Summary</h2>
+          </div>
+          {{if .Data.verdicts_by_posture}}
+          <table>
+            <thead>
+              <tr>
+                <th>Posture</th>
+                <th style="color: var(--success-color);">Accept</th>
+                <th style="color: var(--warning-color);">Accept w/ Findings</th>
+                <th style="color: var(--error-color);">Needs Revision</th>
+                <th style="color: var(--error-color);">Reject</th>
+              </tr>
+            </thead>
+            <tbody>
+              {{range $posture, $v := .Data.verdicts_by_posture}}
+              <tr>
+                <td style="font-family: var(--font-mono); font-weight: 600;">{{$posture}}</td>
+                <td>{{if $v.accept}}{{$v.accept}}{{else}}0{{end}}</td>
+                <td>{{if $v.accept_with_findings}}{{$v.accept_with_findings}}{{else}}0{{end}}</td>
+                <td>{{if $v.needs_revision}}{{$v.needs_revision}}{{else}}0{{end}}</td>
+                <td>{{if $v.reject}}{{$v.reject}}{{else}}0{{end}}</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+          {{else}}
+          <div class="console-empty" style="padding: 24px;">No reviews or verdicts recorded in the ledger yet.</div>
+          {{end}}
+        </div>
+        {{end}}
+
+        <!-- Hidden raw JSON output for diagnostics -->
+        <div class="card" style="margin-top: 16px;">
+          <div class="card-header" style="cursor: pointer;" onclick="document.getElementById('raw-json').style.display = document.getElementById('raw-json').style.display === 'none' ? 'block' : 'none'">
+            <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-secondary);">▶ Diagnostics (Raw JSON Status Payload)</span>
+          </div>
+          <pre id="raw-json" style="display: none; margin-top: 12px; font-size: 0.8rem; max-height: 250px;">{{.Payload}}</pre>
+        </div>
+      </div>
+    </div>
   </main>
+
+  <script>
+    // Selected Run ID if parsed
+    const selectedRunID = "{{if .Data.runs}}{{range .Data.runs}}{{.run_id}}{{end}}{{end}}";
+    let activeSSE = null;
+
+    // Sidebar loading and filtering
+    document.addEventListener("DOMContentLoaded", () => {
+      loadSidebarRuns();
+
+      const searchInput = document.getElementById("run-search");
+      if (searchInput) {
+        searchInput.addEventListener("input", (e) => {
+          filterSidebarRuns(e.target.value);
+        });
+      }
+
+      // If a run is selected, setup the initial live dialogue stream
+      if (selectedRunID) {
+        selectConsoleStream("dialogue");
+        loadRunConversations(selectedRunID);
+      }
+    });
+
+    async function loadSidebarRuns() {
+      const sidebarList = document.getElementById("runs-sidebar-list");
+      try {
+        const response = await fetch("/v1/runs");
+        if (!response.ok) throw new Error("Failed to load runs");
+        const json = await response.json();
+        const runs = json.data.runs || [];
+
+        if (runs.length === 0) {
+          sidebarList.innerHTML = `<div class="muted" style="text-align: center; padding: 12px; font-size: 0.85rem;">No runs found.</div>`;
+          return;
+        }
+
+        // Save raw list on container for filtering
+        sidebarList.dataset.runsJson = JSON.stringify(runs);
+        renderSidebarItems(runs);
+      } catch (err) {
+        sidebarList.innerHTML = `<div class="muted" style="text-align: center; padding: 12px; font-size: 0.85rem; color: var(--error-color);">Error: ${err.message}</div>`;
+      }
+    }
+
+    function renderSidebarItems(runs) {
+      const sidebarList = document.getElementById("runs-sidebar-list");
+      sidebarList.innerHTML = "";
+
+      runs.forEach(run => {
+        const isActive = run.run_id === selectedRunID;
+        const item = document.createElement("div");
+        item.className = `run-item ${isActive ? 'active-run' : ''}`;
+        item.onclick = () => {
+          window.location.href = `/run?id=${run.run_id}`;
+        };
+
+        item.innerHTML = `
+          <div class="run-item-header">
+            <span class="run-id-label">${run.run_id.substring(0, 12)}...</span>
+            <span class="pill ${run.state === 'active' ? 'pill-active' : run.state === 'completed' ? 'pill-completed' : run.state === 'paused' ? 'pill-paused' : 'pill-error'}">
+              ${run.state === 'active' ? '<span class="dot-pulsing"></span>' : ''}${run.state}
+            </span>
+          </div>
+          <span class="run-branch-label">${run.branch_name || 'no branch'}</span>
+        `;
+        sidebarList.appendChild(item);
+      });
+    }
+
+    function filterSidebarRuns(query) {
+      const sidebarList = document.getElementById("runs-sidebar-list");
+      if (!sidebarList.dataset.runsJson) return;
+
+      const runs = JSON.parse(sidebarList.dataset.runsJson);
+      const filtered = runs.filter(run => 
+        run.run_id.toLowerCase().includes(query.toLowerCase()) || 
+        (run.branch_name && run.branch_name.toLowerCase().includes(query.toLowerCase()))
+      );
+      renderSidebarItems(filtered);
+    }
+
+    // Load active Conversations from PostgreSQL for the selected run
+    async function loadRunConversations(runId) {
+      const container = document.getElementById("conversations-table-container");
+      try {
+        const response = await fetch(`/v1/runs/${runId}/conversations`);
+        if (!response.ok) throw new Error("Failed to load conversations");
+        const json = await response.json();
+        const items = json.data.items || [];
+
+        if (items.length === 0) {
+          container.innerHTML = `<div class="console-empty" style="padding: 24px;">No conversation threads found for this run.</div>`;
+          return;
+        }
+
+        let html = `
+          <table style="margin-top: 0;">
+            <thead>
+              <tr>
+                <th>Conversation ID</th>
+                <th>Topic</th>
+                <th>State</th>
+                <th>Rounds</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+        `;
+
+        items.forEach(c => {
+          html += `
+            <tr>
+              <td style="font-family: var(--font-mono); font-size: 0.85rem;">${c.conversation_id}</td>
+              <td style="font-weight: 500;">${c.topic || 'N/A'}</td>
+              <td>
+                <span class="pill ${c.state === 'open' ? 'pill-active' : 'pill-completed'}">
+                  ${c.state === 'open' ? '<span class="dot-pulsing"></span>' : ''}${c.state}
+                </span>
+              </td>
+              <td>${c.round_count} / ${c.max_rounds}</td>
+              <td>
+                <a href="/v1/runs/${runId}/conversations/${c.conversation_id}?view=chat" target="_blank" 
+                   style="font-family: var(--font-mono); font-size: 0.8rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); padding: 4px 8px; border-radius: 4px; font-weight: 600;">
+                  Open chat thread
+                </a>
+              </td>
+            </tr>
+          `;
+        });
+
+        html += `</tbody></table>`;
+        container.innerHTML = html;
+      } catch (err) {
+        container.innerHTML = `<div class="console-empty" style="padding: 24px; color: var(--error-color);">Error loading conversations: ${err.message}</div>`;
+      }
+    }
+
+    // Ephemeral diagnostic streaming (RFC 0092)
+    function clearConsole() {
+      const box = document.getElementById("diagnostic-console-box");
+      box.innerHTML = `<div class="console-empty">Console cleared. Waiting for logs...</div>`;
+    }
+
+    function selectConsoleStream(type, id = "", label = "") {
+      const selector = document.getElementById("console-stream-selector");
+      const titleLabel = document.getElementById("console-stream-label");
+      
+      if (type === "dialogue") {
+        if (selector) selector.value = "dialogue";
+        titleLabel.textContent = "Live agent dialogue feed";
+        setupDialogueSSE(selectedRunID);
+      } else if (type === "pty") {
+        if (selector) selector.value = `pty:${id}`;
+        titleLabel.textContent = `PTY Terminal: ${label}`;
+        setupPtySSE(id);
+      }
+    }
+
+    function onConsoleStreamSelectorChange(value) {
+      if (value === "dialogue") {
+        selectConsoleStream("dialogue");
+      } else if (value.startsWith("pty:")) {
+        const sessionID = value.split(":")[1];
+        const option = document.querySelector(`#console-stream-selector option[value="${value}"]`);
+        selectConsoleStream("pty", sessionID, option ? option.textContent : sessionID);
+      }
+    }
+
+    function setupDialogueSSE(runId) {
+      if (activeSSE) {
+        activeSSE.close();
+      }
+
+      const box = document.getElementById("diagnostic-console-box");
+      box.innerHTML = `<div class="console-empty">Connecting to live agent dialogue stream...</div>`;
+
+      // Connect to the Live Dialogue Event Source
+      activeSSE = new EventSource(`/v1/runs/${runId}/live-dialogue`);
+
+      activeSSE.onopen = () => {
+        box.innerHTML = `<div class="console-empty">Connection established. Streaming enqueued dialogue...</div>`;
+      };
+
+      activeSSE.onmessage = (event) => {
+        const emptyState = document.getElementById("console-empty-state");
+        if (emptyState) emptyState.remove();
+
+        try {
+          const payload = JSON.parse(event.data);
+          
+          // Render enqueued queue message
+          const msgDiv = document.createElement("div");
+          msgDiv.className = "console-message";
+          msgDiv.innerHTML = `
+            <div class="console-message-header">[${payload.author_session_id || 'system'}] &gt; ${payload.topic || 'message'}</div>
+            <div class="console-message-body">${escapeHTML(payload.body)}</div>
+          `;
+          box.appendChild(msgDiv);
+          box.scrollTop = box.scrollHeight;
+        } catch (e) {
+          // Log raw text if not JSON
+          const rawDiv = document.createElement("div");
+          rawDiv.className = "console-message";
+          rawDiv.textContent = event.data;
+          box.appendChild(rawDiv);
+          box.scrollTop = box.scrollHeight;
+        }
+      };
+
+      activeSSE.onerror = (err) => {
+        console.error("Dialogue SSE connection error:", err);
+      };
+    }
+
+    function setupPtySSE(sessionId) {
+      if (activeSSE) {
+        activeSSE.close();
+      }
+
+      const box = document.getElementById("diagnostic-console-box");
+      box.innerHTML = `<div class="console-empty">Connecting to live supervisor PTY stream...</div>`;
+
+      // Connect to the Live PTY Event Source (RFC 0092)
+      activeSSE = new EventSource(`/v1/sessions/${sessionId}/live-pty`);
+
+      activeSSE.onopen = () => {
+        box.innerHTML = `<div class="console-empty">Connected to PTY log tail. Reading active terminal buffer...</div>`;
+      };
+
+      activeSSE.onmessage = (event) => {
+        const emptyState = document.getElementById("console-empty-state");
+        if (emptyState) emptyState.remove();
+
+        const rawDiv = document.createElement("div");
+        rawDiv.style.fontFamily = "var(--font-mono)";
+        rawDiv.style.color = "#ffb000"; // Sleek Amber terminal color for PTY stdout
+        rawDiv.textContent = event.data;
+        box.appendChild(rawDiv);
+        box.scrollTop = box.scrollHeight;
+      };
+
+      activeSSE.onerror = (err) => {
+        console.error("PTY SSE connection error:", err);
+      };
+    }
+
+    function escapeHTML(str) {
+      if (!str) return "";
+      return str.replace(/[&<>'"]/g, 
+        tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+      );
+    }
+  </script>
 </body>
 </html>

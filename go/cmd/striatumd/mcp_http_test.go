@@ -27,7 +27,7 @@ func TestListenMCPHTTPAcceptsLoopback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listenMCPHTTP() error = %v", err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	endpoint := mcpEndpointURL(listener.Addr())
 	if !strings.HasPrefix(endpoint, "http://127.0.0.1:") || !strings.HasSuffix(endpoint, "/mcp") {
 		t.Fatalf("endpoint = %q", endpoint)

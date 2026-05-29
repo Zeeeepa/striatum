@@ -98,18 +98,18 @@ func suggestCommand(args []string) string {
 func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer, options Options) int {
 	globals, err := parseGlobal(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	route, consumed, ok := routes.Lookup(globals.CommandArgs)
 	if !ok {
 		if len(globals.CommandArgs) > 0 {
-			fmt.Fprintf(stderr, "unknown command: %s\n", strings.Join(globals.CommandArgs, " "))
+			_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", strings.Join(globals.CommandArgs, " "))
 			if suggestion := suggestCommand(globals.CommandArgs); suggestion != "" {
-				fmt.Fprintf(stderr, "did you mean: striatum %s\n", suggestion)
+				_, _ = fmt.Fprintf(stderr, "did you mean: striatum %s\n", suggestion)
 			}
 		} else {
-			fmt.Fprintln(stderr, "usage: striatum [global options] command ...")
+			_, _ = fmt.Fprintln(stderr, "usage: striatum [global options] command ...")
 		}
 		return 2
 	}
@@ -122,12 +122,12 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 			DeadlineMS: globals.DeadlineMS,
 		})
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
 	}
 	if invoker == nil {
-		fmt.Fprintln(stderr, "daemon RPC invoker is not configured")
+		_, _ = fmt.Fprintln(stderr, "daemon RPC invoker is not configured")
 		return 1
 	}
 	repositoryID := globals.RepositoryID
@@ -145,7 +145,7 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	}
 	params, err := buildParams(route, globals.CommandArgs[consumed:], repositoryID)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
 	data, err := invoker.Invoke(ctx, route.Method, params)
@@ -172,10 +172,10 @@ func writeJSONL(stdout io.Writer, data map[string]any, stderr io.Writer) int {
 	for _, record := range records {
 		encoded, err := json.Marshal(record)
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
-		fmt.Fprintln(stdout, string(encoded))
+		_, _ = fmt.Fprintln(stdout, string(encoded))
 	}
 	return 0
 }
@@ -186,7 +186,7 @@ func runWatchLoop(ctx context.Context, invoker Invoker, route routes.Route, para
 		records, _ := data["records"].([]any)
 		for _, record := range records {
 			encoded, _ := json.Marshal(record)
-			fmt.Fprintln(stdout, string(encoded))
+			_, _ = fmt.Fprintln(stdout, string(encoded))
 			if m, ok := record.(map[string]any); ok {
 				if seq, ok := m["seq"].(float64); ok {
 					params["since_seq"] = int64(seq)
@@ -205,7 +205,7 @@ func runWatchLoop(ctx context.Context, invoker Invoker, route routes.Route, para
 		var err error
 		data, err = invoker.Invoke(ctx, route.Method, params)
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			_, _ = fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
 	}
@@ -318,7 +318,7 @@ func resolveRepository(ctx context.Context, invoker Invoker, repoPath string, op
 }
 
 func writeError(stderr io.Writer, err error, options Options) int {
-	fmt.Fprintln(stderr, err.Error())
+	_, _ = fmt.Fprintln(stderr, err.Error())
 	if options.ExitCode != nil {
 		return options.ExitCode(err)
 	}
@@ -328,10 +328,10 @@ func writeError(stderr io.Writer, err error, options Options) int {
 func writeJSON(stdout io.Writer, payload any, stderr io.Writer) int {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
-		fmt.Fprintln(stderr, err.Error())
+		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	fmt.Fprintln(stdout, string(encoded))
+	_, _ = fmt.Fprintln(stdout, string(encoded))
 	return 0
 }
 

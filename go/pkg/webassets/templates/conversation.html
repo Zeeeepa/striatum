@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{if .Topic}}{{.Topic}}{{else}}Conversation{{end}}</title>
+  <link rel="stylesheet" href="/static/base.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <main>
+    <header class="interrogation-header">
+      <h1>{{if .Topic}}{{.Topic}}{{else}}Conversation thread{{end}}</h1>
+      <dl class="interrogation-meta">
+        <div><dt>State</dt><dd>{{.State}}</dd></div>
+        <div><dt>ID</dt><dd>{{.ConversationID}}</dd></div>
+        <div><dt>Opened</dt><dd>{{.OpenedAt}}</dd></div>
+        {{if .ClosedAt}}<div><dt>Closed</dt><dd>{{.ClosedAt}}</dd></div>{{end}}
+      </dl>
+    </header>
+    <ol class="interrogation-thread">
+      {{range .Turns}}
+      <li class="turn">
+        <div class="turn-speaker">{{.Speaker}}</div>
+        <div class="turn-body">{{.Body}}</div>
+      </li>
+      {{else}}
+      <li class="turn-empty">No turns recorded for this conversation.</li>
+      {{end}}
+    </ol>
+  </main>
+</body>
+</html>

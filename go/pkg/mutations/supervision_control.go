@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
@@ -50,6 +54,7 @@ type supervisorControlRow struct {
 	RunID              string
 	SessionID          string
 	State              string
+	ScratchPath        string
 	StdinPipePath      string
 	PID                int
 	HasPID             bool
@@ -82,6 +87,7 @@ var (
 		return syscall.Mkfifo(path, 0o600)
 	}
 	supervisionLaunch         = launchSupervisedProcess
+	supervisionRebridgeLaunch = launchRebridgeHelper
 	supervisionWrite          = writeSupervisorPayload
 	supervisionTmuxRunner     = gosupervisor.DefaultTmuxRunner()
 	errSupervisorPipeNoReader = errors.New("supervisor pipe has no reader")
@@ -467,6 +473,7 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err != nil {
 			return nil, err
 		}
+		agentloop.CleanupGeminiSettings(supervisorWorkingDir(supervisor), supervisor.SupervisorID)
 		return map[string]any{
 			"supervisor_id":        supervisor.SupervisorID,
 			"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
@@ -479,6 +486,170 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 			"note":                 stopNote,
 		}, nil
 	})
+}
+
+func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	sessionID, err := requiredControlTextParam(envelope, "session_id", "supervise.rebridge requires session_id")
+	if err != nil {
+		return nil, err
+	}
+	var supervisor supervisorControlRow
+	var identity gosupervisor.TmuxIdentity
+	var eventPath string
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		var err error
+		supervisor, err = requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
+		if err != nil {
+			return nil, err
+		}
+		if supervisor.State != "attached" {
+			return nil, rpc.NewError("invalid_transition", "supervise.rebridge requires an attached supervisor", nil)
+		}
+		identity, err = requireRebridgeableTmuxPane(ctx, supervisor)
+		if err != nil {
+			return nil, err
+		}
+		eventPath = metadataString(supervisor.Metadata["helper_events_path"])
+		if eventPath == "" {
+			eventPath = filepath.Join(supervisor.ScratchPath, "helper-events.jsonl")
+		}
+		if supervisor.StdinPipePath == "" {
+			return nil, rpc.NewError("invalid_transition", "supervise.rebridge requires a supervisor stdin pipe path", nil)
+		}
+		if err := ensureSupervisorFIFO(supervisor.StdinPipePath); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+	}); err != nil {
+		return nil, err
+	}
+
+	launch, err := supervisionRebridgeLaunch(ctx, supervisor, identity, eventPath)
+	if err != nil {
+		return nil, rpc.NewError("invalid_transition", "supervise.rebridge could not attach delivery bridge: "+err.Error(), nil)
+	}
+	rebridgedAt := nowString()
+	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		hasAttachExit := false
+		if len(launch.InitialHelperEvents) > 0 {
+			for _, event := range launch.InitialHelperEvents {
+				normalized, normErr := normalizeSuperviseReportEvent(event, "", supervisor.SupervisorID, 0)
+				if normErr != nil {
+					return nil, normErr
+				}
+				if normalized.EventType == string(gosupervisor.HelperEventAttachExited) {
+					hasAttachExit = true
+				}
+				if _, recErr := recordSuperviseReportEvent(ctx, tx, repositoryID, normalized); recErr != nil {
+					return nil, recErr
+				}
+			}
+		}
+		current, err := pointerMetadata(ctx, tx, repositoryID, supervisor.SupervisorID)
+		if err != nil {
+			return nil, err
+		}
+		updated := copyMap(current)
+		updated["helper_pid"] = launch.HelperPID
+		updated["helper_pid_start_time"] = launch.HelperPIDStartTime
+		updated["helper_events_path"] = eventPath
+		updated["helper_events_offset"] = launch.InitialHelperOffset
+		if !hasAttachExit {
+			delete(updated, "delivery_liveness")
+		}
+		if tmux := asMap(updated["tmux"]); len(tmux) > 0 {
+			if !hasAttachExit {
+				delete(tmux, "delivery_liveness")
+			}
+			tmux["attach_client_pid"] = launch.Metadata["attach_client_pid"]
+			tmux["last_rebridged_at"] = rebridgedAt
+			if launchTmux := asMap(launch.Metadata["tmux"]); len(launchTmux) > 0 {
+				for key, value := range launchTmux {
+					tmux[key] = value
+				}
+				if !hasAttachExit {
+					delete(tmux, "delivery_liveness")
+				}
+			}
+			updated["tmux"] = tmux
+		}
+		if err := replacePointerMetadata(ctx, tx, repositoryID, supervisor.SupervisorID, updated); err != nil {
+			return nil, err
+		}
+		if err := refreshSupervisorHeartbeat(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.DaemonSupervisorID, rebridgedAt); err != nil {
+			return nil, err
+		}
+		payload := map[string]any{
+			"supervisor_id":     supervisor.SupervisorID,
+			"session_id":        sessionID,
+			"helper_pid":        launch.HelperPID,
+			"attach_client_pid": launch.Metadata["attach_client_pid"],
+			"tmux_liveness":     string(gosupervisor.TmuxLivenessOK),
+		}
+		_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.rebridged", sessionID, nil, nil, nil, nil, payload)
+		if err != nil {
+			return nil, err
+		}
+		deliveryStateVal := "healthy"
+		if hasAttachExit {
+			deliveryStateVal = "degraded"
+		}
+		return map[string]any{
+			"supervisor_id":     supervisor.SupervisorID,
+			"session_id":        sessionID,
+			"run_id":            supervisor.RunID,
+			"state":             "attached",
+			"delivery_state":    deliveryStateVal,
+			"helper_pid":        launch.HelperPID,
+			"attach_client_pid": launch.Metadata["attach_client_pid"],
+			"rebridged_at":      rebridgedAt,
+			"tmux":              asMap(updated["tmux"]),
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func requireRebridgeableTmuxPane(ctx context.Context, supervisor supervisorControlRow) (gosupervisor.TmuxIdentity, error) {
+	identity, ok := gosupervisor.TmuxIdentityFromMetadata(supervisor.Metadata)
+	if !ok {
+		return gosupervisor.TmuxIdentity{}, rpc.NewError("invalid_transition", "supervise.rebridge requires a tmux-backed supervisor", nil)
+	}
+	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
+		return gosupervisor.TmuxIdentity{}, rpc.NewError("invalid_transition", "supervise.rebridge cannot verify tmux pane liveness: "+live.Detail, nil)
+	}
+	if !live.Alive {
+		return gosupervisor.TmuxIdentity{}, rpc.NewError("invalid_transition", "supervise.rebridge refused because pane liveness is "+live.Class+"; stop and restart or reclaim the lane", nil)
+	}
+	if live.Tmux != nil && live.Tmux.ObservedPanePID > 0 {
+		identity.PanePID = live.Tmux.ObservedPanePID
+	}
+	if live.Tmux != nil && live.Tmux.ObservedStartTok != "" {
+		identity.PaneStartToken = live.Tmux.ObservedStartTok
+	}
+	return identity, nil
+}
+
+func ensureSupervisorFIFO(path string) error {
+	if info, err := os.Stat(path); err == nil {
+		if info.Mode()&os.ModeNamedPipe == 0 {
+			return fmt.Errorf("stdin path exists but is not a FIFO: %s", path)
+		}
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return supervisionMkfifo(path)
 }
 
 func stopTmuxBackedLane(ctx context.Context, identity gosupervisor.TmuxIdentity, panePID int, paneStartToken string) (signal any, note string, fallbackReason string, cleanupSkip string) {
@@ -690,7 +861,7 @@ func requireActiveControlSupervisor(ctx context.Context, runner any, repositoryI
 	}
 	sql := `
 		SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state,
-		       COALESCE(ps.stdin_pipe_path, ''), ps.pid, COALESCE(ps.pid_start_time, ''),
+		       COALESCE(ps.scratch_path, ''), COALESCE(ps.stdin_pipe_path, ''), ps.pid, COALESCE(ps.pid_start_time, ''),
 		       COALESCE(p.daemon_supervisor_id, ''), COALESCE(p.metadata_json, '{}'::jsonb)
 		  FROM striatumd.process_supervisors ps
 		  LEFT JOIN striatumd.process_supervisor_pointers p
@@ -710,7 +881,7 @@ func requireActiveControlSupervisor(ctx context.Context, runner any, repositoryI
 	var metadata any
 	err := rower.QueryRow(ctx, sql, repositoryID, sessionID, []string{"starting", "attached", "detached"}).Scan(
 		&row.SupervisorID, &row.RunID, &row.SessionID, &row.State,
-		&row.StdinPipePath, &pid, &row.PIDStartTime,
+		&row.ScratchPath, &row.StdinPipePath, &pid, &row.PIDStartTime,
 		&row.DaemonSupervisorID, &metadata,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -840,36 +1011,7 @@ func ensureActivePacketLease(ctx context.Context, runner db.TxRunner, repository
 }
 
 func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorControlRow, phase string) error {
-	if !supervisor.HasPID {
-		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "pid_missing observed by "+phase, 0, nil); err != nil {
-			return err
-		}
-		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
-	}
-	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded {
-		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
-	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
-	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
-		return rpc.NewError("invalid_transition", "tmux probe unavailable; cannot verify lane: "+live.Detail, nil)
-	}
-	if !live.Alive {
-		reason := live.Class
-		if reason == "" {
-			reason = "pid_gone"
-		}
-		lostPayload := map[string]any{"phase": phase, "reattach_reason": reason}
-		if strings.HasPrefix(reason, "tmux_") {
-			lostPayload["tmux_liveness"] = reason
-		}
-		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, reason, supervisor.PID, lostPayload); err != nil {
-			return err
-		}
-		if strings.HasPrefix(reason, "tmux_") {
-			return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: "+reason, nil)
-		}
-		return rpc.NewError("invalid_transition", fmt.Sprintf("supervisor pid is gone: %s", supervisor.SupervisorID), nil)
-	}
+	// 1. Transactional FOR UPDATE locks inside the mutation block prior to checker call
 	var pointerState string
 	var daemonSupervisorID *string
 	err := runner.QueryRow(ctx, `
@@ -885,27 +1027,94 @@ func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, rep
 	if err != nil {
 		return err
 	}
-	if pointerState != supervisor.State {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_state_mismatch", nil)
+	if daemonSupervisorID != nil && *daemonSupervisorID != "" {
+		var daemonState string
+		if err := runner.QueryRow(ctx, `
+			SELECT state
+			  FROM striatumd.daemon_supervisors
+			 WHERE repository_id = $1 AND daemon_supervisor_id = $2
+			 FOR UPDATE`,
+			repositoryID, *daemonSupervisorID,
+		).Scan(&daemonState); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
 	}
-	if daemonSupervisorID == nil || *daemonSupervisorID == "" {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
+
+	// 2. Checker call
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: supervisionTmuxRunner},
 	}
-	var daemonState string
-	if err := runner.QueryRow(ctx, `
-		SELECT state
-		  FROM striatumd.daemon_supervisors
-		 WHERE repository_id = $1 AND daemon_supervisor_id = $2
-		 FOR UPDATE`,
-		repositoryID, *daemonSupervisorID,
-	).Scan(&daemonState); errors.Is(err, pgx.ErrNoRows) {
-		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
-	} else if err != nil {
+	health, err := checker.Check(ctx, runner, repositoryID, supervisor.SessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_missing", nil)
+		}
 		return err
 	}
-	if daemonState != supervisor.State {
+
+	if !supervisor.HasPID || health.Reason == lanehealth.ReasonPIDMissing {
+		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "pid_missing observed by "+phase, 0, nil); err != nil {
+			return err
+		}
+		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
+	}
+
+	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded {
+		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
+	}
+
+	if !health.Alive {
+		reason := health.LivenessClass
+		if reason == "" {
+			reason = "pid_gone"
+		}
+		live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+		if reason == string(gosupervisor.TmuxLivenessUnavailable) {
+			count := tmuxUnavailableCount(supervisor.Metadata) + 1
+			metadata := tmuxProbeDegradedMetadata(supervisor.Metadata, live, count)
+			if count >= gosupervisor.TmuxUnavailableLostThreshold() {
+				payload := map[string]any{"phase": phase, "tmux_liveness": live.Class, "probe_unavailable_count": count}
+				if live.Tmux != nil && live.Tmux.Failure != nil {
+					payload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
+				}
+				if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, "tmux_unavailable_persistent", supervisor.PID, payload); err != nil {
+					return err
+				}
+				return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: tmux_unavailable_persistent", nil)
+			}
+			if err := replacePointerMetadata(ctx, runner, repositoryID, supervisor.SupervisorID, metadata); err != nil {
+				return err
+			}
+			return rpc.NewError("invalid_transition", "supervisor liveness is degraded: tmux_unavailable; "+live.Detail, nil)
+		}
+
+		lostPayload := map[string]any{"phase": phase, "reattach_reason": reason}
+		if strings.HasPrefix(reason, "tmux_") {
+			lostPayload["tmux_liveness"] = reason
+			if live.Tmux != nil && live.Tmux.Failure != nil {
+				lostPayload["probe_failure"] = gosupervisor.TmuxProbeFailurePayload(*live.Tmux.Failure)
+			}
+		}
+		if err := markSupervisorLostInTx(ctx, runner, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, reason, supervisor.PID, lostPayload); err != nil {
+			return err
+		}
+		if strings.HasPrefix(reason, "tmux_") {
+			return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: "+reason, nil)
+		}
+		return rpc.NewError("invalid_transition", fmt.Sprintf("supervisor pid is gone: %s", supervisor.SupervisorID), nil)
+	}
+
+	// 3. Structural checks from checker results
+	if health.Reason == lanehealth.ReasonPointerStateMismatch {
+		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: pointer_state_mismatch", nil)
+	}
+	if health.Reason == lanehealth.ReasonDaemonStateMismatch {
 		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_state_mismatch", nil)
 	}
+	if health.Reason == lanehealth.ReasonDaemonSupervisorMissing {
+		return rpc.NewError("invalid_transition", "supervisor requires operator reconciliation before delivery: daemon_supervisor_missing", nil)
+	}
+
 	return nil
 }
 
@@ -932,6 +1141,34 @@ func supervisorDeliveryDegraded(metadata map[string]any) (string, bool) {
 		reason = class
 	}
 	return reason, true
+}
+
+func tmuxUnavailableCount(metadata map[string]any) int {
+	tmux := asMap(metadata["tmux"])
+	count, ok := intValueOptional(tmux["probe_unavailable_count"])
+	if !ok || count < 0 {
+		return 0
+	}
+	return count
+}
+
+func tmuxProbeDegradedMetadata(metadata map[string]any, live gosupervisor.LaneLiveness, count int) map[string]any {
+	updated := copyMap(metadata)
+	tmux := asMap(updated["tmux"])
+	if len(tmux) == 0 {
+		tmux = map[string]any{}
+	}
+	tmux["liveness_state"] = "degraded"
+	tmux["probe_skipped_at"] = nowString()
+	tmux["probe_unavailable_count"] = count
+	if live.Detail != "" {
+		tmux["last_unavailable_detail"] = live.Detail
+	}
+	if live.Tmux != nil {
+		tmux["liveness"] = gosupervisor.TmuxLivenessPayload(*live.Tmux)
+	}
+	updated["tmux"] = tmux
+	return updated
 }
 
 type supervisorDeliveryResult struct {
@@ -970,16 +1207,88 @@ func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryI
 	return supervisorDeliveryResult{BytesWritten: bytesWritten, StdinDelivery: stdinDelivery, StdinClosedAfterWrite: closed}, nil
 }
 
+type NamedPipeBuffer struct {
+	mu       sync.Mutex
+	queue    [][]byte
+	degraded bool
+}
+
+func (b *NamedPipeBuffer) Push(payload []byte) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.degraded {
+		return fmt.Errorf("buffer is degraded")
+	}
+	if len(b.queue) >= 10 {
+		b.degraded = true
+		return fmt.Errorf("buffer overflow, degraded")
+	}
+	cp := make([]byte, len(payload))
+	copy(cp, payload)
+	b.queue = append(b.queue, cp)
+	return nil
+}
+
+func (b *NamedPipeBuffer) PopAll() [][]byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	q := b.queue
+	b.queue = nil
+	return q
+}
+
+func (b *NamedPipeBuffer) IsDegraded() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.degraded
+}
+
+var (
+	pipeBuffersMu sync.Mutex
+	pipeBuffers   = make(map[string]*NamedPipeBuffer)
+)
+
+func getPipeBuffer(pipePath string) *NamedPipeBuffer {
+	pipeBuffersMu.Lock()
+	defer pipeBuffersMu.Unlock()
+	buf, ok := pipeBuffers[pipePath]
+	if !ok {
+		buf = &NamedPipeBuffer{}
+		pipeBuffers[pipePath] = buf
+	}
+	return buf
+}
+
 func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, error) {
+	buf := getPipeBuffer(pipePath)
+	if buf.IsDegraded() {
+		return 0, errSupervisorPipeNoReader
+	}
+
 	fd, err := syscall.Open(pipePath, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ENXIO) {
-			return 0, errSupervisorPipeNoReader
+			if pushErr := buf.Push(payload); pushErr != nil {
+				return 0, errSupervisorPipeNoReader
+			}
+			return len(payload), nil
 		}
 		return 0, err
 	}
 	file := os.NewFile(uintptr(fd), pipePath)
-	defer file.Close()
+	defer func() { _ = file.Close() }()
+
+	buffered := buf.PopAll()
+	for _, pkt := range buffered {
+		if _, err := writeAll(ctx, file, pkt); err != nil {
+			return 0, err
+		}
+	}
+
+	return writeAll(ctx, file, payload)
+}
+
+func writeAll(ctx context.Context, file *os.File, payload []byte) (int, error) {
 	total := 0
 	for total < len(payload) {
 		n, err := file.Write(payload[total:])
@@ -1040,7 +1349,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		return supervisionLaunchResult{}, fmt.Errorf("open stdin fifo: %w", err)
 	}
 	stdin := os.NewFile(uintptr(fd), "stdin.pipe")
-	defer stdin.Close()
+	defer func() { _ = stdin.Close() }()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
 	cmd.Env = supervisedEnv(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
@@ -1049,12 +1358,12 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stdout.Close()
+	defer func() { _ = stdout.Close() }()
 	stderr, err := openSupervisedStderr()
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	if runtime.GOOS != "windows" {
@@ -1100,7 +1409,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer eventFile.Close()
+	defer func() { _ = eventFile.Close() }()
 	cmd := exec.CommandContext(ctx, helper)
 	cmd.Dir = config.RepoRoot
 	cmd.Stdout = eventFile
@@ -1108,7 +1417,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if err != nil {
 		return supervisionLaunchResult{}, err
 	}
-	defer stderr.Close()
+	defer func() { _ = stderr.Close() }()
 	cmd.Stderr = stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -1162,6 +1471,145 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		InitialHelperOffset: offset,
 		Metadata:            metadata,
 	}, nil
+}
+
+func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, identity gosupervisor.TmuxIdentity, eventPath string) (supervisionLaunchResult, error) {
+	helper, err := resolveSupervisorHelper()
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	if eventPath == "" {
+		return supervisionLaunchResult{}, fmt.Errorf("helper event path is missing")
+	}
+	if err := os.MkdirAll(filepath.Dir(eventPath), 0o700); err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	eventFile, err := os.OpenFile(eventPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	defer func() { _ = eventFile.Close() }()
+	startOffset, err := eventFile.Seek(0, io.SeekEnd)
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	spec := gosupervisor.HelperLaunchSpec{
+		SchemaVersion:   gosupervisor.HelperLaunchSchemaVersion,
+		SupervisorID:    supervisor.SupervisorID,
+		ScratchDir:      filepath.Dir(supervisor.ScratchPath),
+		Env:             []string{"PATH=" + supervisedPath()},
+		WorkingDir:      supervisorWorkingDir(supervisor),
+		PacketInputPath: supervisor.StdinPipePath,
+		RebridgeTmux:    &identity,
+	}
+	specBody, err := json.Marshal(spec)
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	cmd := exec.CommandContext(ctx, helper)
+	cmd.Dir = supervisorWorkingDir(supervisor)
+	cmd.Stdout = eventFile
+	stderr, err := openSupervisedStderr()
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	defer func() { _ = stderr.Close() }()
+	cmd.Stderr = stderr
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	if runtime.GOOS != "windows" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	}
+	if err := cmd.Start(); err != nil {
+		return supervisionLaunchResult{}, err
+	}
+	if _, err := stdin.Write(append(specBody, '\n')); err != nil {
+		_ = terminateProcess(cmd.Process.Pid)
+		return supervisionLaunchResult{}, err
+	}
+	_ = stdin.Close()
+	events, offset, err := waitForHelperAgentStartFromOffset(cmd, eventPath, helperStartTimeout(), int(startOffset))
+	if err != nil {
+		_ = terminateProcess(cmd.Process.Pid)
+		return supervisionLaunchResult{}, err
+	}
+	agentPID, err := agentPIDFromEvents(events)
+	if err != nil {
+		_ = terminateProcess(cmd.Process.Pid)
+		return supervisionLaunchResult{}, err
+	}
+	helperStart, _ := processStartToken(cmd.Process.Pid)
+	metadata := map[string]any{
+		"transport":             supervisionTransportPTYHelper,
+		"helper_binary":         helper,
+		"helper_pid":            cmd.Process.Pid,
+		"helper_pid_start_time": helperStart,
+		"helper_events_path":    eventPath,
+	}
+	agentStart := identity.PaneStartToken
+	if tmux := tmuxMetadataFromHelperEvents(events); tmux != nil {
+		metadata["tmux"] = tmux
+		if agentStart == "" {
+			if token, _ := tmux["pane_start_token"].(string); token != "" {
+				agentStart = token
+			}
+		}
+		if attachPID, ok := intValueOptional(tmux["attach_client_pid"]); ok {
+			metadata["attach_client_pid"] = attachPID
+		}
+	}
+	return supervisionLaunchResult{
+		PID:                 agentPID,
+		PIDStartTime:        agentStart,
+		HelperPID:           cmd.Process.Pid,
+		HelperPIDStartTime:  helperStart,
+		InitialHelperEvents: events,
+		InitialHelperOffset: offset,
+		Metadata:            metadata,
+	}, nil
+}
+
+func waitForHelperAgentStartFromOffset(cmd *exec.Cmd, eventPath string, timeout time.Duration, startOffset int) ([]map[string]any, int, error) {
+	deadline := time.Now().Add(timeout)
+	var lastEvents []map[string]any
+	lastOffset := startOffset
+	for time.Now().Before(deadline) {
+		events, offset, err := readHelperEventsFromFile(eventPath, startOffset)
+		if err != nil {
+			return nil, 0, err
+		}
+		if len(events) > 0 {
+			lastEvents = events
+			lastOffset = offset
+			for _, event := range events {
+				switch event["event_type"] {
+				case gosupervisor.HelperEventAgentStarted:
+					return events, offset, nil
+				case gosupervisor.HelperEventError:
+					return nil, 0, fmt.Errorf("PTY helper failed before rebridge: %v", event["payload"])
+				case gosupervisor.HelperEventAgentExited:
+					return nil, 0, fmt.Errorf("PTY helper agent exited before rebridge")
+				}
+			}
+		}
+		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return nil, 0, fmt.Errorf("PTY helper did not report rebridge agent_started before timeout (events=%d, offset=%d)", len(lastEvents), lastOffset)
+}
+
+func supervisorWorkingDir(supervisor supervisorControlRow) string {
+	if dir := metadataString(supervisor.Metadata["repo_root"]); dir != "" {
+		return dir
+	}
+	if supervisor.ScratchPath != "" {
+		return filepath.Dir(filepath.Dir(filepath.Dir(supervisor.ScratchPath)))
+	}
+	return "."
 }
 
 func tmuxMetadataFromHelperEvents(events []map[string]any) map[string]any {
@@ -1411,6 +1859,19 @@ func mergePointerMetadata(ctx context.Context, runner db.TxRunner, repositoryID,
 		current[key] = value
 	}
 	metadataArg, err := db.JSONBArg(runner, current)
+	if err != nil {
+		return err
+	}
+	return runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET metadata_json = $1::jsonb
+		 WHERE repository_id = $2 AND supervisor_id = $3`,
+		metadataArg, repositoryID, supervisorID,
+	)
+}
+
+func replacePointerMetadata(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string, metadata map[string]any) error {
+	metadataArg, err := db.JSONBArg(runner, metadata)
 	if err != nil {
 		return err
 	}

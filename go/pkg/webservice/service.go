@@ -103,6 +103,9 @@ func (h *Handler) routeGET(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(clean, "/v1/artifacts/") && strings.HasSuffix(clean, "/raw"):
 		artifactID := strings.TrimSuffix(strings.TrimPrefix(clean, "/v1/artifacts/"), "/raw")
 		h.serveArtifactRaw(w, r.Context(), artifactID)
+	case strings.HasPrefix(clean, "/v1/sessions/") && strings.HasSuffix(clean, "/live-pty"):
+		sessionID := strings.TrimSuffix(strings.TrimPrefix(clean, "/v1/sessions/"), "/live-pty")
+		h.streamLivePTY(w, r, sessionID)
 	case clean == "/workflow-templates":
 		params := map[string]any{}
 		if kind := r.URL.Query().Get("kind"); kind != "" {
@@ -112,7 +115,13 @@ func (h *Handler) routeGET(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(clean, "/workflow-templates/"):
 		h.callAndWrite(w, r.Context(), "workflow.templates.show", map[string]any{"template_id": strings.TrimPrefix(clean, "/workflow-templates/")})
 	case h.config.WebEnabled && (clean == "/" || clean == "/run"):
-		h.renderRPCPage(w, r.Context(), "Striatum Runs", "status", map[string]any{})
+		params := map[string]any{}
+		if runID := r.URL.Query().Get("run_id"); runID != "" {
+			params["run_id"] = runID
+		} else if runID := r.URL.Query().Get("id"); runID != "" {
+			params["run_id"] = runID
+		}
+		h.renderRPCPage(w, r.Context(), "Striatum Runs", "status", params)
 	case h.config.WebEnabled && strings.HasPrefix(clean, "/static/"):
 		h.serveStatic(w, strings.TrimPrefix(clean, "/static/"))
 	case isRetiredRoute(clean):
@@ -155,8 +164,17 @@ func (h *Handler) routeRunGET(w http.ResponseWriter, r *http.Request, suffix str
 		}
 		// /v1/runs/{runID}/interrogations — list for this run.
 		h.callAndWrite(w, r.Context(), "interrogation.list", map[string]any{"run_id": runID})
+	case "conversations":
+		w.Header().Set("Cache-Control", "no-store")
+		if len(parts) >= 3 && parts[2] != "" {
+			h.showConversation(w, r, runID, parts[2])
+			return
+		}
+		h.callAndWrite(w, r.Context(), "conversation.list", map[string]any{"run_id": runID})
 	case "events":
 		h.streamRunEvents(w, r, runID)
+	case "live-dialogue":
+		h.streamLiveDialogue(w, r, runID)
 	default:
 		writeJSON(w, http.StatusNotFound, errorPayload("not_found", "not found"))
 	}
@@ -393,6 +411,63 @@ func (h *Handler) renderInterrogationPage(w http.ResponseWriter, data map[string
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// D142 / RFC 0084 build review: curated interrogation bodies must not
 	// persist in a browser profile after token rotation or shared-operator use.
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
+}
+
+func (h *Handler) showConversation(w http.ResponseWriter, r *http.Request, runID, conversationID string) {
+	data, status, code, message := h.call(r.Context(), "conversation.show", map[string]any{"conversation_id": conversationID})
+	if code != "" {
+		writeJSON(w, status, errorPayload(code, message))
+		return
+	}
+	conversation, _ := data["conversation"].(map[string]any)
+	if conversation == nil || displayString(conversation["run_id"]) != runID {
+		writeJSON(w, http.StatusNotFound, errorPayload("not_found", "not found"))
+		return
+	}
+	if r.URL.Query().Get("view") == "chat" {
+		h.renderConversationPage(w, data, conversation)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "data": data})
+}
+
+func (h *Handler) renderConversationPage(w http.ResponseWriter, data map[string]any, conversation map[string]any) {
+	meta := webassets.ConversationMeta{
+		ConversationID: displayString(conversation["conversation_id"]),
+		RunID:          displayString(conversation["run_id"]),
+		Topic:          displayString(conversation["topic"]),
+		State:          displayString(conversation["state"]),
+		OpenedAt:       displayString(conversation["opened_at"]),
+		ClosedAt:       displayString(conversation["closed_at"]),
+	}
+	turns := make([]webassets.ConversationTurn, 0)
+	appendTurn := func(row map[string]any) {
+		turns = append(turns, webassets.ConversationTurn{
+			Speaker: displayString(row["author_session_id"]),
+			Body:    displayString(row["body"]),
+		})
+	}
+	switch rows := data["turns"].(type) {
+	case []map[string]any:
+		for _, row := range rows {
+			appendTurn(row)
+		}
+	case []any:
+		for _, raw := range rows {
+			if row, ok := raw.(map[string]any); ok {
+				appendTurn(row)
+			}
+		}
+	}
+	body, err := webassets.RenderConversation(meta, turns)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorPayload("render_failed", err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(body)

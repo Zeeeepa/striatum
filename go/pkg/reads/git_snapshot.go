@@ -293,10 +293,7 @@ func parseGitLogRecords(out string) []map[string]any {
 		if len(fields) < 6 || fields[0] == "" {
 			continue
 		}
-		parents := []string{}
-		for _, parent := range strings.Fields(fields[2]) {
-			parents = append(parents, parent)
-		}
+		parents := append([]string{}, strings.Fields(fields[2])...)
 		commits = append(commits, map[string]any{
 			"sha":            fields[0],
 			"short_sha":      fields[1],

@@ -115,3 +115,92 @@ func TestInterrogationChatViewEscapesBodies(t *testing.T) {
 		}
 	}
 }
+
+func registerConversationReads(fixture *webtest.Fixture, turns []map[string]any) {
+	fixture.Register("conversation.list", map[string]any{"count": 1, "run_id": "run_1", "items": []any{
+		map[string]any{"conversation_id": "conv_match", "state": "active"},
+	}})
+	fixture.Server.Register("conversation.show", func(ctx context.Context, env rpc.Envelope) (map[string]any, error) {
+		id, _ := env.Params["conversation_id"].(string)
+		runID := "run_other"
+		if id == "conv_match" {
+			runID = "run_1"
+		}
+		return map[string]any{
+			"conversation": map[string]any{
+				"conversation_id": id,
+				"run_id":          runID,
+				"topic":           "sync meeting",
+				"state":           "active",
+				"opened_at":       "2026-05-25T00:00:00Z",
+			},
+			"turns":      turns,
+			"turn_count": len(turns),
+		}, nil
+	})
+}
+
+func TestConversationListRouteUsesDaemonRPC(t *testing.T) {
+	fixture := webtest.NewFixture()
+	registerConversationReads(fixture, nil)
+	rec := webtest.Request(t, webtest.Handler(fixture, false), http.MethodGet, "/v1/runs/run_1/conversations", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(fixture.Calls) != 1 || fixture.Calls[0].Method != "conversation.list" {
+		t.Fatalf("calls = %#v", fixture.Calls)
+	}
+	if got := fixture.Calls[0].Params["run_id"]; got != "run_1" {
+		t.Fatalf("run_id param = %#v", got)
+	}
+}
+
+func TestConversationShowReturnsCuratedJSON(t *testing.T) {
+	fixture := webtest.NewFixture()
+	registerConversationReads(fixture, []map[string]any{
+		map[string]any{"author_session_id": "agent_A", "body": "hello", "turn_index": 0},
+		map[string]any{"author_session_id": "agent_B", "body": "hi", "turn_index": 1},
+	})
+	rec := webtest.Request(t, webtest.Handler(fixture, false), http.MethodGet, "/v1/runs/run_1/conversations/conv_match", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "\"turn_count\":2") {
+		t.Fatalf("expected curated turns in body: %s", rec.Body.String())
+	}
+}
+
+func TestConversationShowRunOwnership404(t *testing.T) {
+	fixture := webtest.NewFixture()
+	registerConversationReads(fixture, nil)
+	rec := webtest.Request(t, webtest.Handler(fixture, false), http.MethodGet, "/v1/runs/run_1/conversations/conv_other", "")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for cross-run conversation, got %d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestConversationChatViewEscapesBodies(t *testing.T) {
+	fixture := webtest.NewFixture()
+	registerConversationReads(fixture, []map[string]any{
+		map[string]any{"author_session_id": "agent_A", "body": "<script>alert(1)</script>", "turn_index": 0},
+		map[string]any{"author_session_id": "agent_B", "body": "<img src=x onerror=alert(1)>", "turn_index": 1},
+	})
+	rec := webtest.Request(t, webtest.Handler(fixture, false), http.MethodGet, "/v1/runs/run_1/conversations/conv_match?view=chat", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	body := rec.Body.String()
+	for _, raw := range []string{"<script>alert(1)</script>", "<img src=x onerror=alert(1)>"} {
+		if strings.Contains(body, raw) {
+			t.Fatalf("raw payload leaked into chat page: %q\n%s", raw, body)
+		}
+	}
+	for _, escaped := range []string{"&lt;script&gt;alert(1)&lt;/script&gt;", "&lt;img src=x onerror=alert(1)&gt;"} {
+		if !strings.Contains(body, escaped) {
+			t.Fatalf("expected escaped form %q in chat page\n%s", escaped, body)
+		}
+	}
+}
