@@ -799,6 +799,127 @@ func TestSuperviseStopUsesTmuxKillSessionForBackedLane(t *testing.T) {
 	}
 }
 
+// TestSuperviseStopRemovesEphemeralGeminiSettings is the issue #62 regression:
+// the tmux-backed teardown path (supervise.stop -> tmux kill-session) must
+// remove the per-launch .gemini/settings.json (rotating MCP bearer token) the
+// agy lane wrote, restoring any prior contents. Cleanup is driven from the
+// terminal supervisor-state transition, not the agent-loop's own cleanupMCP, so
+// it fires regardless of exit path.
+func TestSuperviseStopRemovesEphemeralGeminiSettings(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	supervisionTmuxRunner = &mutationFakeTmuxRunner{}
+
+	repo := t.TempDir()
+	// The agy launch wrote a token-bearing project settings file plus a scratch
+	// "created" marker (no prior settings existed at launch).
+	geminiDir := filepath.Join(repo, ".gemini")
+	if err := os.MkdirAll(geminiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"mcpServers":{"striatum":{"httpUrl":"http://127.0.0.1:34135/mcp","headers":{"Authorization":"Bearer dtok_secret"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratchDir := filepath.Join(repo, ".striatum", "scratch", "sup_1")
+	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scratchDir, "settings.json.created"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	pipePath := dir + "/stdin.pipe"
+	if err := os.WriteFile(pipePath, nil, 0o600); err != nil {
+		t.Fatalf("write pipe placeholder: %v", err)
+	}
+	tx := &superviseControlFakeTx{
+		pipePath: pipePath,
+		repoRoot: repo,
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"state":             "backed",
+				"session_name":      "striatum-run",
+				"pane_id":           "%4",
+				"pane_pid":          os.Getpid(),
+				"attach_client_pid": 0,
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}, pipePath: pipePath}
+	if _, err := HandleSuperviseStop(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_stop_gemini",
+		Method:        "supervise.stop",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"reason":        "operator_requested",
+		},
+	}); err != nil {
+		t.Fatalf("HandleSuperviseStop: %v", err)
+	}
+
+	// The token-bearing settings file (created-at-launch) must be gone after a
+	// tmux-backed teardown, and its scratch marker cleaned up.
+	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+		body, _ := os.ReadFile(settingsPath)
+		t.Fatalf("ephemeral .gemini/settings.json not removed on tmux teardown: %s", body)
+	}
+	if _, err := os.Stat(filepath.Join(scratchDir, "settings.json.created")); !os.IsNotExist(err) {
+		t.Fatalf("scratch created-marker not cleaned up on teardown")
+	}
+}
+
+// TestUpdateSupervisorStateTerminalRestoresPriorGeminiSettings asserts the
+// state-transition choke point restores pre-existing .gemini/settings.json
+// contents (not just deletes) on any terminal transition — the issue #62
+// "restore to prior contents" requirement, exercised independent of the
+// supervise.stop handler.
+func TestUpdateSupervisorStateTerminalRestoresPriorGeminiSettings(t *testing.T) {
+	repo := t.TempDir()
+	geminiDir := filepath.Join(repo, ".gemini")
+	if err := os.MkdirAll(geminiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	original := []byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`)
+	if err := os.WriteFile(settingsPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratchDir := filepath.Join(repo, ".striatum", "scratch", "sup_1")
+	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Launch backed up the prior settings and overwrote the live file with the
+	// rotating-token version.
+	if err := os.WriteFile(filepath.Join(scratchDir, "settings.json.backup"), original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settingsPath, []byte(`{"mcpServers":{"striatum":{"httpUrl":"http://127.0.0.1:1/mcp","headers":{"Authorization":"Bearer dtok_secret"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tx := &superviseControlFakeTx{repoRoot: repo}
+	if err := updateSupervisorState(context.Background(), tx, "repo_1", "sup_1", "", "stopped", nowString(), 0, "", "", nil, nil); err != nil {
+		t.Fatalf("updateSupervisorState: %v", err)
+	}
+
+	restored, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("read restored settings: %v", err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("terminal transition should restore prior settings, got: %s", restored)
+	}
+	if _, err := os.Stat(filepath.Join(scratchDir, "settings.json.backup")); !os.IsNotExist(err) {
+		t.Fatalf("scratch backup marker not cleaned up on terminal transition")
+	}
+}
+
 func TestSuperviseStopSkipsStaleHelperPIDCleanup(t *testing.T) {
 	_ = currentStartTokenForMutationTest(t)
 	tx := &superviseControlFakeTx{
@@ -973,6 +1094,7 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 
 type superviseControlFakeTx struct {
 	pipePath   string
+	repoRoot   string
 	pid        int
 	pidStart   string
 	metadata   map[string]any
@@ -994,6 +1116,13 @@ func (tx *superviseControlFakeTx) Exec(_ context.Context, sql string, args ...an
 
 func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args ...any) db.Row {
 	switch {
+	case strings.Contains(sql, "SELECT cwd, scratch_path"):
+		// Issue #62: lane-MCP teardown resolves the supervisor's working dir.
+		cwd := filepath.Dir(tx.pipePath)
+		if tx.repoRoot != "" {
+			cwd = tx.repoRoot
+		}
+		return superviseControlFakeRow{values: []any{cwd, filepath.Join(cwd, ".striatum", "scratch", "sup_1")}}
 	case strings.Contains(sql, "SELECT supervisor_id, state") && strings.Contains(sql, "state = ANY"):
 		return superviseControlFakeRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "SELECT ps.supervisor_id") && strings.Contains(sql, "ps.scratch_path"):

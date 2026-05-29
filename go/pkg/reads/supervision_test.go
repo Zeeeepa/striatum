@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -914,7 +915,8 @@ func TestRemediationCoverageTable(t *testing.T) {
 }
 
 type statusTxFakeRunner struct {
-	execs []string
+	execs    []string
+	repoRoot string
 }
 
 func (tx *statusTxFakeRunner) Exec(ctx context.Context, sql string, args ...any) error {
@@ -923,7 +925,30 @@ func (tx *statusTxFakeRunner) Exec(ctx context.Context, sql string, args ...any)
 }
 
 func (tx *statusTxFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	if strings.Contains(sql, "SELECT cwd, scratch_path") {
+		// Issue #62: terminal transition resolves the supervisor working dir to
+		// clean up the per-launch .gemini/settings.json.
+		return statusCwdFakeRow{cwd: tx.repoRoot, scratchPath: filepath.Join(tx.repoRoot, ".striatum", "scratch", "sup_1")}
+	}
 	return superviseReadFakeRow{}
+}
+
+type statusCwdFakeRow struct {
+	cwd         string
+	scratchPath string
+}
+
+func (r statusCwdFakeRow) Scan(dest ...any) error {
+	if len(dest) != 2 {
+		return errors.New("statusCwdFakeRow expects 2 destinations")
+	}
+	if p, ok := dest[0].(*string); ok {
+		*p = r.cwd
+	}
+	if p, ok := dest[1].(*string); ok {
+		*p = r.scratchPath
+	}
+	return nil
 }
 
 func (tx *statusTxFakeRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
@@ -980,5 +1005,53 @@ func TestHandleSuperviseStatusTransitionsToStoppedOnUnexpectedExit(t *testing.T)
 	}
 	if !hasUpdate {
 		t.Fatalf("expected UPDATE striatumd.process_supervisors in execs, got: %v", txFake.execs)
+	}
+}
+
+// TestHandleSuperviseStatusGracefulExitRemovesEphemeralGeminiSettings is the
+// issue #62 regression for the graceful-completion path: when supervise.status
+// detects the lane has exited (probed gone) and transitions the supervisor
+// attached->stopped, it must remove the per-launch .gemini/settings.json bearer
+// token the agy lane left behind.
+func TestHandleSuperviseStatusGracefulExitRemovesEphemeralGeminiSettings(t *testing.T) {
+	repo := t.TempDir()
+	geminiDir := filepath.Join(repo, ".gemini")
+	if err := os.MkdirAll(geminiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"mcpServers":{"striatum":{"httpUrl":"http://127.0.0.1:34135/mcp","headers":{"Authorization":"Bearer dtok_secret"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scratchDir := filepath.Join(repo, ".striatum", "scratch", "sup_1")
+	if err := os.MkdirAll(scratchDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(scratchDir, "settings.json.created"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	txFake := &statusTxFakeRunner{repoRoot: repo}
+	runner := &statusRunnerWithTxFake{tx: txFake}
+	// pid > 0 but with a mismatched start token makes ProbeLaneLiveness report
+	// Alive=false, driving the attached->stopped transition.
+	runner.statusRow = superviseBaseRow("sup_1", os.Getpid(), "different-start-token")
+
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["state"] != "stopped" {
+		t.Fatalf("expected stopped transition, got: %#v", result["state"])
+	}
+
+	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+		body, _ := os.ReadFile(settingsPath)
+		t.Fatalf("graceful-exit teardown left token-bearing .gemini/settings.json: %s", body)
+	}
+	if _, err := os.Stat(filepath.Join(scratchDir, "settings.json.created")); !os.IsNotExist(err) {
+		t.Fatalf("scratch created-marker not cleaned up on graceful exit")
 	}
 }
