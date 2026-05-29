@@ -143,6 +143,41 @@ func routeRevisionCycle(
 	// (the usual case: an upstream synthesis/implement job that already
 	// finished); re-opening it as part of an accepted revision cycle is a
 	// legitimate transition (F3). Reset it to a clean state and re-enqueue.
+	//
+	// If the target is already non-terminal (queued/claimed/running) — e.g. an
+	// operator manually retried it concurrently — the verdict and cycle-routed
+	// event are still recorded, but the re-open is skipped rather than erroring
+	// the whole verdict transaction (Bug B).
+	targetState := fmt.Sprint(target["state"])
+	if !isTerminalJobState(targetState) {
+		if err := maybeCompleteRun(ctx, runner, repositoryID, fmt.Sprint(job["run_id"])); err != nil {
+			return nil, false, err
+		}
+		return map[string]any{
+			"status":               "revision_routed",
+			"job_id":               job["job_id"],
+			"verdict":              verdict,
+			"cycle_target_job_id":  target["job_id"],
+			"cycle_to":             cycle.to,
+			"cycle_iteration":      iteration,
+			"cycle_max_iterations": cycle.maxIterations,
+			"target_message_id":    nil,
+			"target_already_open":  true,
+		}, true, nil
+	}
+
+	// Reset the cycle target's transitive downstream jobs (the reviews that
+	// reviewed it, and anything further downstream) back to `blocked` so the
+	// normal dependency gating re-enqueues them as the target — and then each
+	// subsequent job — re-completes. Without this, the reviews stay `completed`
+	// and `maybeEnqueueDownstream` (which only enqueues `blocked` jobs) skips
+	// them, leaving the revised work UNREVIEWED (RFC 0083 review-after-revision
+	// contract). This must run before re-opening the target itself, so the
+	// recursive walk still sees the target's current downstream edges.
+	if err := resetDownstreamForRevision(ctx, runner, repositoryID, fmt.Sprint(target["job_id"]), now); err != nil {
+		return nil, false, err
+	}
+
 	if err := reopenJobForRevision(ctx, runner, repositoryID, target, now); err != nil {
 		return nil, false, err
 	}
@@ -182,7 +217,20 @@ func isDeclaredCycleTarget(ctx context.Context, runner any, repositoryID string,
 	}
 	workflowJobID := fmt.Sprint(job["workflow_job_id"])
 	for _, item := range asList(asMap(snapshot["workflow_json"])["cycles"]) {
-		if fmt.Sprint(asMap(item)["to"]) == workflowJobID {
+		def := asMap(item)
+		if fmt.Sprint(def["to"]) != workflowJobID {
+			continue
+		}
+		// Only `needs_revision` cycles declare a genuine revision target. A
+		// cycle keyed on any other verdict does not unlock the F3 retry path,
+		// so the completed job remains non-retriable (Bug C). An absent or
+		// empty on_verdict defaults to needs_revision per RFC 0083, matching
+		// matchRevisionCycle.
+		on := fmt.Sprint(def["on_verdict"])
+		if def["on_verdict"] == nil || on == "" {
+			on = "needs_revision"
+		}
+		if on == "needs_revision" {
 			return true, nil
 		}
 	}
@@ -207,30 +255,50 @@ func latestJobForWorkflowID(ctx context.Context, runner any, repositoryID, runID
 	return rows[0], nil
 }
 
+// isTerminalJobState reports whether a job state is one a revision cycle may
+// re-open: a finished state (completed/failed/canceled/skipped/waiting_human)
+// or `blocked` (not yet enqueued). Live states (queued/claimed/running) are
+// non-terminal and must not be clobbered by an in-flight revision routing.
+func isTerminalJobState(state string) bool {
+	switch state {
+	case "completed", "failed", "canceled", "skipped", "waiting_human", "blocked":
+		return true
+	default:
+		return false
+	}
+}
+
 // reopenJobForRevision resets a (typically completed) cycle-target job back to
 // a blocked state so enqueueJob can re-issue its work. It releases any active
 // lease, cancels in-flight work messages and open blockers, clears terminal
 // timestamps, and bumps the attempt counter.
 func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, job map[string]any, now string) error {
+	state := fmt.Sprint(job["state"])
+	if !isTerminalJobState(state) {
+		return rpc.NewError("invalid_transition", fmt.Sprintf("cycle target job state %q cannot be re-opened for revision", state), nil)
+	}
+	return resetJobToBlocked(ctx, runner, repositoryID, fmt.Sprint(job["job_id"]), now)
+}
+
+// resetJobToBlocked is the shared reset core used both to re-open the cycle
+// target and to re-block its transitive downstream jobs. It releases any active
+// lease, cancels in-flight work messages and open blockers, clears the
+// per-attempt verdicts of verdict-capable jobs (so a re-run review's fresh
+// verdict supersedes the prior round and the (job, session) verdict uniqueness
+// constraint is freed), clears terminal timestamps, and bumps the attempt.
+func resetJobToBlocked(ctx context.Context, runner any, repositoryID, jobID, now string) error {
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
 	if !ok {
 		return fmt.Errorf("runner does not support exec")
 	}
-	state := fmt.Sprint(job["state"])
-	switch state {
-	case "completed", "failed", "canceled", "skipped", "waiting_human", "blocked":
-		// re-openable below
-	default:
-		return rpc.NewError("invalid_transition", fmt.Sprintf("cycle target job state %q cannot be re-opened for revision", state), nil)
-	}
-	// Release any active lease still pinned to the target.
+	// Release any active lease still pinned to the job.
 	if err := exec.Exec(ctx, `
 		UPDATE striatumd.leases
 		   SET state = 'released', released_at = $1, release_reason = 'revision_cycle'
 		 WHERE repository_id = $2 AND resource_id = $3 AND state = 'active'`,
-		now, repositoryID, job["job_id"]); err != nil {
+		now, repositoryID, jobID); err != nil {
 		return err
 	}
 	// Cancel any in-flight work messages so enqueueJob can publish a fresh one
@@ -241,19 +309,34 @@ func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, 
 		   SET state = 'canceled', updated_at = $1, current_lease_id = NULL
 		 WHERE repository_id = $2 AND job_id = $3
 		   AND state IN ('pending','claimed','acked')`,
-		now, repositoryID, job["job_id"]); err != nil {
+		now, repositoryID, jobID); err != nil {
 		return err
 	}
-	// Cancel any open blockers on the target.
+	// Cancel any open blockers on the job.
 	if err := exec.Exec(ctx, `
 		UPDATE striatumd.blockers
 		   SET state = 'canceled', resolved_at = $1
 		 WHERE repository_id = $2 AND job_id = $3 AND resolved_at IS NULL`,
-		now, repositoryID, job["job_id"]); err != nil {
+		now, repositoryID, jobID); err != nil {
+		return err
+	}
+	// Clear the job's verdicts so the downstream gate re-evaluates against the
+	// fresh review round. `latestVerdict` orders by created_at (truncated to the
+	// second), so a prior-round verdict recorded in the same wall-clock second
+	// as the new one could otherwise win the tiebreak (verdict_id is random).
+	// Deleting the stale rows removes that ambiguity and frees the
+	// (repository_id, job_id, session_id) uniqueness constraint so a re-claiming
+	// session can record again. Verdict rows are not referenced by any FK
+	// (events carry verdict_id in payload only), so deletion is safe.
+	if err := exec.Exec(ctx, `
+		DELETE FROM striatumd.verdicts
+		 WHERE repository_id = $1 AND job_id = $2`,
+		repositoryID, jobID); err != nil {
 		return err
 	}
 	// Reset the job to a clean blocked state and bump the attempt. enqueueJob
-	// transitions blocked->queued and attaches a fresh message.
+	// (or the normal downstream gating) transitions blocked->queued and attaches
+	// a fresh message.
 	if err := exec.Exec(ctx, `
 		UPDATE striatumd.jobs
 		   SET state = 'blocked',
@@ -263,8 +346,47 @@ func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, 
 		       current_message_id = NULL,
 		       attempt = attempt + 1
 		 WHERE repository_id = $1 AND job_id = $2`,
-		repositoryID, job["job_id"]); err != nil {
+		repositoryID, jobID); err != nil {
 		return err
+	}
+	return nil
+}
+
+// resetDownstreamForRevision walks the job_dependencies graph from the cycle
+// target and re-blocks every transitive downstream job that is currently in a
+// terminal state (completed/failed/canceled/skipped/waiting_human). Each such
+// job — the reviews that reviewed the target, plus anything further downstream
+// such as implement/build-review — is returned to `blocked` so the normal
+// dependency gating re-enqueues it as the target (and then each predecessor)
+// re-completes. Jobs already non-terminal (queued/claimed/running) are left
+// alone so an in-flight worker is not clobbered.
+func resetDownstreamForRevision(ctx context.Context, runner any, repositoryID, targetJobID, now string) error {
+	rows, err := queryRows(ctx, runner, `
+		WITH RECURSIVE downstream(job_id) AS (
+		    SELECT dep.job_id
+		      FROM striatumd.job_dependencies dep
+		     WHERE dep.repository_id = $1 AND dep.depends_on_job_id = $2
+		  UNION
+		    SELECT dep.job_id
+		      FROM striatumd.job_dependencies dep
+		      JOIN downstream d
+		        ON dep.depends_on_job_id = d.job_id
+		     WHERE dep.repository_id = $1
+		)
+		SELECT j.job_id, j.state
+		  FROM downstream d
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = $1 AND j.job_id = d.job_id
+		 WHERE j.state IN ('completed','failed','canceled','skipped','waiting_human')
+		 ORDER BY j.created_at, j.job_id
+		 FOR UPDATE OF j`, repositoryID, targetJobID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if err := resetJobToBlocked(ctx, runner, repositoryID, fmt.Sprint(row["job_id"]), now); err != nil {
+			return err
+		}
 	}
 	return nil
 }

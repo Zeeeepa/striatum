@@ -332,3 +332,327 @@ func TestRetryJobRejectsCompletedNonCycleTarget(t *testing.T) {
 		t.Fatal("expected retry of completed non-cycle-target to be rejected")
 	}
 }
+
+// seedDependency wires a job_dependencies edge (toJob depends on fromJob) with
+// the given gate JSON.
+func seedDependency(t *testing.T, ctx context.Context, runner db.Runner, repoID, toJobID, fromJobID string, gate map[string]any) {
+	t.Helper()
+	gateArg, err := db.JSONBArg(runner, gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id, gate_json)
+		VALUES ($1,$2,$3,$4::jsonb)
+		ON CONFLICT (repository_id, job_id, depends_on_job_id) DO NOTHING`,
+		repoID, toJobID, fromJobID, gateArg); err != nil {
+		t.Fatalf("insert dependency %s->%s: %v", fromJobID, toJobID, err)
+	}
+}
+
+// seedBlockedJob inserts a blocked job (no message/lease) for the given
+// workflow id and type.
+func seedBlockedJob(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, workflowJobID, jobType, roleID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, created_at
+		) VALUES ($1,$2,$3,$4,1,'blocked',$5,$6,$7,'idem_'||$4||'_'||$1,'[]'::jsonb,$8)`,
+		repoID, jobID, runID, workflowJobID, roleID, workflowJobID, jobType, now); err != nil {
+		t.Fatalf("insert blocked job %s: %v", jobID, err)
+	}
+}
+
+// completeSynthAndGateDownstream completes the (re-opened, queued) synth job and
+// runs the daemon's downstream gating, exactly as work.complete does for a
+// non-review job. Used by the end-to-end revision-loop test to advance the run
+// after the cycle target re-completes.
+func completeSynthAndGateDownstream(t *testing.T, ctx context.Context, runner db.Runner, repoID, synthJobID string) {
+	t.Helper()
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		now := nowString()
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.jobs
+			   SET state = 'completed', completed_at = $1, current_lease_id = NULL,
+			       current_message_id = NULL
+			 WHERE repository_id = $2 AND job_id = $3`, now, repoID, synthJobID); err != nil {
+			return nil, err
+		}
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.queue_messages
+			   SET state = 'completed', completed_at = $1, updated_at = $1
+			 WHERE repository_id = $2 AND job_id = $3 AND state IN ('pending','claimed','acked')`,
+			now, repoID, synthJobID); err != nil {
+			return nil, err
+		}
+		if err := maybeEnqueueDownstream(ctx, tx, repoID, synthJobID); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+	}); err != nil {
+		t.Fatalf("complete synth + gate downstream: %v", err)
+	}
+}
+
+// reclaimReviewRunning puts a (re-enqueued, queued) review job back into the
+// running state with a fresh session, lease and acked work message, mirroring
+// claim+ack so a fresh verdict can be recorded against it.
+func reclaimReviewRunning(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, reviewJobID string) (sessionID, leaseID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	sessionID = "sess_reviewer2_" + reviewJobID
+	leaseID = "lease2_" + reviewJobID
+
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, sessionID, "reviewer", "codex", []string{"review"}, "active", 2)
+
+	// Re-use the pending work message the re-enqueue already published for the
+	// job (a fresh insert would trip uq_active_work_message_per_job); move it to
+	// acked, the state recordVerdict expects.
+	msgRow, err := oneRow(ctx, runner, `
+		SELECT message_id FROM striatumd.queue_messages
+		 WHERE repository_id = $1 AND job_id = $2 AND kind = 'work' AND state = 'pending'
+		 ORDER BY created_at DESC LIMIT 1`, repoID, reviewJobID)
+	if err != nil {
+		t.Fatalf("find re-enqueued review message: %v", err)
+	}
+	msgID := fmt.Sprint(msgRow["message_id"])
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.queue_messages
+		   SET state = 'acked', acked_at = $3, updated_at = $3
+		 WHERE repository_id = $1 AND message_id = $2`, repoID, msgID, now); err != nil {
+		t.Fatalf("ack reclaim review message: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',NOW(),NOW() + INTERVAL '1 hour')`,
+		repoID, leaseID, runID, reviewJobID, sessionID); err != nil {
+		t.Fatalf("insert reclaim lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'running', started_at = $5, current_message_id = $3, current_lease_id = $4
+		 WHERE repository_id = $1 AND job_id = $2`,
+		repoID, reviewJobID, msgID, leaseID, now); err != nil {
+		t.Fatalf("reclaim review running: %v", err)
+	}
+	return sessionID, leaseID
+}
+
+func countVerdicts(t *testing.T, ctx context.Context, runner any, repoID, jobID string) int {
+	t.Helper()
+	row, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n FROM striatumd.verdicts
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, jobID)
+	if err != nil {
+		t.Fatalf("count verdicts %s: %v", jobID, err)
+	}
+	return intValue(row["n"])
+}
+
+// Bug A (CRITICAL end-to-end): a needs_revision verdict re-opens the cycle
+// target AND re-blocks its transitive downstream (the review that triggered the
+// cycle, plus a gated implement job). When the target re-completes the review
+// re-runs; a subsequent accepting verdict supersedes the stale needs_revision
+// and makes the downstream implement job reachable. This proves the full
+// review-after-revision loop (RFC 0083), which the original fix left broken:
+// the reviews never re-ran and the run could finish with the revision
+// unreviewed.
+func TestRevisionCycleReReviewsAndUnblocksDownstream(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_revision_full_loop"
+	cycles := []any{
+		map[string]any{
+			"from":            "review_design_codex",
+			"to":              "synth",
+			"on_verdict":      "needs_revision",
+			"max_iterations":  float64(3),
+			"allow_same_lane": true,
+		},
+	}
+	runID, reviewJobID, synthJobID, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, cycles)
+
+	// Wire the dependency chain synth -> review -> implement. The review depends
+	// on synth (accept gate); implement depends on review with a verdict gate so
+	// it only unblocks once the review accepts.
+	implementJobID := "job_impl_" + repoID
+	seedBlockedJob(t, ctx, runner, repoID, runID, implementJobID, "implement", "generic", "synthesizer")
+	seedDependency(t, ctx, runner, repoID, reviewJobID, synthJobID, map[string]any{
+		"on": "completed", "from": "synth", "to": "review_design_codex",
+	})
+	seedDependency(t, ctx, runner, repoID, implementJobID, reviewJobID, map[string]any{
+		"on": "completed", "from": "review_design_codex", "to": "implement",
+		"requires_verdict": []any{"accept", "accept_with_findings"},
+	})
+
+	// Step 1: review records needs_revision -> routes to synth.
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"verdict":    "needs_revision",
+	}))
+	if err != nil {
+		t.Fatalf("record needs_revision: %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "revision_routed" {
+		t.Fatalf("status = %v, want revision_routed; result=%#v", result["status"], result)
+	}
+	if got := jobState(t, ctx, runner, repoID, synthJobID); got != "queued" {
+		t.Fatalf("synth state = %q, want queued (re-opened)", got)
+	}
+	// The triggering review is transitive downstream of synth and must be
+	// re-blocked (not left completed) so it re-runs after the revision.
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "blocked" {
+		t.Fatalf("review state = %q, want blocked (re-blocked for re-review)", got)
+	}
+	// Its stale needs_revision verdict must be cleared so the gate re-evaluates
+	// the fresh round.
+	if n := countVerdicts(t, ctx, runner, repoID, reviewJobID); n != 0 {
+		t.Fatalf("review verdicts after re-block = %d, want 0 (stale round cleared)", n)
+	}
+	// implement was already blocked and stays blocked (it never reached).
+	if got := jobState(t, ctx, runner, repoID, implementJobID); got != "blocked" {
+		t.Fatalf("implement state = %q, want blocked", got)
+	}
+
+	// Step 2: synth re-completes -> downstream gating re-enqueues the review.
+	completeSynthAndGateDownstream(t, ctx, runner, repoID, synthJobID)
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "queued" {
+		t.Fatalf("review state after synth re-complete = %q, want queued (re-enqueued)", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, implementJobID); got != "blocked" {
+		t.Fatalf("implement state = %q, want blocked (review not yet accepted)", got)
+	}
+
+	// Step 3: re-claim the review and record a fresh accepting verdict. The new
+	// verdict supersedes the (now cleared) prior round; the downstream gate sees
+	// an accept and the implement job becomes reachable.
+	sessionID2, leaseID2 := reclaimReviewRunning(t, ctx, runner, repoID, runID, reviewJobID)
+	acceptResult, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID2,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID2,
+		"verdict":    "accept",
+	}))
+	if err != nil {
+		t.Fatalf("record fresh accept: %v", err)
+	}
+	if fmt.Sprint(acceptResult["status"]) != "completed" {
+		t.Fatalf("accept status = %v, want completed; result=%#v", acceptResult["status"], acceptResult)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "completed" {
+		t.Fatalf("review state after accept = %q, want completed", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, implementJobID); got != "queued" {
+		t.Fatalf("implement state after accept = %q, want queued (downstream unblocked)", got)
+	}
+	// Sanity: the latest verdict on the review is the fresh accept.
+	latest, err := latestVerdict(ctx, runner, repoID, reviewJobID)
+	if err != nil {
+		t.Fatalf("latest verdict: %v", err)
+	}
+	if latest != "accept" {
+		t.Fatalf("latest review verdict = %q, want accept", latest)
+	}
+}
+
+// Bug B: when the cycle target is already non-terminal (an operator retried it
+// concurrently so it is queued/running), the needs_revision verdict + cycle
+// routed event must still be recorded and the re-open simply skipped — NOT
+// error and roll back the whole verdict transaction.
+func TestRevisionCycleTargetAlreadyRunningRecordsVerdict(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_revision_target_running"
+	cycles := []any{
+		map[string]any{
+			"from":            "review_design_codex",
+			"to":              "synth",
+			"on_verdict":      "needs_revision",
+			"max_iterations":  float64(2),
+			"allow_same_lane": true,
+		},
+	}
+	runID, reviewJobID, synthJobID, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, cycles)
+
+	// Simulate a concurrent operator retry: the synth target is already running.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs SET state = 'running', completed_at = NULL
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, synthJobID); err != nil {
+		t.Fatalf("force synth running: %v", err)
+	}
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"verdict":    "needs_revision",
+	}))
+	if err != nil {
+		t.Fatalf("record verdict against running target must not error: %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "revision_routed" {
+		t.Fatalf("status = %v, want revision_routed; result=%#v", result["status"], result)
+	}
+	if result["target_already_open"] != true {
+		t.Fatalf("expected target_already_open=true; result=%#v", result)
+	}
+	// The verdict transaction committed: the verdict row and the cycle-routed
+	// event both persist.
+	if n := countVerdicts(t, ctx, runner, repoID, reviewJobID); n != 1 {
+		t.Fatalf("verdict count = %d, want 1 (verdict recorded, not rolled back)", n)
+	}
+	evtRow, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'revision.cycle_routed'`,
+		repoID, runID)
+	if err != nil {
+		t.Fatalf("count routed events: %v", err)
+	}
+	if intValue(evtRow["n"]) != 1 {
+		t.Fatalf("expected 1 revision.cycle_routed event, got %v", evtRow["n"])
+	}
+	// The running target is untouched (not clobbered back to blocked/queued).
+	if got := jobState(t, ctx, runner, repoID, synthJobID); got != "running" {
+		t.Fatalf("synth state = %q, want running (left alone)", got)
+	}
+	// The triggering review still completes (the verdict routed).
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "completed" {
+		t.Fatalf("review state = %q, want completed", got)
+	}
+}
+
+// Bug C: a completed cycle target whose only declaring cycle is keyed on a
+// non-needs_revision verdict is NOT retriable through run.retry_job. Only
+// genuine needs_revision revision targets unlock the F3 retry relaxation.
+func TestRetryJobRejectsNonNeedsRevisionCycleTarget(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_retry_non_needs_revision"
+	cycles := []any{
+		map[string]any{
+			"from":            "review_design_codex",
+			"to":              "synth",
+			"on_verdict":      "reject", // not needs_revision
+			"max_iterations":  float64(2),
+			"allow_same_lane": true,
+		},
+	}
+	runID, _, synthJobID, _, _ := revisionFixture(t, ctx, runner, repoID, cycles)
+
+	_, err := HandleRunRetryJob(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID,
+		"job_id": synthJobID,
+	}))
+	if err == nil {
+		t.Fatal("expected retry of completed non-needs_revision cycle target to be rejected")
+	}
+	if got := jobState(t, ctx, runner, repoID, synthJobID); got != "completed" {
+		t.Fatalf("synth state = %q, want completed (not retried)", got)
+	}
+}
