@@ -34,11 +34,10 @@ jobs:
           cache-dependency-path: go/go.sum
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-          install-mode: binary
-          args: --version
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+            | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          golangci-lint --version
 
       - name: Go vet, test, race, lint, and coverage
         run: make -C go check
