@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -1300,6 +1302,16 @@ func updateSupervisorState(ctx context.Context, runner db.TxRunner, repositoryID
 	); err != nil {
 		return err
 	}
+	// Issue #62: any terminal supervisor transition — graceful probed-gone exit,
+	// supervise.stop / tmux kill, signal / lost — must remove the per-launch
+	// .gemini/settings.json (rotating MCP bearer token) the lane wrote. Doing it
+	// here, at the single state-transition choke point, makes teardown cleanup
+	// path-independent. CleanupGeminiSettings is idempotent (no-ops once its
+	// scratch markers are gone), so calling it on every terminal transition is
+	// safe even when another path already cleaned up.
+	if supervisorTerminalStates[state] {
+		cleanupSupervisorLaneMCPConfig(ctx, runner, repositoryID, supervisorID)
+	}
 	if daemonSupervisorID == "" {
 		return nil
 	}
@@ -1314,6 +1326,41 @@ func updateSupervisorState(ctx context.Context, runner db.TxRunner, repositoryID
 		 WHERE repository_id = $7 AND daemon_supervisor_id = $8`,
 		state, pidArg, pidStartArg, heartbeatArg, nullableStringPointer(endedAt), nullableStringPointer(stopReason), repositoryID, daemonSupervisorID,
 	)
+}
+
+// cleanupSupervisorLaneMCPConfig resolves the supervisor's working directory and
+// removes/restores any per-launch lane MCP config it wrote (the agy
+// .gemini/settings.json bearer-token file). Best-effort: a missing repo root or
+// absent scratch markers leave nothing to do.
+func cleanupSupervisorLaneMCPConfig(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) {
+	repoRoot := supervisorRepoRoot(ctx, runner, repositoryID, supervisorID)
+	if repoRoot == "" {
+		return
+	}
+	agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
+}
+
+// supervisorRepoRoot reads the supervisor's recorded working directory (cwd),
+// falling back to deriving it from the scratch path layout
+// (<repo>/.striatum/scratch/<supervisor_id>).
+func supervisorRepoRoot(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) string {
+	var cwd, scratchPath string
+	if err := runner.QueryRow(ctx, `
+		SELECT cwd, scratch_path
+		  FROM striatumd.process_supervisors
+		 WHERE repository_id = $1 AND supervisor_id = $2`,
+		repositoryID, supervisorID,
+	).Scan(&cwd, &scratchPath); err != nil {
+		return ""
+	}
+	if strings.TrimSpace(cwd) != "" {
+		return cwd
+	}
+	if strings.TrimSpace(scratchPath) != "" {
+		// scratch_path is <repo>/.striatum/scratch/<supervisor_id>.
+		return filepath.Dir(filepath.Dir(filepath.Dir(scratchPath)))
+	}
+	return ""
 }
 
 func nullableString(value string) any {

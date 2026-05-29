@@ -30,6 +30,16 @@ var supervisorActiveStates = map[string]bool{
 	"detached": true,
 }
 
+// supervisorTerminalStates are the supervisor states that mean the lane process
+// is gone. Reaching any of them must trigger per-lane MCP-config teardown
+// (issue #62): the ephemeral .gemini/settings.json bearer-token file the agy
+// lane wrote must be removed/restored regardless of which exit path fired.
+var supervisorTerminalStates = map[string]bool{
+	"stopped": true,
+	"lost":    true,
+	"failed":  true,
+}
+
 type superviseReportEvent struct {
 	EventType    string
 	SessionID    string
