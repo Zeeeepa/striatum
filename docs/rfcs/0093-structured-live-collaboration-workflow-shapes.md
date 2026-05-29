@@ -180,9 +180,9 @@ Two substrate notes bound this RFC's scope:
    `fog_of_war_review`) is supported. Two caveats remain: agy's path is the
    newest, so the V1 catalog should still be validated on the known-good
    claude+codex pair before leaning on agy as a third seat; and a low-risk
-   hygiene residue persists — the ephemeral `.gemini/settings.json` is not
-   removed on lane teardown (gitignored, per-launch rotating token, so a stale-
-   token-on-disk concern, not a leak/commit).
+   hygiene residue persists (GH #62) — the ephemeral `.gemini/settings.json` is
+   not removed on lane teardown (gitignored, per-launch rotating token, so a
+   stale-token-on-disk concern, not a leak/commit).
 2. **Concurrency / liveness bounds.** Interrogation liveness is `state=active`
    with no idle/heartbeat timeout (D141 revisit), and concurrent interrogations
    against one target are unspecified (D139 revisit). A multi-falsifier round
