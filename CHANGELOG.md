@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### GH #62 / #63 follow-ups (daemon + CLI fixes)
+
+- #62: the ephemeral per-launch `.gemini/settings.json` (rotating MCP bearer
+  token) is now removed/restored on every supervisor teardown path — graceful
+  completion, `supervise stop`, and tmux kill/lost — via a central cleanup at
+  the `updateSupervisorState` terminal transition, not just the agent-loop's
+  own `cleanupMCP`.
+- #63 F7: an exited `tmux attach-session` OBSERVER client no longer marks
+  packet delivery degraded (or blocks `supervise.send`) when the pane is alive
+  and the real transport is healthy; genuine transport failures
+  (`helper_process_gone`, `stdin_reader_missing`) still reject.
+- #63 F8: a lane that holds an active work lease and is heartbeating it is no
+  longer falsely flagged `agent_protocol_idle_stall` during a long generation;
+  the lease-heartbeat rung is authoritative for lease holders (a lease holder
+  that stops heartbeating still trips `agent_lease_heartbeat_stall`).
+- #63 F9: operator verbs now print real `--help`/usage (required + optional
+  flags, incl. `--reason`, repeatable `--capability`, `--action`); added a
+  `session register` alias alongside `register-session`.
+- #63 F5: retired the dead `agy` one-shot pipe lane config (migrated live
+  templates/examples to the working `agent_loop` shape) + a `workflow lint`
+  warning for an `agy --print` lane; recorded D156.
+
 ## v2.8.0 — 2026-05-29
 
 ### RFC 0093: structured live-collaboration workflow shapes (substance-gated dialog)
