@@ -279,6 +279,76 @@ func TestLintReportsSameModelCollaborationAdjudicator(t *testing.T) {
 	}
 }
 
+func lintRuleSet(t *testing.T, workflow map[string]any) map[string]bool {
+	t.Helper()
+	payload, err := Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if payload["valid"] != true {
+		t.Fatalf("lint payload valid = %#v", payload["valid"])
+	}
+	rules := map[string]bool{}
+	for _, warning := range payload["warnings"].([]map[string]any) {
+		rules[warning["rule"].(string)] = true
+	}
+	return rules
+}
+
+func TestLintFlagsAgyOneShotPipeLane(t *testing.T) {
+	// Shell-shim one-shot agy lane without agent_loop must be flagged.
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["agy"] = map[string]any{
+		"adapter":       "process",
+		"display_model": "Antigravity",
+		"command":       []any{"sh", "-c", "IFS= read -r prompt; exec agy --dangerously-skip-permissions --print-timeout 30m --print \"$prompt\" </dev/null"},
+	}
+	if !lintRuleSet(t, workflow)["agy_one_shot_pipe_lane"] {
+		t.Fatalf("expected agy_one_shot_pipe_lane warning for shell-shim one-shot agy lane")
+	}
+
+	// Direct argv one-shot agy lane must be flagged too.
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["agy"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"agy", "--print", "$prompt"},
+	}
+	if !lintRuleSet(t, workflow)["agy_one_shot_pipe_lane"] {
+		t.Fatalf("expected agy_one_shot_pipe_lane warning for direct one-shot agy lane")
+	}
+}
+
+func TestLintAllowsAgyAgentLoopAndOtherPipeLanes(t *testing.T) {
+	// agy as an agent-loop lane must NOT be flagged.
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["agy"] = map[string]any{
+		"adapter":              "process",
+		"command":              []any{"agy", "--dangerously-skip-permissions"},
+		"adapter_capabilities": map[string]any{"agent_loop": true},
+	}
+	if lintRuleSet(t, workflow)["agy_one_shot_pipe_lane"] {
+		t.Fatalf("agy agent-loop lane must not be flagged as one-shot pipe")
+	}
+
+	// claude/codex one-shot pipe lanes must NOT be flagged (they self-claim).
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["claude_code"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"claude", "--model", "claude-opus-4-7", "--print"},
+	}
+	lanes["codex"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"sh", "-c", "IFS= read -r prompt; exec codex exec --model gpt-5.5 \"$prompt\" </dev/null"},
+	}
+	if lintRuleSet(t, workflow)["agy_one_shot_pipe_lane"] {
+		t.Fatalf("claude/codex one-shot pipe lanes must not be flagged")
+	}
+}
+
 func TestWorkflowFingerprintMatchesCanonicalJSON(t *testing.T) {
 	workflow := validWorkflow()
 	fingerprint, err := WorkflowFingerprint(workflow)

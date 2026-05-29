@@ -37,6 +37,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintReviewFreshness(jobMap, &findings)
 	lintWriteScopeRisk(workflow, jobMap, &findings)
 	lintMissingEscalationPath(workflow, jobMap, &findings)
+	lintAgyOneShotPipeLane(workflow, &findings)
 	for index := range findings {
 		findings[index]["fingerprint"] = FindingFingerprint(findings[index])
 	}
@@ -280,6 +281,80 @@ func lintMissingEscalationPath(workflow map[string]any, jobMap map[string]map[st
 		"severity": "warning",
 		"message":  "workflow has review jobs but no needs_revision cycle or review_revision_policy.root_review_needs_revision=human_checkpoint",
 	})
+}
+
+// lintAgyOneShotPipeLane warns when an `agy` (Antigravity) lane is configured
+// as a one-shot pipe lane (`agy … --print`, typically with a stdin shim or
+// supervision.stdin_delivery=one_shot_eof) without declaring
+// adapter_capabilities.agent_loop=true. The one-shot pipe path gives agy no
+// auto-MCP config and no auto-delivery, so it launches, reads nothing on
+// stdin, runs `agy --print ""` (empty), and exits without claiming (#51,
+// #63 F5). agy self-claims only as an agent-loop lane. claude/codex one-shot
+// pipe lanes self-claim and are not flagged: the check requires the command
+// to invoke the `agy` binary with `--print`.
+func lintAgyOneShotPipeLane(workflow map[string]any, findings *[]map[string]any) {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if laneDeclaresAgentLoop(lane) {
+			continue
+		}
+		if !laneCommandIsAgyPrint(lane) {
+			continue
+		}
+		*findings = append(*findings, map[string]any{
+			"rule":     "agy_one_shot_pipe_lane",
+			"severity": "warning",
+			"message":  "lane '" + laneID + "' runs `agy --print` as a one-shot pipe lane without adapter_capabilities.agent_loop=true; agy does not self-claim on the one-shot path (no auto-MCP config, no auto-delivery). Configure agy as an agent-loop lane: command [\"agy\", \"--dangerously-skip-permissions\"] with \"adapter_capabilities\": {\"agent_loop\": true} (see #51, #63 F5)",
+			"lane_id":  laneID,
+		})
+	}
+}
+
+func laneDeclaresAgentLoop(lane map[string]any) bool {
+	caps, ok := lane["adapter_capabilities"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return caps["agent_loop"] == true
+}
+
+// laneCommandIsAgyPrint reports whether the lane command invokes the `agy`
+// binary with a `--print` (one-shot) flag. It tolerates both a direct argv
+// (["agy", "--print", …]) and an `sh -c` stdin shim that execs agy.
+func laneCommandIsAgyPrint(lane map[string]any) bool {
+	command := stringsFromSlice(lane["command"])
+	if len(command) == 0 {
+		return false
+	}
+	invokesAgy := false
+	usesPrint := false
+	for _, arg := range command {
+		for _, field := range strings.Fields(arg) {
+			switch strings.Trim(field, "\"'") {
+			case "agy":
+				invokesAgy = true
+			case "--print", "-p":
+				usesPrint = true
+			}
+		}
+	}
+	return invokesAgy && usesPrint
+}
+
+func sortedLaneIDs(lanes map[string]any) []string {
+	ids := make([]string, 0, len(lanes))
+	for laneID := range lanes {
+		ids = append(ids, laneID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 func invalidLintCoverage() map[string]any {

@@ -46,10 +46,12 @@
       "adapter": "process",
       "display_model": "Gemini 3.5 Flash High",
       "command": [
-        "sh",
-        "-c",
-        "IFS= read -r prompt; exec agy --dangerously-skip-permissions --print-timeout 30m --print \"$prompt\" </dev/null"
+        "agy",
+        "--dangerously-skip-permissions"
       ],
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
       "capabilities": [
         "write",
         "review"
