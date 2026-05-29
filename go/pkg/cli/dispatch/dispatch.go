@@ -95,6 +95,18 @@ func suggestCommand(args []string) string {
 	return ""
 }
 
+// requestsHelp reports whether the post-verb args ask for usage. Help wins
+// over any other arg so `striatum supervise stop --help` prints usage instead
+// of failing on the missing required --reason.
+func requestsHelp(args []string) bool {
+	for _, arg := range args {
+		if routes.IsHelpArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
 func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer, options Options) int {
 	globals, err := parseGlobal(args)
 	if err != nil {
@@ -112,6 +124,13 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 			_, _ = fmt.Fprintln(stderr, "usage: striatum [global options] command ...")
 		}
 		return 2
+	}
+	// `--help`/`-h`/`help` after the verb prints usage (required + optional
+	// flags) without contacting the daemon, so operators discover params from
+	// help instead of runtime "<method> requires <param>" errors (issue #63 F9).
+	if requestsHelp(globals.CommandArgs[consumed:]) {
+		_, _ = fmt.Fprint(stdout, route.RenderHelp())
+		return 0
 	}
 	invoker := options.Invoker
 	if invoker == nil && options.InvokerFactory != nil {
