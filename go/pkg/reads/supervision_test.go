@@ -370,7 +370,13 @@ func TestReattachStatusViewUsesTmuxObservedStartToken(t *testing.T) {
 }
 
 
-func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
+// TestHandleSuperviseStatusReconcilesBenignAttachExit guards #63 F7 on the read
+// surface: a tmux-backed lane whose pane is alive (tmux_ok) and whose only
+// recorded delivery degradation is the OBSERVER attach client exiting must NOT
+// surface a top-level degraded delivery_liveness or a rebridge prompt — that
+// noise prompted unnecessary rebridges. The raw observation (tmux.delivery_liveness
+// and tmux.attach_client_last_exit) is preserved as provenance.
+func TestHandleSuperviseStatusReconcilesBenignAttachExit(t *testing.T) {
 	restore := SetTmuxRunnerForTest(&readFakeTmuxRunner{responses: []readFakeTmuxResponse{
 		{prefix: []string{"has-session"}},
 		{prefix: []string{"display-message"}, out: "%4|48211|0|1748452211\n"},
@@ -414,16 +420,17 @@ func TestHandleSuperviseStatusSurfacesDeliveryDegradedSeparately(t *testing.T) {
 	if result["liveness"] != "alive" || result["lane_attestation"] != "attested" {
 		t.Fatalf("pane liveness projection = %#v", result)
 	}
-	if result["lane_backend"] != "tmux" || result["pane_liveness"] != string(gosupervisor.TmuxLivenessOK) || result["delivery_state"] != "degraded" {
+	if result["lane_backend"] != "tmux" || result["pane_liveness"] != string(gosupervisor.TmuxLivenessOK) {
 		t.Fatalf("distinct lane signals = %#v", result)
 	}
-	delivery := result["delivery_liveness"].(map[string]any)
-	if delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
-		t.Fatalf("delivery liveness = %#v", delivery)
+	// F7: top-level delivery view is reconciled to healthy; no rebridge prompt.
+	if result["delivery_state"] != "healthy" {
+		t.Fatalf("delivery_state = %#v, want healthy", result["delivery_state"])
 	}
-	if !strings.Contains(superviseString(delivery["remediation"]), "striatum supervise rebridge --session-id sess_1") {
-		t.Fatalf("delivery remediation = %#v", delivery["remediation"])
+	if _, present := result["delivery_liveness"]; present {
+		t.Fatalf("benign attach exit must not surface top-level delivery_liveness: %#v", result["delivery_liveness"])
 	}
+	// Raw observation is preserved as provenance for auditability.
 	tmux := result["tmux"].(map[string]any)
 	if tmux["delivery_liveness"] == nil || tmux["attach_client_last_exit"] == nil {
 		t.Fatalf("tmux delivery metadata = %#v", tmux)

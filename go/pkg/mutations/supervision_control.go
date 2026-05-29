@@ -1059,7 +1059,17 @@ func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, rep
 		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
 	}
 
-	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded {
+	// #63 F7: the exit of the tmux attach-session observer client is not a
+	// delivery failure. The lanehealth checker already reconciles a benign
+	// attach_client_exited against the live probe + helper-PID transport check,
+	// so trust health.Deliverable: block delivery only when the reconciled
+	// health still deems the lane non-deliverable. Genuine transport failures
+	// (helper_process_gone, stdin_reader_missing) keep health.Deliverable false
+	// and are still rejected here.
+	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded && !health.Deliverable {
+		if health.DeliveryReason != "" {
+			reason = health.DeliveryReason
+		}
 		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
 	}
 

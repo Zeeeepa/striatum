@@ -213,6 +213,8 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 			}
 			supervisor["delivery_liveness"] = delivery
 			supervisor["delivery_state"] = health.DeliveryReason
+		} else {
+			reconcileBenignAttachExit(supervisor, health)
 		}
 	} else {
 		supervisor["lane_attestation"] = "unattested"
@@ -949,6 +951,25 @@ func laneBackend(metadata map[string]any) string {
 	default:
 		return "plain_pty"
 	}
+}
+
+// reconcileBenignAttachExit clears the noisy top-level delivery_liveness block
+// when the only recorded delivery degradation is the tmux attach-session
+// OBSERVER client exiting and the lanehealth checker — having reconciled the
+// live probe and the real transport (helper PID) — deems the lane deliverable
+// (#63 F7). The raw observation under tmux.delivery_liveness /
+// tmux.attach_client_last_exit is left intact as provenance. Genuine transport
+// failures keep health.Deliverable false and are surfaced by the caller.
+func reconcileBenignAttachExit(view map[string]any, health lanehealth.Health) {
+	if !health.Deliverable {
+		return
+	}
+	delivery := superviseObject(view["delivery_liveness"])
+	if len(delivery) == 0 || superviseString(delivery["reason"]) != "attach_client_exited" {
+		return
+	}
+	delete(view, "delivery_liveness")
+	view["delivery_state"] = "healthy"
 }
 
 func deliveryState(value any) string {

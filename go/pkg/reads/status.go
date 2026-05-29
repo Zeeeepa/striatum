@@ -270,6 +270,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 			legMap := lanehealth.LegacyMap(health)
 			row["lane_attestation"] = legMap["state"]
 			row["lane_attestation_reason"] = legMap["reason"]
+			reconcileBenignAttachExit(row, health)
 		} else {
 			row["lane_attestation"] = "unattested"
 			row["lane_attestation_reason"] = "no_attached_supervisor"

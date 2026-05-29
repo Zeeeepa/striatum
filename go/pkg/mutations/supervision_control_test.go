@@ -456,7 +456,14 @@ func TestSuperviseSendWrongKindPacketIDPointsAtClaimNextPacketID(t *testing.T) {
 	}
 }
 
-func TestSuperviseSendRejectsDeliveryDegradedSupervisor(t *testing.T) {
+// TestSuperviseSendIgnoresBenignAttachClientExited guards #63 F7: a lane whose
+// only recorded delivery degradation is attach_client_exited (the tmux
+// attach-session OBSERVER client exiting) must NOT block delivery while the
+// pane is alive and the real transport is healthy. Here the live PID backs the
+// probe as alive, so the benign attach-observer exit is reconciled away and the
+// send is allowed to proceed past the delivery-degraded gate (it then fails at
+// the missing pipe, which is the next stage — proving the gate did not reject).
+func TestSuperviseSendIgnoresBenignAttachClientExited(t *testing.T) {
 	tx := &superviseControlFakeTx{
 		pipePath: "/tmp/no-write-expected",
 		pid:      os.Getpid(),
@@ -474,7 +481,7 @@ func TestSuperviseSendRejectsDeliveryDegradedSupervisor(t *testing.T) {
 	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
 	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
 		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "req_send_degraded",
+		RequestID:     "req_send_benign_attach_exit",
 		Method:        "supervise.send",
 		Params: map[string]any{
 			"repository_id": "repo_1",
@@ -483,10 +490,58 @@ func TestSuperviseSendRejectsDeliveryDegradedSupervisor(t *testing.T) {
 		},
 	})
 	if err == nil {
-		t.Fatalf("expected supervise send to reject delivery-degraded supervisor")
+		t.Fatalf("expected a downstream error (missing pipe), not nil")
 	}
 	rpcErr, ok := err.(*rpc.Error)
-	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: attach_client_exited") {
+	if !ok {
+		t.Fatalf("err = %#v", err)
+	}
+	if strings.Contains(rpcErr.Message, "delivery is degraded") {
+		t.Fatalf("benign attach_client_exited must not block delivery: %q", rpcErr.Message)
+	}
+	if !strings.Contains(rpcErr.Message, "stdin pipe is missing") {
+		t.Fatalf("expected delivery to proceed to pipe write, got %q", rpcErr.Message)
+	}
+}
+
+// TestSuperviseSendRejectsGenuineTransportFailureWithAttachExit guards the
+// converse of #63 F7: even when the persisted delivery_liveness reason is the
+// benign attach_client_exited, a genuinely broken transport (here a dead helper
+// PID) must STILL block delivery. The lanehealth checker overrides the reason
+// to helper_process_gone when the helper process is gone, so the gate rejects.
+func TestSuperviseSendRejectsGenuineTransportFailureWithAttachExit(t *testing.T) {
+	tx := &superviseControlFakeTx{
+		pipePath: "/tmp/no-write-expected",
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery":        stdinDeliveryPersistentFIFO,
+			"helper_pid":            999999999, // not a live process
+			"helper_pid_start_time": "",
+			"tmux": map[string]any{
+				"delivery_liveness": map[string]any{
+					"class":   "degraded",
+					"healthy": false,
+					"reason":  "attach_client_exited",
+				},
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_helper_gone",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject genuinely degraded supervisor")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: helper_process_gone") {
 		t.Fatalf("err = %#v", err)
 	}
 	if len(tx.eventInserts()) != 0 {
