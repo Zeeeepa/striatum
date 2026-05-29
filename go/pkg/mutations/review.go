@@ -512,7 +512,32 @@ func recordVerdict(
 		}
 		return map[string]any{"status": "completed", "job_id": jobID, "verdict": verdict, "verdict_id": verdictID}, nil
 	case "needs_revision":
-		blockerID, err := openHumanCheckpoint(ctx, runner, repositoryID, job, sessionID, leaseID, "needs_revision verdict has no matching workflow cycle")
+		// If the workflow declares a matching `cycle` (from this review job,
+		// on_verdict needs_revision), route back to the cycle target and
+		// re-open it for revision instead of stalling on a human checkpoint
+		// (RFC 0083 §2 bounded revision cycle). The checkpoint is only opened
+		// when there is genuinely no matching cycle, or the cycle's
+		// max_iterations budget is exhausted, or the cycle target is absent.
+		cycles, err := workflowCyclesForJob(ctx, runner, repositoryID, job)
+		if err != nil {
+			return nil, err
+		}
+		cycle, matched := matchRevisionCycle(cycles, verdict)
+		if matched {
+			routed, fired, err := routeRevisionCycle(ctx, runner, repositoryID, job, sessionID, leaseID, cycle, verdict)
+			if err != nil {
+				return nil, err
+			}
+			if fired {
+				routed["verdict_id"] = verdictID
+				return routed, nil
+			}
+		}
+		description := "needs_revision verdict has no matching workflow cycle"
+		if matched {
+			description = "needs_revision verdict matched a workflow cycle but its iteration budget is exhausted or its target is unavailable"
+		}
+		blockerID, err := openHumanCheckpoint(ctx, runner, repositoryID, job, sessionID, leaseID, description)
 		if err != nil {
 			return nil, err
 		}
