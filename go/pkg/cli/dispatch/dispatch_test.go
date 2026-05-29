@@ -103,6 +103,51 @@ func TestDispatchUnknownCommandSuggests(t *testing.T) {
 	}
 }
 
+func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
+	cases := map[string][]string{
+		"supervise stop":     {"--session-id", "--reason", "required:"},
+		"register-session":   {"--capability", "--fresh", "run-id", "role", "lane"},
+		"checkpoint resolve": {"continue|cancel", "--decision-id", "blocker-id"},
+		"supervise start":    {"--session-id", "supervise.start"},
+		"supervise send":     {"--packet-id", "supervise.send"},
+		"supervise status":   {"--session-id", "supervise.status"},
+	}
+	for cmd, wants := range cases {
+		invoker := &fakeInvoker{}
+		var stdout, stderr bytes.Buffer
+		args := append(strings.Fields(cmd), "--help")
+		exit := Run(context.Background(), args, &stdout, &stderr, Options{Invoker: invoker})
+		if exit != 0 {
+			t.Fatalf("%s --help exit = %d stderr=%s", cmd, exit, stderr.String())
+		}
+		if len(invoker.calls) != 0 {
+			t.Fatalf("%s --help contacted the daemon: %#v", cmd, invoker.calls)
+		}
+		out := stdout.String()
+		for _, want := range wants {
+			if !strings.Contains(out, want) {
+				t.Fatalf("%s --help output missing %q:\n%s", cmd, want, out)
+			}
+		}
+	}
+}
+
+func TestDispatchSessionRegisterAliasResolvesToSessionRegister(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"--repository-id", "repo_1", "session", "register", "run_1", "author", "lane_a"}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "session.register" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["run_id"] != "run_1" || params["role"] != "author" || params["lane"] != "lane_a" {
+		t.Fatalf("params = %#v", params)
+	}
+}
+
 func TestDispatchUsesExitCodeMapper(t *testing.T) {
 	wantErr := errors.New("daemon down")
 	var stdout, stderr bytes.Buffer
