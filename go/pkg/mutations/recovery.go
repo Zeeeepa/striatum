@@ -867,7 +867,7 @@ func publishRecoveredArtifact(ctx context.Context, runner any, repositoryID stri
 		if fmt.Sprint(existing["content_sha256"]) == digest && fmt.Sprint(existing["repo_path"]) == pathText {
 			return map[string]any{"status": "already_published", "artifact_id": existing["artifact_id"]}, nil
 		}
-		return nil, rpc.NewError("artifact_error", "artifact logical name already exists with different content", nil)
+		return nil, rpc.NewError("artifact_error", artifactLogicalNameConflictMessage, nil)
 	}
 	if !errorsIsNoRows(err) {
 		return nil, err

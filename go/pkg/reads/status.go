@@ -3,9 +3,12 @@ package reads
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -142,13 +145,63 @@ func statusRuns(ctx context.Context, runner db.Runner, repositoryID, runID strin
 		where += " AND r.run_id = $2"
 		args = append(args, runID)
 	}
-	return collectRows(ctx, runner,
-		`SELECT r.run_id, r.state, r.branch_name
+	rows, err := collectRows(ctx, runner,
+		`SELECT r.run_id, r.state, r.branch_name, r.repo_root
 		   FROM striatumd.runs r
 		  WHERE `+where+`
 		  ORDER BY r.created_at, r.run_id`,
 		args...,
 	)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		decorateBranchDivergence(row)
+	}
+	return rows, nil
+}
+
+// decorateBranchDivergence implements #71: when branch.mode=auto sets
+// runs.branch_name (run metadata) but the target repo working tree stays on a
+// different branch (e.g. master), generated work can silently land on the wrong
+// branch. This is advisory only — it never fails the read. When both the
+// stored branch_name and the actual checkout branch are known and differ, the
+// run gets a `branch_divergence` warning naming both branches; otherwise the
+// field is omitted.
+func decorateBranchDivergence(row map[string]any) {
+	stored := strings.TrimSpace(stringFrom(row, "branch_name"))
+	repoRoot := strings.TrimSpace(stringFrom(row, "repo_root"))
+	if stored == "" || repoRoot == "" {
+		return
+	}
+	actual := strings.TrimSpace(currentGitBranch(repoRoot))
+	if actual == "" || actual == stored {
+		return
+	}
+	row["branch_divergence"] = map[string]any{
+		"expected_branch": stored,
+		"actual_branch":   actual,
+		"warning": fmt.Sprintf(
+			"run branch_name %q does not match the target repository's current checkout branch %q; generated work may land on the wrong branch",
+			stored, actual,
+		),
+	}
+}
+
+// currentGitBranch returns the target repository's current checkout branch via
+// a read-only `git -C <repoRoot> branch --show-current`. It returns "" on any
+// failure (not a git repo, detached HEAD, git missing) so the divergence check
+// stays advisory and never fails the read. `--show-current` mirrors the
+// pkg/mutations helper and correctly reports the branch even on an unborn
+// branch with no commits yet (where `rev-parse HEAD` would fail). This is a
+// local read-only helper rather than reaching into pkg/mutations.
+func currentGitBranch(repoRoot string) string {
+	cmd := exec.Command("git", "-C", repoRoot, "branch", "--show-current")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func statusJobCounts(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]int, error) {

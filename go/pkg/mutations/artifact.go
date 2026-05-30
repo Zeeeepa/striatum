@@ -20,6 +20,17 @@ import (
 var allowedArtifactKinds = artifactcontracts.AllowedKindSet()
 var frontMatterSchemas = artifactcontracts.SchemaSet()
 
+// artifactLogicalNameConflictMessage is the operator-facing guidance returned
+// when a still-running job tries to re-publish an existing logical_name with
+// different content (#94). An already-published artifact is immutable for this
+// attempt: there is no in-attempt supersession path. The fix is to publish a
+// distinct logical_name (the job's already-published artifact is the one used
+// at work.complete), or to let a revision cycle re-open the job so a fresh
+// attempt publishes its own attempt-scoped artifact. True mutation/
+// supersession across a revision cycle is tracked by the append-only,
+// attempt-scoped artifact work in #84 / RFC 0095.
+const artifactLogicalNameConflictMessage = "artifact logical_name already exists with different content; an already-published artifact is immutable for this attempt. Publish a distinct logical_name (the job's existing published artifact is the one used at work.complete), or let a revision cycle re-open the job so a fresh attempt can publish its own attempt-scoped artifact; revising a published artifact across a revision cycle is tracked by attempt-scoped artifacts (#84 / RFC 0095)."
+
 func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -118,7 +129,7 @@ func publishArtifact(
 			}
 			return map[string]any{"status": "already_published", "artifact_id": existing["artifact_id"]}, nil
 		}
-		return nil, rpc.NewError("artifact_error", "artifact logical name already exists with different content", nil)
+		return nil, rpc.NewError("artifact_error", artifactLogicalNameConflictMessage, nil)
 	}
 	if !errorsIsNoRows(err) {
 		return nil, err
@@ -491,7 +502,13 @@ func validateMarkdownAuthorLine(ctx context.Context, runner any, repositoryID st
 	for _, line := range markdownTitleBlockAuthorLines(text) {
 		canonical := canonicalBylineForm(line)
 		if canonical == "" || canonical != expected {
-			return rpc.NewError("artifact_error", "markdown artifact author line must match expected work packet author line", nil)
+			// #73: surface the canonical expected byline alongside the submitted
+			// one so the agent/operator can fix the artifact without
+			// reverse-engineering the lane attestation state that derived it.
+			return rpc.NewError("artifact_error", fmt.Sprintf(
+				"markdown artifact author line %q does not match the expected work packet author line %q",
+				canonical, expected,
+			), nil)
 		}
 	}
 	return nil

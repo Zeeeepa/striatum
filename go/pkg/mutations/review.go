@@ -42,14 +42,16 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	leaseID := stringParam(envelope, "lease_id")
 	pathText := stringParam(envelope, "path")
 	verdict := stringParam(envelope, "verdict")
+	// #96: capture whether the caller passed explicit identity flags BEFORE
+	// applying defaults. When the verdict-capable job has exactly one required
+	// expected artifact, we infer the missing logical_name/kind from it (below,
+	// inside the transaction once the job row is loaded) so a job expecting e.g.
+	// logical_name=test_gate_report does not silently fail the precheck under the
+	// "review" default.
 	logicalName := stringParam(envelope, "logical_name")
-	if logicalName == "" {
-		logicalName = "review"
-	}
 	kind := stringParam(envelope, "kind")
-	if kind == "" {
-		kind = "finding"
-	}
+	logicalNameExplicit := logicalName != ""
+	kindExplicit := kind != ""
 	rationale := nullable(stringParam(envelope, "rationale"))
 	if sessionID == "" || jobID == "" || leaseID == "" || pathText == "" || verdict == "" {
 		return nil, rpc.NewError("schema_invalid", "review.submit requires session_id, job_id, lease_id, path, and verdict", nil)
@@ -62,6 +64,22 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err
+		}
+		// #96: when the caller omitted logical_name and/or kind, infer them from
+		// the job's sole required expected artifact (resolving cycle placeholders
+		// against the attempt so the inferred tuple matches the work packet and
+		// verifyRequiredArtifacts). Inference only fires when there is exactly one
+		// required expected artifact; otherwise we fall back to the historical
+		// defaults below and the precheck error names the explicit tuple(s) the
+		// caller must pass.
+		logicalName, kind = inferSubmitReviewArtifactIdentity(
+			job, pathText, logicalName, kind, logicalNameExplicit, kindExplicit,
+		)
+		if logicalName == "" {
+			logicalName = "review"
+		}
+		if kind == "" {
+			kind = "finding"
 		}
 		if err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText, verdict); err != nil {
 			return nil, err
@@ -546,6 +564,55 @@ func verdictCapableJobLabel(jobType string) string {
 	return "review"
 }
 
+// submitReviewRequiredExpectedArtifacts returns the job's required expected
+// artifacts with cycle placeholders resolved against the current attempt, so
+// callers compare against the attempt-scoped logical name + path the
+// adjudicator was told to publish (matching the work packet and
+// verifyRequiredArtifacts).
+func submitReviewRequiredExpectedArtifacts(job map[string]any) []map[string]any {
+	out := []map[string]any{}
+	for _, item := range resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), intValue(job["attempt"])) {
+		expected := asMap(item)
+		if expected["required"] != true {
+			continue
+		}
+		out = append(out, expected)
+	}
+	return out
+}
+
+// inferSubmitReviewArtifactIdentity implements #96 part 1. When the caller did
+// not pass an explicit logical_name and/or kind, and the verdict-capable job
+// has exactly ONE required expected artifact, infer the missing field(s) from
+// that sole expected artifact — most usefully when the submitted path matches
+// the expected artifact's path. Inference is only applied when unambiguous
+// (exactly one required expected artifact); with zero or several required
+// expected artifacts the caller's values pass through unchanged and the
+// historical "review"/"finding" defaults still apply.
+func inferSubmitReviewArtifactIdentity(
+	job map[string]any,
+	pathText, logicalName, kind string,
+	logicalNameExplicit, kindExplicit bool,
+) (string, string) {
+	if logicalNameExplicit && kindExplicit {
+		return logicalName, kind
+	}
+	required := submitReviewRequiredExpectedArtifacts(job)
+	if len(required) != 1 {
+		return logicalName, kind
+	}
+	sole := required[0]
+	expectedLogical, _ := sole["logical_name"].(string)
+	expectedKind, _ := sole["kind"].(string)
+	if !logicalNameExplicit && expectedLogical != "" {
+		logicalName = expectedLogical
+	}
+	if !kindExplicit && expectedKind != "" {
+		kind = expectedKind
+	}
+	return logicalName, kind
+}
+
 func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict string) error {
 	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
 		return rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
@@ -593,8 +660,15 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 			return err
 		}
 		if !found {
+			// #96 part 2: name BOTH the submitted tuple and the expected tuple so
+			// the operator can see exactly what was submitted vs required and pass
+			// the right --logical-name/--kind (the submitted identity defaults to
+			// "review"/"finding" when not inferred from a sole expected artifact).
 			return rpc.NewError("invalid_transition", fmt.Sprintf(
-				"required artifact would still be missing after submit-review: logical_name=%q, kind=%q, path=%q",
+				"required artifact would still be missing after submit-review: submitted (logical_name=%q, kind=%q, path=%q) does not satisfy expected (logical_name=%q, kind=%q, path=%q); pass --logical-name and --kind matching the expected artifact",
+				logicalName,
+				kind,
+				pathText,
 				expected["logical_name"],
 				expected["kind"],
 				expected["path"],

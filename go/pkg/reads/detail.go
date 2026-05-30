@@ -92,6 +92,10 @@ func HandleRunDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		return nil, err
 	}
 	workflow := loadWorkflowSnapshot(ctx, runner, repositoryID, runs[0])
+	// #71: the detail run row carries repo_root + branch_name (SELECT *), so
+	// surface the advisory branch-divergence warning here too; the run.status
+	// surface decorates its own run rows in statusRuns.
+	decorateBranchDivergence(runs[0])
 	status, err := HandleStatus(ctx, runner, envelope)
 	if err != nil {
 		status = map[string]any{"next_actions": []any{}}

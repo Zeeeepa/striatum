@@ -933,7 +933,7 @@ func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, reposit
 			}
 			return map[string]any{"status": "already_published", "artifact_id": row["artifact_id"]}, nil
 		}
-		return map[string]any{"status": "conflict", "reason": "artifact logical name already exists with different content"}, nil
+		return map[string]any{"status": "conflict", "reason": artifactLogicalNameConflictMessage}, nil
 	}
 	if err == pgx.ErrNoRows {
 		return map[string]any{"status": "would_publish", "artifact_id": nil}, nil
