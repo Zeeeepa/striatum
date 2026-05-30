@@ -260,7 +260,7 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 	}
 	return nil, rpc.NewError(
 		"invalid_transition",
-		"submit-review aborted by a database deadlock after retrying; retry serially",
+		"transaction aborted by a database deadlock after retrying; retry serially",
 		map[string]any{"sqlstate": deadlockSQLState, "attempts": maxAttempts},
 	)
 }

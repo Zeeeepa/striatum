@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### #103 — bounded retry on a parallel-claim deadlock
+
+`work.await_packet` → `work.claim_next` is the first durable receive-loop call in
+the agent bootstrap. When sibling reviewers claim in parallel, Postgres can abort
+one claim transition with a deadlock (SQLSTATE 40P01), which surfaced to the lane
+as an internal control-plane error. `HandleClaimNext` now runs inside
+`withTxRetryOnDeadlock` (the bounded retry introduced for `review.submit` in #98,
+now generalized): the claim is idempotent and re-selects on retry, so a transient
+deadlock is retried in-daemon instead of failing the await loop. The retry helper
+is covered by `TestWithTxRetryOnDeadlock` / `TestIsDeadlockError`.
+
 ### #82 — transfer a live repo-write claim to a fresh session without bumping the attempt
 
 `recovery.requeue_stale --force --justification "<reason>"` now also recovers a

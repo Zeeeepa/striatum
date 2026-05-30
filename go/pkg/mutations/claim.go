@@ -32,7 +32,13 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		leaseSeconds = 3600
 	}
 
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	// #103: sibling reviewers claiming in parallel (work.await_packet -> claim)
+	// can have Postgres abort one transition with a deadlock (SQLSTATE 40P01).
+	// The claim is idempotent (it re-selects a claimable message on retry), so
+	// retry the whole transaction a bounded number of times rather than surfacing
+	// a transient control-plane error to the lane — matching #98's review.submit
+	// treatment, here for the claim/await path.
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
 		if err != nil {
 			return nil, err
