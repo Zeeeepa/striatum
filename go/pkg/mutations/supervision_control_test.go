@@ -1658,7 +1658,7 @@ func (r superviseControlFakeRow) Scan(dest ...any) error {
 	return nil
 }
 
-func TestSuperviseRebridgePreservesDegradedDelivery(t *testing.T) {
+func TestSuperviseRebridgeClearsBenignAttachExitDelivery(t *testing.T) {
 	origRunner := supervisionTmuxRunner
 	origRebridgeLaunch := supervisionRebridgeLaunch
 	defer func() {
@@ -1760,11 +1760,14 @@ func TestSuperviseRebridgePreservesDegradedDelivery(t *testing.T) {
 		t.Fatalf("HandleSuperviseRebridge: %v", err)
 	}
 
-	if result["delivery_state"] != "degraded" {
-		t.Fatalf("expected delivery_state to be degraded, got %v", result["delivery_state"])
+	// #67: a benign attach-observer exit (#63 F7) on a freshly rebuilt bridge is
+	// NOT a delivery failure — rebridge must report healthy, not degraded.
+	if result["delivery_state"] != "healthy" {
+		t.Fatalf("#67: benign attach_client_exited must leave rebridge healthy, got %v", result["delivery_state"])
 	}
 
-	// Verify that pointer metadata replacement update in tx2 actually kept delivery_liveness!
+	// The degraded delivery_liveness block must be cleared from the replaced
+	// pointer metadata (top-level and under tmux).
 	var replaceUpdate map[string]any
 	for _, exec := range tx2.execs {
 		if strings.Contains(exec.sql, "UPDATE striatumd.process_supervisor_pointers") {
@@ -1776,15 +1779,79 @@ func TestSuperviseRebridgePreservesDegradedDelivery(t *testing.T) {
 	if replaceUpdate == nil {
 		t.Fatalf("missing process_supervisor_pointers metadata update")
 	}
-	tmux := asMap(replaceUpdate["tmux"])
-	if len(tmux) == 0 {
-		t.Fatalf("expected tmux block in replaced metadata")
+	if _, ok := replaceUpdate["delivery_liveness"]; ok {
+		t.Fatalf("#67: top-level delivery_liveness must be cleared on benign attach exit, got: %#v", replaceUpdate)
 	}
-	delivery := asMap(tmux["delivery_liveness"])
-	if len(delivery) == 0 {
-		t.Fatalf("expected delivery_liveness block to be preserved in replaced metadata, got: %#v", replaceUpdate)
+	if tmux := asMap(replaceUpdate["tmux"]); len(tmux) > 0 {
+		if _, ok := tmux["delivery_liveness"]; ok {
+			t.Fatalf("#67: tmux.delivery_liveness must be cleared on benign attach exit, got: %#v", tmux)
+		}
 	}
-	if delivery["class"] != "degraded" || delivery["reason"] != "attach_client_exited" {
-		t.Fatalf("unexpected delivery_liveness in replaced metadata: %#v", delivery)
+}
+
+// TestSuperviseRebridgePreservesRealDeliveryFailure is the #67 guard's other
+// side: a genuine transport failure the helper reports on relaunch
+// (helper_error) must still leave the lane degraded after rebridge.
+func TestSuperviseRebridgePreservesRealDeliveryFailure(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	origRebridgeLaunch := supervisionRebridgeLaunch
+	defer func() {
+		supervisionTmuxRunner = origRunner
+		supervisionRebridgeLaunch = origRebridgeLaunch
+	}()
+
+	panePID := os.Getpid()
+	token := "1748452211"
+	supervisionTmuxRunner = superviseReportFakeTmuxRunner{
+		display: "%4|" + strconv.Itoa(panePID) + "|0|" + token,
+	}
+	dir := t.TempDir()
+	pipePath := filepath.Join(dir, "stdin.pipe")
+	meta := map[string]any{
+		"stdin_delivery": stdinDeliveryPersistentFIFO,
+		"tmux": map[string]any{
+			"state":            "backed",
+			"session_name":     "striatum-run",
+			"pane_id":          "%4",
+			"pane_pid":         panePID,
+			"pane_start_token": token,
+		},
+	}
+	tx1 := &superviseControlFakeTx{pipePath: pipePath, pid: panePID, pidStart: token, metadata: copyMap(meta)}
+	tx2 := &superviseControlFakeTx{pipePath: pipePath, pid: panePID, pidStart: token, metadata: copyMap(meta)}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx1, tx2}}
+
+	supervisionRebridgeLaunch = func(ctx context.Context, supervisor supervisorControlRow, identity gosupervisor.TmuxIdentity, eventPath string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{
+			PID:          panePID,
+			PIDStartTime: token,
+			HelperPID:    1234,
+			InitialHelperEvents: []map[string]any{
+				{
+					"schema_version": gosupervisor.HelperEventSchemaVersion,
+					"event_type":     gosupervisor.HelperEventError,
+					"supervisor_id":  "sup_1",
+					"session_id":     "sess_1",
+					"payload":        map[string]any{"message": "helper transport dead"},
+				},
+			},
+			InitialHelperOffset: 120,
+			Metadata: map[string]any{
+				"tmux": map[string]any{"state": "backed", "session_name": "striatum-run", "pane_id": "%4", "pane_pid": panePID},
+			},
+		}, nil
+	}
+
+	result, err := HandleSuperviseRebridge(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_rebridge_real_failure",
+		Method:        "supervise.rebridge",
+		Params:        map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseRebridge: %v", err)
+	}
+	if result["delivery_state"] != "degraded" {
+		t.Fatalf("#67: a real helper_error must keep rebridge degraded, got %v", result["delivery_state"])
 	}
 }

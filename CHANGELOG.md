@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### #67 — honest supervise rebridge delivery state
+
+`supervise rebridge` rebuilds the delivery transport (fresh helper + persistent
+FIFO), after which the re-attached tmux attach-*observer* re-emits a benign
+`attach_client_exited` (#63 F7). The handler treated that benign event as a real
+degradation and reported `delivery_state: degraded` immediately after a
+successful rebridge — telling the operator to intervene on a healthy lane. Now
+rebridge preserves the degraded state only when the helper reports a *real*
+transport failure on relaunch (`helper_error` / `agent_exited`); the benign
+attach-observer exit reports `healthy` and clears the noisy `delivery_liveness`
+block, consistent with the lanehealth classifier. Tests
+`TestSuperviseRebridgeClearsBenignAttachExitDelivery` and
+`TestSuperviseRebridgePreservesRealDeliveryFailure`.
+
 ### RFC 0100 Phase 1 — self-describing artifact contracts (#74 / #79 / #88)
 
 Artifact front-matter validation stops forcing lanes to reverse-engineer Go

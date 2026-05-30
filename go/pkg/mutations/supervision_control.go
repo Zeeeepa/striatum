@@ -534,15 +534,22 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 	}
 	rebridgedAt := nowString()
 	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		hasAttachExit := false
+		// #67: a successful rebridge rebuilds the delivery transport (fresh helper
+		// + persistent FIFO). The re-attached tmux attach-observer then re-emits a
+		// benign attach_client_exited (#63 F7) — that is NOT a delivery failure, so
+		// it must not keep the lane reported as degraded. Only a real transport
+		// failure the helper reports on relaunch (helper_error / agent_exited)
+		// preserves the degraded delivery_liveness block.
+		hasRealDeliveryFailure := false
 		if len(launch.InitialHelperEvents) > 0 {
 			for _, event := range launch.InitialHelperEvents {
 				normalized, normErr := normalizeSuperviseReportEvent(event, "", supervisor.SupervisorID, 0)
 				if normErr != nil {
 					return nil, normErr
 				}
-				if normalized.EventType == string(gosupervisor.HelperEventAttachExited) {
-					hasAttachExit = true
+				switch normalized.EventType {
+				case string(gosupervisor.HelperEventError), string(gosupervisor.HelperEventAgentExited):
+					hasRealDeliveryFailure = true
 				}
 				if _, recErr := recordSuperviseReportEvent(ctx, tx, repositoryID, normalized); recErr != nil {
 					return nil, recErr
@@ -558,11 +565,11 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 		updated["helper_pid_start_time"] = launch.HelperPIDStartTime
 		updated["helper_events_path"] = eventPath
 		updated["helper_events_offset"] = launch.InitialHelperOffset
-		if !hasAttachExit {
+		if !hasRealDeliveryFailure {
 			delete(updated, "delivery_liveness")
 		}
 		if tmux := asMap(updated["tmux"]); len(tmux) > 0 {
-			if !hasAttachExit {
+			if !hasRealDeliveryFailure {
 				delete(tmux, "delivery_liveness")
 			}
 			tmux["attach_client_pid"] = launch.Metadata["attach_client_pid"]
@@ -571,7 +578,7 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 				for key, value := range launchTmux {
 					tmux[key] = value
 				}
-				if !hasAttachExit {
+				if !hasRealDeliveryFailure {
 					delete(tmux, "delivery_liveness")
 				}
 			}
@@ -595,7 +602,7 @@ func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc
 			return nil, err
 		}
 		deliveryStateVal := "healthy"
-		if hasAttachExit {
+		if hasRealDeliveryFailure {
 			deliveryStateVal = "degraded"
 		}
 		return map[string]any{
