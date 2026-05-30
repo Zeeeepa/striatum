@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -155,8 +156,8 @@ func TestScopeCheckCleanExitZero(t *testing.T) {
 
 func TestScopeCheckDriftExitNonzeroJSON(t *testing.T) {
 	dir := initScopeCheckRepo(t)
-	writeScopeFile(t, dir, "docs/new.md", "hi\n")     // in scope
-	writeScopeFile(t, dir, "src/rogue.go", "x\n")     // outside allowed
+	writeScopeFile(t, dir, "docs/new.md", "hi\n")      // in scope
+	writeScopeFile(t, dir, "src/rogue.go", "x\n")      // outside allowed
 	writeScopeFile(t, dir, "docs/secret/k.pem", "p\n") // forbidden
 
 	var stdout, stderr bytes.Buffer
@@ -213,5 +214,47 @@ func TestScopeCheckChangedPathsReadsWorkingTree(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("a/b.go not in changed paths: %v", paths)
+	}
+}
+
+// #91: scope-check reads write_scope from a work-packet JSON file, daemon-free.
+func TestScopeFromPacketExtractsWriteScope(t *testing.T) {
+	// top-level write_scope
+	a, f, err := scopeFromPacket([]byte(`{"write_scope":{"allowed_paths":["docs/","go/"],"forbidden_paths":[".striatum/"]}}`))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(a) != 2 || a[0] != "docs/" || len(f) != 1 || f[0] != ".striatum/" {
+		t.Fatalf("unexpected scope: allowed=%v forbidden=%v", a, f)
+	}
+	// wrapped under data.packet (work.await_packet shape)
+	a2, f2, err := scopeFromPacket([]byte(`{"data":{"packet":{"write_scope":{"allowed_paths":["src/"]}}}}`))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if len(a2) != 1 || a2[0] != "src/" || len(f2) != 0 {
+		t.Fatalf("unexpected wrapped scope: allowed=%v forbidden=%v", a2, f2)
+	}
+	// non-JSON is a clear error
+	if _, _, err := scopeFromPacket([]byte("not json")); err == nil {
+		t.Fatal("expected parse error for non-JSON packet")
+	}
+}
+
+func TestScopeCheckPacketFileDriftExitNonzero(t *testing.T) {
+	dir := initScopeCheckRepo(t)
+	writeScopeFile(t, dir, "docs/new.md", "hi\n") // in scope
+	writeScopeFile(t, dir, "src/rogue.go", "x\n") // outside allowed
+	packet := filepath.Join(dir, "packet.json")
+	if err := os.WriteFile(packet, []byte(`{"write_scope":{"allowed_paths":["docs"],"forbidden_paths":["docs/secret"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	exit := run([]string{"--repo", dir, "scope-check", "--packet-file", packet}, &stdout, &stderr)
+	if exit != 1 {
+		t.Fatalf("expected drift exit 1, got %d (out=%s err=%s)", exit, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "src/rogue.go") {
+		t.Fatalf("expected the out-of-scope path reported, got: %s", stdout.String())
 	}
 }

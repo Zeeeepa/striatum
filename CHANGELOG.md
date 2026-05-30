@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### #91 — scope-check reads the work packet (RFC 0099 Phase 1)
+
+`striatum scope-check` (the read-only pre-`work.complete` write-scope drift
+diagnostic) no longer requires pasting each `--allowed`/`--forbidden` path. It
+now accepts `--packet-file <work-packet.json>` and reads
+`write_scope.allowed_paths` / `write_scope.forbidden_paths` directly from the
+active work packet (the same object the daemon enforces, found at the top level
+or under a `data`/`packet`/`work_packet` wrapper). Explicit
+`--allowed`/`--forbidden` still merge on top. The command stays **daemon-free**
+(no endpoint or capability token), so it works as a local pre-completion check
+even when the lane cannot reach the daemon. Tests in `cmd/striatum`.
+
 ### #67 — honest supervise rebridge delivery state
 
 `supervise rebridge` rebuilds the delivery transport (fresh helper + persistent

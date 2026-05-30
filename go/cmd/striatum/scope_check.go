@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -34,6 +35,7 @@ const scopeCheckTimeout = 3 * time.Second
 func runScopeCheck(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	var allowed []string
 	var forbidden []string
+	var packetFile string
 	repoRoot := repoRootOverride
 	jsonOutput := false
 
@@ -69,6 +71,13 @@ func runScopeCheck(args []string, stdout io.Writer, stderr io.Writer, repoRootOv
 				return 2
 			}
 			forbidden = append(forbidden, v)
+		case "--packet-file":
+			v, ok := next()
+			if !ok {
+				_, _ = fmt.Fprintln(stderr, "--packet-file requires a path")
+				return 2
+			}
+			packetFile = v
 		case "--repo":
 			v, ok := next()
 			if !ok {
@@ -89,8 +98,28 @@ func runScopeCheck(args []string, stdout io.Writer, stderr io.Writer, repoRootOv
 		}
 	}
 
+	// #91: rather than pasting each path, an operator/lane can feed the active
+	// work packet JSON and scope-check reads write_scope.allowed_paths /
+	// write_scope.forbidden_paths from it. Explicit --allowed/--forbidden still
+	// merge on top. This keeps scope-check daemon-free (no endpoint/token).
+	if packetFile != "" {
+		data, err := os.ReadFile(packetFile)
+		if err != nil {
+			return scopeCheckError(stdout, stderr, jsonOutput, "packet_read_failed", err.Error())
+		}
+		pa, pf, err := scopeFromPacket(data)
+		if err != nil {
+			return scopeCheckError(stdout, stderr, jsonOutput, "packet_parse_failed", err.Error())
+		}
+		if len(pa) == 0 && len(pf) == 0 {
+			return scopeCheckError(stdout, stderr, jsonOutput, "packet_scope_missing", "no write_scope.allowed_paths/forbidden_paths found in packet file")
+		}
+		allowed = append(allowed, pa...)
+		forbidden = append(forbidden, pf...)
+	}
+
 	if len(allowed) == 0 && len(forbidden) == 0 {
-		_, _ = fmt.Fprintln(stderr, "scope-check requires at least one --allowed or --forbidden path (paste them from the active work packet's write_scope)")
+		_, _ = fmt.Fprintln(stderr, "scope-check requires --packet-file <work-packet.json>, or at least one --allowed/--forbidden path from the active work packet's write_scope")
 		printScopeCheckUsage(stderr)
 		return 2
 	}
@@ -146,10 +175,66 @@ func runScopeCheck(args []string, stdout io.Writer, stderr io.Writer, repoRootOv
 	return 1
 }
 
+// scopeFromPacket extracts write_scope.allowed_paths / write_scope.forbidden_paths
+// from a work-packet JSON document (#91). The write_scope object may sit at the
+// top level or under a common wrapper (`data`, `packet`, `work_packet`), matching
+// the shapes work.await_packet / the daemon CLI emit.
+func scopeFromPacket(data []byte) (allowed, forbidden []string, err error) {
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, nil, fmt.Errorf("packet is not JSON: %w", err)
+	}
+	scope := findWriteScope(doc, 0)
+	if scope == nil {
+		return nil, nil, nil
+	}
+	return scopeStringList(scope["allowed_paths"]), scopeStringList(scope["forbidden_paths"]), nil
+}
+
+// findWriteScope walks a bounded depth of the packet document looking for a
+// write_scope object that declares allowed_paths or forbidden_paths.
+func findWriteScope(node any, depth int) map[string]any {
+	if depth > 6 {
+		return nil
+	}
+	obj, ok := node.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if ws, ok := obj["write_scope"].(map[string]any); ok {
+		if _, a := ws["allowed_paths"]; a {
+			return ws
+		}
+		if _, f := ws["forbidden_paths"]; f {
+			return ws
+		}
+	}
+	for _, key := range []string{"data", "packet", "work_packet"} {
+		if found := findWriteScope(obj[key], depth+1); found != nil {
+			return found
+		}
+	}
+	return nil
+}
+
+func scopeStringList(value any) []string {
+	items, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func printScopeCheckUsage(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "usage: striatum scope-check (--allowed <path> ...) (--forbidden <path> ...) [--repo <path>] [--json]")
+	_, _ = fmt.Fprintln(out, "usage: striatum scope-check [--packet-file <work-packet.json>] (--allowed <path> ...) (--forbidden <path> ...) [--repo <path>] [--json]")
 	_, _ = fmt.Fprintln(out, "read-only pre-work.complete diagnostic: flags any changed path outside allowed_paths or inside forbidden_paths.")
-	_, _ = fmt.Fprintln(out, "paste --allowed/--forbidden from the active work packet's write_scope; exits nonzero on drift.")
+	_, _ = fmt.Fprintln(out, "--packet-file reads write_scope.allowed_paths/forbidden_paths from the active work packet JSON (daemon-free); --allowed/--forbidden may be pasted directly and merge on top. Exits nonzero on drift.")
 }
 
 func scopeCheckError(stdout io.Writer, stderr io.Writer, jsonOutput bool, code string, message string) int {
