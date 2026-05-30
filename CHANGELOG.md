@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### #65 P1 / RFC 0095 Phase 3 — panel-owned interrogation window
+
+The interrogating panel's preserved-context window is now owned by the review
+**panel/gate**, not by the first interrogation thread. Previously the first
+reviewer's `interrogation.close` tore down the interrogable target session
+(`close_reason: interrogation_window_closed`) whenever no interrogation was
+*currently* open against it — a race that left reviewers 2..N with
+`target_unavailable`, forcing them to vote without interrogating the live author
+(exactly what an interrogating panel exists to prevent). This was the last
+structural blocker for multi-reviewer interrogating panels (the RFC 0070 quiz
+panel, the RFC 0094 build panel). Problem 2 (stale-lease auto-publish of the
+unchanged artifact) was already fixed in Phase 2.
+
+- **Panel-scoped window.** The direct downstream dependents of an interrogable
+  job are exactly its review panel (the next phase depends on the reviewers, not
+  on the interrogable job), so the window stays live while any reviewer dependent
+  is still in a pre-verdict working state. `maybeCloseInterrogationTarget` no
+  longer closes the target while a panel consumer is pending.
+- **Authoritative closer.** The last reviewer's `interrogation.close` cannot close
+  the target (its own job is still active at that moment), so the window is
+  retired when the **final reviewer job terminates** — wired into the
+  `review.submit`/override accept paths (`releaseInterrogationTargetForCompletedReview`).
+- **Revision boundary.** Re-opening the interrogable job for a revision attempt
+  now explicitly retires the superseded target session (and any interrogation
+  still open against it) so the longer-lived window does not leak across cycles
+  (`closeInterrogationTargetForReopen` in `reopenJobForAttempt`).
+- Migration-free (Go logic only); regression tests
+  `TestInterrogationPanelOwnedWindowSurvivesFirstClose` and
+  `TestInterrogationWindowClosesOnRevisionReopen`. Non-panel ad-hoc
+  interrogations are unchanged (no dependents ⇒ legacy single-thread close).
+
 ### #84 / RFC 0095 §1 — attempt-scoped artifacts (revision cycles republish same logical_name)
 
 The load-bearing lifecycle fix. The append-only `artifacts` table keyed uniqueness

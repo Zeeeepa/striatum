@@ -283,6 +283,14 @@ func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, j
 	}
 	jobID := fmt.Sprint(job["job_id"])
 	now := nowString()
+	// #65 P1: with the panel-owned interrogation window, the prior attempt's
+	// interrogable target session stays live through the whole review panel, so a
+	// revision re-open must explicitly retire that superseded session before the
+	// fresh attempt spawns a new one. Done first, while the old session is still
+	// resolvable via its session.awaiting_interrogation event.
+	if err := closeInterrogationTargetForReopen(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+		return "", err
+	}
 	// Re-block the transitive downstream terminal jobs BEFORE re-opening the
 	// target so the recursive walk still sees the target's current downstream
 	// edges. This reuses the F1 router's reset so the reviews (and anything

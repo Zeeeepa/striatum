@@ -737,3 +737,180 @@ func indexOf(haystack, needle string) int {
 	}
 	return -1
 }
+
+// --- #65 P1: panel-owned interrogation window ------------------------------
+
+// intgSeedPanelWindow seeds an interrogable target (design_synthesis) in the
+// awaiting_interrogation window plus a 3-reviewer panel whose jobs each depend
+// on it, mirroring the RFC 0083/0084 interrogating panel (and the live RFC 0070
+// quiz panel). Returns the run id, the target session, and the three
+// interrogate-capable reviewer sessions.
+func intgSeedPanelWindow(t *testing.T, ctx context.Context, runner db.Runner, repoID string) (runID, target string, reviewers [3]string, reviewJobs [3]string) {
+	t.Helper()
+	runID = "run_" + repoID
+	target = "sess_synth"
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"reviewer": map[string]any{}, "synthesizer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{"display_model": "Claude"}},
+		"jobs": []any{
+			map[string]any{"id": "design_synthesis", "interrogable": true},
+			map[string]any{"id": "panel_a"}, map[string]any{"id": "panel_b"}, map[string]any{"id": "panel_c"},
+		},
+	})
+	// interrogable target session, attested + live.
+	intgSeedSession(t, ctx, runner, repoID, runID, target, "synthesizer", "claude", nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, target, "claude")
+	now := time.Now().UTC()
+	// the interrogable synth job, completed; no active lease remains.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  state, idempotency_key, created_at, completed_at
+		) VALUES ($1,'job_synth',$2,'design_synthesis','Synthesis','synthesis','synthesizer','completed','idem_synth',$3,$3)`,
+		repoID, runID, now); err != nil {
+		t.Fatalf("insert synth job: %v", err)
+	}
+	// the awaiting_interrogation window event the target entered on completion.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.events (repository_id, run_id, event_type, actor_session_id, job_id, created_at)
+		VALUES ($1,$2,'session.awaiting_interrogation',$3,'job_synth',now())`, repoID, runID, target); err != nil {
+		t.Fatalf("insert awaiting event: %v", err)
+	}
+	wfJobs := [3]string{"panel_a", "panel_b", "panel_c"}
+	for i := 0; i < 3; i++ {
+		reviewJobs[i] = fmt.Sprintf("job_panel_%d", i)
+		reviewers[i] = fmt.Sprintf("sess_panel_%d", i)
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.jobs (
+			  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+			  state, idempotency_key, created_at
+			) VALUES ($1,$2,$3,$4,'Panel','review','reviewer','blocked',$5,now())`,
+			repoID, reviewJobs[i], runID, wfJobs[i], "idem_"+reviewJobs[i]); err != nil {
+			t.Fatalf("insert review job %d: %v", i, err)
+		}
+		// each panel reviewer depends on the interrogable synth job.
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id)
+			VALUES ($1,$2,'job_synth')`, repoID, reviewJobs[i]); err != nil {
+			t.Fatalf("insert dependency %d: %v", i, err)
+		}
+		intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, reviewers[i], "reviewer", "claude", []string{"interrogate"}, "active", i+1)
+	}
+	return runID, target, reviewers, reviewJobs
+}
+
+func intgJobCompleted(t *testing.T, ctx context.Context, runner db.Runner, repoID, jobID string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs SET state='completed', completed_at=now()
+		 WHERE repository_id=$1 AND job_id=$2`, repoID, jobID); err != nil {
+		t.Fatalf("complete job %s: %v", jobID, err)
+	}
+}
+
+// TestInterrogationPanelOwnedWindowSurvivesFirstClose is the #65 P1 regression:
+// the first reviewer's interrogation.close must NOT tear down the interrogable
+// target while later panel reviewers still need to interrogate it. The window is
+// owned by the panel/gate and closes only when the last reviewer job terminates.
+func TestInterrogationPanelOwnedWindowSurvivesFirstClose(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_panel_window"
+	_, target, reviewers, reviewJobs := intgSeedPanelWindow(t, ctx, runner, repoID)
+
+	// Reviewer 1 interrogates the live target, then closes its thread.
+	id1 := mustOpen(t, ctx, runner, repoID, reviewers[0], target)
+	close1, err := HandleInterrogationClose(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": reviewers[0], "interrogation_id": id1,
+	}))
+	if err != nil {
+		t.Fatalf("close 1: %v", err)
+	}
+	// THE BUG (pre-fix): this close closed the target. It must not now.
+	if close1["target_session_closed"] != false {
+		t.Fatalf("first reviewer's close must not close the panel target: %#v", close1)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "active" {
+		t.Fatalf("target must stay active for remaining panel reviewers, got %q", got)
+	}
+
+	// Reviewers 2 and 3 can still open against the live target (pre-fix: these
+	// got target_unavailable). Each interrogates and closes.
+	for i := 1; i < 3; i++ {
+		idN := mustOpen(t, ctx, runner, repoID, reviewers[i], target) // fails the test on target_unavailable
+		closeN, err := HandleInterrogationClose(ctx, runner, intgEnv(repoID, map[string]any{
+			"session_id": reviewers[i], "interrogation_id": idN,
+		}))
+		if err != nil {
+			t.Fatalf("close %d: %v", i+1, err)
+		}
+		if closeN["target_session_closed"] != false {
+			t.Fatalf("reviewer %d close must not close the target while a panel job is still pending: %#v", i+1, closeN)
+		}
+		if got := intgSessionState(t, ctx, runner, repoID, target); got != "active" {
+			t.Fatalf("target must stay active until the last reviewer completes, got %q after reviewer %d", got, i+1)
+		}
+	}
+
+	// As each reviewer job completes, the panel window is retired only when the
+	// LAST one terminates (the authoritative panel-window closer).
+	intgJobCompleted(t, ctx, runner, repoID, reviewJobs[0])
+	if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repoID, "run_"+repoID, reviewJobs[0]); err != nil {
+		t.Fatalf("release after reviewer 1: %v", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "active" {
+		t.Fatalf("target must stay active while reviewers 2,3 are pending, got %q", got)
+	}
+	intgJobCompleted(t, ctx, runner, repoID, reviewJobs[1])
+	if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repoID, "run_"+repoID, reviewJobs[1]); err != nil {
+		t.Fatalf("release after reviewer 2: %v", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "active" {
+		t.Fatalf("target must stay active while reviewer 3 is pending, got %q", got)
+	}
+	intgJobCompleted(t, ctx, runner, repoID, reviewJobs[2])
+	if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repoID, "run_"+repoID, reviewJobs[2]); err != nil {
+		t.Fatalf("release after reviewer 3: %v", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "closed" {
+		t.Fatalf("target must close once the whole panel has finished, got %q", got)
+	}
+}
+
+// TestInterrogationWindowClosesOnRevisionReopen verifies that re-opening the
+// interrogable job for a revision attempt retires the prior attempt's live
+// target session (and any interrogation still open against it) — without this,
+// the panel-owned window would leak the superseded session across the revision.
+func TestInterrogationWindowClosesOnRevisionReopen(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_panel_reopen"
+	runID, target, reviewers, _ := intgSeedPanelWindow(t, ctx, runner, repoID)
+
+	// A reviewer leaves an interrogation OPEN against the live target.
+	openID := mustOpen(t, ctx, runner, repoID, reviewers[0], target)
+
+	if err := closeInterrogationTargetForReopen(ctx, runner, repoID, runID, "job_synth"); err != nil {
+		t.Fatalf("close-for-reopen: %v", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "closed" {
+		t.Fatalf("prior-attempt target must be retired on revision reopen, got %q", got)
+	}
+	// the lingering interrogation must not be left orphaned-open.
+	row, err := oneRow(ctx, runner, `SELECT state, close_reason FROM striatumd.sessions WHERE repository_id=$1 AND session_id=$2`, repoID, target)
+	if err != nil {
+		t.Fatalf("session row: %v", err)
+	}
+	if fmt.Sprint(row["close_reason"]) != "revision_reopened" {
+		t.Fatalf("expected close_reason revision_reopened, got %q", row["close_reason"])
+	}
+	st, err := oneRow(ctx, runner, `SELECT state FROM striatumd.interrogations WHERE repository_id=$1 AND interrogation_id=$2`, repoID, openID)
+	if err != nil {
+		t.Fatalf("interrogation row: %v", err)
+	}
+	if fmt.Sprint(st["state"]) != "closed" {
+		t.Fatalf("open interrogation against the superseded target must be closed, got %q", st["state"])
+	}
+}

@@ -306,6 +306,11 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 		}); err != nil {
 			return nil, err
 		}
+		// #65 P1: an operator override that completes a parked review can be the
+		// last reviewer of an interrogable target; retire the panel-owned window.
+		if err := releaseInterrogationTargetForCompletedReview(ctx, tx, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+			return nil, err
+		}
 		if err := maybeEnqueueDownstream(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}
@@ -500,6 +505,12 @@ func recordVerdict(
 	switch verdict {
 	case "accept", "accept_with_findings":
 		if err := completeReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID, verdict); err != nil {
+			return nil, err
+		}
+		// #65 P1: if this was the last reviewer of an interrogable upstream
+		// target, retire the panel-owned interrogation window now that no
+		// reviewer remains to interrogate the live target.
+		if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
 			return nil, err
 		}
 		if err := maybeEnqueueDownstream(ctx, runner, repositoryID, jobID); err != nil {

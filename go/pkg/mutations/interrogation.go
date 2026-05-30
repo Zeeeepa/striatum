@@ -274,10 +274,26 @@ func HandleInterrogationClose(ctx context.Context, runner db.Runner, envelope rp
 	})
 }
 
+// terminalInterrogationConsumerStates are the job states in which a reviewer
+// dependent of an interrogable target has finished and will not interrogate the
+// live target again. A reviewer in any other (pre-verdict working) state —
+// including stale_lease, which recovery may re-run — is a live panel consumer
+// that still holds the interrogation window open.
+const terminalInterrogationConsumerStates = `('completed','failed','canceled','skipped','waiting_human')`
+
 // maybeCloseInterrogationTarget closes a target session that finished its
-// interrogable work and has no remaining open interrogations or active lease.
-func maybeCloseInterrogationTarget(ctx context.Context, tx db.TxRunner, repositoryID, runID, targetSessionID string) (bool, error) {
-	target, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", targetSessionID, true)
+// interrogable work, once the whole review panel that consumes it has finished.
+//
+// #65 P1: the awaiting_interrogation window is owned by the panel/gate (the set
+// of reviewer jobs that depend on the interrogable job), not by an individual
+// interrogation thread. The first reviewer's interrogation.close must NOT tear
+// down the target while reviewers 2..N still have to interrogate it; otherwise
+// they get target_unavailable and are forced to vote without interrogating —
+// exactly what an interrogating panel exists to prevent. The target therefore
+// stays live until no reviewer dependent remains in a pre-verdict working state
+// (and no interrogation is open against it, and it holds no active lease).
+func maybeCloseInterrogationTarget(ctx context.Context, runner any, repositoryID, runID, targetSessionID string) (bool, error) {
+	target, err := rowByID(ctx, runner, repositoryID, "sessions", "session_id", targetSessionID, true)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
@@ -287,7 +303,7 @@ func maybeCloseInterrogationTarget(ctx context.Context, tx db.TxRunner, reposito
 	if fmt.Sprint(target["state"]) != "active" {
 		return false, nil
 	}
-	openOthers, err := existsRow(ctx, tx, `
+	openOthers, err := existsRow(ctx, runner, `
 		SELECT 1 FROM striatumd.interrogations
 		 WHERE repository_id = $1 AND target_session_id = $2 AND state = 'open'
 		 LIMIT 1`, repositoryID, targetSessionID)
@@ -297,7 +313,7 @@ func maybeCloseInterrogationTarget(ctx context.Context, tx db.TxRunner, reposito
 	if openOthers {
 		return false, nil
 	}
-	activeLease, err := existsRow(ctx, tx, `
+	activeLease, err := existsRow(ctx, runner, `
 		SELECT 1 FROM striatumd.leases
 		 WHERE repository_id = $1 AND owner_session_id = $2 AND state = 'active'
 		 LIMIT 1`, repositoryID, targetSessionID)
@@ -307,25 +323,191 @@ func maybeCloseInterrogationTarget(ctx context.Context, tx db.TxRunner, reposito
 	if activeLease {
 		return false, nil
 	}
+	// Panel-owned window: keep the target live while any reviewer that depends on
+	// the interrogable job is still in a pre-verdict working state. A target that
+	// never entered a panel window (interrogableJobID == "") falls through to the
+	// legacy single-thread close below.
+	interrogableJobID, err := interrogableJobForTargetSession(ctx, runner, repositoryID, targetSessionID)
+	if err != nil {
+		return false, err
+	}
+	if interrogableJobID != "" {
+		pending, err := interrogationConsumersPending(ctx, runner, repositoryID, interrogableJobID)
+		if err != nil {
+			return false, err
+		}
+		if pending {
+			return false, nil
+		}
+	}
+	return closeInterrogationTargetSession(ctx, runner, repositoryID, runID, target, "interrogation_window_closed", "interrogation_close")
+}
+
+// closeInterrogationTargetSession transitions an interrogable target session to
+// closed and records the session.closed event. Callers own the window guards
+// (active state, no open interrogations, no active lease, no pending panel
+// consumers); this is the shared write.
+func closeInterrogationTargetSession(ctx context.Context, runner any, repositoryID, runID string, target map[string]any, reason, source string) (bool, error) {
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return false, fmt.Errorf("runner does not support exec")
+	}
 	now := nowString()
-	reason := "interrogation_window_closed"
-	if err := tx.Exec(ctx, `
+	targetSessionID := fmt.Sprint(target["session_id"])
+	if err := exec.Exec(ctx, `
 		UPDATE striatumd.sessions
 		   SET state = 'closed', closed_at = $1, close_reason = $2
 		 WHERE repository_id = $3 AND session_id = $4`,
 		now, reason, repositoryID, targetSessionID); err != nil {
 		return false, err
 	}
-	if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.closed", targetSessionID, nil, nil, nil, nil, map[string]any{
+	if _, err := appendEvent(ctx, runner, repositoryID, runID, "session.closed", targetSessionID, nil, nil, nil, nil, map[string]any{
 		"session_id": targetSessionID,
 		"role_id":    target["role_id"],
 		"lane_id":    target["lane_id"],
 		"reason":     reason,
-		"source":     "interrogation_close",
+		"source":     source,
 	}); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// interrogableJobForTargetSession returns the interrogable job whose completion
+// put targetSessionID into the awaiting_interrogation window, or "" if the
+// session never entered such a window (e.g. an ad-hoc, non-panel interrogation
+// of a wrapper-attested session). The window is identified by the
+// session.awaiting_interrogation event (lifecycle.go), keyed by actor session.
+func interrogableJobForTargetSession(ctx context.Context, runner any, repositoryID, targetSessionID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT job_id FROM striatumd.events
+		 WHERE repository_id = $1 AND actor_session_id = $2
+		   AND event_type = 'session.awaiting_interrogation'
+		   AND job_id IS NOT NULL
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, targetSessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return fmt.Sprint(row["job_id"]), nil
+}
+
+// interrogableTargetSessionForJob returns the session that entered the
+// awaiting_interrogation window when interrogableJobID completed, or "" if the
+// job is not interrogable / never opened a window.
+func interrogableTargetSessionForJob(ctx context.Context, runner any, repositoryID, interrogableJobID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT actor_session_id FROM striatumd.events
+		 WHERE repository_id = $1 AND job_id = $2
+		   AND event_type = 'session.awaiting_interrogation'
+		   AND actor_session_id IS NOT NULL
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, interrogableJobID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return fmt.Sprint(row["actor_session_id"]), nil
+}
+
+// interrogationConsumersPending reports whether any reviewer job that depends on
+// the interrogable job is still in a pre-verdict working state — i.e. could yet
+// interrogate the live target. Direct dependents of an interrogable job are
+// exactly the review panel (the next phase depends on the reviewers, not on the
+// interrogable job), so this is a precise panel-scoped predicate.
+func interrogationConsumersPending(ctx context.Context, runner any, repositoryID, interrogableJobID string) (bool, error) {
+	return existsRow(ctx, runner, `
+		SELECT 1
+		  FROM striatumd.job_dependencies dep
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = dep.repository_id AND j.job_id = dep.job_id
+		 WHERE dep.repository_id = $1 AND dep.depends_on_job_id = $2
+		   AND j.state NOT IN `+terminalInterrogationConsumerStates+`
+		 LIMIT 1`, repositoryID, interrogableJobID)
+}
+
+// releaseInterrogationTargetForCompletedReview closes the interrogable target
+// session(s) upstream of a just-terminated reviewer job once every reviewer in
+// the panel has finished. This is the authoritative panel-window closer: the
+// last reviewer's interrogation.close cannot close the target (the closing
+// reviewer's own job is still active at that moment), so the window is retired
+// here when the final reviewer job reaches a terminal state. Safe to call after
+// any reviewer job completes; it no-ops while consumers are still pending.
+func releaseInterrogationTargetForCompletedReview(ctx context.Context, runner any, repositoryID, runID, reviewJobID string) error {
+	upstreams, err := queryRows(ctx, runner, `
+		SELECT depends_on_job_id
+		  FROM striatumd.job_dependencies
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, reviewJobID)
+	if err != nil {
+		return err
+	}
+	for _, up := range upstreams {
+		interrogableJobID := fmt.Sprint(up["depends_on_job_id"])
+		if interrogableJobID == "" || interrogableJobID == "<nil>" {
+			continue
+		}
+		targetSessionID, err := interrogableTargetSessionForJob(ctx, runner, repositoryID, interrogableJobID)
+		if err != nil {
+			return err
+		}
+		if targetSessionID == "" {
+			continue
+		}
+		if _, err := maybeCloseInterrogationTarget(ctx, runner, repositoryID, runID, targetSessionID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// closeInterrogationTargetForReopen retires the prior-attempt interrogable
+// target session when its job is re-opened for a revision attempt. With the
+// panel-owned window (#65 P1) the target stays live through the whole panel, so
+// a needs_revision re-open must explicitly close the superseded session (and any
+// interrogation still open against it) — the fresh attempt spawns a new session.
+func closeInterrogationTargetForReopen(ctx context.Context, runner any, repositoryID, runID, interrogableJobID string) error {
+	targetSessionID, err := interrogableTargetSessionForJob(ctx, runner, repositoryID, interrogableJobID)
+	if err != nil {
+		return err
+	}
+	if targetSessionID == "" {
+		return nil
+	}
+	target, err := rowByID(ctx, runner, repositoryID, "sessions", "session_id", targetSessionID, true)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if fmt.Sprint(target["state"]) != "active" {
+		return nil
+	}
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+	now := nowString()
+	// Retire any interrogation still open against the superseded target so the
+	// revision boundary leaves no orphaned-open interrogation rows.
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.interrogations
+		   SET state = 'closed', closed_at = $1
+		 WHERE repository_id = $2 AND target_session_id = $3 AND state = 'open'`,
+		now, repositoryID, targetSessionID); err != nil {
+		return err
+	}
+	_, err = closeInterrogationTargetSession(ctx, runner, repositoryID, runID, target, "revision_reopened", "revision_reopen")
+	return err
 }
 
 // interrogationTurnMessage writes a turn onto the message bus. Turns are curated
