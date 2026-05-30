@@ -17,6 +17,27 @@ Context:
 - [#60](https://github.com/halbritt/striatum/issues/60) — session lifetime is
   rigid: re-opened `fresh_session_required` jobs sit queued until the operator
   manually closes prior sessions and launches fresh ones.
+- **Independent second confirmation** — a separate Engram forum dogfood
+  (`run_2535842d92d1468ae978022417528812`) hit the *same* cluster from new
+  angles, filing: [#84](https://github.com/halbritt/striatum/issues/84) (a
+  revision cycle cannot republish the revised artifact under the same
+  `logical_name` — `artifact logical name already exists with different
+  content`); [#82](https://github.com/halbritt/striatum/issues/82) (no clean
+  operator transfer of an active repo-write lease to a fresh session — `release
+  --requeue` refuses repo-write, so `retry-job` is forced and bumps `attempt`
+  even for a pure ownership correction); [#81](https://github.com/halbritt/striatum/issues/81)
+  (a session `closed` with `interrogation_window_closed` whose supervised process
+  is still alive **reclaims** the revision-cycle job, violating
+  `fresh_session_required`); [#75](https://github.com/halbritt/striatum/issues/75)
+  (two parallel same-`(role,lane)` jobs cannot hold distinct active sessions —
+  the second registration closes the first as `superseded`). Plus
+  [#77](https://github.com/halbritt/striatum/issues/77) (a reviewer feeding an
+  adjudicator opens its own `revision_routing` checkpoint instead of the
+  adjudicator absorbing the `needs_revision`) and
+  [#78](https://github.com/halbritt/striatum/issues/78) (the running daemon
+  rejects `checkpoint resolve … override` — D157/F2 is in source but **not
+  deployed**, so the Engram operator lost the decision-artifact linkage and fell
+  back to `review.override`).
 - [RFC 0014](0014-process-adapter-completion-guarantees.md) — process-adapter
   completion + the recovery `auto_finalize`/`auto_publish_stale_artifacts`
   machinery (D057) that this RFC must make attempt-aware.
@@ -45,7 +66,8 @@ re-open of a completed job, and a multi-reviewer interrogating panel against one
 live author. The RFC 0094 design→build dogfood
 (`run_c6d66b69303872b0863b6c8faa0a7e69`) drove the full pipeline and wedged at
 the build-revision step, surfacing the incoherence as four concrete faults plus
-three standing friction issues. They share one root cause.
+three standing friction issues. An independent Engram forum dogfood
+(`run_2535842d…`) then hit four more from new angles. They share one root cause.
 
 ### Observed failure modes (all reproduced live)
 
@@ -58,6 +80,10 @@ three standing friction issues. They share one root cause.
 | F-E | The write-scope guard flags an operator-created out-of-scope file (`OPERATOR_REPORT.md`) and `dirty→clean` baseline transitions, wedging `work.complete` for sibling lanes in a shared worktree. | #57 |
 | F-F | `submit-review` after a verify-time `publish-artifact` raises a raw Postgres unique-constraint crash instead of an idempotent no-op. | #58 |
 | F-G | A re-opened `fresh_session_required` review sits `queued` until the operator manually closes the prior lane session and launches a fresh one. | #60 |
+| F-H | A revision cycle cannot **republish** the revised artifact under the same `logical_name`: `artifact.publish` rejects with `artifact logical name already exists with different content`. The revised synthesis (fresh byline) is stranded because the artifact record is job-scoped, not attempt-scoped. | #84 |
+| F-I | A session **closed** with `interrogation_window_closed` whose supervised process is still alive **reclaims** the revision-cycle job (`work.await_packet`), so a prior author rewrites its own challenged synthesis without the fresh context the adjudicator required. Close closes the *session* row but not the *process*. | #81 |
+| F-J | No clean **lease transfer**: to hand a live-but-wrong repo-write claim to a fresh session, `release --requeue` refuses repo-write, so `retry-job` is forced — bumping `attempt` for what was only an *ownership correction*, not a content retry. | #82 |
+| F-K | Two parallel jobs with the same `(role, lane)` (declared parallelism, disjoint scopes) cannot hold **distinct active sessions**: registering the second closes the first as `superseded`, and `supervise start` then fails `requires an active session`. | #75 |
 
 ### Root cause
 
@@ -162,18 +188,27 @@ lease, queue message, published artifacts, and verdict each carry the
   attempt mismatch).
 - **Queue messages** carry `attempt`; re-open cancels the prior attempt's
   message and enqueues a fresh one.
-- **Published artifacts** record the `attempt` that produced them. The gate
-  reader (`verifyRequiredArtifacts`, `dependenciesSatisfied`) and recovery only
-  consider artifacts whose `attempt == jobs.attempt`. A prior attempt's artifact
-  is retained for provenance but **does not satisfy** the new attempt.
+- **Published artifacts** record the `attempt` that produced them, and the
+  artifact uniqueness key becomes `(repository_id, run_id, repo_path,
+  content_sha256, attempt)` (or carries an explicit `supersedes_artifact_id`).
+  A revision attempt may therefore **republish the same `logical_name`/path with
+  new content** — the prior attempt's record is retained for provenance and
+  marked superseded, instead of the current `artifact logical name already exists
+  with different content` rejection (F-H/#84). The gate reader
+  (`verifyRequiredArtifacts`, `dependenciesSatisfied`) and recovery only consider
+  artifacts whose `attempt == jobs.attempt`; a prior attempt's artifact **does
+  not satisfy** the new attempt. This generalizes RFC 0093's `cycle_<attempt>`
+  logical-name trick into a uniform attempt key, so the workflow need not rename
+  the artifact per cycle.
 - **Verdicts** record the `attempt` reviewed (they effectively already do via
   the cycle-scoped `cycle_<attempt>` naming from RFC 0093; this generalizes it).
 
-This is the spine. F-B, F-C, F-D, and the gate-satisfaction bugs all dissolve
-once "which attempt produced this?" is answerable. Migration: add `attempt`
-columns (defaulting existing rows to the job's current attempt), owner-applied
-per RFC 0079 §5 (the daemon migrates as a runtime role and must not crash-loop
-on owner tables — see `project_daemon_migration_ownership`).
+This is the spine. F-B, F-C, F-D, F-H, and the gate-satisfaction bugs all
+dissolve once "which attempt produced this?" is answerable. Migration: add
+`attempt` columns (defaulting existing rows to the job's current attempt) and
+widen the artifact uniqueness key, owner-applied per RFC 0079 §5 (the daemon
+migrates as a runtime role and must not crash-loop on owner tables — see
+`project_daemon_migration_ownership`).
 
 ### 2. Attempt-scoped recovery (fixes F-B)
 
@@ -187,22 +222,35 @@ silently "complete" by re-publishing stale output. This closes the revision-gate
 bypass: a `needs_revision` can only be cleared by a *new* attempt's artifact (or
 an explicit operator override per D157 / RFC 0064).
 
-### 3. Atomic, requeue-safe re-open (fixes F-C, F-D)
+### 3. Atomic re-open and lease transfer (fixes F-C, F-D, F-J)
 
-Define one internal `reopenJobForAttempt(job, reason)` used by every re-open path
-(`needs_revision` cycle router, `checkpoint.resolve continue`, `run.retry_job`):
-within a single transaction it (a) increments `attempt`, (b) releases the prior
-lease (`release_reason: reopened`), (c) cancels the prior pending queue message,
-(d) enqueues a fresh attempt message carrying revision context (§8), (e) resets
-transitive downstream terminal jobs to `blocked` and clears their stale verdicts
-(the RFC 0093/#63-F1 reset, now attempt-aware). Idempotent and atomic, so no
-dangling lease/message can block the re-claim.
+Distinguish two operations the current runtime conflates:
+
+- **Revision re-open** (content retry) — a new attempt is wanted. One internal
+  `reopenJobForAttempt(job, reason)` used by every re-open path (`needs_revision`
+  cycle router, `checkpoint.resolve continue`, `run.retry_job`): within a single
+  transaction it (a) increments `attempt`, (b) releases the prior lease
+  (`release_reason: reopened`), (c) cancels the prior pending queue message, (d)
+  enqueues a fresh attempt message carrying revision context (§8), (e) resets
+  transitive downstream terminal jobs to `blocked` and clears their stale
+  verdicts (the RFC 0093/#63-F1 reset, now attempt-aware). Idempotent and atomic,
+  so no dangling lease/message can block the re-claim.
+- **Lease transfer** (ownership correction, **same attempt**) — the work is fine
+  but the wrong/stale session holds it (F-J/#82, F-I/#81). Add a
+  `lease.transfer` (or `release --to-fresh-session`) admin action that, within
+  one transaction, terminates the stale claimant, releases its lease, and
+  re-enqueues the *same attempt's* message for a fresh session — **without**
+  incrementing `attempt`. This is the missing operator path: today the only
+  recourse is `retry-job`, which bumps `attempt` and pollutes the
+  attempt-sensitive artifact contract for a non-content change.
 
 Add a recovery verb **`recovery.requeue_revision`** (or extend `retry_job` with
 `--revision`) that requeues a repo-write job *for a declared revision* — the
 D036 guard exists to stop blind requeue of abandoned repo-write work, not to
 strand a legitimate revision, so the declared-revision path is exempt and routes
-through `reopenJobForAttempt`.
+through `reopenJobForAttempt`. The lease-transfer path is likewise exempt
+(operator-inspected, reason-required), satisfying F-J without abusing
+`retry-job`.
 
 ### 4. Panel-owned interrogation window (fixes F-A)
 
@@ -220,17 +268,36 @@ owned by the **gate/panel**, not by an interrogation thread:
 - Behavior is lane-independent: the daemon owns the window state, so the
   observed claude-vs-codex inconsistency (the agent loop re-arming or not after
   a close) is removed — the window is daemon state, not lane behavior.
+- **A closed session must stop claiming (F-I/#81).** When the window *does*
+  close the target session, its supervised process must transition to a `no_work`
+  terminal state — a `closed` session may **never** be granted `work.claim_next` /
+  `work.await_packet`. Today the close closes the session row but the live process
+  keeps awaiting and can reclaim a revision-cycle job, letting the prior author
+  rewrite its own challenged work without the fresh context the gate required.
+  Enforce: (a) the claim path rejects any `closed`/superseded session, and (b)
+  `session.close` signals the agent loop to terminate (or the supervisor reaps
+  it).
 
 This is the review-panel instance of RFC 0093 OQ4 / RFC 0094 `post_dialog_hook`
 ("keep participants live through a gate"); the mechanisms should share code.
 Concurrency: serialized interrogation per target stays the policy (RFC 0093 §1,
 D139 revisit) — re-arming is sequential across the declared set.
 
-### 5. Session reuse/replacement (fixes F-G, #60)
+### 5. Session reuse/replacement (fixes F-G, F-K, #60, #75)
+
+The single-active-session-per-`(run, lane)` rule is too coarse. Re-key active
+sessions on `(run, lane, **assigned job or job-slot**)`:
 
 - `register-session --replace` (and `--force`): atomically close any active
-  session on the same `(run, lane)` and register the new one; the error path
-  without `--replace` returns the exact remediation (which session to close).
+  session on the same slot and register the new one; the error path without
+  `--replace` returns the exact remediation (which session to close).
+- **Parallel same-`(role, lane)` jobs each get a distinct active session
+  (F-K/#75).** When a workflow declares parallelism with disjoint write scopes
+  and queues multiple jobs at the same `(role, lane)` (e.g. two Codex
+  cross-exams), registering a second fresh session must **not** close the first
+  as `superseded`; both stay active, each bound to its own queued job. If the
+  daemon cannot bind sessions to distinct jobs, `run.prepare`/`workflow validate`
+  must reject the shape with a clear diagnostic rather than silently serializing.
 - For a re-opened `fresh_session_required` job, the re-open (§3) optionally
   **auto-provisions** a fresh session registration stub for the required lane so
   the job does not sit `queued` waiting on manual operator bookkeeping; the
@@ -323,7 +390,22 @@ through that lens.**
    constraint error; a different-content same-path publish still errors.
 9. **Revision context.** A re-opened attempt's packet carries the prior verdict +
    findings; a fixture asserts the lane receives them.
-10. **Invariants preserved.** Attestation (RFC 0026), review diversity (RFC 0064),
+10. **Artifact republish on revision (F-H/#84).** A revision attempt republishes
+    the same `logical_name`/path with **new content** and succeeds; the prior
+    record is retained + marked superseded; the gate reads only the current
+    attempt's artifact. No `artifact logical name already exists` rejection.
+11. **Closed session cannot claim (F-I/#81).** A `closed`/superseded session is
+    refused `work.claim_next`/`work.await_packet`; `session.close` drives the
+    agent loop to a `no_work` terminal state; a revision-cycle job cannot be
+    reclaimed by the prior author's closed session.
+12. **Lease transfer without attempt bump (F-J/#82).** `lease.transfer` (or
+    `release --to-fresh-session`) hands a live repo-write claim to a fresh session
+    in the **same attempt**, terminating the stale claimant, without incrementing
+    `attempt` or forcing `retry-job`.
+13. **Parallel distinct sessions (F-K/#75).** Two queued same-`(role, lane)` jobs
+    each bind a distinct active session (no `superseded` auto-close); or
+    `run.prepare`/`workflow validate` rejects the shape with a clear diagnostic.
+14. **Invariants preserved.** Attestation (RFC 0026), review diversity (RFC 0064),
     substance-gate verdict agreement (RFC 0093), and Go-only guardrails (RFC 0078)
     stay green; migrations are owner-applied (RFC 0079 §5) and do not crash-loop
     the daemon.
@@ -331,13 +413,16 @@ through that lens.**
 ## Phased plan (smallest-blast-radius first)
 
 1. **Phase 1 — stop the bleeding (no schema change).** §6 write-scope correctness
-   (#57), §7 idempotent submit-review (#58), §5 `register-session --replace`
-   (#60). These are local, high-value, and unblock day-to-day driving. Ship
-   first.
+   (#57), §7 idempotent submit-review (#58), §5 `register-session --replace` +
+   parallel-session binding (#60, #75), and the **closed-session-cannot-claim**
+   guard (#81 — a claim-path refusal of `closed` sessions is local and stops the
+   most dangerous behavior immediately). These are local, high-value, and unblock
+   day-to-day driving. Ship first.
 2. **Phase 2 — attempt scoping core (§1 + §2 + §3).** Add `attempt` to leases /
-   messages / artifacts; the `reopenJobForAttempt` helper; attempt-guard recovery
-   auto-finalize; the requeue-revision verb. This is the #65 fix and the bulk of
-   the work; owner-applied migration.
+   messages / artifacts / verdicts; widen the artifact uniqueness key for
+   revision republish (#84); the `reopenJobForAttempt` helper + `lease.transfer`
+   (#82); attempt-guard recovery auto-finalize (#65); the requeue-revision verb.
+   This is the #65 fix and the bulk of the work; owner-applied migration.
 3. **Phase 3 — panel-owned interrogation window (§4).** Daemon-owned window
    lifecycle keyed on the declared interrogator set; share the liveness-bridge
    mechanism with RFC 0093 OQ4 / RFC 0094 `post_dialog_hook`.
@@ -345,6 +430,18 @@ through that lens.**
 
 Phases 1 and 3 are independently shippable; Phase 4 depends on Phase 2's
 `reopenJobForAttempt`.
+
+### Deployment note (#78, not a code change here)
+
+The Engram run could not use `checkpoint resolve … override` because the
+**running daemon predates D157/F2** (it is still on schema 17; the override
+action landed in source `8d31001` but was never deployed). Two follow-ups,
+independent of this RFC's design: (a) rebuild + restart the daemon to deploy F2
+(and, when ready, this RFC); (b) the client should **detect daemon/CLI version
+skew** and refuse to advertise an action the live daemon will reject, instead of
+failing at call time (#78). Until F2 is deployed, the documented checkpoint-
+override path is unavailable and operators must fall back to `review.override`
+(losing the decision-artifact linkage).
 
 ## Open Questions
 
