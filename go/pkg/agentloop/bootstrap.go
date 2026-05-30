@@ -45,6 +45,7 @@ If work.await_packet returns an interrogation_question, answer it with interroga
 If work.await_packet returns no_work, keep waiting by calling work.await_packet again after a short pause; do not print "await next packet" or similar terminal prose as a substitute for the tool call.
 If you need input or are blocked before work.await_packet, call session.report with report_kind question or escalate instead of waiting silently in terminal text.
 Use MCP tools to acknowledge work, publish artifacts, report blockers, complete work, or release work. This PTY supervisor will not claim, complete, release, or spoon-feed packet JSON for you.
+A working Striatum client is already provided: the MCP server above and the striatum CLI on your PATH both reach this daemon. Use them directly. Do NOT author a JSON-RPC/MCP client (e.g. scripts/striatum_client.py) or any other control-plane helper inside the target repository — that is control-plane scratch, not project source, and writing it pollutes the work tree.
 Stay inside the active work packet write scope, treat .striatum/ as operational scratch, and follow the packet commands exactly.
 `, ctx.RunID, ctx.SessionID, ctx.RepoRoot, ctx.Endpoint, tokenInstruction, repositoryInstruction)
 }

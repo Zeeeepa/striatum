@@ -69,6 +69,11 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 		"instead of waiting silently in terminal text",
 		"will not claim, complete, release, or spoon-feed packet JSON",
 		"STRIATUM_MCP_TOKEN_FILE",
+		// #86 / RFC 0096 §3: tell lanes to use the provided client and never
+		// author a control-plane helper script in the target repo.
+		"striatum CLI on your PATH",
+		"Do NOT author a JSON-RPC/MCP client",
+		"scripts/striatum_client.py",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("bootstrap prompt missing %q:\n%s", want, prompt)
