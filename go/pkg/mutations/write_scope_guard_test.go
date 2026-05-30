@@ -88,106 +88,163 @@ func TestParseGitPorcelainZIncludesRenameOldAndNewPaths(t *testing.T) {
 	}
 }
 
-func TestBaselinePreexistingOutOfScopeIgnoresOnlyOutOfScopeBaselinePaths(t *testing.T) {
-	job := map[string]any{
-		"write_scope_baseline": map[string]any{
-			"changed_paths": []any{
-				map[string]any{"path": "docs/operator/workflows/x/workflow.json", "hash": "h1"},
-				map[string]any{"path": "go/pkg/foo/foo.go", "hash": "h2"},
-				map[string]any{"path": ".agents/scratch.md", "hash": "h3"},
-			},
-		},
+func TestParseGitPorcelainStatusZMarksUntrackedPaths(t *testing.T) {
+	got := parseGitPorcelainStatusZ([]byte(" M go/edited.go\x00?? OPERATOR_REPORT.md\x00R  docs/new.md\x00docs/old.md\x00"))
+	want := []gitPorcelainEntry{
+		{Path: "OPERATOR_REPORT.md", Untracked: true},
+		{Path: "docs/new.md", Untracked: false},
+		{Path: "docs/old.md", Untracked: false},
+		{Path: "go/edited.go", Untracked: false},
 	}
-	allowed := []string{"go/", "docs/operator/workflows/x/artifacts/"}
-	got := baselinePreexistingOutOfScope(job, allowed)
-	// In-scope baseline path (under go/) must NOT be ignored; out-of-scope
-	// pre-existing paths (the workflow.json + unrelated .agents scratch) must be.
-	if got["go/pkg/foo/foo.go"] {
-		t.Fatalf("in-scope baseline path should not be ignored: %v", got)
-	}
-	if !got["docs/operator/workflows/x/workflow.json"] || !got[".agents/scratch.md"] {
-		t.Fatalf("out-of-scope baseline paths should be ignored: %v", got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("entries = %#v, want %#v", got, want)
 	}
 }
 
-func TestBaselinePreexistingOutOfScopeEmptyWhenNoAllowedPaths(t *testing.T) {
-	job := map[string]any{"write_scope_baseline": map[string]any{"changed_paths": []any{
-		map[string]any{"path": "anything.txt", "hash": "h"},
-	}}}
-	if got := baselinePreexistingOutOfScope(job, nil); len(got) != 0 {
-		t.Fatalf("no allowed_paths means no baseline filtering, got %v", got)
+// The four-quadrant matrix from RFC 0095 §6 / acceptance-criterion 7, run
+// directly against the unified rule. baseline holds the claim-time dirty
+// snapshot (path -> hash); current is the completion-time snapshot.
+func TestWriteScopeViolationsSinceBaselineFourQuadrants(t *testing.T) {
+	allowed := []string{"go/"}
+	forbidden := []string{".striatum/"}
+	baseline := map[string]string{
+		// pre-existing operator state, dirty at claim, outside allowed_paths
+		"OPERATOR_REPORT.md":   "report-v1",
+		"go/in/baseline_in.go": "go-base",
+	}
+	current := []gitPathSnapshot{
+		// Quadrant 1: in-scope file the attempt created -> ok.
+		{Path: "go/new/created.go", Hash: "go-new"},
+		// Quadrant 2: out-of-scope file the attempt created (not in baseline) -> violation.
+		{Path: "config/secret.yaml", Hash: "secret"},
+		// Quadrant 4a: out-of-scope untracked operator file mutated further
+		// during the run (the #57 incremental OPERATOR_REPORT.md) -> ok.
+		{Path: "OPERATOR_REPORT.md", Hash: "report-v2", Untracked: true},
+		// In-scope baseline file the attempt mutated -> ok (in allowed_paths).
+		{Path: "go/in/baseline_in.go", Hash: "go-changed"},
+	}
+	// Quadrant 3 (baseline-dirty -> clean out-of-scope) is represented by a
+	// baseline path that is ABSENT from `current`; it never enters the loop.
+	got := writeScopeViolationsSinceBaseline(current, baseline, allowed, forbidden, nil)
+	want := []string{"config/secret.yaml"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
 	}
 }
 
-func TestGitTouchedPathsSinceBaselineIgnoresPreExistingUntrackedPaths(t *testing.T) {
+// Regression for #57: an out-of-scope file that was dirty at claim and is then
+// stashed/cleaned/deleted (dirty->clean) must not raise a violation, nor must
+// an out-of-scope operator file the attempt never touched.
+func TestWriteScopeViolationsSinceBaselineDirtyToCleanAndUntouchedAreNotViolations(t *testing.T) {
+	allowed := []string{"go/"}
+	baseline := map[string]string{
+		"OPERATOR_REPORT.md": "h-report", // pre-existing operator file
+		"stashed.txt":        "h-stashed", // dirty at claim, cleaned before complete
+	}
+	current := []gitPathSnapshot{
+		// dirty->clean: stashed.txt is absent from current entirely.
+		// OPERATOR_REPORT.md unchanged (same hash) and untracked -> untouched operator state.
+		{Path: "OPERATOR_REPORT.md", Hash: "h-report", Untracked: true},
+		{Path: "go/work.go", Hash: "h-work"}, // the attempt's in-scope work
+	}
+	got := writeScopeViolationsSinceBaseline(current, baseline, allowed, nil, nil)
+	if len(got) != 0 {
+		t.Fatalf("expected no violations, got %#v", got)
+	}
+}
+
+// Rule 2: a tracked (committed) file that was dirty at claim and which the
+// attempt mutates further, outside allowed_paths, IS a violation.
+func TestWriteScopeViolationsSinceBaselineTrackedMutationOutOfScopeViolates(t *testing.T) {
+	allowed := []string{"go/"}
+	baseline := map[string]string{"docs/tracked.md": "h1"}
+	current := []gitPathSnapshot{
+		{Path: "docs/tracked.md", Hash: "h2", Untracked: false},
+	}
+	got := writeScopeViolationsSinceBaseline(current, baseline, allowed, nil, nil)
+	want := []string{"docs/tracked.md"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
+// Forbidden paths are absolute: even a pre-existing untracked baseline path
+// inside a forbidden prefix is a violation.
+func TestWriteScopeViolationsSinceBaselineForbiddenIsAbsolute(t *testing.T) {
+	baseline := map[string]string{".striatum/scratch/pid": "h"}
+	current := []gitPathSnapshot{
+		{Path: ".striatum/scratch/pid", Hash: "h", Untracked: true},
+	}
+	got := writeScopeViolationsSinceBaseline(current, baseline, []string{"."}, []string{".striatum/"}, nil)
+	want := []string{".striatum/scratch/pid"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
+// End-to-end through gitChangedPathSnapshots: a real worktree where an
+// out-of-scope file is dirty at claim, then deleted (dirty->clean), while the
+// attempt edits its in-scope file. No violation should result.
+func TestWriteScopeViolationsSinceBaselineLiveStashedOrRestored(t *testing.T) {
 	repo := t.TempDir()
 	runGit(t, repo, "init")
 	runGit(t, repo, "config", "user.email", "test@example.invalid")
 	runGit(t, repo, "config", "user.name", "Test User")
-	mustWrite(t, filepath.Join(repo, "allowed.txt"), "base\n")
-	runGit(t, repo, "add", "allowed.txt")
-	runGit(t, repo, "commit", "-m", "base")
-	mustWrite(t, filepath.Join(repo, "outside-preexisting.txt"), "already here\n")
-
-	baseline, err := gitChangedPathSnapshots(context.Background(), repo)
-	if err != nil {
-		t.Fatalf("baseline: %v", err)
-	}
-	entries := make([]any, 0, len(baseline))
-	for _, item := range baseline {
-		entries = append(entries, map[string]any{"path": item.Path, "hash": item.Hash})
-	}
-
-	mustWrite(t, filepath.Join(repo, "allowed.txt"), "changed\n")
-	touched, err := gitTouchedPathsSinceBaseline(context.Background(), repo, map[string]any{
-		"write_scope_baseline": map[string]any{"changed_paths": entries},
-	})
-	if err != nil {
-		t.Fatalf("touched: %v", err)
-	}
-	want := []string{"allowed.txt"}
-	if !reflect.DeepEqual(touched, want) {
-		t.Fatalf("touched paths = %#v, want %#v", touched, want)
-	}
-}
-
-func TestGitTouchedPathsSinceBaselineAllowsStashedOrRestoredFiles(t *testing.T) {
-	repo := t.TempDir()
-	runGit(t, repo, "init")
-	runGit(t, repo, "config", "user.email", "test@example.invalid")
-	runGit(t, repo, "config", "user.name", "Test User")
-	mustWrite(t, filepath.Join(repo, "allowed.txt"), "base\n")
-	runGit(t, repo, "add", "allowed.txt")
+	mustWrite(t, filepath.Join(repo, "go", "allowed.go"), "base\n")
+	runGit(t, repo, "add", "go/allowed.go")
 	runGit(t, repo, "commit", "-m", "base")
 
-	// Write outside-stashed.txt which is dirty at baseline but will be removed (restored/stashed to clean) later
+	// outside-stashed.txt is dirty at baseline but removed (restored to clean) later.
 	mustWrite(t, filepath.Join(repo, "outside-stashed.txt"), "will be stashed\n")
-
-	baseline, err := gitChangedPathSnapshots(context.Background(), repo)
+	baselineSnap, err := gitChangedPathSnapshots(context.Background(), repo)
 	if err != nil {
 		t.Fatalf("baseline: %v", err)
 	}
-	entries := make([]any, 0, len(baseline))
-	for _, item := range baseline {
-		entries = append(entries, map[string]any{"path": item.Path, "hash": item.Hash})
+	baseline := map[string]string{}
+	for _, item := range baselineSnap {
+		baseline[item.Path] = item.Hash
 	}
 
-	// Delete outside-stashed.txt so it transitions back to clean
-	err = os.Remove(filepath.Join(repo, "outside-stashed.txt"))
-	if err != nil {
+	if err := os.Remove(filepath.Join(repo, "outside-stashed.txt")); err != nil {
 		t.Fatalf("remove outside-stashed: %v", err)
 	}
+	mustWrite(t, filepath.Join(repo, "go", "allowed.go"), "changed\n")
 
-	mustWrite(t, filepath.Join(repo, "allowed.txt"), "changed\n")
-	touched, err := gitTouchedPathsSinceBaseline(context.Background(), repo, map[string]any{
-		"write_scope_baseline": map[string]any{"changed_paths": entries},
-	})
+	current, err := gitChangedPathSnapshots(context.Background(), repo)
 	if err != nil {
-		t.Fatalf("touched: %v", err)
+		t.Fatalf("current: %v", err)
 	}
-	want := []string{"allowed.txt"}
-	if !reflect.DeepEqual(touched, want) {
-		t.Fatalf("touched paths = %#v, want %#v (stashed/restored files should not trigger violation)", touched, want)
+	got := writeScopeViolationsSinceBaseline(current, baseline, []string{"go/"}, nil, nil)
+	if len(got) != 0 {
+		t.Fatalf("stashed/restored files should not trigger violation, got %#v", got)
+	}
+}
+
+// End-to-end: an out-of-scope file CREATED during the attempt (absent from the
+// claim-time baseline) is a violation.
+func TestWriteScopeViolationsSinceBaselineLiveAttemptCreatedOutOfScopeViolates(t *testing.T) {
+	repo := t.TempDir()
+	runGit(t, repo, "init")
+	runGit(t, repo, "config", "user.email", "test@example.invalid")
+	runGit(t, repo, "config", "user.name", "Test User")
+	mustWrite(t, filepath.Join(repo, "go", "allowed.go"), "base\n")
+	runGit(t, repo, "add", "go/allowed.go")
+	runGit(t, repo, "commit", "-m", "base")
+
+	// Clean tree at claim time -> empty baseline.
+	baseline := map[string]string{}
+	// The attempt edits its in-scope file AND creates an out-of-scope file.
+	mustWrite(t, filepath.Join(repo, "go", "allowed.go"), "changed\n")
+	mustWrite(t, filepath.Join(repo, "outside-new.txt"), "created by attempt\n")
+
+	current, err := gitChangedPathSnapshots(context.Background(), repo)
+	if err != nil {
+		t.Fatalf("current: %v", err)
+	}
+	got := writeScopeViolationsSinceBaseline(current, baseline, []string{"go/"}, nil, nil)
+	want := []string{"outside-new.txt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
 	}
 }
 

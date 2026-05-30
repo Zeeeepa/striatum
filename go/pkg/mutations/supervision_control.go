@@ -2295,8 +2295,19 @@ func currentDaemonInstanceID() string {
 	return "go-pg-handler"
 }
 
+// supervisedEnv builds the full environment for a supervised lane process.
+//
+// #87 (RFC 0096 §2): the lane env is constructed from an EXPLICIT ALLOWLIST,
+// never from os.Environ(). Handing the lane the daemon's entire environment
+// leaked any secret in the daemon env — a Postgres DSN, future cloud creds —
+// into the lane and its visible pane (the live incident). supervisedEnvEntries
+// already emits the explicit STRIATUM_* + PATH base with NO inheritance; this
+// wrapper adds only the small, named pass-through set the adapters genuinely
+// need (agent-loop MCP bootstrap vars + a handful of OS basics). Everything
+// else — including every *DSN*/*POSTGRES*/PG*/DATABASE_URL var — is dropped.
 func supervisedEnv(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	return mergeEnvReplacing(os.Environ(), supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID))
+	entries := supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
+	return mergeEnvReplacing(supervisedEnvPassThrough(os.Environ()), entries)
 }
 
 func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
@@ -2309,6 +2320,69 @@ func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID
 		"STRIATUM_REPO=" + repoRoot,
 		"STRIATUM_LANE_ID=" + laneID,
 	}
+}
+
+// supervisedEnvAllowlistKeys are the EXACT daemon-env var names a supervised
+// lane is allowed to inherit (#87 / RFC 0096 §2). The list is deliberately
+// explicit and easy to audit: if a new var must reach a lane, add it here on
+// purpose. Anything not named here — every DSN/Postgres/credential var — is
+// dropped. PATH and the STRIATUM_REPOSITORY_ID/RUN_ID/SESSION_ID/SUPERVISOR_ID/
+// REPO/LANE_ID vars are NOT listed here because supervisedEnvEntries always
+// sets them freshly (overriding any inherited value via mergeEnvReplacing).
+var supervisedEnvAllowlistKeys = map[string]bool{
+	// Agent-loop MCP bootstrap (go/pkg/agentloop endpoint.go / token.go /
+	// bootstrap.go AgentEnvironment): the `striatumd -agent-loop` subprocess
+	// resolves the live MCP endpoint + bearer from its own environment, so the
+	// daemon must pass these through for a lane to reach the control plane.
+	"STRIATUM_MCP_URL":                       true,
+	"STRIATUM_MCP_TOKEN":                     true,
+	"STRIATUM_MCP_TOKEN_FILE":                true,
+	"STRIATUM_MCP_ADDR":                      true,
+	"STRIATUM_MCP_PORT":                      true,
+	"STRIATUM_DAEMON_MCP_HTTP_URL":           true,
+	"STRIATUM_DAEMON_MCP_HTTP_ENDPOINT_FILE": true,
+	"STRIATUM_DAEMON_MCP_HTTP_ADDR":          true,
+	"STRIATUM_DAEMON_MCP_HTTP_PORT":          true,
+	"STRIATUM_DAEMON_RUNTIME_DIR":            true,
+	"STRIATUM_DAEMON_SOCKET":                 true,
+	// Supervised-lane operational knobs (diagnostics + PATH augmentation), set
+	// by the operator, not secrets.
+	"STRIATUM_SUPERVISED_STDERR_LOG": true,
+	"STRIATUM_SUPERVISED_PATH_DIRS":  true,
+	"STRIATUM_SUPERVISOR_HELPER":     true,
+	// OS basics every interactive CLI adapter (claude/codex/agy) needs.
+	"HOME":            true,
+	"USER":            true,
+	"LOGNAME":         true,
+	"TERM":            true,
+	"COLORTERM":       true,
+	"LANG":            true,
+	"LANGUAGE":        true,
+	"TZ":              true,
+	"TMPDIR":          true,
+	"XDG_RUNTIME_DIR": true,
+	"XDG_CONFIG_HOME": true,
+	"XDG_DATA_HOME":   true,
+	"XDG_CACHE_HOME":  true,
+	"SSH_AUTH_SOCK":   true, // git over ssh for lanes that push/fetch
+}
+
+// supervisedEnvPassThrough filters a base environment down to the explicit
+// allowlist (#87). LC_* locale vars are matched by prefix because they are a
+// small open family (LC_ALL, LC_CTYPE, LC_MESSAGES, …) that adapters expect for
+// correct text handling; none of them carry secrets.
+func supervisedEnvPassThrough(base []string) []string {
+	out := make([]string, 0, len(supervisedEnvAllowlistKeys))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		if supervisedEnvAllowlistKeys[key] || strings.HasPrefix(key, "LC_") {
+			out = append(out, entry)
+		}
+	}
+	return out
 }
 
 func mergeEnvReplacing(base []string, updates []string) []string {

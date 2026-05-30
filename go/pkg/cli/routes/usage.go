@@ -50,6 +50,8 @@ var usageByGroup = map[string]Usage{
 			{Name: "lane", Positional: true, Required: true, Help: "workflow lane id"},
 			{Name: "capability", Repeatable: true, Help: "grant a capability; repeat per capability (defaults to the lane's declared capabilities). Note: the flag is --capability (singular), not --capabilities"},
 			{Name: "fresh", Bool: true, Help: "register a fresh-context session"},
+			{Name: "replace", Bool: true, Help: "atomically close any active session on this (run, role, lane) slot and transfer its leases before registering (alias: --force). Without it a duplicate active session is refused with the id to close, and parallel same-(role,lane) jobs each keep a distinct active session."},
+			{Name: "force", Bool: true, Help: "alias for --replace"},
 			{Name: "parent-session-id", Help: "parent session id for derived/continued context"},
 			{Name: "operator-label", Help: "operator-visible label for the session"},
 			{Name: "force-non-fresh", Bool: true, Help: "allow a non-fresh reviewer when the workflow declares reviewer_context_policy: fresh (requires --reason)"},
@@ -57,6 +59,7 @@ var usageByGroup = map[string]Usage{
 		},
 		Notes: []string{
 			"Aliases: `striatum session register ...` resolves to the same method (session.register).",
+			"Parallel same-(role, lane) jobs (declared parallelism, disjoint scopes) each register their own fresh session and both stay active; the second registration no longer supersedes the first.",
 		},
 	},
 	"session_close": {

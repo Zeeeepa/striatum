@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestOverrideVerdictRecoversCompletedReviewWithoutPriorVerdict(t *testing.T) {
@@ -359,6 +359,218 @@ rationale: "` + rationale + `"
 `
 }
 
+// TestSubmitReviewIdempotentAfterPublishArtifact is the RFC 0095 §7 / GH #58
+// live-PG regression: an operator publishes a finding with publish-artifact,
+// then runs submit-review against the same finding body at the same path. The
+// submit re-publishes under the default "review" logical name, which collides
+// with the (repository_id, run_id, repo_path, content_sha256) unique
+// constraint. Before the fix this crashed with a raw pgx 23505 on
+// artifacts_repository_id_run_id_repo_path_content_sha256_key. After the fix
+// the publish folds into an idempotent no-op, the verdict is recorded, and the
+// job completes.
+func TestSubmitReviewIdempotentAfterPublishArtifact(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+
+	publishResult, err := HandlePublishArtifact(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"kind":         "finding",
+		"logical_name": "finding",
+		"path":         "artifacts/review/FINDING.md",
+	}))
+	if err != nil {
+		t.Fatalf("publish-artifact: %v", err)
+	}
+	if publishResult["status"] != "published" {
+		t.Fatalf("publish status = %#v, want published", publishResult["status"])
+	}
+	publishedID := fmt.Sprint(publishResult["artifact_id"])
+
+	// submit-review against the same body at the same path under the default
+	// "review" logical name. This is the exact #58 collision.
+	result, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"path":       "artifacts/review/FINDING.md",
+		"verdict":    "accept",
+		"rationale":  "finding already verified via publish-artifact",
+	}))
+	if err != nil {
+		t.Fatalf("submit-review must be an idempotent no-op, got error: %v", err)
+	}
+	artifact, ok := result["artifact"].(map[string]any)
+	if !ok {
+		t.Fatalf("artifact missing from result: %#v", result)
+	}
+	if artifact["status"] != "already_published" {
+		t.Fatalf("artifact status = %#v, want already_published", artifact["status"])
+	}
+	if fmt.Sprint(artifact["artifact_id"]) != publishedID {
+		t.Fatalf("idempotent publish reused artifact_id %v, want %v", artifact["artifact_id"], publishedID)
+	}
+	if artifact["notice"] == nil || !strings.Contains(fmt.Sprint(artifact["notice"]), "idempotent no-op") {
+		t.Fatalf("expected an idempotent-no-op notice, got %#v", artifact["notice"])
+	}
+	if result["job_state"] != "completed" {
+		t.Fatalf("job_state = %#v, want completed; result=%#v", result["job_state"], result)
+	}
+	verdict, ok := result["verdict"].(map[string]any)
+	if !ok || verdict["verdict"] != "accept" {
+		t.Fatalf("verdict not recorded: %#v", result["verdict"])
+	}
+
+	// Exactly one artifact row should exist at that path: the idempotent path
+	// reused the existing row instead of inserting a second one.
+	count, err := runner.QueryScalar(ctx, `
+		SELECT count(*) FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND repo_path = 'artifacts/review/FINDING.md'`, repoID)
+	if err != nil {
+		t.Fatalf("count artifacts: %v", err)
+	}
+	if count != "1" {
+		t.Fatalf("artifact rows at path = %s, want 1 (no duplicate insert)", count)
+	}
+}
+
+// TestSubmitReviewRejectsDifferentContentSamePathSameLogicalName covers the
+// real-conflict half of RFC 0095 §7 / GH #58: re-publishing *different* content
+// under the same logical name + path must surface a clean rpc.Error (the
+// content-mismatch guard), never a raw pgx constraint crash. The fixture seeds
+// an existing artifact under logical name "review" and then submits a review
+// whose on-disk body differs, so the content_sha256 no longer matches.
+func TestSubmitReviewRejectsDifferentContentSamePathSameLogicalName(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+
+	// Pre-seed an artifact under the default "review" logical name at the same
+	// path but with a *different* content_sha256 than the on-disk body.
+	now := time.Now().UTC()
+	runID := "run_" + repoID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
+		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode, created_at
+		) VALUES ($1,'art_prior',$2,$3,$4,'review','finding',
+		  'artifacts/review/FINDING.md','sha_does_not_match_disk',1,'create',$5)`,
+		repoID, runID, jobID, sessionID, now); err != nil {
+		t.Fatalf("seed prior artifact: %v", err)
+	}
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"path":       "artifacts/review/FINDING.md",
+		"verdict":    "accept",
+		"rationale":  "different body at the same path",
+	}))
+	if err == nil {
+		t.Fatal("expected a clean rpc.Error for different content at the same logical name + path, got nil")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("error is not an rpc.Error (raw constraint crash leaked): %T %v", err, err)
+	}
+	if rpcErr.Code != "artifact_error" || !strings.Contains(rpcErr.Message, "already exists with different content") {
+		t.Fatalf("rpc.Error = %+v, want artifact_error / different content", rpcErr)
+	}
+}
+
+// findingArtifactPayload returns a minimal valid finding artifact body. It
+// carries no author line so the markdown author-line check is skipped, keeping
+// the fixture independent of lane attestation.
+func findingArtifactPayload(verdictIntent string) string {
+	return `---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "` + verdictIntent + `"
+---
+
+# Finding
+
+The change is correct.
+`
+}
+
+// seedReviewFindingFixture seeds a repo + run (with an on-disk repo root) + an
+// active reviewer session + a running review job (no required artifacts, no
+// attestation requirement) + an active lease, and writes the finding body to
+// artifacts/review/FINDING.md. It returns the ids the review handlers need.
+func seedReviewFindingFixture(t *testing.T, ctx context.Context, runner db.Runner, payload string) (repoID, sessionID, jobID, leaseID string) {
+	t.Helper()
+	repoID = "repo_idem58_" + strings.ReplaceAll(t.Name(), "/", "_")
+	runID := "run_" + repoID
+	sessionID = "sess_reviewer_" + repoID
+	jobID = "job_review_" + repoID
+	leaseID = "lease_" + repoID
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "artifacts", "review"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "artifacts", "review", "FINDING.md"), []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	intgSeedRepo(t, ctx, runner, repoID)
+	workflow := map[string]any{
+		"workflow_id": "review_wf",
+		"lanes": map[string]any{
+			"reviewer": map[string]any{"display_model": "Claude"},
+		},
+		"jobs": []any{
+			map[string]any{"id": "review", "type": "review"},
+		},
+	}
+	intgSeedRun(t, ctx, runner, repoID, runID, workflow)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs SET repo_root = $1
+		 WHERE repository_id = $2 AND run_id = $3`, repoRoot, repoID, runID); err != nil {
+		t.Fatalf("update run repo root: %v", err)
+	}
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "reviewer", "reviewer", []string{"review"}, "active")
+	now := time.Now().UTC()
+	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "reviewer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":            "review_only_artifact",
+		"repo_write":      false,
+		"allowed_paths":   []string{"artifacts/review/"},
+		"forbidden_paths": []string{".striatum/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedArg, err := db.JSONBArg(runner, []map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, lane_selector_json, write_scope_json,
+		  expected_artifacts_json, idempotency_key, created_at, started_at
+		) VALUES ($1,$2,$3,'review',1,'running','reviewer','Review','review',
+		  $4::jsonb,$5::jsonb,$6::jsonb,'idem_'||$2,$7,$7)`,
+		repoID, jobID, runID, laneSelectorArg, writeScopeArg, expectedArg, now); err != nil {
+		t.Fatalf("insert review job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7)`,
+		repoID, leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	return repoID, sessionID, jobID, leaseID
+}
+
 type reviewOverrideFakeRunner struct {
 	tx *reviewOverrideFakeTx
 }
@@ -582,6 +794,14 @@ func (r reviewOverrideFakeRow) Scan(dest ...any) error {
 	return nil
 }
 
+// TestSubmitReviewDuplicateArtifactHandling exercises RFC 0095 §7 / GH #58 at
+// the handler seam with a fake runner: when an artifact with the same body is
+// already published at the submit path (the repo_path + content_sha256
+// constraint, not the logical-name constraint), publishArtifact returns a
+// {status: already_published} no-op and the whole submit completes in a single
+// committed transaction. The previous behavior let the INSERT crash with a raw
+// 23505 and re-ran the submit in a second transaction; that post-hoc retry has
+// been removed in favor of the proactive pre-check.
 func TestSubmitReviewDuplicateArtifactHandling(t *testing.T) {
 	tmpDir := t.TempDir()
 	artPath := filepath.Join(tmpDir, "finding.md")
@@ -630,18 +850,23 @@ Everything looks perfect.`)
 		t.Fatalf("expected status to be 'already_published', got %v", artifact["status"])
 	}
 
-	if runner.tx1 == nil || !runner.tx1.rolledBack {
-		t.Fatalf("expected first transaction to be rolled back")
+	if runner.txCount != 1 {
+		t.Fatalf("expected a single transaction, got %d", runner.txCount)
 	}
-	if runner.tx2 == nil || !runner.tx2.committed {
-		t.Fatalf("expected second transaction to be committed")
+	if runner.tx1 == nil || !runner.tx1.committed {
+		t.Fatalf("expected the single transaction to be committed")
+	}
+	if runner.tx1.rolledBack {
+		t.Fatalf("did not expect the transaction to be rolled back")
+	}
+	if runner.tx1.artifactInserts != 0 {
+		t.Fatalf("expected no artifact INSERT on the idempotent path, got %d", runner.tx1.artifactInserts)
 	}
 }
 
 type submitReviewFakeRunner struct {
 	repoRoot string
 	tx1      *submitReviewFakeTx
-	tx2      *submitReviewFakeTx
 	txCount  int
 }
 
@@ -659,19 +884,15 @@ func (r *submitReviewFakeRunner) QueryScalar(context.Context, string, ...any) (s
 
 func (r *submitReviewFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
 	r.txCount++
-	if r.txCount == 1 {
-		r.tx1 = &submitReviewFakeTx{repoRoot: r.repoRoot, failPublish: true}
-		return r.tx1, nil
-	}
-	r.tx2 = &submitReviewFakeTx{repoRoot: r.repoRoot, failPublish: false}
-	return r.tx2, nil
+	r.tx1 = &submitReviewFakeTx{repoRoot: r.repoRoot}
+	return r.tx1, nil
 }
 
 type submitReviewFakeTx struct {
-	repoRoot    string
-	failPublish bool
-	committed   bool
-	rolledBack  bool
+	repoRoot        string
+	committed       bool
+	rolledBack      bool
+	artifactInserts int
 }
 
 func (tx *submitReviewFakeTx) Commit(context.Context) error {
@@ -686,9 +907,10 @@ func (tx *submitReviewFakeTx) Rollback(context.Context) error {
 
 func (tx *submitReviewFakeTx) Exec(_ context.Context, sql string, args ...any) error {
 	if strings.Contains(sql, "INSERT INTO striatumd.artifacts") {
-		if tx.failPublish {
-			return &pgconn.PgError{Code: "23505", Message: "duplicate key violates unique constraint"}
-		}
+		// The proactive pre-check should short-circuit before any artifact
+		// INSERT on the idempotent path; record the attempt so the test can
+		// assert it never happens.
+		tx.artifactInserts++
 	}
 	return nil
 }
@@ -753,6 +975,16 @@ func (tx *submitReviewFakeTx) Query(_ context.Context, sql string, args ...any) 
 					map[string]any{"id": "review", "type": "review"},
 				},
 			},
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.artifacts") && strings.Contains(sql, "content_sha256 = $4"):
+		// RFC 0095 §7 / GH #58 proactive pre-check on the
+		// (repository_id, run_id, repo_path, content_sha256) constraint:
+		// the same body is already published at this path, so return the
+		// existing artifact and let publishArtifact fold it into an
+		// already_published no-op.
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"artifact_id":  "art_existing",
+			"logical_name": "finding",
 		}}), nil
 	case strings.Contains(sql, "SELECT artifact_id FROM striatumd.artifacts"):
 		return runPrepareRowsFromMaps([]map[string]any{{

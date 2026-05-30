@@ -77,6 +77,20 @@ func laneAdapterName(arg0 string) string {
 // since it has no --mcp-config flag), merging into any existing project
 // settings and restoring/removing the file on teardown. Fresh-per-launch +
 // teardown means no stale rotating port is ever persisted (RFC 0088 Decision 5).
+//
+// #70 / RFC 0096 §3 (OQ3): the bearer token lives inside the target repo work
+// tree here, which we would prefer to relocate outside the write surface. agy
+// (Antigravity) only reads <cwd>/.gemini/settings.json or ~/.gemini/ — it has
+// no out-of-repo settings-path flag or env var (D150: revisit only if its
+// config surface changes). The user-global ~/.gemini is shared across all
+// repos/lanes and unsafe to clobber per-launch, so the per-repo file remains
+// the only viable agy MCP surface in Phase 1. We therefore keep the repo path
+// but GUARANTEE removal on every teardown path: the cleanup is centralized at
+// the supervisor terminal-state transition (mutations.updateSupervisorState →
+// CleanupGeminiSettings) so graceful exit, supervise stop, and tmux kill/lost
+// all restore/remove the file. Codex and claude never persist a repo token
+// (codex reads STRIATUM_MCP_TOKEN; claude uses an ephemeral --mcp-config under
+// .striatum/scratch), so this repo-tree token is agy-only.
 func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), error) {
 	noop := func() {}
 	if strings.TrimSpace(repoRoot) == "" {

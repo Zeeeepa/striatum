@@ -26,6 +26,12 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 	}
 	requestedCapabilities := stringSliceParam(envelope, "capabilities", "capability")
 	fresh := boolParam(envelope, "fresh")
+	// RFC 0095 §5 (#60/#75): --replace (alias --force) opts in to atomically
+	// closing any active session on the same (run, role, lane) slot before
+	// registering the new one. Without it, a duplicate active session is no
+	// longer silently superseded (#75) — the handler returns the exact
+	// remediation naming which session to close (#60).
+	replace := boolParam(envelope, "replace") || boolParam(envelope, "force")
 	parentSessionID := nullable(stringParam(envelope, "parent_session_id"))
 	forceNonFresh := boolParam(envelope, "force_non_fresh")
 	nonFreshReason := stringParam(envelope, "non_fresh_reason")
@@ -93,6 +99,27 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			 FOR UPDATE`, repositoryID, runID, role, lane)
 		if err != nil {
 			return nil, err
+		}
+		// RFC 0095 §5: without --replace, do NOT implicitly supersede an existing
+		// active session on this slot. Parallel same-(role, lane) jobs (#75) need
+		// distinct active sessions, so a second fresh registration must succeed
+		// without closing the first. When the operator genuinely wants to replace
+		// a stranded session (#60), --replace closes the prior session(s) and
+		// transfers their leases; otherwise return the exact remediation.
+		if len(activeSessions) > 0 && !replace {
+			ids := make([]string, 0, len(activeSessions))
+			for _, s := range activeSessions {
+				ids = append(ids, fmt.Sprint(s["session_id"]))
+			}
+			return nil, rpc.NewError(
+				"invalid_transition",
+				fmt.Sprintf(
+					"an active session already exists on this (run, role, lane): %s. To run it in parallel, register a fresh session for a distinct queued job; to replace it, pass --replace (or close it first with `striatum session close %s`).",
+					strings.Join(ids, ", "),
+					ids[0],
+				),
+				map[string]any{"active_session_ids": ids},
+			)
 		}
 		for _, oldSess := range activeSessions {
 			oldSessID := fmt.Sprint(oldSess["session_id"])

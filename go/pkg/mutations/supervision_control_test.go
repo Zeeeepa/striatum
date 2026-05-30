@@ -374,6 +374,160 @@ func TestSupervisedEnvPathOverrideAppendsExistingAbsoluteDirs(t *testing.T) {
 	}
 }
 
+// TestSupervisedEnvExcludesDaemonSecrets is the #87 / RFC 0096 §2 regression:
+// the supervised lane env must be built from an explicit allowlist, NOT from
+// the daemon's os.Environ(), so a Postgres DSN / DATABASE_URL / any
+// secret-looking daemon var never leaks into the lane (and its pane). It also
+// pins that the required STRIATUM_* run/session vars and the agent-loop MCP
+// bootstrap vars DO pass through, and that an unexpected pass-through var widens
+// the allowlist only on purpose (this test fails loudly if it does).
+func TestSupervisedEnvExcludesDaemonSecrets(t *testing.T) {
+	// Plant secret-looking daemon vars + an arbitrary non-allowlisted var.
+	for k, v := range map[string]string{
+		"STRIATUM_POSTGRES_DSN": "postgres://striatumd_rw:hunter2@/striatum?host=/var/run/postgresql",
+		"DATABASE_URL":          "postgres:///striatum",
+		"PGPASSWORD":            "hunter2",
+		"PGHOST":                "/var/run/postgresql",
+		"AWS_SECRET_ACCESS_KEY": "should-not-leak",
+		"SOME_RANDOM_VAR":       "irrelevant",
+	} {
+		t.Setenv(k, v)
+	}
+	// Plant the bootstrap vars the lane genuinely needs so we can assert they
+	// pass through.
+	t.Setenv("STRIATUM_MCP_URL", "http://127.0.0.1:9999/mcp/sse")
+	t.Setenv("STRIATUM_MCP_TOKEN", "lane-bearer")
+	t.Setenv("HOME", "/home/lane")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LC_ALL", "en_US.UTF-8")
+
+	env := supervisedEnv("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+
+	// 1. No daemon secret leaks through.
+	for _, banned := range []string{
+		"STRIATUM_POSTGRES_DSN",
+		"DATABASE_URL",
+		"PGPASSWORD",
+		"PGHOST",
+		"AWS_SECRET_ACCESS_KEY",
+		"SOME_RANDOM_VAR",
+	} {
+		if hasEnvKey(env, banned) {
+			t.Fatalf("daemon secret %s leaked into supervised lane env: %#v", banned, env)
+		}
+	}
+	// Belt-and-suspenders: no entry should contain the secret value, regardless
+	// of key.
+	for _, entry := range env {
+		if strings.Contains(entry, "hunter2") || strings.Contains(entry, "should-not-leak") {
+			t.Fatalf("secret value leaked into supervised lane env entry: %q", entry)
+		}
+	}
+
+	// 2. Required STRIATUM_* run/session vars are present and correct.
+	for key, want := range map[string]string{
+		"STRIATUM_REPOSITORY_ID": "repo_1",
+		"STRIATUM_RUN_ID":        "run_1",
+		"STRIATUM_SESSION_ID":    "sess_1",
+		"STRIATUM_SUPERVISOR_ID": "sup_1",
+		"STRIATUM_REPO":          "/repo",
+		"STRIATUM_LANE_ID":       "lane_1",
+	} {
+		if got := envValue(t, env, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+
+	// 3. Agent-loop MCP bootstrap + OS basics pass through.
+	for key, want := range map[string]string{
+		"STRIATUM_MCP_URL":   "http://127.0.0.1:9999/mcp/sse",
+		"STRIATUM_MCP_TOKEN": "lane-bearer",
+		"HOME":               "/home/lane",
+		"TERM":               "xterm-256color",
+		"LC_ALL":             "en_US.UTF-8",
+	} {
+		if got := envValue(t, env, key); got != want {
+			t.Fatalf("expected pass-through %s = %q, got %q", key, want, got)
+		}
+	}
+
+	// 4. PATH is present exactly once.
+	if countEnv(env, "PATH") != 1 {
+		t.Fatalf("supervisedEnv should emit exactly one PATH, got %d", countEnv(env, "PATH"))
+	}
+}
+
+func hasEnvKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown is the #70 / RFC
+// 0096 §3 regression: the agy lane writes its MCP bearer token into the repo's
+// .gemini/settings.json, and that file must be removed on EVERY teardown path.
+// Cleanup is centralized at the supervisor terminal-state transition
+// (updateSupervisorState → cleanupSupervisorLaneMCPConfig), so this drives that
+// transition for each terminal state (stopped / lost / failed — the paths hit by
+// graceful exit, supervise stop, and tmux kill/lost) and asserts the token file
+// is gone, plus the non-terminal "attached" case which must NOT clean.
+func TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown(t *testing.T) {
+	plant := func(repo string) (settingsPath, createdMarker string) {
+		t.Helper()
+		settingsPath = filepath.Join(repo, ".gemini", "settings.json")
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			t.Fatalf("mkdir .gemini: %v", err)
+		}
+		// Simulate the per-launch token file the agy adapter wrote.
+		if err := os.WriteFile(settingsPath, []byte(`{"mcpServers":{"striatum":{"headers":{"Authorization":"Bearer secret"}}}}`), 0o600); err != nil {
+			t.Fatalf("write settings: %v", err)
+		}
+		// Simulate the "created (no pre-existing)" scratch marker so cleanup
+		// removes rather than restores.
+		scratch := filepath.Join(repo, ".striatum", "scratch", "sup_1")
+		if err := os.MkdirAll(scratch, 0o755); err != nil {
+			t.Fatalf("mkdir scratch: %v", err)
+		}
+		createdMarker = filepath.Join(scratch, "settings.json.created")
+		if err := os.WriteFile(createdMarker, nil, 0o600); err != nil {
+			t.Fatalf("write created marker: %v", err)
+		}
+		return settingsPath, createdMarker
+	}
+
+	for _, state := range []string{"stopped", "lost", "failed"} {
+		t.Run("terminal_"+state, func(t *testing.T) {
+			repo := t.TempDir()
+			settingsPath, _ := plant(repo)
+			tx := &superviseControlFakeTx{repoRoot: repo}
+			endedAt := "2026-05-30T00:00:00Z"
+			reason := "teardown via " + state
+			if err := updateSupervisorState(context.Background(), tx, "repo_1", "sup_1", "dsup_1", state, endedAt, 0, "", "", &endedAt, &reason); err != nil {
+				t.Fatalf("updateSupervisorState(%s): %v", state, err)
+			}
+			if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
+				t.Fatalf("state %s left the token file on disk: stat err = %v", state, err)
+			}
+		})
+	}
+
+	t.Run("non_terminal_attached_keeps_file", func(t *testing.T) {
+		repo := t.TempDir()
+		settingsPath, _ := plant(repo)
+		tx := &superviseControlFakeTx{repoRoot: repo}
+		if err := updateSupervisorState(context.Background(), tx, "repo_1", "sup_1", "dsup_1", "attached", "2026-05-30T00:00:00Z", 123, "tok", "", nil, nil); err != nil {
+			t.Fatalf("updateSupervisorState(attached): %v", err)
+		}
+		if _, err := os.Stat(settingsPath); err != nil {
+			t.Fatalf("non-terminal transition removed the live token file: %v", err)
+		}
+	})
+}
+
 func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	dir := t.TempDir()
 	pipePath := dir + "/stdin.pipe"

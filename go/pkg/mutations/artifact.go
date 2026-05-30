@@ -123,6 +123,50 @@ func publishArtifact(
 	if !errorsIsNoRows(err) {
 		return nil, err
 	}
+	// RFC 0095 §7 / GH #58: the artifacts table also enforces
+	// UNIQUE (repository_id, run_id, repo_path, content_sha256). The
+	// logical-name pre-check above does not cover this constraint, so a
+	// publish-artifact-then-submit-review flow that re-publishes the same
+	// finding body under a different logical name (e.g. the default
+	// "review" logical name on submit-review) used to crash the INSERT with
+	// a raw pgx 23505 on
+	// artifacts_repository_id_run_id_repo_path_content_sha256_key. Detect
+	// the already-published tuple here and treat it as an idempotent no-op
+	// success: reuse the existing artifact_id and emit a friendly structured
+	// notice so the caller (review.submit) can still record the verdict.
+	// Publishing *different* content at the same repo_path produces a
+	// different content_sha256, so it falls through to a fresh INSERT and is
+	// not silently collapsed; the same-content tuple is the only case we fold.
+	pathDup, err := oneRow(ctx, runner, `
+		SELECT artifact_id, logical_name FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND run_id = $2 AND repo_path = $3 AND content_sha256 = $4
+		 LIMIT 1`, repositoryID, job["run_id"], pathText, digest)
+	if err == nil {
+		if kind == "escalation" {
+			block, ok := frontMatterBlock(string(payload))
+			if !ok {
+				return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+			}
+			frontMatter, err := parseFrontMatterBlock(block)
+			if err != nil {
+				return nil, rpc.NewError("artifact_error", "escalation artifact front matter is required to link an escalation blocker", nil)
+			}
+			if err := linkEscalationArtifact(ctx, runner, repositoryID, frontMatter, fmt.Sprint(pathDup["artifact_id"]), fmt.Sprint(job["run_id"]), jobID, sessionID, pathText, digest, now); err != nil {
+				return nil, err
+			}
+		}
+		return map[string]any{
+			"status":         "already_published",
+			"artifact_id":    pathDup["artifact_id"],
+			"sha256":         digest,
+			"notice":         "artifact with identical content already published at this path; reusing existing artifact_id (idempotent no-op)",
+			"logical_name":   fmt.Sprint(pathDup["logical_name"]),
+			"reused_logical": logicalName,
+		}, nil
+	}
+	if !errorsIsNoRows(err) {
+		return nil, err
+	}
 	artifactID, err := newID("art")
 	if err != nil {
 		return nil, err

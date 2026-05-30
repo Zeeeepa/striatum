@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -279,5 +280,79 @@ func TestClaimNextReclaimRequeuedJobWithFreshSessionRequired(t *testing.T) {
 	}
 	if res3["status"] != "no_work" {
 		t.Fatalf("expected third claim status to be no_work, got %v", res3["status"])
+	}
+}
+
+// TestClaimNextRefusesClosedSession verifies RFC 0095 §4 (F-I/#81): a session
+// closed with close_reason interrogation_window_closed (process still alive)
+// must never be granted a revision-cycle job via work.claim_next /
+// work.await_packet. Both must refuse with a clear "register a fresh session"
+// error instead of letting the prior author rewrite its own challenged work.
+func TestClaimNextRefusesClosedSession(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_closed_session"
+	runID := "run_claim_closed_session"
+	sessionID := "sess_closed"
+	role := "worker"
+	lane := "claude"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+
+	// The session is closed (window closed) but its supervised process is alive.
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET state = 'closed', closed_at = NOW(), close_reason = 'interrogation_window_closed'
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID); err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+
+	// A revision-cycle job is queued and addressed to this (role, lane).
+	jobID := "job_revision"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+			repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			title, job_type, fresh_session_required, idempotency_key, created_at
+		) VALUES ($1, $2, $3, 'job_w_1', 2, 'queued', $4, 'Revision', 'draft', true, 'idem_rev', NOW())`,
+		repoID, jobID, runID, role); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+			repository_id, message_id, run_id, job_id, kind, state, target_role_id, target_lane_id, priority, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'work', 'pending', $5, $6, 10, NOW(), NOW())`,
+		repoID, "msg_rev", runID, jobID, role, lane); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+
+	// work.claim_next must refuse the closed session.
+	_, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("claim_next err = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, "register a fresh session") {
+		t.Fatalf("claim_next message = %q, want it to mention 'register a fresh session'", rpcErr.Message)
+	}
+
+	// work.await_packet must also refuse it (no delivery of work/interrogation).
+	_, err = HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("await_packet err = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, "register a fresh session") {
+		t.Fatalf("await_packet message = %q, want it to mention 'register a fresh session'", rpcErr.Message)
+	}
+
+	// The job must remain queued (not reclaimed by the closed session).
+	jobRow, err := oneRow(ctx, runner, `SELECT state FROM striatumd.jobs WHERE repository_id = $1 AND job_id = $2`, repoID, jobID)
+	if err != nil || fmt.Sprint(jobRow["state"]) != "queued" {
+		t.Fatalf("job should remain queued, got state: %v, err: %v", jobRow["state"], err)
 	}
 }
