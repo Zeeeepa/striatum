@@ -65,6 +65,7 @@ var usageByGroup = map[string]Usage{
 	"session_close": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session to close"},
+			{Name: "reason", Required: true, Help: "why the session is being closed (the daemon rejects an empty reason: \"session close reason must not be empty\")"},
 		},
 	},
 	"checkpoint_resolve": {

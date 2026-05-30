@@ -113,6 +113,12 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		}
 	}
 
+	// #64: advise (warn, never hard-fail) when ~/.codex/config.toml points at a
+	// stale MCP endpoint or codex would start without a bearer. The token VALUE
+	// is never read or returned.
+	codexBlock, codexWarnings := codexDoctorBlock()
+	warnings := append([]string{}, codexWarnings...)
+
 	return map[string]any{
 		"ok":             len(problems) == 0,
 		"schema_version": schemaVersion,
@@ -120,6 +126,8 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"waiting_human":  waitingHuman,
 		"supervisors":    supervisorLiveness,
 		"problems":       problems,
+		"warnings":       warnings,
+		"codex":          codexBlock,
 		"blob":           blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }

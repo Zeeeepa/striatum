@@ -55,6 +55,50 @@ func TestRenderHelpEnumValues(t *testing.T) {
 	}
 }
 
+// session close rejects an empty reason server-side ("session close reason
+// must not be empty"), so `--help` must list --reason as REQUIRED instead of
+// sending operators down a failing path with only <session-id> (issue #72).
+func TestRenderHelpSessionCloseListsRequiredReason(t *testing.T) {
+	route, _, ok := Lookup([]string{"session", "close"})
+	if !ok {
+		t.Fatalf("session close route not found")
+	}
+	if route.ParamsGroup != "session_close" {
+		t.Fatalf("session close ParamsGroup = %q, want session_close", route.ParamsGroup)
+	}
+	usage, ok := UsageFor("session_close")
+	if !ok {
+		t.Fatalf("missing usage descriptor for session_close")
+	}
+	var reason Param
+	found := false
+	for _, p := range usage.Params {
+		if p.Name == "reason" {
+			reason = p
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("session_close usage missing --reason param: %#v", usage.Params)
+	}
+	if !reason.Required {
+		t.Fatalf("session_close --reason must be Required, got %#v", reason)
+	}
+	help := route.RenderHelp()
+	// Synopsis shows --reason as required (no surrounding brackets), and the
+	// "required:" section lists it.
+	if !strings.Contains(help, "--reason <value>") {
+		t.Fatalf("session close synopsis missing required --reason token:\n%s", help)
+	}
+	requiredSection := help
+	if idx := strings.Index(help, "optional:"); idx >= 0 {
+		requiredSection = help[:idx]
+	}
+	if !strings.Contains(requiredSection, "required:") || !strings.Contains(requiredSection, "--reason") {
+		t.Fatalf("session close help does not list --reason under required:\n%s", help)
+	}
+}
+
 // Every operator verb named in issue #63 F9 must have a usage descriptor so
 // `--help` lists its flags instead of surfacing them only as runtime errors.
 func TestUsageCoversIssue63Verbs(t *testing.T) {

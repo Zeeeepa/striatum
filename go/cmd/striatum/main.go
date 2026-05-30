@@ -36,6 +36,25 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, err.Error())
 		return 2
 	}
+	// scope-check is a single-token local diagnostic (no daemon dependency, no
+	// mutation): a pre-work.complete write_scope drift check (issue #91 /
+	// RFC 0099 Phase-1 seed). Dispatch it before the daemon route so it never
+	// requires an endpoint or capability token.
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "scope-check" {
+		scopeArgs := globals.CommandArgs[1:]
+		if globals.JSONOutput && !containsFlag(scopeArgs, "--json") {
+			scopeArgs = append(scopeArgs, "--json")
+		}
+		return runScopeCheck(scopeArgs, stdout, stderr, globals.RepoPath)
+	}
+	// `striatum codex` is a local launcher that wires codex to the live daemon
+	// MCP endpoint + runtime client-token so an operator outside a supervised
+	// lane no longer has to export STRIATUM_MCP_TOKEN and hand-edit
+	// ~/.codex/config.toml on every key rotation (#64). It execs codex, so it
+	// must run before the daemon route; all trailing args pass through unchanged.
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "codex" {
+		return runCodex(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
+	}
 	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
 		commandArgs := globals.CommandArgs
 		switch commandArgs[0] {
