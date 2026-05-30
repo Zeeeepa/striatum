@@ -29,6 +29,7 @@ var (
 		"evidence_backed", "implementation_panel", "multi_review_synthesis",
 		"multi_phase", "custom", "conversation",
 		"falsification_gate", "cross_examination",
+		"adjudicated_constraint_extraction",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -558,7 +559,7 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			}
 		}
 		return jobs, edges, nil, nil, nil
-	case "falsification_gate", "cross_examination":
+	case "falsification_gate", "cross_examination", "adjudicated_constraint_extraction":
 		return compileCollaborationShape(spec)
 	case "implementation_panel":
 		jobs, edges, cycles, err := compileImplementationPanel(spec)
@@ -735,6 +736,8 @@ func compileCollaborationShape(spec Spec) ([]map[string]any, []map[string]any, [
 		return compileFalsificationGate(spec, max)
 	case "cross_examination":
 		return compileCrossExamination(spec, max)
+	case "adjudicated_constraint_extraction":
+		return compileAdjudicatedConstraintExtraction(spec, max)
 	default:
 		return nil, nil, nil, nil, genErr("unknown collaboration shape", "spec.shape")
 	}
@@ -843,6 +846,193 @@ func compileCrossExamination(spec Spec, maxCycles int) ([]map[string]any, []map[
 	}
 	cycles := []map[string]any{cycle}
 	return jobs, edges, cycles, collaborationPhases(), nil
+}
+
+// adjudicatedConstraintPostures returns the cross-examiner posture set for the
+// adjudicated_constraint_extraction shape. RFC 0098 §2 ships a default five-posture
+// pack (product / implementation / privacy / eval / operations) and lets a workflow
+// override it via options.review_postures. Postures here are free-form shape labels
+// recorded in the ledger, not the lint posture vocabulary, so they are slugified
+// rather than validated against allowedPostures.
+func adjudicatedConstraintPostures(spec Spec) ([]string, error) {
+	defaults := []string{"product", "implementation", "privacy", "eval", "operations"}
+	raw, ok := spec.Options["review_postures"].([]any)
+	if !ok || len(raw) == 0 {
+		return defaults, nil
+	}
+	values := []string{}
+	for idx, item := range raw {
+		posture := strings.TrimSpace(fmt.Sprint(item))
+		if !safePanelSlug(posture) {
+			return nil, genErr("review_postures entries must match ^[a-z0-9._-]{1,64}$", fmt.Sprintf("spec.options.review_postures[%d]", idx))
+		}
+		values = append(values, posture)
+	}
+	return values, nil
+}
+
+// compileAdjudicatedConstraintExtraction emits the RFC 0098 eight-phase
+// productive-refusal loop as a striatum.workflow.v1.1 phased graph. Each declared
+// phase carries exactly one phase_synthesis job plus a peer, so the shared
+// ValidatePhaseShapes rules (workflow validate AND run.prepare, GH #66) accept it.
+//
+// The load-bearing structure (RFC 0098 §1):
+//   - adjudication's phase_synthesis publishes the collaboration_ledger gate; a
+//     needs_revision verdict re-opens convener_synthesis as an RFC 0083 bounded
+//     cycle (max_cycles) so the constraint table is carried forward.
+//   - every artifact re-published inside the revision cycle (the convener synthesis
+//     ledger, the adjudication ledger, the revision synthesis, the discharge
+//     re-review) uses a ${cycle}-templated logical_name/path so republish does not
+//     collide on the append-only artifacts table (RFC 0098 Acceptance #4 / GH #84).
+//   - spec_publication consumes the latest cleared ledger; final_review reads the
+//     binding constraints + spec and is a discharge typecheck (slice 3 gates it).
+func compileAdjudicatedConstraintExtraction(spec Spec, maxCycles int) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
+	base := spec.ArtifactRoot
+	topic := collaborationTopic(spec)
+	postures, err := adjudicatedConstraintPostures(spec)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	authorL := authorLane(spec)
+	adjLane := collaborationAdjudicatorLane(spec)
+
+	jobs := []map[string]any{}
+	edges := []map[string]any{}
+	phases := []map[string]any{}
+
+	// --- survey ---------------------------------------------------------------
+	surveyScan := job("survey_scan", "build", "Survey prior art and constraints", "convener", authorL, base+"/survey/scan", "SURVEY.md", "handoff", "survey_scan", "ace_survey", "Survey the prior art, evidence, and existing constraints relevant to "+topic+".")
+	surveyScan["phase_id"] = "survey"
+	surveySynth := job("survey_synthesis", "phase_synthesis", "Frame the survey", "convener", authorL, base+"/survey/synthesis", "SURVEY_SYNTHESIS.md", "synthesis", "survey_synthesis", "ace_survey_synthesis", "Frame the problem, goals, non-goals, and decision criteria for "+topic+" from the survey.")
+	surveySynth["phase_id"] = "survey"
+	jobs = append(jobs, surveyScan, surveySynth)
+	edges = append(edges, map[string]any{"from": "survey_scan", "to": "survey_synthesis", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "survey", "name": "Survey", "description": "Frame the problem and existing constraints before synthesis", "synthesis_job_id": "survey_synthesis"})
+
+	// --- convener_synthesis ---------------------------------------------------
+	// Cycle-aware: each needs_revision re-opens this phase, so the candidate
+	// synthesis logical_name/path are ${cycle}-templated to republish cleanly.
+	convenerDraft := job("convener_draft", "build", "Draft candidate synthesis", "convener", authorL, base+"/convener_synthesis/draft", "CANDIDATE_${cycle}.md", "handoff", "convener_candidate_${cycle}", "ace_convener", "Draft the candidate synthesis for "+topic+" and stay live for cross-examination.")
+	convenerDraft["phase_id"] = "convener_synthesis"
+	convenerDraft["interrogable"] = true
+	convenerSynth := job("convener_synthesis", "phase_synthesis", "Publish candidate synthesis", "convener", authorL, base+"/convener_synthesis/synthesis", "SYNTHESIS_${cycle}.md", "synthesis", "convener_synthesis_${cycle}", "ace_convener_synthesis", "Publish the candidate synthesis for "+topic+"; on a revision cycle, discharge each prior constraints[] row explicitly.")
+	convenerSynth["phase_id"] = "convener_synthesis"
+	jobs = append(jobs, convenerDraft, convenerSynth)
+	edges = append(edges, map[string]any{"from": "convener_draft", "to": "convener_synthesis", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "convener_synthesis", "name": "Convener synthesis", "description": "Publish the candidate synthesis; re-opened by needs_revision to discharge constraints", "synthesis_job_id": "convener_synthesis"})
+
+	// --- cross_exam -----------------------------------------------------------
+	crossSynthInputs := []string{}
+	for idx, posture := range postures {
+		id := fmt.Sprintf("cross_examiner_%d", idx+1)
+		examiner := job(id, "build", fmt.Sprintf("Cross-examiner (%s)", posture), "cross_examiner", collaborationReviewerLane(spec, idx+1), fmt.Sprintf("%s/cross_exam/%s", base, posture), "CROSS_EXAM.md", "handoff", id, "ace_cross_examiner", "Challenge the candidate synthesis for "+topic+" from the "+posture+" posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.")
+		examiner["phase_id"] = "cross_exam"
+		examiner["parallel_group"] = "cross_exam"
+		jobs = append(jobs, examiner)
+		crossSynthInputs = append(crossSynthInputs, id)
+	}
+	crossSynth := job("cross_exam_synthesis", "phase_synthesis", "Roll up cross-examination", "convener", adjLane, base+"/cross_exam/synthesis", "CROSS_EXAM_SYNTHESIS_${cycle}.md", "findings_ledger", "cross_exam_findings_${cycle}", "ace_cross_exam_synthesis", "Roll up every cross-examiner posture into one findings ledger; preserve unanswered interrogations as evidence.")
+	crossSynth["phase_id"] = "cross_exam"
+	jobs = append(jobs, crossSynth)
+	for _, id := range crossSynthInputs {
+		edges = append(edges, map[string]any{"from": id, "to": "cross_exam_synthesis", "on": "completed"})
+	}
+	phases = append(phases, map[string]any{"id": "cross_exam", "name": "Cross-examination", "description": "Posture-specific adversarial challenge of the candidate synthesis", "synthesis_job_id": "cross_exam_synthesis"})
+
+	// --- adjudication ---------------------------------------------------------
+	// The adjudication ledger is the RFC 0093 gate, cycle-aware, and the source of
+	// the constraints[] table carried into revision.
+	adjudicatePeer := job("adjudication_intake", "build", "Stage adjudication inputs", "adjudicator", adjLane, base+"/adjudication/intake", "INTAKE_${cycle}.md", "handoff", "adjudication_intake_${cycle}", "ace_adjudication_intake", "Assemble the candidate synthesis and cross-examination findings for adjudication of "+topic+".")
+	adjudicatePeer["phase_id"] = "adjudication"
+	adjudicate := job("adjudicate", "phase_synthesis", "Adjudicate and extract constraints", "adjudicator", adjLane, base+"/adjudication/adjudicator", "COLLABORATION_LEDGER_${cycle}.md", "collaboration_ledger", "collaboration_ledger_${cycle}", "ace_adjudicate", "Read only the curated trajectory for "+topic+"; publish the collaboration_ledger verdict and, on needs_revision, convert load-bearing challenges into a non-empty constraints[] table.")
+	adjudicate["phase_id"] = "adjudication"
+	adjudicate["fresh_session_required"] = true
+	jobs = append(jobs, adjudicatePeer, adjudicate)
+	edges = append(edges, map[string]any{"from": "adjudication_intake", "to": "adjudicate", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "adjudication", "name": "Adjudication", "description": "Productive refusal: convert load-bearing challenges into binding constraints", "synthesis_job_id": "adjudicate"})
+
+	// --- revision_synthesis ---------------------------------------------------
+	// Receives the prior cycle's constraints[] as first-class inputs and discharges
+	// each one; cycle-aware logical names so republish is collision-free.
+	revisionDraft := job("revision_draft", "build", "Discharge constraints", "revision_convener", authorL, base+"/revision_synthesis/draft", "REVISION_${cycle}.md", "handoff", "revision_draft_${cycle}", "ace_revision_convener", "Take the prior cycle's constraints[] as binding input and discharge each row explicitly (answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor) for "+topic+".")
+	revisionDraft["phase_id"] = "revision_synthesis"
+	revisionSynth := job("revision_synthesis", "phase_synthesis", "Publish revised synthesis", "revision_convener", authorL, base+"/revision_synthesis/synthesis", "REVISION_SYNTHESIS_${cycle}.md", "synthesis", "revision_synthesis_${cycle}", "ace_revision_synthesis", "Publish the revised synthesis that discharges the adjudicated constraints[] for "+topic+".")
+	revisionSynth["phase_id"] = "revision_synthesis"
+	jobs = append(jobs, revisionDraft, revisionSynth)
+	edges = append(edges, map[string]any{"from": "revision_draft", "to": "revision_synthesis", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "revision_synthesis", "name": "Revision synthesis", "description": "Republish the synthesis discharging each adjudicated constraint", "synthesis_job_id": "revision_synthesis"})
+
+	// --- constraint_discharge_review ------------------------------------------
+	// A re-review of the discharge; cycle-aware so each re-publish is distinct.
+	dischargeReview := job("discharge_review", "review", "Review constraint discharge", "adjudicator", adjLane, base+"/constraint_discharge_review/review", "DISCHARGE_REVIEW_${cycle}.md", "finding", "discharge_review_${cycle}", "ace_discharge_review", "Verify the revised synthesis discharges each binding constraint for "+topic+"; flag any constraint still open.")
+	dischargeReview["phase_id"] = "constraint_discharge_review"
+	dischargeReview["fresh_session_required"] = true
+	dischargeReview["write_scope"] = map[string]any{"mode": "review_only_artifact", "repo_write": false, "allowed_paths": []string{base + "/constraint_discharge_review/review/"}, "forbidden_paths": []string{".striatum/"}}
+	dischargeSynth := job("discharge_review_synthesis", "phase_synthesis", "Confirm discharge", "adjudicator", adjLane, base+"/constraint_discharge_review/synthesis", "DISCHARGE_SYNTHESIS_${cycle}.md", "synthesis", "discharge_review_synthesis_${cycle}", "ace_discharge_review_synthesis", "Confirm the latest cleared constraint ledger before spec publication for "+topic+".")
+	dischargeSynth["phase_id"] = "constraint_discharge_review"
+	jobs = append(jobs, dischargeReview, dischargeSynth)
+	edges = append(edges, map[string]any{"from": "discharge_review", "to": "discharge_review_synthesis", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "constraint_discharge_review", "name": "Constraint discharge review", "description": "Confirm each binding constraint cleared before publication", "synthesis_job_id": "discharge_review_synthesis"})
+
+	// --- spec_publication -----------------------------------------------------
+	specDraft := job("spec_draft", "build", "Author the spec", "spec_author", authorL, base+"/spec_publication/draft", "SPEC.md", "handoff", "spec_draft", "ace_spec_author", "Write the RFC/spec for "+topic+" from the latest cleared constraint ledger as binding input, not from the original proposal.")
+	specDraft["phase_id"] = "spec_publication"
+	specSynth := job("spec_publication", "phase_synthesis", "Publish the spec", "spec_author", authorL, base+"/spec_publication/synthesis", "SPEC_PUBLICATION.md", "synthesis", "spec_publication", "ace_spec_publication", "Publish the spec gated on the latest cleared collaboration ledger for "+topic+".")
+	specSynth["phase_id"] = "spec_publication"
+	jobs = append(jobs, specDraft, specSynth)
+	edges = append(edges, map[string]any{"from": "spec_draft", "to": "spec_publication", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "spec_publication", "name": "Spec publication", "description": "Author the spec from the latest cleared constraint ledger", "synthesis_job_id": "spec_publication"})
+
+	// --- final_review ---------------------------------------------------------
+	// A discharge typecheck: emits a constraint_discharge table and fails closed on
+	// any undischarged binding constraint (slice 3 gates it; the prompt describes it).
+	finalCheck := job("final_discharge_check", "review", "Typecheck constraint discharge", "final_reviewer", adjLane, base+"/final_review/check", "CONSTRAINT_DISCHARGE.md", "finding", "constraint_discharge", "ace_final_review", "Emit a constraint_discharge table for "+topic+": for each binding constraint mark discharged / partial / missing / accepted_risk with evidence. This is a typecheck — do not re-run the forum.")
+	finalCheck["phase_id"] = "final_review"
+	finalCheck["fresh_session_required"] = true
+	finalCheck["write_scope"] = map[string]any{"mode": "review_only_artifact", "repo_write": false, "allowed_paths": []string{base + "/final_review/check/"}, "forbidden_paths": []string{".striatum/"}}
+	finalSynth := job("final_review_synthesis", "phase_synthesis", "Finalize the run", "final_reviewer", adjLane, base+"/final_review/synthesis", "FINAL_SUMMARY.md", "synthesis", "final_review_synthesis", "ace_final_review_synthesis", "Summarize the discharge typecheck result; the run fails closed on any undischarged binding constraint.")
+	finalSynth["phase_id"] = "final_review"
+	jobs = append(jobs, finalCheck, finalSynth)
+	edges = append(edges, map[string]any{"from": "final_discharge_check", "to": "final_review_synthesis", "on": "completed"})
+	phases = append(phases, map[string]any{"id": "final_review", "name": "Final review", "description": "Discharge typecheck; fails closed on undischarged binding constraints", "synthesis_job_id": "final_review_synthesis"})
+
+	// --- cross-phase sequencing edges (synthesis -> next phase entry) ----------
+	// Each edge originates at a phase's synthesis job and targets the immediate
+	// next phase's non-synthesis entry, satisfying ValidatePhaseShapes.
+	sequence := [][2]string{
+		{"survey_synthesis", "convener_draft"},
+		{"convener_synthesis", "cross_examiner_1"},
+		{"cross_exam_synthesis", "adjudication_intake"},
+		{"adjudicate", "revision_draft"},
+		{"revision_synthesis", "discharge_review"},
+		{"discharge_review_synthesis", "spec_draft"},
+		{"spec_publication", "final_discharge_check"},
+	}
+	for _, pair := range sequence {
+		edges = append(edges, map[string]any{"from": pair[0], "to": pair[1], "on": "completed"})
+	}
+	// convener_synthesis also fans out to the remaining cross-examiners so the whole
+	// posture panel opens together (parallel_group cross_exam).
+	for idx := range postures {
+		if idx == 0 {
+			continue
+		}
+		edges = append(edges, map[string]any{"from": "convener_synthesis", "to": fmt.Sprintf("cross_examiner_%d", idx+1), "on": "completed"})
+	}
+
+	// --- revision cycle (RFC 0083 bounded; absorbed by adjudication, RFC 0098 #77)
+	cycle := map[string]any{
+		"from":            "adjudicate",
+		"to":              "convener_draft",
+		"on_verdict":      "needs_revision",
+		"max_iterations":  maxCycles,
+		"allow_same_lane": true,
+	}
+	if spec.LaneSet == "local" {
+		cycle["allow_same_model"] = true
+	}
+	cycles := []map[string]any{cycle}
+	return jobs, edges, cycles, phases, nil
 }
 
 func collaborationAdjudicatorJob(spec Spec, topic string) map[string]any {
@@ -1516,6 +1706,10 @@ func roleStub(role string) string {
 		"adjudicator":       "# Adjudicator Role\n\nYou read only the curated dialogue trajectory, never raw terminal output. Publish the collaboration ledger and verdict according to the substance rubric.\n",
 		"scribe":            "# Scribe Role\n\nYou record only the decision trail visible in the dialogue trajectory. Do not hypothesize, infer hidden reasoning, or add claims that are not present in the curated dialogue.\n",
 		"committer":         "# Committer Role\n\nYou publish the downstream proposal or finding only after the collaboration ledger verdict clears the phase gate.\n",
+		"convener":          "# Convener Role\n\nYou frame the problem, draft the candidate synthesis, and stay live for cross-examination. On a revision cycle you receive the prior cycle's constraints[] as binding input and must discharge each row explicitly. Do not treat dialogue completion as acceptance; the adjudicator ledger decides whether the gate clears.\n",
+		"revision_convener": "# Revision Convener Role\n\nYou republish the synthesis after an adjudicated needs_revision. You take the prior cycle's constraints[] as first-class input and discharge each row explicitly (answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor). Republished artifacts use the cycle-templated logical name.\n",
+		"spec_author":       "# Spec Author Role\n\nYou write the RFC/spec using the latest cleared constraint ledger as binding input, not the original proposal. Every binding constraint must land in the spec as testable text or a gate.\n",
+		"final_reviewer":    "# Final Reviewer Role\n\nYou verify discharge, you do not re-run the forum. Emit a constraint_discharge table marking each binding constraint discharged / partial / missing / accepted_risk with evidence. Final review is a typecheck that fails closed on any undischarged binding constraint.\n",
 	}
 	if content, ok := panelRoles[role]; ok {
 		return content
@@ -1550,6 +1744,38 @@ func promptStub(prompt string) string {
 		return "Publish the downstream proposal or finding after the adjudicator ledger verdict clears the phase gate.\n"
 	case "collaboration_final_summary.md":
 		return "Summarize the collaboration gate result and downstream publication in a final synthesis artifact.\n"
+	case "ace_survey.md":
+		return "Survey the prior art, evidence, and existing constraints for the topic. Record what is already known and what is contested; do not synthesize a solution yet.\n"
+	case "ace_survey_synthesis.md":
+		return "Frame the problem, goals, non-goals, and decision criteria from the survey. This phase synthesis sets the scope the candidate synthesis must address.\n"
+	case "ace_convener.md":
+		return "Draft the candidate synthesis and stay live for cross-examination. On a revision cycle you receive the prior cycle's constraints[] as binding input; discharge each row explicitly. Do not treat dialogue completion as acceptance.\n"
+	case "ace_convener_synthesis.md":
+		return "Publish the candidate synthesis. On a revision cycle, every prior constraints[] row must be discharged explicitly (answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor). This artifact is cycle-templated so it republishes cleanly.\n"
+	case "ace_cross_examiner.md":
+		return "Challenge the candidate synthesis from your assigned posture only (product / implementation / privacy / eval / operations or the configured override). Record findings[] rows with severity, the affected invariant, the closest acceptable answer, and the constraint shape you would require. An unanswered interrogation is evidence — record it.\n"
+	case "ace_cross_exam_synthesis.md":
+		return "Roll up every cross-examiner posture into one findings ledger. Preserve each finding's posture, severity, and status; carry unanswered interrogations forward as evidence for the adjudicator.\n"
+	case "ace_adjudication_intake.md":
+		return "Assemble the candidate synthesis and the cross-examination findings for adjudication. Do not add new challenges; stage the curated trajectory only.\n"
+	case "ace_adjudicate.md":
+		return "Read only the curated trajectory. Publish the collaboration_ledger verdict (accept / accept_with_findings / needs_revision / reject). On needs_revision you MUST convert each load-bearing challenge into a binding constraints[] row (or an explicit unresolved_question row); a naked refusal with an empty constraints[] is rejected (exit code 6). Each binding constraint needs a typed kind, a source_finding, a posture, severity, and a verification gate or expected_stage. Maintain the posture-disposition matrix in branches{}.\n"
+	case "ace_revision_convener.md":
+		return "Take the prior cycle's constraints[] as binding input. Discharge each row explicitly: answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor. A high-severity challenge may only leave open via a recorded disposition. Republished artifacts use the cycle-templated logical name.\n"
+	case "ace_revision_synthesis.md":
+		return "Publish the revised synthesis that discharges the adjudicated constraints[]. Each binding constraint must be visibly addressed; this phase synthesis is the candidate the discharge review checks.\n"
+	case "ace_discharge_review.md":
+		return "Review the revised synthesis against the binding constraints[]. Confirm each constraint is discharged or flag it still open; this re-review is cycle-templated so each cycle republishes cleanly.\n"
+	case "ace_discharge_review_synthesis.md":
+		return "Confirm the latest cleared constraint ledger before spec publication. Record which ledger cycle is binding for the spec author.\n"
+	case "ace_spec_author.md":
+		return "Write the RFC/spec from the latest cleared constraint ledger as binding input — not from the original proposal. Every binding constraint must land in the spec as testable text or a gate.\n"
+	case "ace_spec_publication.md":
+		return "Publish the spec gated on the latest cleared collaboration ledger. The spec begins from adjudicated constraints, not the original proposal.\n"
+	case "ace_final_review.md":
+		return "Emit a constraint_discharge table: for each binding constraint, mark discharged / partial / missing / accepted_risk with evidence (a spec section or gate reference). Final review is a typecheck — do not re-run the forum. It fails closed on any binding constraint that is missing or partial-without-accepted-risk.\n"
+	case "ace_final_review_synthesis.md":
+		return "Summarize the discharge typecheck. The run fails closed on any undischarged binding constraint; record the coverage counts (raised / converted / discharged) for the dashboard.\n"
 	default:
 		return fmt.Sprintf("Complete the %s step declared by the workflow.\n", strings.ReplaceAll(strings.TrimSuffix(prompt, ".md"), "_", " "))
 	}
@@ -1739,6 +1965,9 @@ func coordinator(spec Spec, lanes map[string]any) map[string]any {
 	if spec.Shape == "cross_examination" {
 		return map[string]any{"role_id": "author", "lane_id": authorLane(spec)}
 	}
+	if spec.Shape == "adjudicated_constraint_extraction" {
+		return map[string]any{"role_id": "convener", "lane_id": authorLane(spec)}
+	}
 	lane := "local"
 	if lanes[lane] == nil {
 		if lanes["author"] != nil {
@@ -1847,7 +2076,7 @@ func maxCycles(spec Spec) (int, error) {
 }
 
 func isCollaborationShape(shape string) bool {
-	return shape == "falsification_gate" || shape == "cross_examination"
+	return shape == "falsification_gate" || shape == "cross_examination" || shape == "adjudicated_constraint_extraction"
 }
 
 func validatePosture(posture, fieldPath string) error {

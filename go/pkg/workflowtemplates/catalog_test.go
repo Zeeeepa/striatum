@@ -34,6 +34,9 @@ func TestLoadCurrentCatalogListsAndInjectsMultiPhase(t *testing.T) {
 	if ids["cross_examination"] != "shape" {
 		t.Fatalf("cross_examination shape missing from catalog: %#v", ids)
 	}
+	if ids["adjudicated_constraint_extraction"] != "shape" {
+		t.Fatalf("adjudicated_constraint_extraction shape missing from catalog: %#v", ids)
+	}
 	if ids["implementation_panel_roles"] != "role_pack" {
 		t.Fatalf("implementation_panel role pack missing from catalog: %#v", ids)
 	}
@@ -100,7 +103,7 @@ func TestCatalogCollaborationShapesDeclarePackAndExamples(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	for _, id := range []string{"falsification_gate", "cross_examination"} {
+	for _, id := range []string{"falsification_gate", "cross_examination", "adjudicated_constraint_extraction"} {
 		entry, err := catalog.Get(id)
 		if err != nil {
 			t.Fatalf("Get(%s): %v", id, err)

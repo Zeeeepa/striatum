@@ -12,6 +12,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 )
 
 func TestPreviewReturnsPlannedWritesWithoutWriting(t *testing.T) {
@@ -329,6 +331,189 @@ func TestCollaborationShapeRejectsSingleAgentLaneSet(t *testing.T) {
 	_, err := GenerateFromMap(spec)
 	if err == nil || !strings.Contains(err.Error(), "collaboration shapes require") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdjudicatedConstraintExtractionEmitsEightPhaseGraph(t *testing.T) {
+	spec := adjudicatedConstraintExtractionGeneratorSpec()
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := generated.Workflow
+	// The emitted graph validates, and therefore passes the shared phase-shape
+	// rules that run.prepare also enforces (GH #66).
+	if err := ValidateWorkflow(workflow); err != nil {
+		t.Fatalf("ValidateWorkflow: %v", err)
+	}
+	if err := workflowauthoring.ValidatePhaseShapes(workflow); err != nil {
+		t.Fatalf("ValidatePhaseShapes (run.prepare rules): %v", err)
+	}
+	if workflow["schema_version"] != WorkflowSchemaVersionV11 {
+		t.Fatalf("schema_version = %#v", workflow["schema_version"])
+	}
+
+	// Exactly the eight declared phases, in order, each naming one phase_synthesis.
+	wantPhases := [][2]string{
+		{"survey", "survey_synthesis"},
+		{"convener_synthesis", "convener_synthesis"},
+		{"cross_exam", "cross_exam_synthesis"},
+		{"adjudication", "adjudicate"},
+		{"revision_synthesis", "revision_synthesis"},
+		{"constraint_discharge_review", "discharge_review_synthesis"},
+		{"spec_publication", "spec_publication"},
+		{"final_review", "final_review_synthesis"},
+	}
+	phases := listFrom(workflow["phases"])
+	if len(phases) != len(wantPhases) {
+		t.Fatalf("phase count = %d (%#v)", len(phases), workflow["phases"])
+	}
+	jobs := jobsByID(workflow["jobs"])
+	synthCountByPhase := map[string]int{}
+	for _, item := range listFrom(workflow["jobs"]) {
+		job := mapFrom(item)
+		if job["type"] == "phase_synthesis" {
+			synthCountByPhase[fmt.Sprint(job["phase_id"])]++
+		}
+	}
+	for idx, want := range wantPhases {
+		phase := mapFrom(phases[idx])
+		if phase["id"] != want[0] {
+			t.Fatalf("phase[%d].id = %#v, want %q", idx, phase["id"], want[0])
+		}
+		if phase["synthesis_job_id"] != want[1] {
+			t.Fatalf("phase %q synthesis_job_id = %#v, want %q", want[0], phase["synthesis_job_id"], want[1])
+		}
+		if synthCountByPhase[want[0]] != 1 {
+			t.Fatalf("phase %q has %d phase_synthesis jobs, want exactly 1", want[0], synthCountByPhase[want[0]])
+		}
+		synth := jobs[want[1]]
+		if synth["type"] != "phase_synthesis" || synth["phase_id"] != want[0] {
+			t.Fatalf("synthesis job %q = %#v", want[1], synth)
+		}
+	}
+
+	// The adjudication gate is the cycle-aware collaboration_ledger.
+	adjudicate := jobs["adjudicate"]
+	if adjudicate["role_id"] != "adjudicator" {
+		t.Fatalf("adjudicate role = %#v", adjudicate["role_id"])
+	}
+	ledger := mapFrom(listFrom(adjudicate["expected_artifacts"])[0])
+	if ledger["kind"] != "collaboration_ledger" || ledger["logical_name"] != "collaboration_ledger_${cycle}" {
+		t.Fatalf("adjudicate ledger = %#v", ledger)
+	}
+
+	// The needs_revision cycle re-opens the convener synthesis (bounded by max_cycles).
+	cycles := listFrom(workflow["cycles"])
+	if len(cycles) != 1 {
+		t.Fatalf("cycles = %#v", workflow["cycles"])
+	}
+	cycle := mapFrom(cycles[0])
+	if cycle["from"] != "adjudicate" || cycle["to"] != "convener_draft" || cycle["on_verdict"] != "needs_revision" {
+		t.Fatalf("revision cycle = %#v", cycle)
+	}
+	if maxIterations, _ := intFrom(cycle["max_iterations"]); maxIterations != 2 {
+		t.Fatalf("cycle max_iterations = %#v, want 2", cycle["max_iterations"])
+	}
+
+	// All six RFC 0098 roles are present; one cross_examiner per default posture.
+	roles := mapFrom(workflow["roles"])
+	for _, role := range []string{"convener", "cross_examiner", "adjudicator", "revision_convener", "spec_author", "final_reviewer"} {
+		if _, ok := roles[role]; !ok {
+			t.Fatalf("missing role %q in %#v", role, roles)
+		}
+	}
+	examinerCount := 0
+	for id := range jobs {
+		if strings.HasPrefix(id, "cross_examiner_") {
+			examinerCount++
+		}
+	}
+	if examinerCount != 5 {
+		t.Fatalf("cross_examiner count = %d, want 5 (default postures)", examinerCount)
+	}
+	if generated.Metadata["shape_family"] != "collaboration" {
+		t.Fatalf("metadata shape_family = %#v", generated.Metadata["shape_family"])
+	}
+}
+
+func TestAdjudicatedConstraintExtractionUsesCycleAwareLogicalNames(t *testing.T) {
+	generated, err := GenerateFromMap(adjudicatedConstraintExtractionGeneratorSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := jobsByID(generated.Workflow["jobs"])
+
+	// Every re-publishable artifact inside the revision cycle must carry a
+	// ${cycle}-templated logical_name AND path so republish does not collide on
+	// the append-only artifacts table (RFC 0098 Acceptance #4 / GH #84).
+	cycleScoped := []string{
+		"convener_draft", "convener_synthesis", "cross_exam_synthesis",
+		"adjudication_intake", "adjudicate", "revision_draft",
+		"revision_synthesis", "discharge_review", "discharge_review_synthesis",
+	}
+	for _, id := range cycleScoped {
+		job := jobs[id]
+		artifact := mapFrom(listFrom(job["expected_artifacts"])[0])
+		logical, _ := artifact["logical_name"].(string)
+		artifactPath, _ := artifact["path"].(string)
+		if !strings.Contains(logical, "${cycle}") {
+			t.Fatalf("job %q logical_name %q is not cycle-templated", id, logical)
+		}
+		if !strings.Contains(artifactPath, "${cycle}") {
+			t.Fatalf("job %q path %q is not cycle-templated", id, artifactPath)
+		}
+	}
+
+	// Run-once artifacts (outside the revision cycle) keep fixed names.
+	for _, id := range []string{"survey_scan", "survey_synthesis", "spec_draft", "spec_publication", "final_discharge_check", "final_review_synthesis"} {
+		job := jobs[id]
+		logical, _ := mapFrom(listFrom(job["expected_artifacts"])[0])["logical_name"].(string)
+		if strings.Contains(logical, "${cycle}") {
+			t.Fatalf("run-once job %q logical_name %q should not be cycle-templated", id, logical)
+		}
+	}
+}
+
+func TestAdjudicatedConstraintExtractionRendersFixtureFiles(t *testing.T) {
+	generated, err := GenerateFromMap(adjudicatedConstraintExtractionGeneratorSpec())
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := map[string]struct{}{}
+	for _, f := range generated.Files {
+		paths[fmt.Sprint(mapFrom(f)["path"])] = struct{}{}
+	}
+	for _, want := range []string{
+		"workflows/ace/roles/convener.md",
+		"workflows/ace/roles/revision_convener.md",
+		"workflows/ace/roles/spec_author.md",
+		"workflows/ace/roles/final_reviewer.md",
+		"workflows/ace/prompts/ace_adjudicate.md",
+		"workflows/ace/prompts/ace_final_review.md",
+	} {
+		if _, ok := paths[want]; !ok {
+			t.Fatalf("missing generated file %q in %#v", want, paths)
+		}
+	}
+}
+
+func TestAdjudicatedConstraintExtractionDefaultPosturesOverridable(t *testing.T) {
+	spec := adjudicatedConstraintExtractionGeneratorSpec()
+	mapFrom(spec["options"])["review_postures"] = []any{"security", "cost"}
+	generated, err := GenerateFromMap(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jobs := jobsByID(generated.Workflow["jobs"])
+	if _, ok := jobs["cross_examiner_1"]; !ok {
+		t.Fatalf("missing cross_examiner_1")
+	}
+	if _, ok := jobs["cross_examiner_3"]; ok {
+		t.Fatalf("unexpected cross_examiner_3 with two-posture override: %#v", jobs)
+	}
+	if !strings.Contains(fmt.Sprint(jobs["cross_examiner_2"]["objective"]), "cost") {
+		t.Fatalf("cross_examiner_2 objective = %#v", jobs["cross_examiner_2"]["objective"])
 	}
 }
 
@@ -673,6 +858,30 @@ func collaborationGeneratorSpec(shape string) map[string]any {
 			"topic":               "substance gate",
 			"max_dialog_rounds":   3,
 			"max_revision_cycles": 1,
+		},
+	}
+}
+
+func adjudicatedConstraintExtractionGeneratorSpec() map[string]any {
+	return map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "adjudicated_constraint_extraction",
+		"lane_set":         "multi_review",
+		"workflow_id":      "ace-test",
+		"name":             "ace test",
+		"workflow_version": "2026-05-30",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/ace", "allow_dirty": false},
+		"scaffold_root":    "workflows/ace",
+		"artifact_root":    "striatum/ace",
+		"lanes": map[string]any{
+			"author":     map[string]any{"command": []any{"author", "run"}, "display_model": "Claude Opus"},
+			"reviewer_1": map[string]any{"command": []any{"reviewer1", "run"}, "display_model": "Codex GPT-5.5"},
+			"reviewer_2": map[string]any{"command": []any{"reviewer2", "run"}, "display_model": "Agy Gemini 2.5"},
+			"reviewer_3": map[string]any{"command": []any{"reviewer3", "run"}, "display_model": "Codex GPT-5.4"},
+		},
+		"options": map[string]any{
+			"topic":               "constraint-extraction design",
+			"max_revision_cycles": 2,
 		},
 	}
 }

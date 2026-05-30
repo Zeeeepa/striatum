@@ -84,6 +84,41 @@
       }
     },
     {
+      "template_id": "adjudicated_constraint_extraction",
+      "kind": "shape",
+      "display_name": "Adjudicated constraint extraction",
+      "summary": "An eight-phase productive-refusal loop: cross-examiners challenge a candidate synthesis, the adjudicator converts load-bearing objections into binding constraints, revision discharges each one, and final review typechecks discharge.",
+      "recommended_for": ["design and spec authoring", "productive refusal", "constraint-extracting multi-model panels"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "generation_status": "generated",
+      "shape_family": "collaboration",
+      "collaboration_shape_pack": "substance_gate_v1",
+      "example_workflow_path": "examples/adjudicated-constraint-extraction-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "survey", "label": "Survey"},
+          {"id": "convener_synthesis", "label": "Convener synthesis"},
+          {"id": "cross_exam", "label": "Cross-examination"},
+          {"id": "adjudication", "label": "Adjudication (constraints)"},
+          {"id": "revision_synthesis", "label": "Revision synthesis"},
+          {"id": "constraint_discharge_review", "label": "Discharge review"},
+          {"id": "spec_publication", "label": "Spec publication"},
+          {"id": "final_review", "label": "Final review (typecheck)"}
+        ],
+        "edges": [
+          {"from": "survey", "to": "convener_synthesis"},
+          {"from": "convener_synthesis", "to": "cross_exam"},
+          {"from": "cross_exam", "to": "adjudication"},
+          {"from": "adjudication", "to": "revision_synthesis"},
+          {"from": "revision_synthesis", "to": "constraint_discharge_review"},
+          {"from": "constraint_discharge_review", "to": "spec_publication"},
+          {"from": "spec_publication", "to": "final_review"}
+        ],
+        "cycles": [{"from": "adjudication", "to": "convener_synthesis", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
       "template_id": "custom",
       "kind": "shape",
       "display_name": "Custom safe block plan",

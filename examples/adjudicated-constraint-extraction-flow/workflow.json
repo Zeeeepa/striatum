@@ -1,0 +1,845 @@
+{
+  "allow_same_model_review_pairing": true,
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/adjudicated-constraint-extraction-flow"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "convener"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "allow_same_model": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "convener_draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "survey_scan",
+      "on": "completed",
+      "to": "survey_synthesis"
+    },
+    {
+      "from": "convener_draft",
+      "on": "completed",
+      "to": "convener_synthesis"
+    },
+    {
+      "from": "cross_examiner_1",
+      "on": "completed",
+      "to": "cross_exam_synthesis"
+    },
+    {
+      "from": "cross_examiner_2",
+      "on": "completed",
+      "to": "cross_exam_synthesis"
+    },
+    {
+      "from": "cross_examiner_3",
+      "on": "completed",
+      "to": "cross_exam_synthesis"
+    },
+    {
+      "from": "cross_examiner_4",
+      "on": "completed",
+      "to": "cross_exam_synthesis"
+    },
+    {
+      "from": "cross_examiner_5",
+      "on": "completed",
+      "to": "cross_exam_synthesis"
+    },
+    {
+      "from": "adjudication_intake",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "revision_draft",
+      "on": "completed",
+      "to": "revision_synthesis"
+    },
+    {
+      "from": "discharge_review",
+      "on": "completed",
+      "to": "discharge_review_synthesis"
+    },
+    {
+      "from": "spec_draft",
+      "on": "completed",
+      "to": "spec_publication"
+    },
+    {
+      "from": "final_discharge_check",
+      "on": "completed",
+      "to": "final_review_synthesis"
+    },
+    {
+      "from": "survey_synthesis",
+      "on": "completed",
+      "to": "convener_draft"
+    },
+    {
+      "from": "convener_synthesis",
+      "on": "completed",
+      "to": "cross_examiner_1"
+    },
+    {
+      "from": "cross_exam_synthesis",
+      "on": "completed",
+      "to": "adjudication_intake"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "revision_draft"
+    },
+    {
+      "from": "revision_synthesis",
+      "on": "completed",
+      "to": "discharge_review"
+    },
+    {
+      "from": "discharge_review_synthesis",
+      "on": "completed",
+      "to": "spec_draft"
+    },
+    {
+      "from": "spec_publication",
+      "on": "completed",
+      "to": "final_discharge_check"
+    },
+    {
+      "from": "convener_synthesis",
+      "on": "completed",
+      "to": "cross_examiner_2"
+    },
+    {
+      "from": "convener_synthesis",
+      "on": "completed",
+      "to": "cross_examiner_3"
+    },
+    {
+      "from": "convener_synthesis",
+      "on": "completed",
+      "to": "cross_examiner_4"
+    },
+    {
+      "from": "convener_synthesis",
+      "on": "completed",
+      "to": "cross_examiner_5"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "survey_scan",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/survey/scan/SURVEY.md",
+          "required": true
+        }
+      ],
+      "id": "survey_scan",
+      "lane_id": "local",
+      "objective": "Survey the prior art, evidence, and existing constraints relevant to constraint-extraction design.",
+      "phase_id": "survey",
+      "role_id": "convener",
+      "task_prompt": {
+        "path": "prompts/ace_survey.md"
+      },
+      "title": "Survey prior art and constraints",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/survey/scan/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "survey_synthesis",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/survey/synthesis/SURVEY_SYNTHESIS.md",
+          "required": true
+        }
+      ],
+      "id": "survey_synthesis",
+      "lane_id": "local",
+      "objective": "Frame the problem, goals, non-goals, and decision criteria for constraint-extraction design from the survey.",
+      "phase_id": "survey",
+      "role_id": "convener",
+      "task_prompt": {
+        "path": "prompts/ace_survey_synthesis.md"
+      },
+      "title": "Frame the survey",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/survey/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "convener_candidate_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/convener_synthesis/draft/CANDIDATE_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "convener_draft",
+      "interrogable": true,
+      "lane_id": "local",
+      "objective": "Draft the candidate synthesis for constraint-extraction design and stay live for cross-examination.",
+      "phase_id": "convener_synthesis",
+      "role_id": "convener",
+      "task_prompt": {
+        "path": "prompts/ace_convener.md"
+      },
+      "title": "Draft candidate synthesis",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/convener_synthesis/draft/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "convener_synthesis_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/convener_synthesis/synthesis/SYNTHESIS_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "convener_synthesis",
+      "lane_id": "local",
+      "objective": "Publish the candidate synthesis for constraint-extraction design; on a revision cycle, discharge each prior constraints[] row explicitly.",
+      "phase_id": "convener_synthesis",
+      "role_id": "convener",
+      "task_prompt": {
+        "path": "prompts/ace_convener_synthesis.md"
+      },
+      "title": "Publish candidate synthesis",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/convener_synthesis/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_1",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/product/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_1",
+      "lane_id": "local",
+      "objective": "Challenge the candidate synthesis for constraint-extraction design from the product posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.",
+      "parallel_group": "cross_exam",
+      "phase_id": "cross_exam",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/ace_cross_examiner.md"
+      },
+      "title": "Cross-examiner (product)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/product/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_2",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/implementation/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_2",
+      "lane_id": "local",
+      "objective": "Challenge the candidate synthesis for constraint-extraction design from the implementation posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.",
+      "parallel_group": "cross_exam",
+      "phase_id": "cross_exam",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/ace_cross_examiner.md"
+      },
+      "title": "Cross-examiner (implementation)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/implementation/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_3",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/privacy/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_3",
+      "lane_id": "local",
+      "objective": "Challenge the candidate synthesis for constraint-extraction design from the privacy posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.",
+      "parallel_group": "cross_exam",
+      "phase_id": "cross_exam",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/ace_cross_examiner.md"
+      },
+      "title": "Cross-examiner (privacy)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/privacy/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_4",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/eval/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_4",
+      "lane_id": "local",
+      "objective": "Challenge the candidate synthesis for constraint-extraction design from the eval posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.",
+      "parallel_group": "cross_exam",
+      "phase_id": "cross_exam",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/ace_cross_examiner.md"
+      },
+      "title": "Cross-examiner (eval)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/eval/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "cross_examiner_5",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/operations/CROSS_EXAM.md",
+          "required": true
+        }
+      ],
+      "id": "cross_examiner_5",
+      "lane_id": "local",
+      "objective": "Challenge the candidate synthesis for constraint-extraction design from the operations posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.",
+      "parallel_group": "cross_exam",
+      "phase_id": "cross_exam",
+      "role_id": "cross_examiner",
+      "task_prompt": {
+        "path": "prompts/ace_cross_examiner.md"
+      },
+      "title": "Cross-examiner (operations)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/operations/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "findings_ledger",
+          "logical_name": "cross_exam_findings_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/synthesis/CROSS_EXAM_SYNTHESIS_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "cross_exam_synthesis",
+      "lane_id": "local",
+      "objective": "Roll up every cross-examiner posture into one findings ledger; preserve unanswered interrogations as evidence.",
+      "phase_id": "cross_exam",
+      "role_id": "convener",
+      "task_prompt": {
+        "path": "prompts/ace_cross_exam_synthesis.md"
+      },
+      "title": "Roll up cross-examination",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/cross_exam/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "adjudication_intake_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/adjudication/intake/INTAKE_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "adjudication_intake",
+      "lane_id": "local",
+      "objective": "Assemble the candidate synthesis and cross-examination findings for adjudication of constraint-extraction design.",
+      "phase_id": "adjudication",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/ace_adjudication_intake.md"
+      },
+      "title": "Stage adjudication inputs",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/adjudication/intake/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/adjudication/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "local",
+      "objective": "Read only the curated trajectory for constraint-extraction design; publish the collaboration_ledger verdict and, on needs_revision, convert load-bearing challenges into a non-empty constraints[] table.",
+      "phase_id": "adjudication",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/ace_adjudicate.md"
+      },
+      "title": "Adjudicate and extract constraints",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/adjudication/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "revision_draft_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/revision_synthesis/draft/REVISION_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "revision_draft",
+      "lane_id": "local",
+      "objective": "Take the prior cycle's constraints[] as binding input and discharge each row explicitly (answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor) for constraint-extraction design.",
+      "phase_id": "revision_synthesis",
+      "role_id": "revision_convener",
+      "task_prompt": {
+        "path": "prompts/ace_revision_convener.md"
+      },
+      "title": "Discharge constraints",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/revision_synthesis/draft/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "revision_synthesis_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/revision_synthesis/synthesis/REVISION_SYNTHESIS_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "revision_synthesis",
+      "lane_id": "local",
+      "objective": "Publish the revised synthesis that discharges the adjudicated constraints[] for constraint-extraction design.",
+      "phase_id": "revision_synthesis",
+      "role_id": "revision_convener",
+      "task_prompt": {
+        "path": "prompts/ace_revision_synthesis.md"
+      },
+      "title": "Publish revised synthesis",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/revision_synthesis/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "discharge_review_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/constraint_discharge_review/review/DISCHARGE_REVIEW_${cycle}.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "discharge_review",
+      "lane_id": "local",
+      "objective": "Verify the revised synthesis discharges each binding constraint for constraint-extraction design; flag any constraint still open.",
+      "phase_id": "constraint_discharge_review",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/ace_discharge_review.md"
+      },
+      "title": "Review constraint discharge",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/constraint_discharge_review/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "discharge_review_synthesis_${cycle}",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/constraint_discharge_review/synthesis/DISCHARGE_SYNTHESIS_${cycle}.md",
+          "required": true
+        }
+      ],
+      "id": "discharge_review_synthesis",
+      "lane_id": "local",
+      "objective": "Confirm the latest cleared constraint ledger before spec publication for constraint-extraction design.",
+      "phase_id": "constraint_discharge_review",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/ace_discharge_review_synthesis.md"
+      },
+      "title": "Confirm discharge",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/constraint_discharge_review/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "spec_draft",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/spec_publication/draft/SPEC.md",
+          "required": true
+        }
+      ],
+      "id": "spec_draft",
+      "lane_id": "local",
+      "objective": "Write the RFC/spec for constraint-extraction design from the latest cleared constraint ledger as binding input, not from the original proposal.",
+      "phase_id": "spec_publication",
+      "role_id": "spec_author",
+      "task_prompt": {
+        "path": "prompts/ace_spec_author.md"
+      },
+      "title": "Author the spec",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/spec_publication/draft/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "spec_publication",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/spec_publication/synthesis/SPEC_PUBLICATION.md",
+          "required": true
+        }
+      ],
+      "id": "spec_publication",
+      "lane_id": "local",
+      "objective": "Publish the spec gated on the latest cleared collaboration ledger for constraint-extraction design.",
+      "phase_id": "spec_publication",
+      "role_id": "spec_author",
+      "task_prompt": {
+        "path": "prompts/ace_spec_publication.md"
+      },
+      "title": "Publish the spec",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/spec_publication/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "constraint_discharge",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/final_review/check/CONSTRAINT_DISCHARGE.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "final_discharge_check",
+      "lane_id": "local",
+      "objective": "Emit a constraint_discharge table for constraint-extraction design: for each binding constraint mark discharged / partial / missing / accepted_risk with evidence. This is a typecheck — do not re-run the forum.",
+      "phase_id": "final_review",
+      "role_id": "final_reviewer",
+      "task_prompt": {
+        "path": "prompts/ace_final_review.md"
+      },
+      "title": "Typecheck constraint discharge",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/final_review/check/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_review_synthesis",
+          "path": "examples/adjudicated-constraint-extraction-flow/artifacts/final_review/synthesis/FINAL_SUMMARY.md",
+          "required": true
+        }
+      ],
+      "id": "final_review_synthesis",
+      "lane_id": "local",
+      "objective": "Summarize the discharge typecheck result; the run fails closed on any undischarged binding constraint.",
+      "phase_id": "final_review",
+      "role_id": "final_reviewer",
+      "task_prompt": {
+        "path": "prompts/ace_final_review_synthesis.md"
+      },
+      "title": "Finalize the run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/adjudicated-constraint-extraction-flow/artifacts/final_review/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "adjudicated-constraint-extraction-flow",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Frame the problem and existing constraints before synthesis",
+      "id": "survey",
+      "name": "Survey",
+      "synthesis_job_id": "survey_synthesis"
+    },
+    {
+      "description": "Publish the candidate synthesis; re-opened by needs_revision to discharge constraints",
+      "id": "convener_synthesis",
+      "name": "Convener synthesis",
+      "synthesis_job_id": "convener_synthesis"
+    },
+    {
+      "description": "Posture-specific adversarial challenge of the candidate synthesis",
+      "id": "cross_exam",
+      "name": "Cross-examination",
+      "synthesis_job_id": "cross_exam_synthesis"
+    },
+    {
+      "description": "Productive refusal: convert load-bearing challenges into binding constraints",
+      "id": "adjudication",
+      "name": "Adjudication",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Republish the synthesis discharging each adjudicated constraint",
+      "id": "revision_synthesis",
+      "name": "Revision synthesis",
+      "synthesis_job_id": "revision_synthesis"
+    },
+    {
+      "description": "Confirm each binding constraint cleared before publication",
+      "id": "constraint_discharge_review",
+      "name": "Constraint discharge review",
+      "synthesis_job_id": "discharge_review_synthesis"
+    },
+    {
+      "description": "Author the spec from the latest cleared constraint ledger",
+      "id": "spec_publication",
+      "name": "Spec publication",
+      "synthesis_job_id": "spec_publication"
+    },
+    {
+      "description": "Discharge typecheck; fails closed on undischarged binding constraints",
+      "id": "final_review",
+      "name": "Final review",
+      "synthesis_job_id": "final_review_synthesis"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "convener": {
+      "definition_path": "roles/convener.md"
+    },
+    "cross_examiner": {
+      "definition_path": "roles/cross_examiner.md"
+    },
+    "final_reviewer": {
+      "definition_path": "roles/final_reviewer.md"
+    },
+    "revision_convener": {
+      "definition_path": "roles/revision_convener.md"
+    },
+    "spec_author": {
+      "definition_path": "roles/spec_author.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "adjudicated-constraint-extraction-flow",
+  "workflow_version": "2026-05-30"
+}
