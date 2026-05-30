@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+### #84 / RFC 0095 §1 — attempt-scoped artifacts (revision cycles republish same logical_name)
+
+The load-bearing lifecycle fix. The append-only `artifacts` table keyed uniqueness
+on `(run_id, job_id, logical_name)` (and `(run_id, repo_path, content_sha256)`)
+with no attempt dimension, so a re-opened revision attempt republishing the same
+**fixed** `logical_name` collided (`artifact logical name already exists with
+different content`) — the wedge that forced `${cycle}`-templated names and
+stranded fixed-name revision loops (and, per #87, drove a lane to reach for the
+daemon DB).
+
+- **Migration 0018 (owner-applied, RFC 0079 §5).** Adds `artifacts.attempt`
+  (`NOT NULL DEFAULT 1`, metadata-only) and widens both unique keys with
+  `attempt`. Because it ALTERs the owner-held `artifacts` table it is applied by
+  the owner via `striatum daemon migrate-db --admin-url <owner-dsn>`, not the
+  runtime role (which would crash-loop). `LatestDaemonDBVersion` 17 → 18.
+- **Publish** records `jobs.attempt`; the collision and path+content idempotency
+  checks are attempt-scoped — a fresh attempt republishes its own row, while
+  same-attempt different-content still rejects and same-attempt same-content stays
+  an idempotent no-op (#58 preserved).
+- **Gates** (`verifyRequiredArtifacts`, recovery auto-finalize, surgical recovery)
+  honor only `attempt == jobs.attempt`, so a `needs_revision` can't be cleared by
+  a prior attempt's stale artifact. Across-cycle readers (collaboration_ledger,
+  operator) are unchanged.
+- Workflows no longer need `${cycle}` logical names to survive a revision cycle
+  (the RFC 0098 generator shape keeps them for clarity, but a fixed name now
+  republishes cleanly). Deployed to the live daemon (schema 18, healthy).
+
 ### RFC 0098 slices 2–3 — generator shape + discharge-verifying final review
 
 Completes the RFC 0098 V1 target (slices 1–3).
