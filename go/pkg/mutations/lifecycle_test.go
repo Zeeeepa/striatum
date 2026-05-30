@@ -321,3 +321,73 @@ func TestRegisterSessionParallelSameRoleLaneBothActive(t *testing.T) {
 	}
 }
 
+// #100: when the (role, lane) slot has more live parallel work than active
+// sessions, a second registration SUCCEEDS (the documented disjoint-scope
+// fanout) instead of being refused; a registration beyond the available work is
+// still refused as an accidental duplicate.
+func TestRegisterSessionAllowsParallelWhenWorkRemains(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_lifecycle_parallel_work"
+	runID := "run_lifecycle_parallel_work"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"proposer": map[string]any{}},
+		"lanes":       map[string]any{"claude_code": map[string]any{"capabilities": []any{"write"}}},
+	})
+
+	// Two parallel queued jobs on (proposer, claude_code), each with a pending
+	// work message — the documented disjoint-scope fanout shape.
+	for i := 1; i <= 2; i++ {
+		jobID := fmt.Sprintf("job_p%d_%s", i, repoID)
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.jobs (
+			  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			  title, job_type, idempotency_key, expected_artifacts_json, created_at
+			) VALUES ($1,$2,$3,$4,1,'queued','proposer','P','draft','idem_'||$2,'[]'::jsonb,NOW())`,
+			repoID, jobID, runID, fmt.Sprintf("proposal_%d", i)); err != nil {
+			t.Fatalf("insert job %d: %v", i, err)
+		}
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.queue_messages (
+			  repository_id, message_id, run_id, job_id, kind, state, priority,
+			  target_role_id, target_lane_id, created_at, updated_at
+			) VALUES ($1,$2,$3,$4,'work','pending',0,'proposer','claude_code',NOW(),NOW())`,
+			repoID, fmt.Sprintf("msg_p%d_%s", i, repoID), runID, jobID); err != nil {
+			t.Fatalf("insert message %d: %v", i, err)
+		}
+	}
+
+	// First and second registrations both succeed (2 jobs > active sessions).
+	for i := 1; i <= 2; i++ {
+		res, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+			"run_id": runID, "role": "proposer", "lane": "claude_code", "fresh": true,
+		}))
+		if err != nil {
+			t.Fatalf("#100: parallel registration %d should succeed, got %v", i, err)
+		}
+		if fmt.Sprint(res["session_id"]) == "" {
+			t.Fatalf("registration %d returned no session_id: %#v", i, res)
+		}
+	}
+
+	// A third registration has no remaining parallel work -> refused.
+	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "proposer", "lane": "claude_code", "fresh": true,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("third register (no remaining work) err = %v, want invalid_transition", err)
+	}
+
+	// Both registered sessions are active and have distinct ordinals.
+	rows, err := queryRows(ctx, runner, `SELECT ordinal FROM striatumd.sessions WHERE repository_id=$1 AND run_id=$2 AND role_id='proposer' AND lane_id='claude_code' AND state='active' ORDER BY ordinal`, repoID, runID)
+	if err != nil {
+		t.Fatalf("query sessions: %v", err)
+	}
+	if len(rows) != 2 || intValue(rows[0]["ordinal"]) != 1 || intValue(rows[1]["ordinal"]) != 2 {
+		t.Fatalf("#100: expected two active sessions with ordinals 1,2, got %#v", rows)
+	}
+}

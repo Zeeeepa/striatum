@@ -13,6 +13,26 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// slotHasUnclaimedParallelWork reports whether the (run, role, lane) slot has
+// more live work messages than the given number of active sessions — i.e. a
+// declared-parallel queued job remains that a new distinct session could claim
+// (#100). Work messages in pending/claimed/acked are "live" (a terminal message
+// is done). When the count does not exceed the active sessions, a second
+// registration on the slot is an accidental duplicate and is refused.
+func slotHasUnclaimedParallelWork(ctx context.Context, runner any, repositoryID, runID, role, lane string, activeSessions int) (bool, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n
+		  FROM striatumd.queue_messages
+		 WHERE repository_id = $1 AND run_id = $2 AND kind = 'work'
+		   AND target_role_id = $3 AND target_lane_id = $4
+		   AND state IN ('pending', 'claimed', 'acked')`,
+		repositoryID, runID, role, lane)
+	if err != nil {
+		return false, err
+	}
+	return intValue(row["n"]) > activeSessions, nil
+}
+
 func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -107,19 +127,38 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 		// a stranded session (#60), --replace closes the prior session(s) and
 		// transfers their leases; otherwise return the exact remediation.
 		if len(activeSessions) > 0 && !replace {
-			ids := make([]string, 0, len(activeSessions))
-			for _, s := range activeSessions {
-				ids = append(ids, fmt.Sprint(s["session_id"]))
+			// #100: the documented parallel fanout — multiple queued jobs on the
+			// same (run, role, lane) with disjoint scopes — needs a distinct active
+			// session per job. Allow a second active session ONLY when the slot has
+			// genuinely more live parallel work than active sessions to claim it;
+			// the new session gets a fresh ordinal below and claims the extra job.
+			// Otherwise the duplicate is an accidental double-register (#60) and is
+			// refused with the same remediation.
+			parallel, err := slotHasUnclaimedParallelWork(ctx, tx, repositoryID, runID, role, lane, len(activeSessions))
+			if err != nil {
+				return nil, err
 			}
-			return nil, rpc.NewError(
-				"invalid_transition",
-				fmt.Sprintf(
-					"an active session already exists on this (run, role, lane): %s. To run it in parallel, register a fresh session for a distinct queued job; to replace it, pass --replace (or close it first with `striatum session close %s`).",
-					strings.Join(ids, ", "),
-					ids[0],
-				),
-				map[string]any{"active_session_ids": ids},
-			)
+			if !parallel {
+				ids := make([]string, 0, len(activeSessions))
+				for _, s := range activeSessions {
+					ids = append(ids, fmt.Sprint(s["session_id"]))
+				}
+				return nil, rpc.NewError(
+					"invalid_transition",
+					fmt.Sprintf(
+						"an active session already exists on this (run, role, lane): %s, and there is no additional queued parallel job for it to claim. To replace it, pass --replace (or close it first with `striatum session close %s`).",
+						strings.Join(ids, ", "),
+						ids[0],
+					),
+					map[string]any{"active_session_ids": ids},
+				)
+			}
+			// Parallel work remains: fall through to register a distinct sibling
+			// session WITHOUT superseding the existing one(s).
+		}
+		supersedePriorSessions := replace
+		if !supersedePriorSessions {
+			activeSessions = nil
 		}
 		for _, oldSess := range activeSessions {
 			oldSessID := fmt.Sprint(oldSess["session_id"])

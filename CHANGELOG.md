@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### #100 — register the documented parallel same-(role,lane) fanout sessions
+
+`session.register` unconditionally refused a second active session on a
+`(run, role, lane)` slot (without `--replace`), even though the documented
+disjoint-scope fanout shape needs a distinct session per parallel queued job —
+the refusal text said "register a fresh session for a distinct queued job" with
+no way to do it (a launcher had to inject the session directly). Registration now
+**allows** a second (and Nth) session on the slot when the slot has genuinely
+more live work messages (`pending`/`claimed`/`acked`) than active sessions; it
+still **refuses** a duplicate when no additional parallel job remains (the
+accidental double-register, #60) and still supersedes only under `--replace`.
+Each parallel session gets a fresh ordinal. Test:
+`TestRegisterSessionAllowsParallelWhenWorkRemains`.
+
 ### #102 — write-scope leniency for a live sibling's not-yet-published artifact
 
 The sibling-published-artifact leniency (#93) was digest-based: it only ignored a
