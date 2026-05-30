@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### Backlog triage sweep — close/RFC/fix the open dogfood-friction issues
+
+Triaged all 36 open GH issues (friction logs from three dogfood runs). Closed the
+ones RFC 0095/0096 Phase 1+2 already resolved (#81/#75/#86/#78/#63), routed the
+partials/design items to their owning RFCs (0091/0095/0096) with progress
+comments, and filed two new RFCs for the design-needing clusters:
+**RFC 0099** (constrained operator mode, #92) and **RFC 0100** (self-describing
+artifact contracts, #74/#79/#96/#88).
+
+Bounded runner/DX bugs fixed directly (bootstrapped via subagents + tests, since
+the wedged runner can't dogfood its own fixes):
+
+- **#66**: `workflow validate` shares `run.prepare`'s phase-shape rules via one
+  source (`workflowauthoring.ValidatePhaseShapes`) — no more false-green-then-
+  launch-failure. **#99**: non-JSON `workflow.json` reports a clear "not JSON"
+  error. **#97**: a `document_only` reviewer with empty `inputs` is rejected.
+- **#93**: the write-scope guard checks the sibling-published-artifact leniency
+  **before** the `forbidden_paths` rejection, ending the multi-lane gate-job
+  deadlock at `work.complete` in a shared worktree (the wedge that blocked the
+  RFC 0098/0094 dogfoods). **#90**: `task_prompt.path` no longer double-joins the
+  workflow dir. **#98**: `review.submit` retries the Postgres `40P01` deadlock
+  (bounded). **#68**: `claim-next` suppresses the misleading `supervise_send` hint
+  for self-driving lanes and emits a self-claim note.
+- **#91**: new `striatum scope-check` read-only diagnostic reports write-scope
+  drift before `work.complete` (RFC 0099 Phase-1 seed; auto-reading the active
+  packet's scope still needs a daemon read method). **#64**: new `striatum codex`
+  launcher injects the live MCP endpoint + token without printing it, plus a
+  `doctor` stale-codex-config/absent-token warning. **#72**: `session close`
+  usage lists `--reason` as required. **#69**: the checked-in binary is already
+  untracked/gitignored (acute cause gone).
+
 ### RFC 0098 slice 1 — `collaboration_ledger.v1.1` + productive-refusal gate
 
 From GitHub #89 (the Engram entity-relationship forum run). RFC 0098 promotes the
