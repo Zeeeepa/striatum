@@ -372,6 +372,36 @@ func publishedRunArtifactIgnoredPaths(ctx context.Context, runner any, repositor
 			ignored[clean] = true
 		}
 	}
+	// #102: a same-stage parallel sibling writes its declared artifact into the
+	// shared worktree but may not have PUBLISHED it yet when this lane completes,
+	// so the digest match above misses it (a race that only resolves on retry).
+	// Under declared parallelism sibling write scopes are disjoint, so a touched
+	// path that is the declared expected artifact of a sibling job currently
+	// holding an ACTIVE lease (a live concurrent writer) is provably that
+	// sibling's territory — ignore it without waiting for the sibling's publish.
+	// Scoping to an active lease keeps this from masking a path no live sibling
+	// is actually working.
+	liveSiblings, err := queryRows(ctx, runner, `
+		SELECT j.expected_artifacts_json AS expected_artifacts_json, j.attempt AS attempt
+		  FROM striatumd.jobs j
+		  JOIN striatumd.leases l
+		    ON l.repository_id = j.repository_id
+		   AND l.resource_id = j.job_id
+		   AND l.state = 'active'
+		 WHERE j.repository_id = $1 AND j.run_id = $2 AND j.job_id != $3`,
+		repositoryID, runID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range liveSiblings {
+		for _, item := range resolveExpectedArtifactCycles(asList(row["expected_artifacts_json"]), jobAttemptValue(row["attempt"])) {
+			entry := asMap(item)
+			clean, ok := normalizeScopePath(fmt.Sprint(entry["path"]))
+			if ok && touched[clean] {
+				ignored[clean] = true
+			}
+		}
+	}
 	if len(ignored) == 0 {
 		return nil, nil
 	}

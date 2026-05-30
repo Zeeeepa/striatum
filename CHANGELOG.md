@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### #102 — write-scope leniency for a live sibling's not-yet-published artifact
+
+The sibling-published-artifact leniency (#93) was digest-based: it only ignored a
+sibling lane's artifact once that artifact was already **published**. Same-stage
+parallel proposal lanes in a shared worktree race — a sibling writes its declared
+artifact but `work.complete` of another lane can run before the sibling publishes,
+so the dirty sibling file tripped the write-scope guard (self-healing only on
+retry). Now a touched out-of-scope path that is the **declared expected artifact
+of a sibling job currently holding an active lease** (a live concurrent writer
+with a disjoint scope) is also ignored, closing the pre-publish window. Scoped to
+an active lease so it never masks a path no live sibling is working. Test:
+`TestPublishedRunArtifactIgnoredPathsHonorsLiveSiblingExpectedArtifact`.
+
 ### #103 — bounded retry on a parallel-claim deadlock
 
 `work.await_packet` → `work.claim_next` is the first durable receive-loop call in

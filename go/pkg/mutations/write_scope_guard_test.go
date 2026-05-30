@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -138,7 +140,7 @@ func TestWriteScopeViolationsSinceBaselineFourQuadrants(t *testing.T) {
 func TestWriteScopeViolationsSinceBaselineDirtyToCleanAndUntouchedAreNotViolations(t *testing.T) {
 	allowed := []string{"go/"}
 	baseline := map[string]string{
-		"OPERATOR_REPORT.md": "h-report", // pre-existing operator file
+		"OPERATOR_REPORT.md": "h-report",  // pre-existing operator file
 		"stashed.txt":        "h-stashed", // dirty at claim, cleaned before complete
 	}
 	current := []gitPathSnapshot{
@@ -302,4 +304,65 @@ type writeScopeArtifactRunner struct {
 
 func (r writeScopeArtifactRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return runPrepareRowsFromMaps(r.rows), nil
+}
+
+// #102: a path that is the declared expected artifact of a LIVE sibling lane
+// (active lease) is ignored for this lane's work.complete even before the
+// sibling publishes — the pre-publish half of the digest-based leniency, for
+// same-stage parallel lanes with disjoint scopes in a shared worktree.
+func TestPublishedRunArtifactIgnoredPathsHonorsLiveSiblingExpectedArtifact(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_sibling_expected"
+	runID := "run_" + repoID
+	siblingPath := "docs/reviews/quiz/proposals/ENTITY_DIAGNOSTICS_WORKBENCH.md"
+	selfPath := "docs/reviews/quiz/proposals/LOCAL_LLM_REWRITE.md"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"proposer": map[string]any{}},
+		"lanes":       map[string]any{"agy": map[string]any{}},
+	})
+	sib := "sess_sib_" + repoID
+	intgSeedSession(t, ctx, runner, repoID, runID, sib, "proposer", "agy", []string{"write"}, "active")
+
+	expectedArg, err := db.JSONBArg(runner, []any{map[string]any{
+		"path": siblingPath, "logical_name": "entity_diagnostics", "kind": "synthesis", "required": true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, created_at, started_at
+		) VALUES ($1,'job_sib',$2,'proposal_entity_diagnostics',1,'running','proposer','P','build',
+		          'idem_sib_'||$1,$3::jsonb,NOW(),NOW())`,
+		repoID, runID, expectedArg); err != nil {
+		t.Fatalf("insert sibling job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at
+		) VALUES ($1,'lease_sib_'||$1,$2,'job','job_sib',$3,'active',NOW(),NOW()+INTERVAL '1 hour')`,
+		repoID, runID, sib); err != nil {
+		t.Fatalf("insert sibling active lease: %v", err)
+	}
+
+	ignored, err := publishedRunArtifactIgnoredPaths(
+		ctx, runner, repoID, t.TempDir(),
+		map[string]any{"run_id": runID, "job_id": "job_self"},
+		[]string{siblingPath, selfPath},
+	)
+	if err != nil {
+		t.Fatalf("ignored paths: %v", err)
+	}
+	if !ignored[siblingPath] {
+		t.Fatalf("#102: a live sibling's expected artifact path must be ignored, got %#v", ignored)
+	}
+	if ignored[selfPath] {
+		t.Fatalf("this lane's own path must not be ignored, got %#v", ignored)
+	}
 }
