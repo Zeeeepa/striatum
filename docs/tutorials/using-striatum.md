@@ -219,6 +219,10 @@ striatum --repo "$TARGET_REPO" why <target_id> --run-id <run_id>
 # 3. Resolve a checkpoint or recover stale work.
 striatum --repo "$TARGET_REPO" checkpoint resolve \
   --blocker-id <id> --action continue --json
+# OR, for a revision_routing checkpoint, accept the verdict as
+# superseded by a recorded decision (no re-review):
+striatum --repo "$TARGET_REPO" checkpoint resolve \
+  --blocker-id <id> --action override --decision-id <decision_id> --json
 # OR
 striatum --repo "$TARGET_REPO" recovery requeue-stale \
   --run-id <run_id> --job-id <job_id> --force \

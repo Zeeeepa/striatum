@@ -36,7 +36,13 @@ daemon methods.
 {{"method":"tools/call","params":{{"name":"recovery.process_reconcile","repository_id":"<repository-id>","arguments":{{"run_id":"<run-id>"}}}}}}
 {{"method":"tools/call","params":{{"name":"recovery.resume","repository_id":"<repository-id>","arguments":{{"blocker_id":"<blocker-id>"}}}}}}
 {{"method":"tools/call","params":{{"name":"checkpoint.resolve","repository_id":"<repository-id>","arguments":{{"blocker_id":"<blocker-id>","action":"continue"}}}}}}
+{{"method":"tools/call","params":{{"name":"checkpoint.resolve","repository_id":"<repository-id>","arguments":{{"blocker_id":"<blocker-id>","action":"override","decision_id":"<decision-id>"}}}}}}
 ```
+
+`checkpoint.resolve` action `override` is for `revision_routing`
+checkpoints only: it accepts the `needs_revision` verdict as superseded
+by an accepting run-level decision and makes the downstream gate reachable
+without re-running the review. It requires `decision_id`.
 
 `recovery requeue-stale` refuses repo-write jobs (D036). For
 abandoned repo-write work, inspect with `recovery stale-leases

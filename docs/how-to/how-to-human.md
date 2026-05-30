@@ -583,12 +583,31 @@ operator has decided, use `striatum checkpoint resolve`:
   --blocker-id <blocker_id> \
   --action cancel \
   --json
+
+# Override (revision_routing checkpoints only): accepts the
+# needs_revision verdict as superseded by a recorded decision and
+# makes the downstream gate reachable WITHOUT re-queueing the review.
+# Requires --decision-id pointing at an accepting run-level decision.
+"$RUNNER" --repo "$TARGET_REPO" checkpoint resolve \
+  --blocker-id <blocker_id> \
+  --action override \
+  --decision-id <decision_id> \
+  --json
 ```
 
-`--decision-id` is optional but recommended. When present, it must
-reference an existing run-level decision artifact recorded with
-`striatum decision record`; the resolution event payload then links
-back to that artifact for audit.
+`--decision-id` is optional for `continue`/`cancel` but recommended.
+When present, it must reference an existing run-level decision artifact
+recorded with `striatum decision record`; the resolution event payload
+then links back to that artifact for audit.
+
+`--action override` is for `revision_routing` checkpoints (opened when a
+`needs_revision` verdict has no matching workflow cycle). It requires
+`--decision-id` pointing at a run-level decision whose outcome is
+`accepted` or `accepted_with_follow_up`. Override creates no new
+authority: it completes the stalled review job and records a superseding
+clearing verdict (posture `override`) so the downstream gate is reachable;
+the rationale lives entirely in the referenced decision artifact. Use
+`continue` instead to re-run the same review.
 
 ## Inspect, watch, and export evidence
 
@@ -656,7 +675,7 @@ Common recovery paths are:
 |---|---|---|
 | Stale lease or no heartbeat. | `recovery stale-leases --run-id <run_id> --json` | `recovery requeue-stale` only for review-safe or force-justified work. |
 | Process exited, outputs missing, or supervisor mismatch. | `recovery process-reconcile --run-id <run_id> --json` | `recovery resume --blocker-id <id>` after the artifact/verdict issue is fixed. |
-| Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue|cancel`. |
+| Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue\|cancel`. For a `revision_routing` checkpoint you can instead `--action override --decision-id <id>` to accept the verdict as superseded without re-running the review. |
 | Escalation artifact or principal inbox item. | `/escalations`, or `inbox --json` and `escalation show --escalation-id <id> --json` for CLI diagnostics. | `/escalations/<id>` Resolve form, or `decision record` then `escalation resolve --escalation-id <id> --decision-id <decision_id>` for CLI compatibility. |
 | Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json`. | `session close --session-id <session_id> --reason terminal-run-cleanup`. |
 
