@@ -96,12 +96,15 @@ func TestPrepareLaneCommandForBootstrapUsesAgyInitialPromptArg(t *testing.T) {
 	}
 }
 
-func TestPrepareLaneCommandForBootstrapKeepsClaudePTYSubmit(t *testing.T) {
+// #101: Claude Code v2.1.x buffers a typed multi-line bootstrap in its TUI and a
+// trailing CR no longer submits it, so claude_code now takes the bootstrap as the
+// initial positional prompt (argv) like codex, while keeping its MCP flags.
+func TestPrepareLaneCommandForBootstrapUsesClaudeInitialPromptArg(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(repo+"/.striatum/scratch", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	prompt := "bootstrap prompt"
+	prompt := "bootstrap prompt\nwith multiple lines"
 	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
 		[]string{"/home/x/.local/bin/claude", "--model", "claude-opus-4-7"},
 		repo,
@@ -113,13 +116,16 @@ func TestPrepareLaneCommandForBootstrapKeepsClaudePTYSubmit(t *testing.T) {
 		t.Fatalf("prepare claude: %v", err)
 	}
 	defer cleanup()
-	if mode != bootstrapDeliveryPTYSubmit {
-		t.Fatalf("mode = %q, want %q", mode, bootstrapDeliveryPTYSubmit)
+	if mode != bootstrapDeliveryArgv {
+		t.Fatalf("mode = %q, want %q (claude TUI buffers the prompt unsubmitted; #101)", mode, bootstrapDeliveryArgv)
 	}
-	if cmd[len(cmd)-1] == prompt {
-		t.Fatalf("claude command should not receive bootstrap prompt argv: %#v", cmd)
+	// The bootstrap is the trailing positional prompt (claude [options] <prompt>).
+	if got := cmd[len(cmd)-1]; got != prompt {
+		t.Fatalf("last arg = %q, want bootstrap prompt", got)
 	}
-	if cmd[len(cmd)-1] != "--strict-mcp-config" {
+	// MCP flags are still injected (just no longer last).
+	joined := strings.Join(cmd, "\x00")
+	if !strings.Contains(joined, "--strict-mcp-config") {
 		t.Fatalf("claude command missing strict MCP config: %#v", cmd)
 	}
 }

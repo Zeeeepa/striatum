@@ -150,10 +150,17 @@ func bootstrapDeliveryModeFor(command []string) bootstrapDeliveryMode {
 		return bootstrapDeliveryPTYSubmit
 	}
 	switch laneAdapterName(command[0]) {
-	case "codex", "agy":
-		// Codex and agy accept an initial prompt via argv and submit it
-		// themselves. Typing the multi-line bootstrap into their TUI leaves the
+	case "codex", "agy", "claude":
+		// Codex, agy, and Claude Code accept an initial prompt via argv and submit
+		// it themselves. Typing the multi-line bootstrap into their TUI leaves the
 		// text buffered in the input editor, even when followed by CR/double-CR.
+		// #101: Claude Code v2.1.x regressed into this TUI-buffering behavior (a
+		// trailing CR no longer submits the typed bootstrap, and even a manual
+		// `tmux send-keys Enter` did not), so the two claude_code lanes sat idle at
+		// the prompt while the control surface read healthy. `claude [options]
+		// <prompt>` takes the bootstrap as the initial positional prompt and starts
+		// an interactive session by default (no --print), which Claude submits
+		// itself; the agent-loop receive loop then drives subsequent turns.
 		return bootstrapDeliveryArgv
 	default:
 		return bootstrapDeliveryPTYSubmit

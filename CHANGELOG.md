@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### #101 — claude_code agent-loop bootstrap is submitted (argv, not TUI-type-then-CR)
+
+Claude Code v2.1.x buffers a typed multi-line bootstrap prompt in its TUI input
+editor and a trailing carriage return no longer submits it (a manual `tmux
+send-keys Enter` did not either), so `claude_code` self-driving lanes sat idle at
+the prompt — never calling `tools/list` / `work.await_packet` — while
+`supervise.list` read `attached` / `healthy`. `bootstrapDeliveryModeFor` now puts
+`claude` on the **argv** path alongside codex/agy: `claude [options] <prompt>`
+takes the bootstrap as the initial positional prompt and starts an interactive
+session by default (no `--print`), which Claude submits itself; the agent-loop
+receive loop drives subsequent turns. Verified against the locally installed
+claude v2.1.158 (`claude [options] [prompt]` — "starts an interactive session by
+default"). Test renamed/flipped to
+`TestPrepareLaneCommandForBootstrapUsesClaudeInitialPromptArg`. Restores
+claude_code model diversity (the prior workaround was codex-only lanes).
+
 ### #100 — register the documented parallel same-(role,lane) fanout sessions
 
 `session.register` unconditionally refused a second active session on a
