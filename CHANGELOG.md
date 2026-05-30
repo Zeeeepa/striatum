@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### #77 — adjudicator absorbs a reviewer's needs_revision (no spurious checkpoint)
+
+In cross-examination / forum shapes a reviewer's `needs_revision` is dissent for
+the adjudicator to weigh, not a trigger for the reviewer's own revision cycle.
+Two coupled faults made a single dissenting cross-examiner stall the whole panel
+and force an operator override:
+
+- **run.prepare over-gated adjudicator inputs.** Every edge from a verdict-capable
+  job (review / phase_synthesis) got `requires_verdict:[accept,
+  accept_with_findings]` — *including* edges into an adjudicator. So the
+  adjudicator's own gate required its cross-examiners to clear, defeating its
+  purpose. Edges **into** a `phase_synthesis` adjudicator now stay ungated
+  (`edgeRequiresClearingVerdict`); every other review→downstream edge is gated as
+  before.
+- **needs_revision always opened a checkpoint when no cycle matched.** A review
+  whose downstream consumers all *absorb* its verdict (no `requires_verdict`, or
+  one that includes it — i.e. an adjudicator) now completes and enqueues the
+  adjudicator (`reviewFeedsAbsorbingAdjudicator`), instead of opening a
+  `revision_routing` human checkpoint. A reviewer with no downstream, or any
+  downstream that hard-gates on a clearing verdict, still checkpoints.
+
+Applies at prepare time to generated and hand-authored workflows alike. Tests:
+`TestNeedsRevisionFeedingAdjudicatorIsAbsorbed`,
+`TestNeedsRevisionFeedingGatedSynthesisStillCheckpoints`,
+`TestEdgeRequiresClearingVerdictExemptsAdjudicatorInbound`.
+
 ### #91 — scope-check reads the work packet (RFC 0099 Phase 1)
 
 `striatum scope-check` (the read-only pre-`work.complete` write-scope drift

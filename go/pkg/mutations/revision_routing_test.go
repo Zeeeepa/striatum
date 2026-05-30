@@ -656,3 +656,71 @@ func TestRetryJobRejectsNonNeedsRevisionCycleTarget(t *testing.T) {
 		t.Fatalf("synth state = %q, want completed (not retried)", got)
 	}
 }
+
+// #77: a review that feeds an adjudicator (downstream phase_synthesis whose
+// dependency gate does not require a clearing verdict) must NOT open its own
+// revision checkpoint on needs_revision — it completes and enqueues the
+// adjudicator to weigh the dissent.
+func TestNeedsRevisionFeedingAdjudicatorIsAbsorbed(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_revision_adjudicator_absorb"
+	runID, reviewJobID, synthJobID, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+
+	adjJobID := "job_adjudicate_" + repoID
+	seedBlockedJob(t, ctx, runner, repoID, runID, adjJobID, "adjudicate", "synthesis", "adjudicator")
+	seedDependency(t, ctx, runner, repoID, adjJobID, reviewJobID, map[string]any{}) // no requires_verdict -> absorbs
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID, "job_id": reviewJobID, "lease_id": leaseID, "verdict": "needs_revision",
+	}))
+	if err != nil {
+		t.Fatalf("record verdict: %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "completed" {
+		t.Fatalf("#77: review feeding an adjudicator must complete (absorbed), got status=%v result=%#v", result["status"], result)
+	}
+	if result["absorbed_by_adjudicator"] != true {
+		t.Fatalf("expected absorbed_by_adjudicator=true, got %#v", result)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "completed" {
+		t.Fatalf("review job state = %q, want completed", got)
+	}
+	if n := openRevisionBlockers(t, ctx, runner, repoID, reviewJobID); n != 0 {
+		t.Fatalf("#77: no revision_routing checkpoint should open, got %d", n)
+	}
+	if got := jobState(t, ctx, runner, repoID, adjJobID); got != "queued" {
+		t.Fatalf("adjudicator job state = %q, want queued (enqueued to absorb dissent)", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, synthJobID); got != "completed" {
+		t.Fatalf("synth job state = %q, want completed (untouched)", got)
+	}
+}
+
+// #77 guard: a downstream phase_synthesis whose gate REQUIRES a clearing verdict
+// from this reviewer does not absorb — needs_revision still opens a checkpoint.
+func TestNeedsRevisionFeedingGatedSynthesisStillCheckpoints(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_revision_gated_synth"
+	runID, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+
+	gatedJobID := "job_gated_synth_" + repoID
+	seedBlockedJob(t, ctx, runner, repoID, runID, gatedJobID, "gate", "synthesis", "synthesizer")
+	seedDependency(t, ctx, runner, repoID, gatedJobID, reviewJobID, map[string]any{
+		"requires_verdict": []any{"accept", "accept_with_findings"},
+	})
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID, "job_id": reviewJobID, "lease_id": leaseID, "verdict": "needs_revision",
+	}))
+	if err != nil {
+		t.Fatalf("record verdict: %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "waiting_human" {
+		t.Fatalf("#77 guard: a clearing-verdict gate must still checkpoint, got status=%v", result["status"])
+	}
+	if n := openRevisionBlockers(t, ctx, runner, repoID, reviewJobID); n != 1 {
+		t.Fatalf("expected 1 revision_routing blocker, got %d", n)
+	}
+}

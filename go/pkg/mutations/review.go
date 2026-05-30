@@ -542,6 +542,34 @@ func recordVerdict(
 				return routed, nil
 			}
 		}
+		// #77: a review job that feeds an adjudicator must not open its own
+		// revision checkpoint when it has no matching cycle — the adjudicator
+		// owns the revision decision. When this reviewer's only path forward is a
+		// downstream phase_synthesis (adjudicator) whose dependency gate accepts
+		// this verdict (no requires_verdict, or one that includes it), record the
+		// dissent, complete the review, and enqueue the adjudicator to weigh it,
+		// instead of stalling the live panel on an operator override.
+		if !matched {
+			feeds, err := reviewFeedsAbsorbingAdjudicator(ctx, runner, repositoryID, jobID, verdict)
+			if err != nil {
+				return nil, err
+			}
+			if feeds {
+				if err := completeReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID, "needs_revision absorbed by adjudicator"); err != nil {
+					return nil, err
+				}
+				if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+					return nil, err
+				}
+				if err := maybeEnqueueDownstream(ctx, runner, repositoryID, jobID); err != nil {
+					return nil, err
+				}
+				if err := maybeCompleteRun(ctx, runner, repositoryID, fmt.Sprint(job["run_id"])); err != nil {
+					return nil, err
+				}
+				return map[string]any{"status": "completed", "job_id": jobID, "verdict": verdict, "verdict_id": verdictID, "absorbed_by_adjudicator": true}, nil
+			}
+		}
 		description := "needs_revision verdict has no matching workflow cycle"
 		if matched {
 			description = "needs_revision verdict matched a workflow cycle but its iteration budget is exhausted or its target is unavailable"
@@ -932,6 +960,37 @@ func enforceRequiredAttestationForVerdict(ctx context.Context, runner any, repos
 		return rpc.NewError("invalid_transition", "review job requires an attached lane supervisor before recording a verdict"+reason+"; recovery: striatum supervise start --session-id "+sessionID, nil)
 	}
 	return nil
+}
+
+// reviewFeedsAbsorbingAdjudicator reports whether every downstream consumer of
+// this review job absorbs its verdict (#77) — i.e. the dependency-edge gate does
+// not require a clearing verdict from this reviewer (empty `requires_verdict`, or
+// one that includes the verdict). run.prepare leaves edges INTO an adjudicator
+// (a phase_synthesis job) ungated for exactly this reason, while it gates every
+// other review→downstream edge with `requires_verdict:[accept,
+// accept_with_findings]`. So in a prepared workflow a tolerant downstream IS an
+// adjudicator: the reviewer's needs_revision is a finding for the adjudicator to
+// weigh, not a trigger for the reviewer's own revision checkpoint. A reviewer
+// with no downstream, or any downstream that hard-gates on a clearing verdict,
+// is not absorbed (it still opens a checkpoint).
+func reviewFeedsAbsorbingAdjudicator(ctx context.Context, runner any, repositoryID, jobID, verdict string) (bool, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT gate_json
+		  FROM striatumd.job_dependencies
+		 WHERE repository_id = $1 AND depends_on_job_id = $2`, repositoryID, jobID)
+	if err != nil {
+		return false, err
+	}
+	if len(rows) == 0 {
+		return false, nil
+	}
+	for _, row := range rows {
+		required := requiredVerdicts(asMap(row["gate_json"])["requires_verdict"])
+		if len(required) > 0 && !required[verdict] {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func downstreamJobs(ctx context.Context, runner any, repositoryID, jobID string) ([]map[string]any, error) {

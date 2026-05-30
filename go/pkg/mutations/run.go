@@ -602,7 +602,7 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 			return nil, rpc.NewError("workflow_error", "workflow edge references an unknown job", nil)
 		}
 		gate := map[string]any{"on": "completed", "from": fromID, "to": toID}
-		if workflowJobType(workflow, fromID) == "review" || workflowJobType(workflow, fromID) == "phase_synthesis" {
+		if edgeRequiresClearingVerdict(workflow, fromID, toID) {
 			gate["requires_verdict"] = []string{"accept", "accept_with_findings"}
 		}
 		gateArg, err := db.JSONBArg(runner, gate)
@@ -671,6 +671,20 @@ func workflowJobType(workflow map[string]any, workflowJobID string) string {
 		}
 	}
 	return ""
+}
+
+// edgeRequiresClearingVerdict decides whether a from→to dependency edge gates
+// the downstream on a clearing verdict (#77). An edge from a verdict-capable job
+// (review / phase_synthesis) normally requires accept/accept_with_findings — but
+// an edge INTO an adjudicator (a phase_synthesis job) stays ungated, because the
+// adjudicator's role is to weigh every input verdict (including a reviewer's
+// needs_revision dissent) rather than be pre-gated by it.
+func edgeRequiresClearingVerdict(workflow map[string]any, fromID, toID string) bool {
+	fromType := workflowJobType(workflow, fromID)
+	if fromType != "review" && fromType != "phase_synthesis" {
+		return false
+	}
+	return workflowJobType(workflow, toID) != "phase_synthesis"
 }
 
 type phaseIndex struct {
