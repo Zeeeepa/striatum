@@ -28,6 +28,37 @@ broken runner). No schema change.
   agent-loop bootstrap prompt forbids authoring control-plane helper scripts in
   the target repo.
 
+### RFC 0095 Phase 2 core — migration-free revision re-open safety
+
+No schema change (the clean `attempt`-column key is RFC 0095 §1 / Phase 2.5,
+deferred as a daemon-owned migration). Logic-only; bootstrapped via subagents.
+
+- #65 P3 (RFC 0095 §3): every re-open path — the revision-cycle router
+  (`routeRevisionCycle`), `run.retry_job`, and `checkpoint.resolve continue` —
+  now funnels through one atomic helper `reopenJobForAttempt`. In a single
+  transaction it releases the prior active lease, cancels the prior in-flight
+  work message (incl. a `blocked` message parked on a human checkpoint), cancels
+  open blockers, re-blocks the target's transitive downstream terminal jobs +
+  clears their stale verdicts (RFC 0083 review-after-revision), clears the job's
+  stale verdicts, bumps `attempt`, and re-enqueues a fresh message. This closes
+  the `duplicate active job lease` wedge (a re-open that never released the prior
+  lease made the fresh `work.claim_next` fail `uq_active_resource_lease`). The
+  retry-job and checkpoint paths previously skipped the lease release entirely.
+- #65 P2 (RFC 0095 §2): auto-finalize recovery is now attempt-aware. A re-opened
+  job is no longer auto-finalized from the **prior** attempt's unchanged
+  artifact: when the only satisfying same-content artifact's `created_at`
+  predates the current attempt's re-enqueue boundary (the current work message's
+  `created_at`), recovery refuses (`stale_attempt`) and leaves the job in the
+  fresh lane's hands. NULL boundary preserves legacy behavior; an equal-second
+  tie favors the lane.
+- #84 (partial, migration-free): RFC 0093 `${cycle}`-templated artifacts
+  republish cleanly across attempts — because `reopenJobForAttempt` bumps
+  `attempt` consistently and cycle resolution keys off `jobs.attempt`, a
+  re-opened cycle artifact gets a distinct `logical_name`/`path`. A FIXED
+  (non-`${cycle}`) `logical_name` still collides on the append-only artifacts
+  table; the real fix (the `attempt`-column uniqueness widening) is deferred to
+  Phase 2.5.
+
 ### GH #62 / #63 follow-ups (daemon + CLI fixes)
 
 - #63 F2: `checkpoint.resolve` gains an `override` action for `revision_routing`
