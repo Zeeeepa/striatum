@@ -66,6 +66,12 @@ var Schemas = map[string]Schema{
 			"verdict_intent": {true, oneOfValue("accept", "accept_with_findings", "needs_revision", "reject")},
 			"severity":       {false, oneOfValue("info", "low", "medium", "high", "critical")},
 			"tags":           {false, isStringListValue},
+			// RFC 0098 slice 3: a final_review finding optionally carries a
+			// constraint_discharge[] table reporting how each binding constraint
+			// landed in the published spec. Additive and optional here; the
+			// discharge-verifying gate in pkg/mutations is what makes it
+			// mandatory-and-complete for the ACE final-review step.
+			"constraint_discharge": {false, isMapListValue},
 		},
 	},
 	"findings_ledger": {
@@ -74,6 +80,9 @@ var Schemas = map[string]Schema{
 			"artifact_kind":  {true, equalsValue("findings_ledger")},
 			"summary_count":  {true, isNonNegativeIntValue},
 			"entries_path":   {false, isStringValue},
+			// RFC 0098 slice 3: see finding above. A findings_ledger may also
+			// carry the discharge table.
+			"constraint_discharge": {false, isMapListValue},
 		},
 	},
 	"synthesis": {
@@ -499,6 +508,10 @@ func validateKindSpecific(kind string, path string, parsed map[string]any, paylo
 		return validateAutoFinalizeGateEvidence(parsed)
 	case "collaboration_ledger":
 		return validateCollaborationLedger(parsed)
+	case "finding", "findings_ledger":
+		if _, err := ParseConstraintDischarge(parsed["constraint_discharge"]); err != nil {
+			return err
+		}
 	}
 	_ = path
 	return nil
@@ -773,6 +786,160 @@ func validateCollaborationLedgerBranches(value any) error {
 		}
 	}
 	return nil
+}
+
+// ConstraintDischargeRow is one row of a final_review finding's
+// constraint_discharge[] table (RFC 0098 §4). It reports how a binding
+// constraint from the cleared collaboration_ledger landed in the published
+// spec. `discharged` and `accepted_risk` are the passing statuses; `missing`
+// and `partial` are failing unless modeled as `accepted_risk`. The RFC §5
+// invariant 4 typecheck (implemented in pkg/mutations) treats `accepted_risk`
+// as a pass only when Owner and Stage are both present.
+type ConstraintDischargeRow struct {
+	ConstraintID string
+	Status       string
+	Evidence     string
+	Owner        string
+	Stage        string
+}
+
+// constraintDischargeStatuses is the closed enum for a discharge row's status.
+// `accepted_risk` represents the RFC §1/§5 accepted-risk disposition; it is a
+// status here (rather than a parallel block) because the spec describes the
+// discharge outcome per constraint and accepting the risk is one such outcome.
+var constraintDischargeStatuses = []string{"discharged", "missing", "partial", "accepted_risk"}
+
+// ParseConstraintDischarge validates an optional constraint_discharge[] block
+// and returns the typed rows. It is exported so the discharge-verifying gate in
+// pkg/mutations can parse the same structure without duplicating the schema. A
+// nil value yields no rows and no error (the block is optional at the contract
+// layer; the gate is what requires it for the ACE final-review step).
+//
+// Per-row rules:
+//   - constraint_id: required non-empty string, unique across rows.
+//   - status: required, one of discharged|missing|partial|accepted_risk.
+//   - evidence: optional string.
+//   - owner / stage: optional strings, but BOTH required when status is
+//     accepted_risk (RFC §5 invariant 4: an accepted risk must name an owner
+//     and the stage that owns it).
+func ParseConstraintDischarge(value any) ([]ConstraintDischargeRow, error) {
+	if value == nil {
+		return nil, nil
+	}
+	rows, ok := mapList(value)
+	if !ok {
+		return nil, fmt.Errorf("finding artifact front matter constraint_discharge must be a list of objects")
+	}
+	allowedKeys := map[string]bool{
+		"constraint_id": true,
+		"status":        true,
+		"evidence":      true,
+		"owner":         true,
+		"stage":         true,
+	}
+	result := make([]ConstraintDischargeRow, 0, len(rows))
+	seen := map[string]bool{}
+	for idx, row := range rows {
+		for key := range row {
+			if !allowedKeys[key] {
+				extra := []string{}
+				for k := range row {
+					if !allowedKeys[k] {
+						extra = append(extra, k)
+					}
+				}
+				sort.Strings(extra)
+				return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d] has unknown fields: %s", idx, strings.Join(extra, ", "))
+			}
+		}
+		constraintID, ok := nonEmptyString(row["constraint_id"])
+		if !ok {
+			return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].constraint_id must be a non-empty string", idx)
+		}
+		if seen[constraintID] {
+			return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].constraint_id %q is duplicated", idx, constraintID)
+		}
+		seen[constraintID] = true
+		if !oneOfValue(constraintDischargeStatuses...)(row["status"]) {
+			return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].status must be one of discharged, missing, partial, accepted_risk", idx)
+		}
+		status := fmt.Sprint(row["status"])
+		evidence := ""
+		if v, exists := row["evidence"]; exists {
+			text, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].evidence must be a string", idx)
+			}
+			evidence = text
+		}
+		owner := ""
+		if v, exists := row["owner"]; exists {
+			text, ok := nonEmptyString(v)
+			if !ok {
+				return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].owner must be a non-empty string", idx)
+			}
+			owner = text
+		}
+		stage := ""
+		if v, exists := row["stage"]; exists {
+			text, ok := nonEmptyString(v)
+			if !ok {
+				return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d].stage must be a non-empty string", idx)
+			}
+			stage = text
+		}
+		if status == "accepted_risk" && (owner == "" || stage == "") {
+			return nil, fmt.Errorf("finding artifact front matter constraint_discharge[%d] with status accepted_risk requires both owner and stage", idx)
+		}
+		result = append(result, ConstraintDischargeRow{
+			ConstraintID: constraintID,
+			Status:       status,
+			Evidence:     evidence,
+			Owner:        owner,
+			Stage:        stage,
+		})
+	}
+	return result, nil
+}
+
+// BindingConstraint is a binding constraint extracted from a cleared
+// collaboration_ledger.v1.1 (RFC 0098 §4). The discharge-verifying gate reads
+// these from the latest cleared ACE ledger and checks each one against the
+// final_review finding's constraint_discharge[] table.
+type BindingConstraint struct {
+	ID                  string
+	FinalReviewRequired bool
+}
+
+// BindingConstraintsFromLedger parses a collaboration_ledger.v1.1 front matter
+// map and returns its binding constraints (binding: true). The caller decides
+// whether to filter to final_review_required: true. This reuses the same
+// constraints[] structure validateCollaborationLedger already enforces; it does
+// not re-validate (the ledger was validated at publish time), it only extracts.
+func BindingConstraintsFromLedger(parsed map[string]any) []BindingConstraint {
+	rows, ok := mapList(parsed["constraints"])
+	if !ok {
+		return nil
+	}
+	result := []BindingConstraint{}
+	for _, row := range rows {
+		binding, _ := row["binding"].(bool)
+		if !binding {
+			continue
+		}
+		id, ok := nonEmptyString(row["id"])
+		if !ok {
+			continue
+		}
+		finalReviewRequired := true
+		if v, exists := row["final_review_required"]; exists {
+			if b, ok := v.(bool); ok {
+				finalReviewRequired = b
+			}
+		}
+		result = append(result, BindingConstraint{ID: id, FinalReviewRequired: finalReviewRequired})
+	}
+	return result
 }
 
 func constraintVerification(idx int, value any) (map[string]any, bool, error) {

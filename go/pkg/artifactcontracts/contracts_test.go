@@ -312,6 +312,196 @@ func TestCollaborationLedgerReferenceExamplesValidate(t *testing.T) {
 	}
 }
 
+func TestFindingAcceptsAndValidatesConstraintDischarge(t *testing.T) {
+	t.Run("finding without constraint_discharge still validates", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+---
+
+# Finding
+`)
+		if err := ValidateFrontMatter("finding", "FINDING.md", payload); err != nil {
+			t.Fatalf("plain finding refused: %v", err)
+		}
+	})
+	t.Run("finding with a discharged constraint_discharge row validates", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - constraint_id: C2-IMPL-1
+    status: discharged
+    evidence: "RFC 0069 §2.1, §9 Stage 6"
+  - constraint_id: C2-PRIV-1
+    status: accepted_risk
+    owner: maintainer
+    stage: "Stage 6"
+---
+
+# Final Review
+`)
+		if err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload); err != nil {
+			t.Fatalf("valid discharge finding refused: %v", err)
+		}
+	})
+	t.Run("invalid status is rejected", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - constraint_id: C1
+    status: handwaved
+---
+
+# Final Review
+`)
+		err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload)
+		if err == nil || !strings.Contains(err.Error(), "status must be one of discharged, missing, partial, accepted_risk") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("accepted_risk without owner and stage is rejected", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - constraint_id: C1
+    status: accepted_risk
+    evidence: "we will live with it"
+---
+
+# Final Review
+`)
+		err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload)
+		if err == nil || !strings.Contains(err.Error(), "accepted_risk requires both owner and stage") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("missing constraint_id is rejected", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - status: discharged
+---
+
+# Final Review
+`)
+		err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload)
+		if err == nil || !strings.Contains(err.Error(), "constraint_id must be a non-empty string") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("duplicate constraint_id is rejected", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - constraint_id: C1
+    status: discharged
+  - constraint_id: C1
+    status: missing
+---
+
+# Final Review
+`)
+		err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload)
+		if err == nil || !strings.Contains(err.Error(), "is duplicated") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("unknown row key is rejected", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.finding.v1"
+artifact_kind: "finding"
+verdict_intent: "accept"
+constraint_discharge:
+  - constraint_id: C1
+    status: discharged
+    stdout: "raw provider stream"
+---
+
+# Final Review
+`)
+		err := ValidateFrontMatter("finding", "CONSTRAINT_DISCHARGE.md", payload)
+		if err == nil || !strings.Contains(err.Error(), "has unknown fields: stdout") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("findings_ledger also carries the discharge table", func(t *testing.T) {
+		payload := []byte(`---
+schema_version: "striatum.findings_ledger.v1"
+artifact_kind: "findings_ledger"
+summary_count: 1
+constraint_discharge:
+  - constraint_id: C1
+    status: partial
+---
+
+# Ledger
+`)
+		if err := ValidateFrontMatter("findings_ledger", "LEDGER.md", payload); err != nil {
+			t.Fatalf("findings_ledger discharge table refused: %v", err)
+		}
+	})
+}
+
+func TestParseConstraintDischargeReturnsTypedRows(t *testing.T) {
+	parsed, err := ParseFrontMatterBlock(`constraint_discharge:
+  - constraint_id: C1
+    status: discharged
+    evidence: "RFC §2"
+  - constraint_id: C2
+    status: accepted_risk
+    owner: maintainer
+    stage: "Stage 6"`)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	rows, err := ParseConstraintDischarge(parsed["constraint_discharge"])
+	if err != nil {
+		t.Fatalf("ParseConstraintDischarge: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	if rows[0].ConstraintID != "C1" || rows[0].Status != "discharged" || rows[0].Evidence != "RFC §2" {
+		t.Fatalf("row0 = %#v", rows[0])
+	}
+	if rows[1].Owner != "maintainer" || rows[1].Stage != "Stage 6" {
+		t.Fatalf("row1 = %#v", rows[1])
+	}
+}
+
+func TestBindingConstraintsFromLedgerExtractsBindingRows(t *testing.T) {
+	payload := validACECollaborationLedger("accept_with_findings", aceBindingConstraint()+`  - id: Q1
+    posture: product
+    severity: medium
+    kind: unresolved_question
+    binding: false
+    text: "open question"
+`, aceFinding(), "")
+	block, _ := FrontMatterBlock(payload)
+	parsed, err := ParseFrontMatterBlock(block)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	binding := BindingConstraintsFromLedger(parsed)
+	if len(binding) != 1 {
+		t.Fatalf("binding = %#v, want 1 row", binding)
+	}
+	if binding[0].ID != "C1" || !binding[0].FinalReviewRequired {
+		t.Fatalf("binding[0] = %#v", binding[0])
+	}
+}
+
 func yamlFenceAfter(t *testing.T, text string, label string) string {
 	t.Helper()
 	start := strings.Index(text, label)

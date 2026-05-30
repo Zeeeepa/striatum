@@ -104,6 +104,16 @@ func publishArtifact(
 	if err := validateArtifactFrontMatter(kind, path, payload); err != nil {
 		return nil, err
 	}
+	// RFC 0098 slice 3: discharge-verifying final review. When a finding /
+	// findings_ledger carries a constraint_discharge[] table and the run has a
+	// cleared ACE collaboration_ledger with binding constraints, every binding
+	// (final-review-required) constraint must be discharged or accepted_risk.
+	// Fails closed on any missing / unaccepted-partial. This is a pure typecheck
+	// against already-published artifacts; it fires on both artifact.publish and
+	// review.submit (which routes through publishArtifact).
+	if err := enforceConstraintDischarge(ctx, runner, repositoryID, job, kind, path, payload); err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
 	now := nowString()
