@@ -4,7 +4,7 @@ artifact_kind: "finding"
 verdict_intent: "needs_revision"
 ---
 
-# Design Review - Threat Model
+# Design Review - Threat Model Attempt 2
 
 author: reviewer-codex-gpt-5.5-xhigh-001
 
@@ -14,119 +14,83 @@ needs_revision
 
 ## Interrogation
 
-Opened interrogation `intg_e5ddf663e130c22c89920d128cf3e7b9` against the live
+Opened interrogation `intg_d48d3996a417fe050d82475559fa42ec` against the live
 synthesizer session `sess_76fe26aae7c4d815f28731663ba4804b`.
 
 I used 1 interrogation round. I stopped because the question remained
-unanswered after repeated polls, so further rounds would only queue more
-unanswered work rather than resolve the open finding. The unanswered question is
-therefore evidence for this review, not a resolved objection.
+unanswered after repeated polls, and closing the thread closed the target
+session. Additional rounds were therefore unanswerable.
 
-Question asked: whether the proposed productive-refusal gate scoping,
-`schema_version == striatum.collaboration_ledger.v1.1 || shape ==
-adjudicated_constraint_extraction`, is intentionally global v1.1 semantics or
-should be scoped only to `adjudicated_constraint_extraction`.
+Question asked: the revision hardens `binding: true` constraints by requiring a
+high/critical `findings[]` source and non-empty verification, but
+`kind: unresolved_question` rows still satisfy the productive-refusal gate while
+leaving `source_finding`, `source_refs`, and `verification` optional. I asked
+what prevents an adjudicator from satisfying the gate with a trivial unsourced
+unresolved-question row.
 
 ## Trust Boundaries And Attack Surfaces
 
-- Artifact front matter is untrusted reviewer/adjudicator-authored YAML entering
-  the daemon's contract boundary. New nested rows must reject unknown raw-output
-  fields without weakening the existing D028 guard.
-- The collaboration ledger verdict is coupled to daemon review routing. Any new
-  front-matter verdict that is not routable by the daemon can wedge the run.
-- The version/shape predicate is a schema boundary. It must prevent ACE ledgers
-  that forget the v1.1 schema bump from bypassing the gate, while preserving
-  RFC 0093 v1 additivity.
-- The publish and review-submission paths are security-sensitive duplicates of
-  the same write surface. A productive-refusal gate that is not enforced on all
-  paths is bypassable.
-- Slice 2's generated graph crosses a phase boundary into revision synthesis.
-  If the generator relies on an edge shape that `run.prepare` rejects, the
-  workflow can validate statically but fail at run preparation time.
+- Artifact front matter is untrusted adjudicator-authored YAML entering the
+  daemon contract boundary.
+- The productive-refusal gate is structural only, so every field it accepts as
+  gate-satisfying must be tied to the objection lifecycle strongly enough that
+  "one hollow row" does not become the new ritual.
+- D028 prohibits raw transcript/provide-output capture; source references must
+  point at curated dialogue turns or typed findings, not raw provider output.
+- The revised shape-only gate correctly separates format version from shape
+  behavior, but the gate's productive-row predicate still decides whether a
+  refusal is meaningful enough to unblock the next revision cycle.
 
 ## Findings
 
-### F1 - Ambiguous v1.1 Gate Scope Can Over-Gate Or Under-Test Future Ledgers
+### F1 - `unresolved_question` Rows Can Still Satisfy The Gate Without Provenance
 
 Severity: high
 
-The synthesis proposes `isV11Ledger = schema_version == "...v1.1" || shape ==
-"adjudicated_constraint_extraction"`. The second half is good threat-modeling:
-an ACE ledger that forgets to bump `schema_version` still cannot publish a naked
-`needs_revision` refusal.
+The attempt-2 synthesis fixes the original gate-scope issue: the productive
+refusal gate is now shape-only, and `adjudicated_constraint_extraction` requires
+`schema_version: striatum.collaboration_ledger.v1.1`. It also fixes the
+`findings[]` contract gap and adds an idempotent-submit bypass test.
 
-The unresolved risk is the first half. If `schema_version == "...v1.1"` is
-intended to mean "all v1.1 collaboration ledgers require productive refusals,"
-that is a global contract semantic and should be named as such. If the gate is
-intended only for RFC 0098's ACE shape, the predicate is too broad. The design
-does not decide this explicitly, and the synthesizer did not answer the
-interrogation question.
+The remaining bypass is narrower but still load-bearing. The productive-row
+predicate remains:
 
-Required revision: state the intended truth table and require tests for it:
+```
+binding == true OR kind == "unresolved_question"
+```
 
-- v1 `falsification_gate` with `needs_revision` and no `constraints[]` remains
-  valid.
-- `adjudicated_constraint_extraction` with `needs_revision` and no productive
-  row is rejected even if it forgets the v1.1 schema bump.
-- non-ACE `schema_version: striatum.collaboration_ledger.v1.1` with
-  `needs_revision` is either deliberately rejected as global v1.1 semantics or
-  deliberately accepted as ACE-only semantics. Do not leave this implicit.
+For `binding: true`, the revision now requires a high/critical `findings[]`
+source and concrete verification. For `kind: unresolved_question`, the revision
+explicitly leaves `source_finding`, `source_refs`, and `verification` optional.
+That means the minimum gate-satisfying refusal can be an unsourced row saying,
+in effect, "open question remains." Structurally, this preserves the same
+theater risk RFC 0098 is trying to remove: the adjudicator can publish a
+`needs_revision` verdict with no binding constraint and no traceable link to a
+load-bearing objection.
 
-### F2 - `findings[]` Is Added As A D028-Relevant Typed Home But Its Row Contract Is Not Specified
+The RFC allows unresolved-question rows to satisfy the gate, but it also frames
+the v1.1 table as typed and sourced. An unresolved question does not need a
+verification gate, but it does need provenance: either a `source_finding` that
+resolves to a high/critical `findings[]` row, or `source_refs` to curated
+`dialogue:<seq>` turns, and preferably both where available.
 
-Severity: high
+Required revision before build:
 
-The synthesis correctly rejects loosening `entries[]` and instead adds
-`constraints[]`, `branches{}`, and `findings[]` as typed homes. It fully
-specifies `constraints[]` row keys and explicitly says unknown keys in a
-constraint row are rejected so raw-output-shaped fields cannot ride along. It
-does not give the same row schema for `findings[]`, even though `findings[]` is
-the proposed fix for natural cross-exam rows and is equally inside the
-front-matter trust boundary.
+- Require every `unresolved_question` productive row to carry at least one
+  provenance anchor: a resolving `source_finding`, non-empty `source_refs`, or a
+  specific equivalent field with the same D028-safe semantics.
+- Add regression tests showing an unsourced `unresolved_question` row does not
+  satisfy the productive-refusal gate, while a sourced unresolved-question row
+  does.
+- Update the slice-1 authoring examples to show sourced unresolved-question
+  rows, not bare placeholders.
 
-That leaves two unsafe implementation paths: under-validation, where arbitrary
-keys such as `stdout` can ride in under `findings[]`; or over-validation, where
-the build invents a narrower schema and recreates the #79 natural-front-matter
-failure in a new field.
+## Resolved Items
 
-Required revision: define the `findings[]` row validator before build starts,
-including required keys, optional keys, allowed enum values, and unknown-key
-rejection. Add a D028 regression fixture showing a raw-output-shaped unknown key
-inside a `findings[]` row is rejected, and a natural multiline/nested
-cross-exam row is accepted.
-
-### F3 - Review-Submission Bypass Class Needs An Explicit Idempotency Test
-
-Severity: medium
-
-The synthesis identifies the correct single validator and states that
-`publish-artifact`, `submit-review` precheck, and primitive `review.verdict` all
-reach it. That is the right architecture. The remaining bypass surface is the
-review-submission path when an artifact has already been published or when
-submission is treated as idempotent. The design's "all three paths" test should
-cover the friendly/idempotent path as well, not only the initial publish path.
-
-Required revision: make the slice-1 tests prove that an already-published or
-idempotent review submission cannot record or clear a v1.1 naked
-`needs_revision` ledger without reusing the validated front matter.
-
-## Positive Findings
-
-- Keeping the front-matter verdict enum to the four daemon-routable values is
-  the correct safety choice. It avoids a contract-passes/runtime-wedges failure
-  mode.
-- Scoping the gate through `validateCollaborationLedger` is the right
-  enforcement point if the three write paths are tested as described.
-- Treating `posture` as a non-empty string is correct; a closed enum would
-  contradict the RFC's workflow-overridable posture set.
-- Deferring shape generation and final discharge review until slice 1 is green
-  is appropriate. The #66 back-edge risk should not be hidden inside the
-  contract slice.
-
-## Required Revisions Before Build
-
-1. Resolve and document the v1.1/shape gate truth table, then add regression
-   tests for each branch of that table.
-2. Specify the `findings[]` row schema and D028 unknown-key behavior.
-3. Extend the write-path tests to include review-submission idempotency or
-   already-published artifact behavior.
+- The shape/version truth table is now explicit and preserves RFC 0093 v1
+  additivity.
+- The `findings[]` row schema is now specified with unknown-key rejection.
+- The write-path tests now call out idempotent/already-published review
+  submission behavior.
+- Keeping the verdict enum to the four daemon-routable values remains the right
+  choice.
