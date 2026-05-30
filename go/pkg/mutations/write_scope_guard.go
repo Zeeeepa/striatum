@@ -32,27 +32,23 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 		return err
 	}
 	repoRoot := fmt.Sprint(repo["repo_root"])
-	paths, err := gitTouchedPathsSinceBaseline(ctx, repoRoot, job)
+	current, err := gitChangedPathSnapshots(ctx, repoRoot)
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
-	ignoredPaths, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, repoRoot, job, paths)
+	currentPaths := make([]string, 0, len(current))
+	for _, item := range current {
+		currentPaths = append(currentPaths, item.Path)
+	}
+	// Sibling lanes in a shared run may publish their own in-scope artifacts that
+	// land outside this job's allowed_paths; when the dirty path matches a
+	// sibling-published artifact's content digest, it is that lane's write, not a
+	// violation of this job's scope.
+	ignoredPaths, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, repoRoot, job, currentPaths)
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
-	// #46: paths already dirty/changed at claim time (the baseline) that lie
-	// outside allowed_paths are pre-existing operator state, not job writes.
-	// Operator actions on them (e.g. committing an unrelated untracked file
-	// mid-run, which removes it from `git status` and thus reads as "touched")
-	// must not count as this job violating its write scope. Forbidden paths are
-	// still enforced — the violation matcher checks forbidden before ignored.
-	if ignoredPaths == nil {
-		ignoredPaths = map[string]bool{}
-	}
-	for clean := range baselinePreexistingOutOfScope(job, allowed) {
-		ignoredPaths[clean] = true
-	}
-	violations := writeScopeViolationsWithIgnored(paths, allowed, forbidden, ignoredPaths)
+	violations := writeScopeViolationsSinceBaseline(current, gitBaselineFromJob(job), allowed, forbidden, ignoredPaths)
 	if len(violations) == 0 {
 		return nil
 	}
@@ -101,56 +97,82 @@ func gitChangedPaths(ctx context.Context, repoRoot string) ([]string, error) {
 type gitPathSnapshot struct {
 	Path string `json:"path"`
 	Hash string `json:"hash"`
+	// Untracked is true when the path is untracked by git (porcelain `??`).
+	// Untracked paths are operator/lane scratch: an out-of-scope untracked file
+	// that was already present at claim time is never attributed to the attempt,
+	// even if its content later changes. It is omitted from the persisted baseline
+	// JSON (the baseline only needs path+hash) and is derived fresh from the
+	// completion-time `git status`.
+	Untracked bool `json:"-"`
 }
 
-func gitTouchedPathsSinceBaseline(ctx context.Context, repoRoot string, job map[string]any) ([]string, error) {
-	current, err := gitChangedPathSnapshots(ctx, repoRoot)
-	if err != nil {
-		return nil, err
-	}
-	baseline := gitBaselineFromJob(job)
-	if len(baseline) == 0 {
-		paths := make([]string, 0, len(current))
-		for _, item := range current {
-			paths = append(paths, item.Path)
-		}
-		return paths, nil
-	}
-	currentByPath := map[string]string{}
-	for _, item := range current {
-		currentByPath[item.Path] = item.Hash
-	}
-	touched := []string{}
-	for path, currentHash := range currentByPath {
-		if baselineHash, ok := baseline[path]; !ok || baselineHash != currentHash {
-			touched = append(touched, path)
-		}
-	}
-	sort.Strings(touched)
-	return dedupeStrings(touched), nil
-}
-
-// baselinePreexistingOutOfScope returns the normalized baseline paths (paths
-// already dirty/changed when the job claimed) that lie outside allowed_paths —
-// pre-existing operator state the job did not write. These are excluded from
-// write_scope violations so an operator action on an unrelated out-of-scope path
-// during a live job (e.g. committing an untracked file) is not blamed on the job.
-func baselinePreexistingOutOfScope(job map[string]any, allowed []string) map[string]bool {
-	out := map[string]bool{}
+// writeScopeViolationsSinceBaseline applies the RFC 0095 §6 write-scope rule.
+//
+// `current` is the working tree's dirty/untracked snapshot at completion time;
+// `baseline` maps each path that was already dirty/untracked at claim time to
+// its claim-time content hash. The guard keys on *what this attempt did*, not on
+// total worktree cleanliness, so a path outside `allowed_paths` is a violation
+// only when it is attributable to the attempt:
+//
+//  1. it was **created during the attempt** — dirty now but NOT present in the
+//     claim-time baseline (the attempt created the file, or mutated a previously
+//     clean/committed file away from its tracked content); or
+//  2. it is an **in-scope-or-tracked file mutated away from its baseline** — a
+//     tracked (committed) file that was already dirty at claim and whose content
+//     the attempt moved further away from the claim-time hash.
+//
+// Conversely the rule ignores:
+//   - a baseline-dirty/untracked path that transitioned to clean/committed (it is
+//     absent from `current`, so it never enters the loop — the dirty→clean case);
+//   - a pre-existing out-of-scope file the attempt left exactly as it was at
+//     claim (same hash) — operator state the attempt never touched; and
+//   - a pre-existing out-of-scope **untracked** operator file (e.g. an operator
+//     report written incrementally during the run) even when its content changes,
+//     because an untracked file already present at claim is not the attempt's
+//     write — only its first-appearance (rule 1) or a tracked mutation (rule 2)
+//     is attributable.
+//
+// `forbidden_paths` remain absolute: a current dirty path inside a forbidden
+// prefix is always a violation, regardless of baseline. Sibling-published
+// artifacts whose digest matches a dirty path are not the attempt's writes and
+// are skipped.
+func writeScopeViolationsSinceBaseline(current []gitPathSnapshot, baseline map[string]string, allowed, forbidden []string, ignored map[string]bool) []string {
 	allowedMatchers := normalizedScopeMatchers(allowed)
-	if len(allowedMatchers) == 0 {
-		return out
-	}
-	for path := range gitBaselineFromJob(job) {
-		clean, ok := normalizeScopePath(path)
+	forbiddenMatchers := normalizedScopeMatchers(forbidden)
+	violations := make([]string, 0)
+	for _, item := range current {
+		clean, ok := normalizeScopePath(item.Path)
 		if !ok {
+			violations = append(violations, item.Path)
 			continue
 		}
-		if !pathMatchesAny(clean, allowedMatchers) {
-			out[clean] = true
+		// Forbidden is absolute and checked before any attribution leniency.
+		if pathMatchesAny(clean, forbiddenMatchers) {
+			violations = append(violations, clean)
+			continue
+		}
+		if ignored[clean] {
+			continue
+		}
+		if len(allowedMatchers) == 0 || pathMatchesAny(clean, allowedMatchers) {
+			continue
+		}
+		// Outside allowed_paths: attribute to the attempt only via rule 1 or 2.
+		baselineHash, inBaseline := baseline[item.Path]
+		if !inBaseline {
+			// Rule 1: appeared during the attempt.
+			violations = append(violations, clean)
+			continue
+		}
+		// Pre-existing at claim: a violation only when it is a tracked file the
+		// attempt mutated away from its baseline content (rule 2). A pre-existing
+		// untracked operator file is never attributed to the attempt, regardless of
+		// later content changes.
+		if !item.Untracked && baselineHash != item.Hash {
+			violations = append(violations, clean)
 		}
 	}
-	return out
+	return dedupeStrings(violations)
 }
 
 func gitBaselineFromJob(job map[string]any) map[string]string {
@@ -182,14 +204,14 @@ func gitChangedPathSnapshots(ctx context.Context, repoRoot string) ([]gitPathSna
 	if err != nil {
 		return nil, err
 	}
-	paths := parseGitPorcelainZ(output)
-	snapshots := make([]gitPathSnapshot, 0, len(paths))
-	for _, path := range paths {
-		hash, err := hashRepoPath(repoRoot, path)
+	entries := parseGitPorcelainStatusZ(output)
+	snapshots := make([]gitPathSnapshot, 0, len(entries))
+	for _, entry := range entries {
+		hash, err := hashRepoPath(repoRoot, entry.Path)
 		if err != nil {
 			return nil, err
 		}
-		snapshots = append(snapshots, gitPathSnapshot{Path: path, Hash: hash})
+		snapshots = append(snapshots, gitPathSnapshot{Path: entry.Path, Hash: hash, Untracked: entry.Untracked})
 	}
 	return snapshots, nil
 }
@@ -214,9 +236,14 @@ func hashRepoPath(repoRoot, path string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func parseGitPorcelainZ(output []byte) []string {
+type gitPorcelainEntry struct {
+	Path      string
+	Untracked bool
+}
+
+func parseGitPorcelainStatusZ(output []byte) []gitPorcelainEntry {
 	records := bytes.Split(output, []byte{0})
-	paths := make([]string, 0, len(records))
+	entries := make([]gitPorcelainEntry, 0, len(records))
 	for i := 0; i < len(records); i++ {
 		record := records[i]
 		if len(record) < 4 {
@@ -224,18 +251,44 @@ func parseGitPorcelainZ(output []byte) []string {
 		}
 		status := string(record[:2])
 		path := string(record[3:])
+		untracked := status == "??"
 		if path != "" {
-			paths = append(paths, filepath.ToSlash(path))
+			entries = append(entries, gitPorcelainEntry{Path: filepath.ToSlash(path), Untracked: untracked})
 		}
 		if strings.Contains(status, "R") || strings.Contains(status, "C") {
 			if i+1 < len(records) && len(records[i+1]) > 0 {
 				i++
-				paths = append(paths, filepath.ToSlash(string(records[i])))
+				// The rename/copy source is a tracked path.
+				entries = append(entries, gitPorcelainEntry{Path: filepath.ToSlash(string(records[i]))})
 			}
 		}
 	}
-	sort.Strings(paths)
-	return dedupeStrings(paths)
+	sort.Slice(entries, func(a, b int) bool { return entries[a].Path < entries[b].Path })
+	return dedupeGitPorcelainEntries(entries)
+}
+
+func dedupeGitPorcelainEntries(entries []gitPorcelainEntry) []gitPorcelainEntry {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := entries[:0]
+	var prev string
+	for i, entry := range entries {
+		if i == 0 || entry.Path != prev {
+			out = append(out, entry)
+			prev = entry.Path
+		}
+	}
+	return out
+}
+
+func parseGitPorcelainZ(output []byte) []string {
+	entries := parseGitPorcelainStatusZ(output)
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		paths = append(paths, entry.Path)
+	}
+	return paths
 }
 
 func writeScopeViolations(paths []string, allowed []string, forbidden []string) []string {
