@@ -32,6 +32,13 @@ the wedged runner can't dogfood its own fixes):
   `doctor` stale-codex-config/absent-token warning. **#72**: `session close`
   usage lists `--reason` as required. **#69**: the checked-in binary is already
   untracked/gitignored (acute cause gone).
+- **#96**: `submit-review` infers `logical_name`/`kind` from the sole required
+  expected artifact when omitted, and the missing-artifact error names submitted
+  vs expected tuples. **#73**: the artifact byline-mismatch error reports the
+  expected canonical author line. **#94**: the logical-name-conflict error
+  explains the safe path (true cross-cycle supersession is the #84 attempt-scoped
+  work). **#71**: run status/detail surface a `branch_divergence` warning when
+  `branch_name` differs from the actual checkout branch.
 
 ### RFC 0098 slice 1 — `collaboration_ledger.v1.1` + productive-refusal gate
 
