@@ -585,6 +585,113 @@ func TestSuperviseSendRejectsRootDeliveryDegradedSupervisor(t *testing.T) {
 	}
 }
 
+// TestSuperviseSendRejectsAbruptHelperDeathWithoutMetadataRecord guards the
+// #63 F10 fix. A helper/transport that dies abruptly WITHOUT writing a
+// delivery_liveness metadata record (the main lane PID is still alive, so the
+// live probe reports the lane alive) used to slip the old metadata-keyed gate
+// and dispatch a packet to a dead FIFO. The lanehealth checker still detects
+// the dead helper PID (DeliveryReason=helper_process_gone, Deliverable=false),
+// so the gate — now keyed purely on the live probe — must reject. There is NO
+// tmux.delivery_liveness or root delivery_liveness record here on purpose.
+func TestSuperviseSendRejectsAbruptHelperDeathWithoutMetadataRecord(t *testing.T) {
+	tx := &superviseControlFakeTx{
+		pipePath: "/tmp/no-write-expected",
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery":        stdinDeliveryPersistentFIFO,
+			"helper_pid":            999999999, // not a live process
+			"helper_pid_start_time": "",
+			// Deliberately NO delivery_liveness record (tmux or root): this is
+			// the abrupt-death case the old metadata-keyed gate missed.
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	_, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_abrupt_helper_death",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected supervise send to reject lane with a dead helper PID")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "delivery is degraded: helper_process_gone") {
+		t.Fatalf("err = %#v", err)
+	}
+	if len(tx.eventInserts()) != 0 {
+		t.Fatalf("rejected delivery must not record a packet event: %#v", tx.execs)
+	}
+}
+
+// TestSuperviseSendDeliversWhenMetadataDegradedButProbeDeliverable guards the
+// #63 F7 direction and the F10 over-rejection risk: when the supervisor
+// metadata still carries a benign attach_client_exited delivery_liveness record
+// (degraded by the stale-metadata view) but the live probe reconciles the lane
+// to health.Deliverable == true, the live probe wins and delivery SUCCEEDS. The
+// real FIFO has a reader so the packet is actually written end-to-end, proving
+// the gate did not over-reject.
+func TestSuperviseSendDeliversWhenMetadataDegradedButProbeDeliverable(t *testing.T) {
+	dir := t.TempDir()
+	pipePath := dir + "/stdin.pipe"
+	if err := syscall.Mkfifo(pipePath, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	readerFD, err := syscall.Open(pipePath, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatalf("open FIFO reader: %v", err)
+	}
+	reader := os.NewFile(uintptr(readerFD), "stdin.pipe.reader")
+	defer func() { _ = reader.Close() }()
+
+	tx := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      os.Getpid(),
+		metadata: map[string]any{
+			"stdin_delivery": stdinDeliveryPersistentFIFO,
+			"tmux": map[string]any{
+				"delivery_liveness": map[string]any{
+					"class":   "degraded",
+					"healthy": false,
+					"reason":  "attach_client_exited",
+				},
+			},
+		},
+	}
+	runner := &superviseControlFakeRunner{txs: []*superviseControlFakeTx{tx}}
+	result, err := HandleSuperviseSend(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_send_metadata_degraded_probe_live",
+		Method:        "supervise.send",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"packet_id":     "packet_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("benign attach_client_exited with a live probe must deliver: %v", err)
+	}
+	if result["delivery_state"] != "delivered_unacknowledged" {
+		t.Fatalf("send result = %#v", result)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("read FIFO payload: %v", err)
+	}
+	var packet map[string]any
+	if err := json.Unmarshal(body, &packet); err != nil {
+		t.Fatalf("packet json = %q: %v", string(body), err)
+	}
+	if packet["packet"] != "body" {
+		t.Fatalf("delivered packet = %#v", packet)
+	}
+}
+
 func TestTmuxMetadataFromHelperEventsPreservesLaunchAttachExit(t *testing.T) {
 	tmux := tmuxMetadataFromHelperEvents([]map[string]any{
 		{

@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -127,8 +129,11 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 	if blockerID == "" || action == "" {
 		return nil, rpc.NewError("schema_invalid", "checkpoint.resolve requires blocker_id and action", nil)
 	}
-	if action != "continue" && action != "cancel" {
+	if action != "continue" && action != "cancel" && action != "override" {
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("unknown checkpoint resolve action %q", action), nil)
+	}
+	if action == "override" && decisionID == nil {
+		return nil, rpc.NewError("schema_invalid", "checkpoint.resolve override requires decision_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		blocker, err := rowByID(ctx, tx, repositoryID, "blockers", "blocker_id", blockerID, true)
@@ -144,6 +149,7 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 		runID := fmt.Sprint(blocker["run_id"])
 		blockerJobID := nullable(blocker["job_id"])
 		var artifactID any
+		var decisionOutcome string
 		if decisionID != nil {
 			artifact, err := oneRow(ctx, tx, `
 				SELECT artifact_id, run_id, job_id, session_id, logical_name
@@ -160,12 +166,31 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				return nil, rpc.NewError("invalid_transition", "decision artifact must be run-level (no job or session binding)", nil)
 			}
 			artifactID = artifact["artifact_id"]
+			// The decision's outcome lives in the decision.recorded event payload
+			// (the artifacts table does not store it). Override requires an
+			// accepting outcome; continue/cancel do not consult it.
+			outcomeRow, err := oneRow(ctx, tx, `
+				SELECT payload_json->>'outcome' AS outcome
+				  FROM striatumd.events
+				 WHERE repository_id = $1
+				   AND run_id = $2
+				   AND event_type = 'decision.recorded'
+				   AND payload_json->>'decision_id' = $3
+				 ORDER BY event_id DESC
+				 LIMIT 1`, repositoryID, runID, decisionID)
+			if err == nil {
+				decisionOutcome = fmt.Sprint(outcomeRow["outcome"])
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
 		}
 		now := nowString()
 		downstream := []map[string]any{}
 		var nextActions []string
+		var payloadExtra map[string]any
 		eventType := "checkpoint.resolved"
-		if action == "continue" {
+		switch action {
+		case "continue":
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.blockers
 				   SET state = 'resolved', resolved_at = $1
@@ -217,7 +242,142 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				}
 			}
 			nextActions = []string{"claim_available_work", "monitor_run_progress"}
-		} else {
+		case "override":
+			// F2 (issue #63): accept a needs_revision revision_routing checkpoint
+			// as superseded by a recorded run-level decision and make the
+			// downstream gate reachable WITHOUT re-queueing the same review.
+			// No new override authority is created here; the audit/rationale live
+			// entirely in the referenced decision artifact (same model as
+			// D099/D100, RFC 0064 workflow.accept_risk).
+			if fmt.Sprint(blocker["blocker_kind"]) != "revision_routing" {
+				return nil, rpc.NewError("invalid_transition", "checkpoint override only applies to revision_routing checkpoints", nil)
+			}
+			if decisionOutcome != "accepted" && decisionOutcome != "accepted_with_follow_up" {
+				return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint override requires an accepting decision outcome (got %q)", decisionOutcome), nil)
+			}
+			if blockerJobID == nil {
+				return nil, rpc.NewError("invalid_transition", "revision_routing checkpoint has no review job to clear", nil)
+			}
+			job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(blockerJobID), true)
+			if err != nil {
+				return nil, err
+			}
+			if fmt.Sprint(job["state"]) != "waiting_human" {
+				return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint job is not in waiting_human (state=%q)", job["state"]), nil)
+			}
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.blockers
+				   SET state = 'resolved', resolved_at = $1
+				 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
+				return nil, err
+			}
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.escalation_inbox
+				   SET state = 'resolved', resolved_at = $1, decision_artifact_id = $2
+				 WHERE repository_id = $3 AND escalation_id = $4`, now, artifactID, repositoryID, blockerID); err != nil {
+				return nil, err
+			}
+			// Complete the review job: it is settled by the operator decision,
+			// not re-run. Match completeReviewJob's queue_messages state value.
+			messageID := nullable(job["current_message_id"])
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.jobs
+				   SET state = 'completed', completed_at = $1, current_lease_id = NULL,
+				       current_message_id = NULL
+				 WHERE repository_id = $2 AND job_id = $3`, now, repositoryID, blockerJobID); err != nil {
+				return nil, err
+			}
+			if messageID != nil {
+				if err := tx.Exec(ctx, `
+					UPDATE striatumd.queue_messages
+					   SET state = 'completed', completed_at = $1, updated_at = $2,
+					       current_lease_id = NULL
+					 WHERE repository_id = $3 AND message_id = $4`, now, now, repositoryID, messageID); err != nil {
+					return nil, err
+				}
+			}
+			// Record a superseding clearing verdict so latestVerdict() returns an
+			// accepting value and the downstream gate (requires_verdict) is met.
+			// The verdicts table requires a non-null session_id (FK + UNIQUE per
+			// job/session); the original reviewer already holds the needs_revision
+			// row, so we mint a fresh operator-labeled reviewer session for the
+			// clearing row (same mechanism as review.override's
+			// resolveOverrideSession). The stale needs_revision row is preserved
+			// for audit; posture='override' marks the row as operator-cleared.
+			// Seed the resolver with the original reviewer session (carried on the
+			// blocker). That session already holds the needs_revision verdict, so
+			// resolveOverrideSession mints a fresh operator-labeled reviewer session
+			// in the same lane for the clearing row.
+			reviewerSessionID := nullable(blocker["session_id"])
+			if reviewerSessionID == nil {
+				reviewerSessionID = nullable(job["current_session_id"])
+			}
+			overrideSessionID, err := resolveOverrideSession(ctx, tx, repositoryID, fmt.Sprint(reviewerSessionID), fmt.Sprint(blockerJobID))
+			if err != nil {
+				return nil, err
+			}
+			verdictID, err := newID("verdict")
+			if err != nil {
+				return nil, err
+			}
+			// nowString() truncates to whole seconds, so the clearing verdict can
+			// share a created_at with the stale needs_revision row recorded the same
+			// second; latestVerdict() then breaks the tie on verdict_id, which is
+			// random. Stamp the clearing row strictly after the newest existing
+			// verdict for the job so latestVerdict() deterministically returns the
+			// clear. Also flag the superseded needs_revision rows for audit.
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.verdicts
+				   SET superseded_by_decision_id = $1, superseded_at = $2
+				 WHERE repository_id = $3 AND job_id = $4
+				   AND verdict = 'needs_revision'
+				   AND superseded_by_decision_id IS NULL`, decisionID, now, repositoryID, blockerJobID); err != nil {
+				return nil, err
+			}
+			overrideCreatedAt := now
+			maxRow, err := oneRow(ctx, tx, `
+				SELECT max(created_at) AS latest FROM striatumd.verdicts
+				 WHERE repository_id = $1 AND job_id = $2`, repositoryID, blockerJobID)
+			if err == nil && maxRow["latest"] != nil {
+				if latest, ok := asTime(maxRow["latest"]); ok {
+					// Strictly after every existing verdict for the job.
+					overrideCreatedAt = latest.Add(time.Second).UTC().Format(time.RFC3339)
+				}
+			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
+			overrideRationale := fmt.Sprintf("operator override of revision_routing checkpoint %s, superseded by decision %v", blockerID, decisionID)
+			if err := tx.Exec(ctx, `
+				INSERT INTO striatumd.verdicts (
+				  repository_id, verdict_id, run_id, job_id, session_id, verdict,
+				  rationale, findings_artifact_id, created_at, posture
+				)
+				VALUES ($1,$2,$3,$4,$5,'accept_with_findings',$6,$7,$8,'override')`,
+				repositoryID, verdictID, job["run_id"], blockerJobID, overrideSessionID,
+				overrideRationale, artifactID, overrideCreatedAt); err != nil {
+				return nil, err
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, "verdict.recorded", overrideSessionID, blockerJobID, nil, artifactID, nil, map[string]any{
+				"verdict":     "accept_with_findings",
+				"posture":     "override",
+				"source":      "checkpoint.override",
+				"decision_id": decisionID,
+			}); err != nil {
+				return nil, err
+			}
+			if err := maybeEnqueueDownstream(ctx, tx, repositoryID, fmt.Sprint(blockerJobID)); err != nil {
+				return nil, err
+			}
+			downstream, err = downstreamJobs(ctx, tx, repositoryID, fmt.Sprint(blockerJobID))
+			if err != nil {
+				return nil, err
+			}
+			if err := maybeCompleteRun(ctx, tx, repositoryID, runID); err != nil {
+				return nil, err
+			}
+			payloadExtra = map[string]any{"superseded_verdict": "needs_revision"}
+			nextActions = []string{"claim_available_work", "monitor_run_progress"}
+		default: // cancel
 			eventType = "checkpoint.canceled"
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.blockers
@@ -271,6 +431,9 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 		}
 		if artifactID != nil {
 			payload["decision_artifact_id"] = artifactID
+		}
+		for k, v := range payloadExtra {
+			payload[k] = v
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, eventType, nil, blockerJobID, nil, artifactID, nil, payload); err != nil {
 			return nil, err

@@ -60,6 +60,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	if err != nil {
 		return nil, err
 	}
+	decorateCheckpointResolveActions(humanCheckpoints)
 	nonAccepting, err := statusLatestNonAccepting(ctx, runner, repositoryID, runID)
 	if err != nil {
 		return nil, err
@@ -277,6 +278,25 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		}
 	}
 	return rows, nil
+}
+
+// decorateCheckpointResolveActions advertises the checkpoint.resolve actions
+// available for each open human_checkpoint blocker. revision_routing
+// checkpoints additionally accept `override` (issue #63 F2), which accepts the
+// checkpoint as superseded by a recorded run-level decision and makes the
+// downstream gate reachable without re-queueing the review (requires
+// --decision-id).
+func decorateCheckpointResolveActions(checkpoints []map[string]any) {
+	for _, cp := range checkpoints {
+		actions := []any{"continue", "cancel"}
+		if stringFrom(cp, "blocker_kind") == "revision_routing" {
+			actions = append(actions, "override")
+			cp["resolve_action_hints"] = map[string]any{
+				"override": "accept as superseded by a recorded decision; requires --decision-id",
+			}
+		}
+		cp["resolve_actions"] = actions
+	}
 }
 
 func statusBlockers(ctx context.Context, runner db.Runner, repositoryID, runID, severity string) ([]map[string]any, error) {

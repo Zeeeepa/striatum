@@ -254,17 +254,19 @@ func verdictListPolicy(includeRun bool) objectPolicy {
 
 func blockerListPolicy() objectPolicy {
 	return objectPolicy{"_each": objectPolicy{
-		"blocker_id":      "safe",
-		"run_id":          "safe",
-		"job_id":          "safe",
-		"session_id":      "safe",
-		"severity":        "safe",
-		"blocker_kind":    "safe",
-		"description":     "redacted",
-		"state":           "safe",
-		"workflow_job_id": "safe",
-		"job_state":       "safe",
-		"created_at":      "safe",
+		"blocker_id":           "safe",
+		"run_id":               "safe",
+		"job_id":               "safe",
+		"session_id":           "safe",
+		"severity":             "safe",
+		"blocker_kind":         "safe",
+		"description":          "redacted",
+		"state":                "safe",
+		"workflow_job_id":      "safe",
+		"job_state":            "safe",
+		"created_at":           "safe",
+		"resolve_actions":      objectPolicy{"_items": "safe"},
+		"resolve_action_hints": objectPolicy{"_dict": "safe"},
 	}}
 }
 

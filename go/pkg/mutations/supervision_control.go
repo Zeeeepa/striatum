@@ -1059,16 +1059,29 @@ func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, rep
 		return rpc.NewError("invalid_transition", "supervisor cannot accept delivery: pid_missing", nil)
 	}
 
-	// #63 F7: the exit of the tmux attach-session observer client is not a
-	// delivery failure. The lanehealth checker already reconciles a benign
-	// attach_client_exited against the live probe + helper-PID transport check,
-	// so trust health.Deliverable: block delivery only when the reconciled
-	// health still deems the lane non-deliverable. Genuine transport failures
-	// (helper_process_gone, stdin_reader_missing) keep health.Deliverable false
-	// and are still rejected here.
-	if reason, degraded := supervisorDeliveryDegraded(supervisor.Metadata); degraded && !health.Deliverable {
-		if health.DeliveryReason != "" {
-			reason = health.DeliveryReason
+	// #63 F10: key the delivery gate purely on the reconciled LIVE probe
+	// (health.Deliverable), not on stale supervisor metadata. The lanehealth
+	// checker already reconciles the benign #63 F7 case — an exited tmux
+	// attach-session OBSERVER client whose pane is alive and whose real
+	// transport (persistent FIFO / pty helper) is healthy stays
+	// health.Deliverable == true — while genuine transport failures
+	// (helper_process_gone, stdin_reader_missing) keep health.Deliverable
+	// false. Previously this gate ALSO required supervisorDeliveryDegraded to
+	// observe a delivery_liveness metadata record, so a helper/transport that
+	// died abruptly WITHOUT writing that record (main lane PID still alive)
+	// slipped the gate and dispatched a packet to a dead FIFO. We now reject
+	// whenever the live probe is not deliverable. supervisorDeliveryDegraded
+	// survives only as a fallback reason source for the rare case where the
+	// probe is non-deliverable but did not carry a DeliveryReason string.
+	if !health.Deliverable {
+		reason := health.DeliveryReason
+		if reason == "" {
+			if metaReason, _ := supervisorDeliveryDegraded(supervisor.Metadata); metaReason != "" {
+				reason = metaReason
+			}
+		}
+		if reason == "" {
+			reason = "not_deliverable"
 		}
 		return rpc.NewError("invalid_transition", "supervisor delivery is degraded: "+reason, nil)
 	}

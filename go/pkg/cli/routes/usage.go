@@ -67,8 +67,8 @@ var usageByGroup = map[string]Usage{
 	"checkpoint_resolve": {
 		Params: []Param{
 			{Name: "blocker-id", Positional: true, Required: true, Help: "human_checkpoint blocker to resolve"},
-			{Name: "action", Positional: true, Required: true, Values: []string{"continue", "cancel"}, Help: "continue resolves the checkpoint and proceeds; cancel cancels the gated work"},
-			{Name: "decision-id", Help: "logical name of a run-level decision artifact to attach as the resolution rationale"},
+			{Name: "action", Positional: true, Required: true, Values: []string{"continue", "cancel", "override"}, Help: "continue resolves the checkpoint and proceeds; cancel cancels the gated work; override accepts a revision_routing checkpoint as superseded by a recorded decision (requires --decision-id)"},
+			{Name: "decision-id", Help: "logical name of a run-level decision artifact to attach as the resolution rationale; required for override"},
 		},
 	},
 	"supervise_start": {
