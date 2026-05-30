@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### RFC 0098 slice 1 — `collaboration_ledger.v1.1` + productive-refusal gate
+
+From GitHub #89 (the Engram entity-relationship forum run). RFC 0098 promotes the
+**adjudicated constraint-extraction loop** into a first-class successor to
+RFC 0093: adjudicator refusal must compile objections into binding constraints
+the next revision discharges. Slice 1 lands the contract surface, additively,
+with no new daemon method:
+
+- `striatum.collaboration_ledger.v1.1` extends `v1` additively in
+  `go/pkg/artifactcontracts`: optional `constraints[]` (typed, sourced rows),
+  `branches{}` posture-disposition map, `cycle`, and `findings[]`. Every valid
+  `v1` ledger still validates.
+- **Productive-refusal gate** in `validateCollaborationLedger` (the single
+  function all three write paths funnel through): a
+  `shape: adjudicated_constraint_extraction` ledger requires `v1.1`, and an
+  `adjudicated_constraint_extraction` + `needs_revision` ledger requires a
+  non-empty `constraints[]` (≥1 `binding: true` row or `kind: unresolved_question`).
+  Rejected via the existing `artifact_error` (CLI exit 6) — no new error code.
+- A binding constraint must resolve `source_finding` to a same-ledger
+  `high`/`critical` `findings[]` row and carry non-empty `verification`.
+- The front-matter `verdict` enum stays exactly
+  `accept | accept_with_findings | needs_revision | reject`; the RFC 0098
+  refinements `blocked_pending_answer` / `defer_with_successor` are `branches{}`
+  dispositions only (widening the verdict enum would wedge `recordVerdict` with
+  `invalid_transition` — caught by the design panel during the dogfood).
+- Built by a single-implementer dogfood from a 3-lane interrogated design
+  synthesis; verified with `make -C go check` (vet + race + lint + coverage) and
+  the new contract/mutation tests green against live PostgreSQL. Slices 2–3
+  (generator shape + fixture; discharge-verifying final review) and the
+  first-class `constraint.*` objects are deferred. The 3-lane design panel's own
+  build phase surfaced #93 (write-scope deadlock) and #95 (agy one-shot) and
+  re-confirmed #84 (revision-republish collision) as live blockers.
+
 ### RFC 0095 / 0096 Phase 1 — revision-safe lifecycle + lane-sandbox local fixes
 
 Bootstrapped via subagents (the runner-fixes can't be dogfooded through the

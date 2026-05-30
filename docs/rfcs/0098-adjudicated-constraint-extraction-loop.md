@@ -184,35 +184,36 @@ Extend RFC 0093's `striatum.collaboration_ledger.v1` (not a new schema family) t
 optional-but-gated blocks the adjudicator populates:
 
 ```yaml
-collaboration_ledger:
-  version: "1.1"
-  shape: adjudicated_constraint_extraction
-  cycle: 2                              # cycle-aware; see #84
-  verdict: needs_revision | accept | accept_with_findings | reject
-  # --- new in 1.1 ---
-  constraints:                          # REQUIRED non-empty when verdict=needs_revision
-    - id: C2-IMPL-1
-      source_finding: IMPL-1            # refs a cross_exam finding entry
-      posture: implementation
-      severity: high
-      kind: invariant | gate | schema | policy | non_goal | accepted_risk
-      binding: true
-      text: "claims.evidence_ids may reference raw evidence only ..."
-      verification:
-        expected_stage: "Stage 6"
-        gate: "mixed raw+derived provenance fails closed"
-      final_review_required: true
-  branches:                             # posture disposition matrix
-    implementation: cleared_with_constraints
-    privacy: cleared_with_constraints
-    eval: cleared
+schema_version: "striatum.collaboration_ledger.v1.1"
+artifact_kind: "collaboration_ledger"
+shape: adjudicated_constraint_extraction
+cycle: 2                              # cycle-aware; see #84
+verdict: needs_revision | accept | accept_with_findings | reject
+# --- new in 1.1 ---
+constraints:                          # REQUIRED non-empty when ACE + needs_revision
+  - id: C2-IMPL-1
+    source_finding: IMPL-1            # refs a same-ledger findings[] row
+    posture: implementation
+    severity: high
+    kind: invariant | gate | schema | policy | non_goal | accepted_risk | unresolved_question
+    binding: true
+    text: "claims.evidence_ids may reference raw evidence only ..."
+    verification:
+      expected_stage: "Stage 6"
+      gate: "mixed raw+derived provenance fails closed"
+    final_review_required: true
+branches:                             # posture disposition matrix
+  implementation: cleared_with_constraints
+  privacy: cleared_with_constraints
+  eval: cleared
 ```
 
-Allowed adjudication verdicts (RFC 0093 vocabulary + two refinements):
-`accept`, `accept_with_findings`, `needs_revision`, `reject`,
-`blocked_pending_answer`, `defer_with_successor`. Per #88, the contract must
-**accept** the natural clearing terms it advertises; ambiguous bare `clear` stays
-disallowed (the prompt and contract must agree — that mismatch *is* #88).
+Allowed adjudication verdicts stay the RFC 0093 daemon-routable vocabulary:
+`accept`, `accept_with_findings`, `needs_revision`, `reject`. The two RFC 0098
+refinements, `blocked_pending_answer` and `defer_with_successor`, are
+`branches{}` dispositions, not verdicts. Per #88, prompts and docs must
+advertise only terms the contract accepts; ambiguous bare `clear` stays
+disallowed.
 
 The cross-exam finding gains structured rows (carried in `findings_ledger` or the
 ledger `entries[]`, not free prose):
@@ -276,9 +277,10 @@ workflow quality measurable instead of vibe-based; they do not gate anything.
 ## Implementation Plan (slices, smallest blast radius first)
 
 - **Slice 1 — artifact + gate (no daemon method).** `collaboration_ledger.v1.1`
-  additive schema; the `needs_revision ⇒ non-empty constraints[]` publish gate;
-  contract accepts the advertised clearing verbs (#88) and natural ledger front
-  matter (#79). Pure contract/validation work.
+  additive schema; the shape-scoped `adjudicated_constraint_extraction` +
+  `needs_revision ⇒ non-empty constraints[]` publish gate; contract accepts the
+  advertised clearing dispositions (#88) and natural ledger front matter (#79).
+  Pure contract/validation work.
 - **Slice 2 — shape fixture + generator.** `adjudicated_constraint_extraction`
   registered in the collaboration shape pack; `workflow generate --shape …`
   emits the 8-phase graph; starter fixture under
@@ -300,7 +302,8 @@ RFC 0093 shipped `falsification_gate`/`cross_examination` first and deferred
    `striatum.workflow.v1.1` graph that passes `workflow validate` **and**
    `run.prepare` (same phase rules — see #66), with exactly one `phase_synthesis`
    job per declared phase.
-2. `review.submit` / `publish-artifact` rejects a `collaboration_ledger` whose
+2. `review.submit` / `publish-artifact` rejects an
+   `adjudicated_constraint_extraction` `collaboration_ledger.v1.1` whose
    `verdict: needs_revision` carries an empty `constraints[]` (exit code 6), and
    accepts one with ≥1 binding constraint or unresolved-question row.
 3. The contract accepts the clearing verbs it advertises and natural ledger front

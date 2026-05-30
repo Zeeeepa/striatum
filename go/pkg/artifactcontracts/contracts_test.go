@@ -1,6 +1,7 @@
 package artifactcontracts
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -207,6 +208,129 @@ func TestCollaborationLedgerAllowsNeedsRevisionWithUnrebuttedChallenge(t *testin
 	}
 }
 
+func TestCollaborationLedgerV11TruthTable(t *testing.T) {
+	t.Run("v1 ledger still validates without v11 fields", func(t *testing.T) {
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validCollaborationLedger("accept"))); err != nil {
+			t.Fatalf("v1 collaboration ledger refused: %v", err)
+		}
+	})
+	t.Run("non ACE v11 needs revision does not trigger productive refusal", func(t *testing.T) {
+		payload := strings.Replace(validCollaborationLedger("needs_revision"), "striatum.collaboration_ledger.v1", "striatum.collaboration_ledger.v1.1", 1)
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload)); err != nil {
+			t.Fatalf("non-ACE v1.1 needs_revision refused: %v", err)
+		}
+	})
+	t.Run("ACE requires v11", func(t *testing.T) {
+		payload := strings.Replace(validACECollaborationLedger("needs_revision", aceUnresolvedConstraint(), aceFinding(), ""), "striatum.collaboration_ledger.v1.1", "striatum.collaboration_ledger.v1", 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+		if err == nil || !strings.Contains(err.Error(), "requires schema_version striatum.collaboration_ledger.v1.1") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("ACE needs revision requires productive constraints", func(t *testing.T) {
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", "constraints: []\n", "", "")))
+		if err == nil || !strings.Contains(err.Error(), "needs_revision requires a non-empty constraints[]") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("ACE needs revision accepts grounded binding constraint", func(t *testing.T) {
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", aceBindingConstraint(), aceFinding(), aceBranches()))); err != nil {
+			t.Fatalf("grounded binding constraint refused: %v", err)
+		}
+	})
+	t.Run("ACE needs revision accepts unresolved question", func(t *testing.T) {
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", aceUnresolvedConstraint(), "", ""))); err != nil {
+			t.Fatalf("unresolved question constraint refused: %v", err)
+		}
+	})
+}
+
+func TestCollaborationLedgerV11BindingConstraintHardening(t *testing.T) {
+	t.Run("binding source finding must resolve to high or critical finding", func(t *testing.T) {
+		lowFinding := strings.Replace(aceFinding(), "severity: high", "severity: medium", 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", aceBindingConstraint(), lowFinding, "")))
+		if err == nil || !strings.Contains(err.Error(), "must resolve to a high or critical findings[] row") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("binding constraints require verification", func(t *testing.T) {
+		constraint := strings.Replace(aceBindingConstraint(), `    verification:
+      gate: "go -C go test ./pkg/artifactcontracts/..."
+`, "", 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", constraint, aceFinding(), "")))
+		if err == nil || !strings.Contains(err.Error(), "verification requires a non-empty gate or expected_stage") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("constraint rows reject raw unknown keys", func(t *testing.T) {
+		constraint := strings.Replace(aceUnresolvedConstraint(), `    text: "The adjudicator needs a maintainer answer before it can clear the gate."`, `    text: "The adjudicator needs a maintainer answer before it can clear the gate."
+    stdout: "raw provider stream"`, 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", constraint, "", "")))
+		if err == nil || !strings.Contains(err.Error(), "constraints[0] has unknown fields: stdout") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestCollaborationLedgerV11FindingsAndBranchVocabulary(t *testing.T) {
+	t.Run("findings reject raw unknown keys", func(t *testing.T) {
+		finding := strings.Replace(aceFinding(), `    source_refs: ["dialogue:2"]`, `    source_refs: ["dialogue:2"]
+    stdout: "raw provider stream"`, 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", aceBindingConstraint(), finding, "")))
+		if err == nil || !strings.Contains(err.Error(), "findings[0] has unknown fields: stdout") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+	t.Run("natural multiline findings and advertised branch dispositions validate", func(t *testing.T) {
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(validACECollaborationLedger("needs_revision", aceBindingConstraint(), aceFinding(), aceBranches()))); err != nil {
+			t.Fatalf("natural v1.1 ledger refused: %v", err)
+		}
+	})
+	t.Run("refined states are branch dispositions, not verdicts", func(t *testing.T) {
+		payload := strings.Replace(validACECollaborationLedger("needs_revision", aceUnresolvedConstraint(), "", ""), `verdict: "needs_revision"`, `verdict: "blocked_pending_answer"`, 1)
+		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+		if err == nil || !strings.Contains(err.Error(), "allowed verdicts are accept, accept_with_findings, needs_revision, reject") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
+func TestCollaborationLedgerReferenceExamplesValidate(t *testing.T) {
+	specBytes, err := os.ReadFile("../../../docs/reference/spec.md")
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	spec := string(specBytes)
+	for _, label := range []string{
+		"Example productive `needs_revision` ledger:",
+		"Example clearing ledger:",
+	} {
+		payload := yamlFenceAfter(t, spec, label)
+		if err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload)); err != nil {
+			t.Fatalf("%s example refused: %v", label, err)
+		}
+	}
+}
+
+func yamlFenceAfter(t *testing.T, text string, label string) string {
+	t.Helper()
+	start := strings.Index(text, label)
+	if start == -1 {
+		t.Fatalf("missing label %q", label)
+	}
+	rest := text[start:]
+	fence := strings.Index(rest, "```yaml\n")
+	if fence == -1 {
+		t.Fatalf("missing yaml fence after %q", label)
+	}
+	rest = rest[fence+len("```yaml\n"):]
+	end := strings.Index(rest, "\n```")
+	if end == -1 {
+		t.Fatalf("unterminated yaml fence after %q", label)
+	}
+	return rest[:end]
+}
+
 func validCollaborationLedger(verdict string) string {
 	if verdict == "needs_revision" {
 		return `---
@@ -263,5 +387,84 @@ rationale: "A material challenge landed and was rebutted on the record."
 ---
 
 # Ledger
+`
+}
+
+func validACECollaborationLedger(verdict string, constraints string, findings string, branches string) string {
+	return `---
+schema_version: "striatum.collaboration_ledger.v1.1"
+artifact_kind: "collaboration_ledger"
+shape: "adjudicated_constraint_extraction"
+topic: "productive refusal gate"
+participants: ["sess_holder", "sess_falsifier", "sess_adjudicator"]
+entries:
+  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+  - kind: challenge
+    by: sess_falsifier
+    refs: ["dialogue:2"]
+    text: "The proposal lacks an enforceable constraint."
+cycle: 1
+verdict: "` + verdict + `"
+rationale: "The adjudicator is carrying an actionable constraint forward."
+` + findings + constraints + branches + `---
+
+# Ledger
+`
+}
+
+func aceFinding() string {
+	return `findings:
+  - id: F1
+    severity: high
+    posture: implementation
+    status: converted_to_constraint
+    challenge: |-
+      The implementation did not name the concrete validation gate.
+      A future revision could satisfy the prose while skipping the check.
+    closest_acceptable_answer: "Add a named test gate."
+    affected_invariants:
+      - productive_refusal
+      - artifact_contract
+    requested_constraint_shape:
+      kind: gate
+    requires_convener_rebuttal: true
+    source_refs: ["dialogue:2"]
+`
+}
+
+func aceBindingConstraint() string {
+	return `constraints:
+  - id: C1
+    source_finding: F1
+    posture: implementation
+    severity: high
+    kind: gate
+    binding: true
+    text: "The next revision must add a validation gate for naked needs_revision ledgers."
+    source_refs: ["dialogue:2"]
+    verification:
+      gate: "go -C go test ./pkg/artifactcontracts/..."
+    final_review_required: true
+`
+}
+
+func aceUnresolvedConstraint() string {
+	return `constraints:
+  - id: Q1
+    posture: product
+    severity: medium
+    kind: unresolved_question
+    binding: false
+    text: "The adjudicator needs a maintainer answer before it can clear the gate."
+`
+}
+
+func aceBranches() string {
+	return `branches:
+  implementation: blocked_pending_answer
+  product: defer_with_successor
 `
 }

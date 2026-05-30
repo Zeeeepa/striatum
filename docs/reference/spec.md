@@ -626,10 +626,10 @@ block remain accepted as before, except `collaboration_ledger` where the
 front-matter block is required because the verdict gate reads structured
 metadata. The publisher never rewrites artifact files.
 
-Front-matter values are written as `key: <json-value>` lines so the parser is
-unambiguous without adding a YAML dependency. Strings must be JSON-quoted,
-booleans use `true` and `false`, integers and lists follow JSON syntax, and
-nested mappings are not supported.
+Front-matter values are parsed as YAML. The older JSON-compatible scalar and
+list style (`key: "value"`, `flag: true`, `items: ["a", "b"]`) remains valid,
+and schemas may now opt into nested mappings or list-of-mapping rows where the
+contract declares them.
 
 V1 schemas:
 
@@ -727,18 +727,127 @@ V1 schemas:
   did not itself make live auto-finalize the global default. D133 is the
   separate decision that flips default-live allowance after the gate is
   satisfied.
-- `striatum.collaboration_ledger.v1` (kind `collaboration_ledger`, RFC 0093):
-  required `schema_version`, `artifact_kind: collaboration_ledger`, `shape`
-  (one of `falsification_gate`, `cross_examination`, `fog_of_war_review`,
-  `synaptic_prune`), `topic`, `participants` (non-empty list), `entries`
-  (list of objects with `kind`, `by`, `refs`, and `text`), `verdict` (one of
-  `accept`, `accept_with_findings`, `needs_revision`, `reject`), and
-  `rationale`. Entry kinds are `claim`, `challenge`, `rebuttal`,
-  `constraint`, or `nomination`; `by` must name a participant; every ref must
-  be a `dialogue:<sequence>` turn reference. Clearing verdicts must include at
-  least one referenced `claim`, `challenge`, and `rebuttal`. `review.submit`
-  rejects a `collaboration_ledger` artifact when the submitted verdict differs
-  from the ledger front-matter verdict.
+- `striatum.collaboration_ledger.v1` / `striatum.collaboration_ledger.v1.1`
+  (kind `collaboration_ledger`, RFC 0093 / RFC 0098): required
+  `schema_version`, `artifact_kind: collaboration_ledger`, `shape` (one of
+  `falsification_gate`, `cross_examination`, `fog_of_war_review`,
+  `synaptic_prune`, `adjudicated_constraint_extraction`), `topic`,
+  `participants` (non-empty list), `entries` (list of objects with `kind`,
+  `by`, `refs`, and `text`), `verdict` (one of `accept`,
+  `accept_with_findings`, `needs_revision`, `reject`), and `rationale`. Entry
+  kinds are `claim`, `challenge`, `rebuttal`, `constraint`, or `nomination`;
+  `by` must name a participant; every ref must be a `dialogue:<sequence>` turn
+  reference. Clearing verdicts must include at least one referenced `claim`,
+  `challenge`, and `rebuttal`. `review.submit` rejects a
+  `collaboration_ledger` artifact when the submitted verdict differs from the
+  ledger front-matter verdict.
+  `v1.1` is additive. Optional fields are `cycle` (non-negative integer),
+  `findings[]`, `constraints[]`, and `branches{}`. `shape:
+  adjudicated_constraint_extraction` requires `schema_version:
+  striatum.collaboration_ledger.v1.1`; if that shape publishes `verdict:
+  needs_revision`, `constraints[]` must include at least one productive row
+  (`binding: true` or `kind: unresolved_question`). The refined RFC 0098
+  states `blocked_pending_answer` and `defer_with_successor` are valid
+  `branches{}` dispositions, not valid `verdict` values.
+
+  `findings[]` rows require `id`, `severity` (`low`, `medium`, `high`,
+  `critical`), `posture` (non-empty string), `status` (`open`, `answered`,
+  `accepted`, `rejected`, `converted_to_constraint`, `deferred_with_owner`),
+  and `challenge`. Optional keys are `closest_acceptable_answer`,
+  `affected_invariants`, `requested_constraint_shape`,
+  `requires_convener_rebuttal`, and `source_refs`.
+
+  `constraints[]` rows require `id`, `posture` (non-empty string), `severity`,
+  `kind` (`invariant`, `gate`, `schema`, `policy`, `non_goal`,
+  `accepted_risk`, `unresolved_question`), `binding`, and `text`. Optional
+  keys are `source_finding`, `source_refs`, `verification`, and
+  `final_review_required`. When `binding: true`, `source_finding` must resolve
+  to a same-ledger `findings[]` row with `severity: high` or
+  `severity: critical`, and `verification` must contain a non-empty `gate` or
+  `expected_stage`.
+
+  `branches{}` is a map from posture string to one of `cleared`,
+  `cleared_with_constraints`, `blocked`, `blocked_pending_answer`, or
+  `defer_with_successor`.
+
+  Example productive `needs_revision` ledger:
+
+  ```yaml
+  ---
+  schema_version: "striatum.collaboration_ledger.v1.1"
+  artifact_kind: "collaboration_ledger"
+  shape: "adjudicated_constraint_extraction"
+  topic: "RFC 0098 build"
+  participants: ["sess_builder", "sess_reviewer"]
+  entries:
+    - kind: claim
+      by: sess_builder
+      refs: ["dialogue:1"]
+      text: "The contract is implemented."
+    - kind: challenge
+      by: sess_reviewer
+      refs: ["dialogue:2"]
+      text: "The gate lacks a regression test."
+  cycle: 1
+  verdict: "needs_revision"
+  rationale: "The revision needs a concrete gate."
+  findings:
+    - id: F1
+      severity: high
+      posture: implementation
+      status: converted_to_constraint
+      challenge: "The gate lacks a regression test."
+  constraints:
+    - id: C1
+      source_finding: F1
+      posture: implementation
+      severity: high
+      kind: gate
+      binding: true
+      text: "Add a regression test for naked needs_revision ledgers."
+      verification:
+        gate: "go -C go test ./pkg/artifactcontracts/..."
+    - id: Q1
+      posture: product
+      severity: medium
+      kind: unresolved_question
+      binding: false
+      text: "Confirm whether this shape should reopen a revision cycle."
+  branches:
+    implementation: blocked_pending_answer
+    product: defer_with_successor
+  ---
+  ```
+
+  Example clearing ledger:
+
+  ```yaml
+  ---
+  schema_version: "striatum.collaboration_ledger.v1.1"
+  artifact_kind: "collaboration_ledger"
+  shape: "adjudicated_constraint_extraction"
+  topic: "RFC 0098 build"
+  participants: ["sess_builder", "sess_reviewer"]
+  entries:
+    - kind: claim
+      by: sess_builder
+      refs: ["dialogue:1"]
+      text: "The contract is implemented."
+    - kind: challenge
+      by: sess_reviewer
+      refs: ["dialogue:2"]
+      text: "The gate lacks a regression test."
+    - kind: rebuttal
+      by: sess_builder
+      refs: ["dialogue:3"]
+      text: "The regression test now covers publish and review paths."
+  cycle: 1
+  verdict: "accept_with_findings"
+  rationale: "The challenge was answered on the record."
+  branches:
+    implementation: cleared_with_constraints
+  ---
+  ```
 
 Other artifact kinds (`prompt`, `marker`, `handoff`, `patch_summary`,
 `test_report`, `other`) remain unschemaed in V1 and pass through without a

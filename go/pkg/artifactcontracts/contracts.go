@@ -228,14 +228,18 @@ var Schemas = map[string]Schema{
 	},
 	"collaboration_ledger": {
 		Fields: map[string]Field{
-			"schema_version": {true, equalsValue("striatum.collaboration_ledger.v1")},
+			"schema_version": {true, oneOfValue("striatum.collaboration_ledger.v1", "striatum.collaboration_ledger.v1.1")},
 			"artifact_kind":  {true, equalsValue("collaboration_ledger")},
-			"shape":          {true, oneOfValue("falsification_gate", "cross_examination", "fog_of_war_review", "synaptic_prune")},
+			"shape":          {true, oneOfValue("falsification_gate", "cross_examination", "fog_of_war_review", "synaptic_prune", "adjudicated_constraint_extraction")},
 			"topic":          {true, isNonEmptyStringValue},
 			"participants":   {true, isNonEmptyStringListValue},
 			"entries":        {true, isCollaborationLedgerEntriesValue},
 			"verdict":        {true, oneOfValue("accept", "accept_with_findings", "needs_revision", "reject")},
 			"rationale":      {true, isNonEmptyStringValue},
+			"cycle":          {false, isNonNegativeIntValue},
+			"constraints":    {false, isMapListValue},
+			"branches":       {false, isStringAnyMapValue},
+			"findings":       {false, isMapListValue},
 		},
 	},
 }
@@ -307,6 +311,9 @@ func ValidateFrontMatter(kind string, path string, payload []byte) error {
 			continue
 		}
 		if !field.Check(value) {
+			if kind == "collaboration_ledger" && name == "verdict" {
+				return fmt.Errorf(`%s artifact front matter field "verdict" is invalid; allowed verdicts are accept, accept_with_findings, needs_revision, reject`, kind)
+			}
 			return fmt.Errorf("%s artifact front matter field %q is invalid", kind, name)
 		}
 	}
@@ -578,7 +585,274 @@ func validateCollaborationLedger(parsed map[string]any) error {
 			}
 		}
 	}
+	shape := fmt.Sprint(parsed["shape"])
+	schemaVersion := fmt.Sprint(parsed["schema_version"])
+	if shape == "adjudicated_constraint_extraction" && schemaVersion != "striatum.collaboration_ledger.v1.1" {
+		return fmt.Errorf("collaboration_ledger shape adjudicated_constraint_extraction requires schema_version striatum.collaboration_ledger.v1.1 (got %s)", schemaVersion)
+	}
+	findings, err := validateCollaborationLedgerFindings(parsed["findings"])
+	if err != nil {
+		return err
+	}
+	constraints, err := validateCollaborationLedgerConstraints(parsed["constraints"], findings)
+	if err != nil {
+		return err
+	}
+	if err := validateCollaborationLedgerBranches(parsed["branches"]); err != nil {
+		return err
+	}
+	if shape == "adjudicated_constraint_extraction" && verdict == "needs_revision" && productiveConstraintRows(constraints) == 0 {
+		return fmt.Errorf("adjudicated_constraint_extraction needs_revision requires a non-empty constraints[] (at least one binding constraint or unresolved_question row); see docs/reference/spec.md#artifact-front-matter-schemas")
+	}
 	return nil
+}
+
+func validateCollaborationLedgerFindings(value any) (map[string]map[string]any, error) {
+	result := map[string]map[string]any{}
+	if value == nil {
+		return result, nil
+	}
+	rows, ok := mapList(value)
+	if !ok {
+		return nil, fmt.Errorf("collaboration_ledger artifact front matter findings must be a list of objects")
+	}
+	allowedKeys := map[string]bool{
+		"id":                         true,
+		"severity":                   true,
+		"posture":                    true,
+		"status":                     true,
+		"challenge":                  true,
+		"closest_acceptable_answer":  true,
+		"affected_invariants":        true,
+		"requested_constraint_shape": true,
+		"requires_convener_rebuttal": true,
+		"source_refs":                true,
+	}
+	for idx, row := range rows {
+		if err := rejectUnknownKeys(fmt.Sprintf("findings[%d]", idx), row, allowedKeys); err != nil {
+			return nil, err
+		}
+		id, ok := nonEmptyString(row["id"])
+		if !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].id must be a non-empty string", idx)
+		}
+		if result[id] != nil {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].id %q is duplicated", idx, id)
+		}
+		if !oneOfValue("low", "medium", "high", "critical")(row["severity"]) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].severity must be one of low, medium, high, critical", idx)
+		}
+		if _, ok := nonEmptyString(row["posture"]); !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].posture must be a non-empty string", idx)
+		}
+		if !oneOfValue("open", "answered", "accepted", "rejected", "converted_to_constraint", "deferred_with_owner")(row["status"]) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].status is invalid", idx)
+		}
+		if _, ok := nonEmptyString(row["challenge"]); !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].challenge must be a non-empty string", idx)
+		}
+		if value, exists := row["closest_acceptable_answer"]; exists && !isStringValue(value) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].closest_acceptable_answer must be a string", idx)
+		}
+		if value, exists := row["affected_invariants"]; exists && !isStringListValue(value) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].affected_invariants must be a list of strings", idx)
+		}
+		if value, exists := row["requested_constraint_shape"]; exists && !isStringAnyMapValue(value) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].requested_constraint_shape must be a mapping", idx)
+		}
+		if value, exists := row["requires_convener_rebuttal"]; exists && !isBoolValue(value) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter findings[%d].requires_convener_rebuttal must be a bool", idx)
+		}
+		if value, exists := row["source_refs"]; exists {
+			if err := validateDialogueRefs(fmt.Sprintf("findings[%d].source_refs", idx), value); err != nil {
+				return nil, err
+			}
+		}
+		result[id] = row
+	}
+	return result, nil
+}
+
+func validateCollaborationLedgerConstraints(value any, findings map[string]map[string]any) ([]map[string]any, error) {
+	if value == nil {
+		return nil, nil
+	}
+	rows, ok := mapList(value)
+	if !ok {
+		return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints must be a list of objects")
+	}
+	allowedKeys := map[string]bool{
+		"id":                    true,
+		"posture":               true,
+		"severity":              true,
+		"kind":                  true,
+		"binding":               true,
+		"text":                  true,
+		"source_finding":        true,
+		"source_refs":           true,
+		"verification":          true,
+		"final_review_required": true,
+	}
+	for idx, row := range rows {
+		if err := rejectUnknownKeys(fmt.Sprintf("constraints[%d]", idx), row, allowedKeys); err != nil {
+			return nil, err
+		}
+		if _, ok := nonEmptyString(row["id"]); !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].id must be a non-empty string", idx)
+		}
+		if _, ok := nonEmptyString(row["posture"]); !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].posture must be a non-empty string", idx)
+		}
+		if !oneOfValue("low", "medium", "high", "critical")(row["severity"]) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].severity must be one of low, medium, high, critical", idx)
+		}
+		if !oneOfValue("invariant", "gate", "schema", "policy", "non_goal", "accepted_risk", "unresolved_question")(row["kind"]) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].kind is invalid", idx)
+		}
+		binding, ok := row["binding"].(bool)
+		if !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].binding must be a bool", idx)
+		}
+		if _, ok := nonEmptyString(row["text"]); !ok {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].text must be a non-empty string", idx)
+		}
+		sourceFinding := ""
+		if value, exists := row["source_finding"]; exists {
+			var ok bool
+			sourceFinding, ok = nonEmptyString(value)
+			if !ok {
+				return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].source_finding must be a non-empty string", idx)
+			}
+		}
+		if value, exists := row["source_refs"]; exists {
+			if err := validateDialogueRefs(fmt.Sprintf("constraints[%d].source_refs", idx), value); err != nil {
+				return nil, err
+			}
+		}
+		if value, exists := row["final_review_required"]; exists && !isBoolValue(value) {
+			return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].final_review_required must be a bool", idx)
+		}
+		verification, hasVerification, err := constraintVerification(idx, row["verification"])
+		if err != nil {
+			return nil, err
+		}
+		if binding {
+			if sourceFinding == "" {
+				return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].source_finding is required when binding is true", idx)
+			}
+			finding, ok := findings[sourceFinding]
+			if !ok {
+				return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].source_finding %q must resolve to a findings[] row", idx, sourceFinding)
+			}
+			if !oneOfValue("high", "critical")(finding["severity"]) {
+				return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].source_finding %q must resolve to a high or critical findings[] row", idx, sourceFinding)
+			}
+			if !hasVerification || !verificationHasSignal(verification) {
+				return nil, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].verification requires a non-empty gate or expected_stage when binding is true", idx)
+			}
+		}
+	}
+	return rows, nil
+}
+
+func validateCollaborationLedgerBranches(value any) error {
+	if value == nil {
+		return nil
+	}
+	branches, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("collaboration_ledger artifact front matter branches must be a mapping")
+	}
+	for posture, rawDisposition := range branches {
+		if strings.TrimSpace(posture) == "" {
+			return fmt.Errorf("collaboration_ledger artifact front matter branches keys must be non-empty postures")
+		}
+		disposition, ok := rawDisposition.(string)
+		if !ok || !oneOfValue("cleared", "cleared_with_constraints", "blocked", "blocked_pending_answer", "defer_with_successor")(disposition) {
+			return fmt.Errorf("collaboration_ledger artifact front matter branches[%q] disposition must be one of cleared, cleared_with_constraints, blocked, blocked_pending_answer, defer_with_successor", posture)
+		}
+	}
+	return nil
+}
+
+func constraintVerification(idx int, value any) (map[string]any, bool, error) {
+	if value == nil {
+		return nil, false, nil
+	}
+	verification, ok := value.(map[string]any)
+	if !ok {
+		return nil, true, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].verification must be a mapping", idx)
+	}
+	if err := rejectUnknownKeys(fmt.Sprintf("constraints[%d].verification", idx), verification, map[string]bool{
+		"expected_stage": true,
+		"gate":           true,
+	}); err != nil {
+		return nil, true, err
+	}
+	for key, raw := range verification {
+		if _, ok := nonEmptyString(raw); !ok {
+			return nil, true, fmt.Errorf("collaboration_ledger artifact front matter constraints[%d].verification.%s must be a non-empty string", idx, key)
+		}
+	}
+	return verification, true, nil
+}
+
+func verificationHasSignal(verification map[string]any) bool {
+	if verification == nil {
+		return false
+	}
+	for _, key := range []string{"gate", "expected_stage"} {
+		if _, ok := nonEmptyString(verification[key]); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func productiveConstraintRows(rows []map[string]any) int {
+	count := 0
+	for _, row := range rows {
+		binding, _ := row["binding"].(bool)
+		if binding || fmt.Sprint(row["kind"]) == "unresolved_question" {
+			count++
+		}
+	}
+	return count
+}
+
+func validateDialogueRefs(label string, value any) error {
+	refs, ok := stringList(value)
+	if !ok {
+		return fmt.Errorf("collaboration_ledger artifact front matter %s must be a list of dialogue:<seq> refs", label)
+	}
+	for idx, ref := range refs {
+		if !isDialogueRef(ref) {
+			return fmt.Errorf("collaboration_ledger artifact front matter %s[%d] must match dialogue:<seq>", label, idx)
+		}
+	}
+	return nil
+}
+
+func rejectUnknownKeys(label string, row map[string]any, allowed map[string]bool) error {
+	extra := []string{}
+	for key := range row {
+		if !allowed[key] {
+			extra = append(extra, key)
+		}
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	sort.Strings(extra)
+	return fmt.Errorf("collaboration_ledger artifact front matter %s has unknown fields: %s", label, strings.Join(extra, ", "))
+}
+
+func nonEmptyString(value any) (string, bool) {
+	text, ok := value.(string)
+	if !ok || strings.TrimSpace(text) == "" {
+		return "", false
+	}
+	return text, true
 }
 
 func equalsValue(expected string) func(any) bool {
@@ -671,6 +945,16 @@ func isNonEmptyStringListValue(value any) bool {
 	return true
 }
 
+func isMapListValue(value any) bool {
+	_, ok := mapList(value)
+	return ok
+}
+
+func isStringAnyMapValue(value any) bool {
+	_, ok := value.(map[string]any)
+	return ok
+}
+
 func isCollaborationLedgerEntriesValue(value any) bool {
 	entries := collaborationLedgerEntryList(value)
 	if len(entries) == 0 {
@@ -724,6 +1008,30 @@ func collaborationLedgerEntryList(value any) []map[string]any {
 		return result
 	default:
 		return nil
+	}
+}
+
+func mapList(value any) ([]map[string]any, bool) {
+	switch typed := value.(type) {
+	case []map[string]any:
+		return typed, true
+	case []string:
+		if len(typed) == 0 {
+			return []map[string]any{}, true
+		}
+		return nil, false
+	case []any:
+		result := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			row, ok := item.(map[string]any)
+			if !ok {
+				return nil, false
+			}
+			result = append(result, row)
+		}
+		return result, true
+	default:
+		return nil, false
 	}
 }
 

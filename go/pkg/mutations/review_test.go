@@ -179,6 +179,102 @@ func TestSubmitReviewAcceptsMatchingCollaborationLedgerVerdict(t *testing.T) {
 	}
 }
 
+func TestPublishArtifactRejectsACEProductiveRefusal(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, aceCollaborationLedgerSubmitPayload("needs_revision", "constraints: []\n", ""))
+
+	_, err := HandlePublishArtifact(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "needs_revision requires a non-empty constraints[]") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSubmitReviewRejectsACEProductiveRefusal(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, aceCollaborationLedgerSubmitPayload("needs_revision", "constraints: []\n", ""))
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+		"verdict":      "needs_revision",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "needs_revision requires a non-empty constraints[]") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSubmitReviewIdempotentPathRejectsACEProductiveRefusal(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, aceCollaborationLedgerSubmitPayload("needs_revision", "constraints: []\n", ""))
+	seedPublishedCollaborationLedgerArtifact(t, ctx, runner, repoID, sessionID, jobID)
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+		"verdict":      "needs_revision",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "needs_revision requires a non-empty constraints[]") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRecordVerdictRejectsACEProductiveRefusal(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, aceCollaborationLedgerSubmitPayload("needs_revision", "constraints: []\n", ""))
+	seedPublishedCollaborationLedgerArtifact(t, ctx, runner, repoID, sessionID, jobID)
+
+	_, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"verdict":    "needs_revision",
+	}))
+	if err == nil || !strings.Contains(err.Error(), "needs_revision requires a non-empty constraints[]") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSubmitReviewAcceptsACEProductiveRefusalWithBindingConstraint(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, aceCollaborationLedgerSubmitPayload("needs_revision", aceSubmitBindingConstraint(), aceSubmitFinding()))
+
+	result, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"path":         "artifacts/gate/LEDGER.md",
+		"kind":         "collaboration_ledger",
+		"logical_name": "collaboration_ledger",
+		"verdict":      "needs_revision",
+	}))
+	if err != nil {
+		t.Fatalf("submit review: %v", err)
+	}
+	if result["job_state"] != "waiting_human" {
+		t.Fatalf("job_state = %#v; result=%#v", result["job_state"], result)
+	}
+}
+
 // TestRecordVerdictRejectsCollaborationLedgerVerdictMismatch covers build
 // finding 2: the primitive path (publish_artifact then review.verdict /
 // recordVerdict) must enforce the same collaboration_ledger verdict
@@ -245,8 +341,12 @@ func seedPublishedCollaborationLedgerArtifact(t *testing.T, ctx context.Context,
 }
 
 func seedCollaborationLedgerSubmitFixture(t *testing.T, ctx context.Context, runner db.Runner, verdict string) (repoID, sessionID, jobID, leaseID string) {
+	return seedCollaborationLedgerSubmitFixtureWithPayload(t, ctx, runner, collaborationLedgerSubmitPayload(verdict))
+}
+
+func seedCollaborationLedgerSubmitFixtureWithPayload(t *testing.T, ctx context.Context, runner db.Runner, payload string) (repoID, sessionID, jobID, leaseID string) {
 	t.Helper()
-	repoID = "repo_collab_" + strings.ReplaceAll(verdict, "_", "")
+	repoID = "repo_collab_" + strings.NewReplacer("/", "_", " ", "_", "-", "_").Replace(t.Name())
 	runID := "run_" + repoID
 	sessionID = "sess_adjudicator_" + repoID
 	jobID = "job_adjudicate_" + repoID
@@ -255,7 +355,7 @@ func seedCollaborationLedgerSubmitFixture(t *testing.T, ctx context.Context, run
 	if err := os.MkdirAll(filepath.Join(repoRoot, "artifacts", "gate"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repoRoot, "artifacts", "gate", "LEDGER.md"), []byte(collaborationLedgerSubmitPayload(verdict)), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repoRoot, "artifacts", "gate", "LEDGER.md"), []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	intgSeedRepo(t, ctx, runner, repoID)
@@ -356,6 +456,60 @@ rationale: "` + rationale + `"
 ---
 
 # Ledger
+`
+}
+
+func aceCollaborationLedgerSubmitPayload(verdict string, constraints string, findings string) string {
+	return `---
+schema_version: "striatum.collaboration_ledger.v1.1"
+artifact_kind: "collaboration_ledger"
+shape: "adjudicated_constraint_extraction"
+topic: "productive refusal gate"
+participants: ["sess_holder", "sess_falsifier"]
+entries:
+  - kind: claim
+    by: sess_holder
+    refs: ["dialogue:1"]
+    text: "The proposal is ready."
+  - kind: challenge
+    by: sess_falsifier
+    refs: ["dialogue:2"]
+    text: "The proposal lacks an enforceable validation gate."
+cycle: 1
+verdict: "` + verdict + `"
+rationale: "A challenge landed and must be carried as a constraint."
+` + findings + constraints + `branches:
+  implementation: blocked_pending_answer
+---
+
+# Ledger
+`
+}
+
+func aceSubmitFinding() string {
+	return `findings:
+  - id: F1
+    severity: high
+    posture: implementation
+    status: converted_to_constraint
+    challenge: "The proposal lacks an enforceable validation gate."
+    requested_constraint_shape:
+      kind: gate
+    source_refs: ["dialogue:2"]
+`
+}
+
+func aceSubmitBindingConstraint() string {
+	return `constraints:
+  - id: C1
+    source_finding: F1
+    posture: implementation
+    severity: high
+    kind: gate
+    binding: true
+    text: "The next revision must add an executable validation gate."
+    verification:
+      gate: "go -C go test ./pkg/artifactcontracts/..."
 `
 }
 
