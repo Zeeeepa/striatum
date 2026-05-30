@@ -365,6 +365,235 @@ func TestWorkflowFingerprintMatchesCanonicalJSON(t *testing.T) {
 	}
 }
 
+// --- GH #66: workflow validate must share run.prepare phase-shape rules ---
+
+// phasedWorkflow returns a minimal valid two-phase v1.1 workflow:
+//
+//	phase "p1": build -> p1_synth (phase_synthesis)
+//	phase "p2": follow -> p2_synth (phase_synthesis)
+//
+// with a single cross-phase edge p1_synth -> follow.
+func phasedWorkflow() map[string]any {
+	return map[string]any{
+		"schema_version":   SchemaV11,
+		"workflow_id":      "go-phased",
+		"workflow_version": "1",
+		"name":             "Go Phased",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/go-phased"},
+		"coordinator":      map[string]any{"role_id": "author", "lane_id": "codex"},
+		"lanes":            map[string]any{"codex": map[string]any{"adapter": "process", "command": []any{"true"}}},
+		"roles":            map[string]any{"author": map[string]any{}, "synth": map[string]any{}},
+		"context_docs":     []any{},
+		"parallelism":      map[string]any{"mode": "declared", "max_active_jobs": 1},
+		"phases": []any{
+			map[string]any{"id": "p1", "name": "Phase 1", "synthesis_job_id": "p1_synth"},
+			map[string]any{"id": "p2", "name": "Phase 2", "synthesis_job_id": "p2_synth"},
+		},
+		"edges": []any{
+			map[string]any{"from": "build", "to": "p1_synth", "on": "completed"},
+			map[string]any{"from": "p1_synth", "to": "follow", "on": "completed"},
+			map[string]any{"from": "follow", "to": "p2_synth", "on": "completed"},
+		},
+		"cycles": []any{},
+		"jobs": []any{
+			phasedJob("build", "build", "p1", "author"),
+			phasedSynthJob("p1_synth", "p1"),
+			phasedJob("follow", "build", "p2", "author"),
+			phasedSynthJob("p2_synth", "p2"),
+		},
+	}
+}
+
+func phasedJob(id, jobType, phaseID, roleID string) map[string]any {
+	return map[string]any{
+		"id":       id,
+		"type":     jobType,
+		"role_id":  roleID,
+		"lane_id":  "codex",
+		"phase_id": phaseID,
+		"write_scope": map[string]any{
+			"mode":            "repo_write",
+			"allowed_paths":   []any{"src/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": id,
+			"kind":         "handoff",
+			"path":         "src/" + id + ".md",
+			"required":     true,
+		}},
+	}
+}
+
+func phasedSynthJob(id, phaseID string) map[string]any {
+	return map[string]any{
+		"id":                     id,
+		"type":                   "phase_synthesis",
+		"role_id":                "synth",
+		"lane_id":                "codex",
+		"phase_id":               phaseID,
+		"fresh_session_required": true,
+		"write_scope": map[string]any{
+			"mode":            "review_only_artifact",
+			"allowed_paths":   []any{"reviews/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": id,
+			"kind":         "synthesis",
+			"path":         "reviews/" + id + ".md",
+			"required":     true,
+		}},
+	}
+}
+
+func TestValidatePhasedWorkflowAccepted(t *testing.T) {
+	if err := Validate(phasedWorkflow()); err != nil {
+		t.Fatalf("Validate valid phased workflow: %v", err)
+	}
+	if err := ValidatePhaseShapes(phasedWorkflow()); err != nil {
+		t.Fatalf("ValidatePhaseShapes valid phased workflow: %v", err)
+	}
+}
+
+func TestValidateRejectsMultiplePhaseSynthesisJobs(t *testing.T) {
+	workflow := phasedWorkflow()
+	jobs := workflow["jobs"].([]any)
+	// Add a second phase_synthesis job to phase p1.
+	jobs = append(jobs, phasedSynthJob("p1_synth_dup", "p1"))
+	workflow["jobs"] = jobs
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "has multiple phase_synthesis jobs") {
+		t.Fatalf("Validate multiple synthesis error = %v", err)
+	}
+}
+
+func TestValidateRejectsPhaseWithoutSynthesisJob(t *testing.T) {
+	workflow := phasedWorkflow()
+	jobs := workflow["jobs"].([]any)
+	// Drop p2_synth by demoting it to a build job, leaving phase p2 without one.
+	for _, item := range jobs {
+		job := item.(map[string]any)
+		if job["id"] == "p2_synth" {
+			job["type"] = "build"
+		}
+	}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "must declare exactly one phase_synthesis job") {
+		t.Fatalf("Validate missing synthesis error = %v", err)
+	}
+}
+
+func TestValidateRejectsEdgeTargetingLaterPhaseSynthesis(t *testing.T) {
+	workflow := phasedWorkflow()
+	edges := workflow["edges"].([]any)
+	// Cross-phase edge from p1 synthesis directly into p2's synthesis job.
+	workflow["edges"] = append(edges, map[string]any{"from": "p1_synth", "to": "p2_synth", "on": "completed"})
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "cannot target a later phase_synthesis job") {
+		t.Fatalf("Validate edge-to-later-synthesis error = %v", err)
+	}
+}
+
+func TestValidateRejectsCrossPhaseEdgeNotFromSynthesis(t *testing.T) {
+	workflow := phasedWorkflow()
+	edges := workflow["edges"].([]any)
+	// Cross-phase edge originating from a non-synthesis job in p1.
+	workflow["edges"] = append(edges, map[string]any{"from": "build", "to": "follow", "on": "completed"})
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "without using source phase") {
+		t.Fatalf("Validate cross-phase non-synthesis edge error = %v", err)
+	}
+}
+
+func TestValidateRejectsMismatchedSynthesisJobID(t *testing.T) {
+	workflow := phasedWorkflow()
+	phases := workflow["phases"].([]any)
+	// Point phase p1's synthesis_job_id at a job that is not its synthesis job.
+	phases[0].(map[string]any)["synthesis_job_id"] = "build"
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "synthesis_job_id") {
+		t.Fatalf("Validate mismatched synthesis_job_id error = %v", err)
+	}
+}
+
+func TestValidateRejectsPhaseJobInSchemaV1(t *testing.T) {
+	workflow := validWorkflow() // SchemaV1
+	jobs := workflow["jobs"].([]any)
+	jobs[0].(map[string]any)["phase_id"] = "p1"
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "must not declare phase_id") {
+		t.Fatalf("Validate v1 phase_id error = %v", err)
+	}
+}
+
+// --- GH #99: a tracked workflow.json that isn't JSON gives a clear error ---
+
+func TestLoadFileRejectsNonJSONWorkflowFile(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "workflow.json")
+	markdown := "# Retired scaffold\n\nThis workflow has been superseded.\n"
+	if err := os.WriteFile(path, []byte(markdown), 0o600); err != nil {
+		t.Fatalf("write markdown workflow: %v", err)
+	}
+	_, _, err := LoadFile(repo, "workflow.json")
+	if err == nil || !strings.Contains(err.Error(), "is not valid JSON") {
+		t.Fatalf("LoadFile non-JSON error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "workflow.json") {
+		t.Fatalf("LoadFile non-JSON error should name the path: %v", err)
+	}
+}
+
+func TestLoadFileRejectsMalformedJSONWorkflowFile(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "workflow.json")
+	// Starts with '{' so it passes the object-shape gate but fails to decode.
+	if err := os.WriteFile(path, []byte(`{"schema_version": `), 0o600); err != nil {
+		t.Fatalf("write malformed workflow: %v", err)
+	}
+	_, _, err := LoadFile(repo, "workflow.json")
+	if err == nil || !strings.Contains(err.Error(), "is not valid JSON") {
+		t.Fatalf("LoadFile malformed JSON error = %v", err)
+	}
+}
+
+// --- GH #97: document_only reviewer with empty inputs is inconsistent ---
+
+func TestValidateRejectsDocumentOnlyReviewerWithoutInputs(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["reviewer_access_scope"] = "document_only"
+	// inputs intentionally absent/null.
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), `review_policy.access_scope "document_only" requires a non-empty inputs list`) {
+		t.Fatalf("Validate document_only without inputs error = %v", err)
+	}
+
+	// Empty list is equally invalid.
+	workflow = validWorkflow()
+	jobs = workflow["jobs"].([]any)
+	review = jobs[1].(map[string]any)
+	review["reviewer_access_scope"] = "document_only"
+	review["inputs"] = []any{}
+	err = Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "requires a non-empty inputs list") {
+		t.Fatalf("Validate document_only with empty inputs error = %v", err)
+	}
+}
+
+func TestValidateAcceptsDocumentOnlyReviewerWithInputs(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["reviewer_access_scope"] = "document_only"
+	review["inputs"] = []any{map[string]any{"from": "draft", "logical_name": "draft"}}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate document_only with inputs: %v", err)
+	}
+}
+
 func writeWorkflow(t *testing.T, path string, workflow map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(workflow)

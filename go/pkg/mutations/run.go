@@ -727,6 +727,13 @@ func validateWorkflowForPrepare(workflow map[string]any) (phaseIndex, error) {
 			}
 		}
 	}
+	// Phase-shape rules are the single source of truth in
+	// pkg/workflowauthoring (GH #66) so `workflow validate` rejects the same
+	// shapes locally. workflowPhaseIndex/validatePhaseEdges below build the
+	// materialization index and re-run the identical checks as defense.
+	if err := workflowauthoring.ValidatePhaseShapes(workflow); err != nil {
+		return phaseIndex{}, rpc.NewError("workflow_error", err.Error(), nil)
+	}
 	index, err := workflowPhaseIndex(workflow, jobs, schemaVersion)
 	if err != nil {
 		return phaseIndex{}, err

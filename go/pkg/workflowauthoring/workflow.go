@@ -127,17 +127,21 @@ func Load(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, &Error{Message: "read workflow: " + err.Error()}
 	}
-	if len(bytes.TrimLeft(raw, " \t\r\n")) == 0 || bytes.TrimLeft(raw, " \t\r\n")[0] != '{' {
-		return nil, &Error{Message: "workflow config must be a JSON object"}
+	// Detect a non-JSON file up front (GH #99): a tracked workflow.json that
+	// actually holds Markdown or other prose should report a clear "not valid
+	// JSON" diagnostic naming the path, distinct from schema-validation errors.
+	trimmed := bytes.TrimLeft(raw, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: expected a JSON object", path)}
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var workflow map[string]any
 	if err := dec.Decode(&workflow); err != nil {
-		return nil, &Error{Message: "workflow JSON is invalid: " + jsonErrorMessage(err)}
+		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: %s", path, jsonErrorMessage(err))}
 	}
 	if workflow == nil {
-		return nil, &Error{Message: "workflow config must be a JSON object"}
+		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: expected a JSON object", path)}
 	}
 	if err := Validate(workflow); err != nil {
 		return nil, err
@@ -231,6 +235,12 @@ func Validate(workflow map[string]any) error {
 		}
 	}
 	if err := validateEdges(workflow, jobMap); err != nil {
+		return err
+	}
+	// Phase-shape rules are shared with run.prepare so `workflow validate`
+	// rejects the same shapes locally instead of passing then failing at
+	// launch (GH #66). See pkg/workflowauthoring/phases.go.
+	if err := ValidatePhaseShapes(workflow); err != nil {
 		return err
 	}
 	if err := validateCycles(workflow, jobMap); err != nil {
@@ -738,6 +748,12 @@ func validateReviewerPolicy(jobID string, job map[string]any, crossRepo bool) er
 		}
 		if access == "cross_repo_artifact_augmented" && !crossRepo {
 			return errf("review job %q may use reviewer_access_scope cross_repo_artifact_augmented only in cross-repo workflows", jobID)
+		}
+		// document_only reviewers read ONLY the listed input documents, so a
+		// null/empty inputs list leaves them with no valid document set (GH
+		// #97). The packet derives review_policy.access_scope from this field.
+		if access == "document_only" && len(anySlice(job["inputs"])) == 0 {
+			return errf("review job %q: review_policy.access_scope \"document_only\" requires a non-empty inputs list", jobID)
 		}
 	}
 	if hasContext {

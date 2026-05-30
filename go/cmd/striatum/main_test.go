@@ -232,7 +232,7 @@ func sameModelAdjudicatorWorkflow() string {
     },
     {
       "id": "adjudicate",
-      "type": "phase_synthesis",
+      "type": "build",
       "role_id": "adjudicator",
       "lane_id": "codex",
       "task_prompt": {"inline": "adjudicate"},
