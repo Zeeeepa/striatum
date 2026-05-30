@@ -4,6 +4,22 @@
 
 ### GH #62 / #63 follow-ups (daemon + CLI fixes)
 
+- #63 F2: `checkpoint.resolve` gains an `override` action for `revision_routing`
+  checkpoints — it requires `--decision-id` referencing an accepting run-level
+  `striatum.decision`, resolves the checkpoint, completes the stalled review
+  (settled by the decision, not re-run), records a superseding clearing verdict
+  (`accept_with_findings`, `posture=override`) under a minted operator-labeled
+  reviewer session, and makes the downstream gate reachable. No new override
+  authority, no new RPC method/route; audit lives in the decision (D157).
+  Surfaced in `status` (`resolve_actions`/`resolve_action_hints`), the CLI
+  `--action` enum, and the recover skill templates.
+- #63 F10: the `supervise.send` delivery gate now keys purely on the live
+  reconciled probe (`!health.Deliverable`) instead of also requiring stale
+  supervisor `delivery_liveness` metadata — a helper/transport that died
+  abruptly without writing a metadata record (main PID alive) no longer slips
+  the gate and dispatches a packet to a dead FIFO. The benign F7
+  `attach_client_exited` case stays deliverable; `supervisorDeliveryDegraded`
+  survives only as the fallback reason source.
 - #62: the ephemeral per-launch `.gemini/settings.json` (rotating MCP bearer
   token) is now removed/restored on every supervisor teardown path — graceful
   completion, `supervise stop`, and tmux kill/lost — via a central cleanup at
