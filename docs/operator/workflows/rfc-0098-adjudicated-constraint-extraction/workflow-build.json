@@ -1,0 +1,67 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0098-build-slice1",
+  "workflow_version": "2026-05-30",
+  "name": "RFC 0098 slice-1 build (single implementer, panel-vetted design)",
+  "branch": {
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0098-build-slice1",
+    "allow_dirty": true
+  },
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude_code"},
+  "lanes": {
+    "codex": {
+      "adapter": "process",
+      "display_model": "Codex GPT-5.5 xhigh",
+      "command": ["codex", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write"]
+    },
+    "claude_code": {
+      "adapter": "process",
+      "display_model": "Claude Opus 4.8",
+      "command": ["claude", "--model", "claude-opus-4-8", "--permission-mode", "bypassPermissions"],
+      "adapter_capabilities": {"agent_loop": true},
+      "capabilities": ["write"]
+    }
+  },
+  "roles": {
+    "coordinator": {"definition_path": "roles/coordinator.md"},
+    "implementer": {"definition_path": "roles/implementer.md"}
+  },
+  "context_docs": [
+    {"path": "docs/operator/workflows/rfc-0098-adjudicated-constraint-extraction/artifacts/DESIGN_SYNTHESIS.md", "required": true},
+    {"path": "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "required": true},
+    {"path": "docs/rfcs/0093-structured-live-collaboration-workflow-shapes.md", "required": false}
+  ],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1, "require_disjoint_write_scopes": true},
+  "jobs": [
+    {
+      "id": "build_slice1",
+      "type": "build",
+      "title": "Implement RFC 0098 slice 1",
+      "role_id": "implementer",
+      "lane_id": "codex",
+      "fresh_session_required": true,
+      "objective": "Implement RFC 0098 slice 1 per the committed, panel-vetted DESIGN_SYNTHESIS.md: collaboration_ledger.v1.1 additive constraints[]/branches{}/cycle + the productive-refusal gate (needs_revision => non-empty constraints[]) in validateCollaborationLedger; do NOT widen the verdict enum; accept advertised clearing verbs (#88) and natural front matter (#79). Additive only, no new daemon method. Add tests; run them; write the handoff.",
+      "task_prompt": {"path": "prompts/build_slice1.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": [
+          "go/",
+          "examples/",
+          "docs/reference/workflow-types.md",
+          "docs/reference/ubiquitous-language.md",
+          "docs/reference/spec.md",
+          "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md",
+          "docs/operator/workflows/rfc-0098-adjudicated-constraint-extraction/artifacts/build/"
+        ],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [{"logical_name": "build_handoff", "kind": "handoff", "path": "docs/operator/workflows/rfc-0098-adjudicated-constraint-extraction/artifacts/build/HANDOFF.md", "required": true}]
+    }
+  ],
+  "edges": [],
+  "cycles": []
+}
