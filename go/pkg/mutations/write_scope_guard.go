@@ -132,10 +132,16 @@ type gitPathSnapshot struct {
 //     write — only its first-appearance (rule 1) or a tracked mutation (rule 2)
 //     is attributable.
 //
-// `forbidden_paths` remain absolute: a current dirty path inside a forbidden
-// prefix is always a violation, regardless of baseline. Sibling-published
-// artifacts whose digest matches a dirty path are not the attempt's writes and
-// are skipped.
+// `forbidden_paths` are absolute for paths the attempt actually authored: a
+// current dirty path inside a forbidden prefix is a violation regardless of
+// baseline. A sibling-published artifact (a dirty path whose content digest
+// matches another lane's already-published run artifact, per
+// `publishedRunArtifactIgnoredPaths`) is provably *that* lane's write, not this
+// attempt's, so it is skipped *before* the forbidden check — otherwise every
+// multi-lane gate job (#93) deadlocks at `work.complete` in a shared worktree
+// when a sibling's published artifact lands inside this job's forbidden_paths
+// (e.g. synthesis forbids artifacts/design/, implement forbids
+// artifacts/review/).
 func writeScopeViolationsSinceBaseline(current []gitPathSnapshot, baseline map[string]string, allowed, forbidden []string, ignored map[string]bool) []string {
 	allowedMatchers := normalizedScopeMatchers(allowed)
 	forbiddenMatchers := normalizedScopeMatchers(forbidden)
@@ -146,12 +152,15 @@ func writeScopeViolationsSinceBaseline(current []gitPathSnapshot, baseline map[s
 			violations = append(violations, item.Path)
 			continue
 		}
-		// Forbidden is absolute and checked before any attribution leniency.
-		if pathMatchesAny(clean, forbiddenMatchers) {
-			violations = append(violations, clean)
+		// A sibling lane's published artifact is not this attempt's write. Skip it
+		// before any forbidden/allowed/baseline attribution: forbidden_paths stay
+		// absolute only for paths this attempt actually authored.
+		if ignored[clean] {
 			continue
 		}
-		if ignored[clean] {
+		// Forbidden is absolute for the attempt's own writes.
+		if pathMatchesAny(clean, forbiddenMatchers) {
+			violations = append(violations, clean)
 			continue
 		}
 		if len(allowedMatchers) == 0 || pathMatchesAny(clean, allowedMatchers) {
@@ -305,11 +314,13 @@ func writeScopeViolationsWithIgnored(paths []string, allowed []string, forbidden
 			violations = append(violations, path)
 			continue
 		}
-		if pathMatchesAny(clean, forbiddenMatchers) {
-			violations = append(violations, clean)
+		// A sibling lane's published artifact (matching digest) is not this
+		// attempt's write — skip it before the forbidden check (#93).
+		if ignored[clean] {
 			continue
 		}
-		if ignored[clean] {
+		if pathMatchesAny(clean, forbiddenMatchers) {
+			violations = append(violations, clean)
 			continue
 		}
 		if len(allowedMatchers) > 0 && !pathMatchesAny(clean, allowedMatchers) {

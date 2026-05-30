@@ -20,6 +20,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type queryer interface {
@@ -216,6 +217,52 @@ func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[str
 	}
 	committed = true
 	return result, nil
+}
+
+// deadlockSQLState is the Postgres SQLSTATE for a detected deadlock.
+const deadlockSQLState = "40P01"
+
+// isDeadlockError reports whether err is a Postgres deadlock (SQLSTATE 40P01).
+// Two concurrent mutations that touch the same rows in opposite order (e.g.
+// parallel review.submit calls completing sibling reviews) can have the
+// deadlock detector abort one of them; that loser is safe to retry.
+func isDeadlockError(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == deadlockSQLState
+}
+
+// withTxRetryOnDeadlock runs fn inside a transaction, retrying up to a small
+// bounded number of times when the transaction aborts with a Postgres deadlock
+// (SQLSTATE 40P01). The retry is intentionally tight — only the deadlock
+// SQLSTATE is retried, with a short backoff — so a genuine livelock surfaces a
+// clear error recommending a serial retry rather than spinning. Any non-
+// deadlock error (validation, transition refusal, etc.) is returned
+// immediately.
+func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
+	const maxAttempts = 3
+	const baseBackoff = 5 * time.Millisecond
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result, err := withTx(ctx, runner, fn)
+		if err == nil {
+			return result, nil
+		}
+		if !isDeadlockError(err) {
+			return nil, err
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(baseBackoff * time.Duration(attempt+1)):
+		}
+	}
+	return nil, rpc.NewError(
+		"invalid_transition",
+		"submit-review aborted by a database deadlock after retrying; retry serially",
+		map[string]any{"sqlstate": deadlockSQLState, "attempts": maxAttempts},
+	)
 }
 
 func rowByID(ctx context.Context, runner any, repositoryID, table, column, value string, forUpdate bool) (map[string]any, error) {

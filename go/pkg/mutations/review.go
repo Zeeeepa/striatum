@@ -54,7 +54,11 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if sessionID == "" || jobID == "" || leaseID == "" || pathText == "" || verdict == "" {
 		return nil, rpc.NewError("schema_invalid", "review.submit requires session_id, job_id, lease_id, path, and verdict", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	// #98: two concurrent submit-review calls completing sibling reviews under
+	// the same run can have Postgres abort one with a deadlock (SQLSTATE 40P01).
+	// Retry the whole transaction a bounded number of times; the body is
+	// idempotent (publishArtifact already no-ops an already-published artifact).
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err

@@ -248,6 +248,35 @@ func TestWriteScopeViolationsSinceBaselineLiveAttemptCreatedOutOfScopeViolates(t
 	}
 }
 
+// Regression for #93: a dirty path that is BOTH inside forbidden_paths AND a
+// sibling lane's already-published run artifact (matching digest) must not be
+// attributed to this gate job — otherwise every multi-lane gate (synthesis
+// forbids artifacts/design/, implement forbids artifacts/review/, ...)
+// deadlocks at work.complete in a shared worktree. A forbidden-path file the
+// attempt actually authored (no matching sibling-published digest) still
+// violates.
+func TestWriteScopeViolationsSinceBaselineSiblingPublishedForbiddenIsNotViolation(t *testing.T) {
+	allowed := []string{"artifacts/synthesis/"}
+	forbidden := []string{"artifacts/design/"}
+	baseline := map[string]string{}
+	current := []gitPathSnapshot{
+		// Sibling design lane's published artifact, inside this job's
+		// forbidden_paths but provably the sibling's write (matching digest).
+		{Path: "artifacts/design/codex/DESIGN.md", Hash: "sibling-digest"},
+		// A forbidden-path file the attempt actually authored (no matching
+		// published digest) -> still a violation.
+		{Path: "artifacts/design/self/SECRET.md", Hash: "self-authored"},
+		// The attempt's own in-scope work.
+		{Path: "artifacts/synthesis/SYNTHESIS.md", Hash: "synth"},
+	}
+	ignored := map[string]bool{"artifacts/design/codex/DESIGN.md": true}
+	got := writeScopeViolationsSinceBaseline(current, baseline, allowed, forbidden, ignored)
+	want := []string{"artifacts/design/self/SECRET.md"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("violations = %#v, want %#v", got, want)
+	}
+}
+
 func runGit(t *testing.T, repo string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)

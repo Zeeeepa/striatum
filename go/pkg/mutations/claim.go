@@ -179,19 +179,66 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "queue.claimed", sessionID, jobID, chosen["message_id"], nil, leaseID, nil); err != nil {
 			return nil, err
 		}
-		return claimNextResult(sessionID, packetID, packet), nil
+		// #68: when a self-driving supervisor (agent_loop_mode = self_driving) is
+		// attached, the agent itself drives delivery via work.await_packet. An
+		// operator-issued `supervise send` against that session double-claims and
+		// deadlocks, so suppress the supervise_send hint and tell the operator the
+		// agent self-claims instead.
+		selfDriving, err := sessionHasSelfDrivingSupervisor(ctx, tx, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		return claimNextResult(sessionID, packetID, packet, selfDriving), nil
 	})
 }
 
-func claimNextResult(sessionID, packetID string, packet map[string]any) map[string]any {
-	return map[string]any{
+func claimNextResult(sessionID, packetID string, packet map[string]any, selfDrivingSupervisor bool) map[string]any {
+	result := map[string]any{
 		"status":    "claimed",
 		"packet_id": packetID,
 		"packet":    packet,
-		"next_steps": map[string]any{
-			"supervise_send": "striatum supervise send --session-id " + sessionID + " --packet-id " + packetID,
-		},
 	}
+	if selfDrivingSupervisor {
+		// The agent's own await loop will deliver this packet; a manual
+		// supervise_send would double-claim. Surface the self-claim note instead
+		// of the misleading supervise_send command.
+		result["next_steps"] = map[string]any{
+			"self_claim_note": "session has an attached self-driving supervisor; the agent self-claims via work.await_packet — do not run `supervise send`",
+		}
+		return result
+	}
+	result["next_steps"] = map[string]any{
+		"supervise_send": "striatum supervise send --session-id " + sessionID + " --packet-id " + packetID,
+	}
+	return result
+}
+
+// sessionHasSelfDrivingSupervisor reports whether the session has an active
+// (starting/attached/detached) supervisor running in agent_loop self_driving
+// mode. The agent_loop_mode is recorded in the supervisor pointer's
+// metadata_json at supervise-start time; a self-driving agent calls
+// work.await_packet itself, so the claim-path must not emit a supervise_send
+// hint (#68).
+func sessionHasSelfDrivingSupervisor(ctx context.Context, runner any, repositoryID, sessionID string) (bool, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT COALESCE(p.metadata_json, '{}'::jsonb) AS metadata_json
+		  FROM striatumd.process_supervisors ps
+		  LEFT JOIN striatumd.process_supervisor_pointers p
+		    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
+		 WHERE ps.repository_id = $1 AND ps.session_id = $2
+		   AND ps.state = ANY($3)
+		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+		 LIMIT 1`,
+		repositoryID, sessionID, []string{"starting", "attached", "detached"})
+	if err != nil {
+		return false, err
+	}
+	if len(rows) == 0 {
+		return false, nil
+	}
+	metadata := asMap(rows[0]["metadata_json"])
+	mode, _ := metadata["agent_loop_mode"].(string)
+	return mode == agentLoopModeSelfDriving, nil
 }
 
 func buildPacket(
@@ -361,6 +408,20 @@ func packetTaskPrompt(taskPrompt map[string]any, snapshot map[string]any) map[st
 		return result
 	}
 	cleanedRaw := path.Clean(rawPath)
+	cleanSourceDir := path.Clean(sourceDir)
+	// #90: when the prompt path is ALREADY repo-relative (already prefixed with
+	// the workflow directory), joining the workflow dir again duplicates it
+	// (striatum/<wf>/striatum/<wf>/prompts/x.md). Treat the path as already
+	// resolved and derive the workflow-relative form by stripping the prefix.
+	if cleanedRaw == cleanSourceDir || strings.HasPrefix(cleanedRaw, cleanSourceDir+"/") {
+		workflowRelative := strings.TrimPrefix(cleanedRaw, cleanSourceDir+"/")
+		result["path"] = cleanedRaw
+		if workflowRelative != "" && workflowRelative != cleanedRaw {
+			result["workflow_relative_path"] = workflowRelative
+			result["workflow_source_path"] = sourcePath
+		}
+		return result
+	}
 	resolved := path.Clean(path.Join(sourceDir, rawPath))
 	if resolved == "." || resolved == ".." || strings.HasPrefix(resolved, "../") {
 		return result

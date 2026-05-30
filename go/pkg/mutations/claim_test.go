@@ -17,7 +17,7 @@ import (
 
 func TestClaimNextResultSurfacesPacketIDAndSuperviseSend(t *testing.T) {
 	packet := map[string]any{"packet_id": "wp_1"}
-	result := claimNextResult("sess_1", "wp_1", packet)
+	result := claimNextResult("sess_1", "wp_1", packet, false)
 
 	if result["status"] != "claimed" {
 		t.Fatalf("status = %v", result["status"])
@@ -31,6 +31,23 @@ func TestClaimNextResultSurfacesPacketIDAndSuperviseSend(t *testing.T) {
 	nextSteps := result["next_steps"].(map[string]any)
 	if nextSteps["supervise_send"] != "striatum supervise send --session-id sess_1 --packet-id wp_1" {
 		t.Fatalf("supervise_send = %v", nextSteps["supervise_send"])
+	}
+}
+
+// Regression for #68: when a self-driving supervisor is attached, the
+// supervise_send hint is misleading (the agent self-claims via
+// work.await_packet) and must be suppressed in favor of a self-claim note.
+func TestClaimNextResultSuppressesSuperviseSendForSelfDrivingSupervisor(t *testing.T) {
+	packet := map[string]any{"packet_id": "wp_1"}
+	result := claimNextResult("sess_1", "wp_1", packet, true)
+
+	nextSteps := result["next_steps"].(map[string]any)
+	if _, ok := nextSteps["supervise_send"]; ok {
+		t.Fatalf("supervise_send must be suppressed for a self-driving supervisor: %#v", nextSteps)
+	}
+	note, _ := nextSteps["self_claim_note"].(string)
+	if !strings.Contains(note, "work.await_packet") || !strings.Contains(note, "do not run") {
+		t.Fatalf("self_claim_note = %q, want it to mention work.await_packet and not running supervise send", note)
 	}
 }
 
@@ -60,6 +77,29 @@ func TestPacketTaskPromptResolvesWorkflowLocalPath(t *testing.T) {
 		t.Fatalf("workflow_relative_path = %v", got["workflow_relative_path"])
 	}
 	if got["workflow_source_path"] != "docs/operator/workflows/demo/workflow.json" {
+		t.Fatalf("workflow_source_path = %v", got["workflow_source_path"])
+	}
+}
+
+// Regression for #90: when the prompt path is already repo-relative (already
+// prefixed with the workflow directory), packetTaskPrompt must NOT join the
+// workflow dir again — that produced striatum/<wf>/striatum/<wf>/prompts/x.md.
+func TestPacketTaskPromptDoesNotDuplicateWorkflowDir(t *testing.T) {
+	got := packetTaskPrompt(
+		map[string]any{"path": "striatum/demo/prompts/demo.md"},
+		map[string]any{"source_path": "striatum/demo/workflow.json"},
+	)
+
+	if got["path"] != "striatum/demo/prompts/demo.md" {
+		t.Fatalf("path = %v, want striatum/demo/prompts/demo.md (no duplication)", got["path"])
+	}
+	if strings.Contains(got["path"].(string), "striatum/demo/striatum/demo") {
+		t.Fatalf("path duplicated the workflow dir: %v", got["path"])
+	}
+	if got["workflow_relative_path"] != "prompts/demo.md" {
+		t.Fatalf("workflow_relative_path = %v, want prompts/demo.md", got["workflow_relative_path"])
+	}
+	if got["workflow_source_path"] != "striatum/demo/workflow.json" {
 		t.Fatalf("workflow_source_path = %v", got["workflow_source_path"])
 	}
 }
@@ -280,6 +320,72 @@ func TestClaimNextReclaimRequeuedJobWithFreshSessionRequired(t *testing.T) {
 	}
 	if res3["status"] != "no_work" {
 		t.Fatalf("expected third claim status to be no_work, got %v", res3["status"])
+	}
+}
+
+// TestClaimNextSuppressesSuperviseSendWithSelfDrivingSupervisor verifies #68
+// end-to-end: when an attached supervisor is recorded in agent_loop_mode
+// self_driving, HandleClaimNext must NOT emit a supervise_send hint (which
+// would invite an operator double-claim) and must surface the self-claim note.
+func TestClaimNextSuppressesSuperviseSendWithSelfDrivingSupervisor(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_selfdrive"
+	runID := "run_claim_selfdrive"
+	sessionID := "sess_selfdrive"
+	role := "worker"
+	lane := "claude"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, lane)
+
+	// Mark the attached supervisor pointer as agent_loop self_driving.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.process_supervisor_pointers
+		   SET metadata_json = '{"agent_loop_mode":"self_driving"}'::jsonb
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID); err != nil {
+		t.Fatalf("set self_driving metadata: %v", err)
+	}
+
+	jobID := "job_selfdrive"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+			repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			title, job_type, fresh_session_required, idempotency_key, created_at
+		) VALUES ($1, $2, $3, 'job_w_1', 1, 'queued', $4, 'Job', 'draft', false, 'idem_sd', NOW())`,
+		repoID, jobID, runID, role); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+			repository_id, message_id, run_id, job_id, kind, state, target_role_id, target_lane_id, priority, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, 'work', 'pending', $5, $6, 10, NOW(), NOW())`,
+		repoID, "msg_sd", runID, jobID, role, lane); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+
+	res, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("claim_next: %v", err)
+	}
+	if res["status"] != "claimed" {
+		t.Fatalf("status = %v, want claimed", res["status"])
+	}
+	nextSteps, _ := res["next_steps"].(map[string]any)
+	if nextSteps == nil {
+		t.Fatalf("missing next_steps: %#v", res)
+	}
+	if _, ok := nextSteps["supervise_send"]; ok {
+		t.Fatalf("supervise_send must be suppressed for self-driving supervisor: %#v", nextSteps)
+	}
+	if _, ok := nextSteps["self_claim_note"]; !ok {
+		t.Fatalf("expected self_claim_note: %#v", nextSteps)
 	}
 }
 

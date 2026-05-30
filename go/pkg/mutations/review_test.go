@@ -14,6 +14,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func TestOverrideVerdictRecoversCompletedReviewWithoutPriorVerdict(t *testing.T) {
@@ -1163,3 +1164,106 @@ func (tx *submitReviewFakeTx) Query(_ context.Context, sql string, args ...any) 
 		return runPrepareRowsFromMaps(nil), nil
 	}
 }
+
+// #98: classify a Postgres deadlock (SQLSTATE 40P01) so review.submit can
+// retry it, while leaving every other error untouched.
+func TestIsDeadlockError(t *testing.T) {
+	if !isDeadlockError(&pgconn.PgError{Code: "40P01", Message: "deadlock detected"}) {
+		t.Fatalf("40P01 should classify as a deadlock")
+	}
+	if !isDeadlockError(fmt.Errorf("wrapped: %w", &pgconn.PgError{Code: "40P01"})) {
+		t.Fatalf("wrapped 40P01 should classify as a deadlock")
+	}
+	if isDeadlockError(&pgconn.PgError{Code: "23505"}) {
+		t.Fatalf("unique-violation (23505) must not classify as a deadlock")
+	}
+	if isDeadlockError(errors.New("plain error")) {
+		t.Fatalf("plain error must not classify as a deadlock")
+	}
+	if isDeadlockError(nil) {
+		t.Fatalf("nil must not classify as a deadlock")
+	}
+}
+
+// #98: withTxRetryOnDeadlock retries a transaction that aborts with a deadlock
+// and succeeds on a later attempt; a non-deadlock error is returned at once.
+func TestWithTxRetryOnDeadlock(t *testing.T) {
+	ctx := context.Background()
+
+	// Deadlock on the first two attempts, then succeed.
+	runner := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}, failTimes: 2}
+	result, err := withTxRetryOnDeadlock(ctx, runner, func(db.TxRunner) (map[string]any, error) {
+		return map[string]any{"ok": true}, nil
+	})
+	if err != nil {
+		t.Fatalf("expected retry to succeed, got %v", err)
+	}
+	if result["ok"] != true {
+		t.Fatalf("result = %#v", result)
+	}
+	if runner.attempts != 3 {
+		t.Fatalf("attempts = %d, want 3 (two deadlocks then success)", runner.attempts)
+	}
+
+	// Deadlock on every attempt -> bounded failure with a serial-retry hint.
+	always := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "40P01"}, failTimes: 99}
+	_, err = withTxRetryOnDeadlock(ctx, always, func(db.TxRunner) (map[string]any, error) {
+		return nil, nil
+	})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("expected rpc error after exhausting retries, got %v", err)
+	}
+	if !strings.Contains(rpcErr.Message, "retry serially") {
+		t.Fatalf("error message = %q, want it to mention serial retry", rpcErr.Message)
+	}
+	if always.attempts != 3 {
+		t.Fatalf("attempts = %d, want 3 (bounded)", always.attempts)
+	}
+
+	// A non-deadlock error is returned immediately, no retry.
+	nonDeadlock := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "23505"}, failTimes: 99}
+	_, err = withTxRetryOnDeadlock(ctx, nonDeadlock, func(db.TxRunner) (map[string]any, error) {
+		return nil, nil
+	})
+	if !isDeadlockError(err) && !errors.As(err, new(*pgconn.PgError)) {
+		t.Fatalf("expected the underlying pg error back, got %v", err)
+	}
+	if nonDeadlock.attempts != 1 {
+		t.Fatalf("attempts = %d, want 1 (no retry on non-deadlock)", nonDeadlock.attempts)
+	}
+}
+
+// deadlockRetryRunner fails BeginTx with failWith for the first failTimes
+// attempts, then returns a committable no-op transaction. withTx surfaces the
+// BeginTx error directly, which is what the retry wrapper classifies.
+type deadlockRetryRunner struct {
+	failWith  error
+	failTimes int
+	attempts  int
+}
+
+func (r *deadlockRetryRunner) Exec(context.Context, string, ...any) error { return nil }
+func (r *deadlockRetryRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return reviewOverrideFakeRow{err: pgx.ErrNoRows}
+}
+func (r *deadlockRetryRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", nil
+}
+func (r *deadlockRetryRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	r.attempts++
+	if r.attempts <= r.failTimes {
+		return nil, r.failWith
+	}
+	return &deadlockRetryTx{}, nil
+}
+
+type deadlockRetryTx struct{}
+
+func (deadlockRetryTx) Exec(context.Context, string, ...any) error { return nil }
+func (deadlockRetryTx) QueryRow(context.Context, string, ...any) db.Row {
+	return reviewOverrideFakeRow{err: pgx.ErrNoRows}
+}
+func (deadlockRetryTx) QueryScalar(context.Context, string, ...any) (string, error) { return "", nil }
+func (deadlockRetryTx) Commit(context.Context) error                                { return nil }
+func (deadlockRetryTx) Rollback(context.Context) error                              { return nil }
