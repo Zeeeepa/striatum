@@ -35,3 +35,6 @@ docs/dogfood/
 
 # local agent MCP config (contains tokens)
 .gemini/
+
+# Multi-agent teamwork-preview scratch output (accidentally committed in 335c349)
+.agents/
