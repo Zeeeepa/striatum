@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### #82 — transfer a live repo-write claim to a fresh session without bumping the attempt
+
+`recovery.requeue_stale --force --justification "<reason>"` now also recovers a
+job held by a **live** (active-lease) claimant, not just an expired/stale one.
+Under `--force` it force-expires the job's active lease (`release_reason:
+operator_transfer`), marks a claimed/running job `stale_lease`, and requeues the
+**same** work message and attempt to a fresh session — a lease-ownership
+correction that, unlike `run.retry_job`, does **not** increment the attempt
+counter or reset downstream. Without `--force`, a job held by a live claimant now
+returns guidance toward the transfer path instead of a bare "no stale lease"
+error. Tests: `TestRequeueStaleForceTransfersRepoWriteWithoutBumpingAttempt`.
+
 ### #77 — adjudicator absorbs a reviewer's needs_revision (no spurious checkpoint)
 
 In cross-examination / forum shapes a reviewer's `needs_revision` is dissent for

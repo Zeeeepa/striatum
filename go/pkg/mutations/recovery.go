@@ -1067,6 +1067,29 @@ func HandleRecoveryRequeueStale(ctx context.Context, runner db.Runner, envelope 
 		if _, err := expireLeases(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
+		now := nowString()
+		// #82: an operator-inspected transfer (`--force`) of a live-but-wrong
+		// repo-write claim. Force-expire the job's still-active lease and mark a
+		// claimed/running job stale so the same attempt + queue message can be
+		// requeued to a fresh session below — a lease-ownership correction that,
+		// unlike run.retry_job, does NOT bump the attempt counter or reset
+		// downstream. `--force` already requires `--justification`.
+		if force {
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.leases
+				   SET state = 'expired', released_at = $1, release_reason = 'operator_transfer'
+				 WHERE repository_id = $2 AND resource_id = $3 AND state = 'active'`,
+				now, repositoryID, jobID); err != nil {
+				return nil, err
+			}
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.jobs
+				   SET state = 'stale_lease'
+				 WHERE repository_id = $1 AND job_id = $2 AND state IN ('claimed', 'running')`,
+				repositoryID, jobID); err != nil {
+				return nil, err
+			}
+		}
 		rows, err := queryRows(ctx, tx, `
 			SELECT j.job_id, j.run_id, j.workflow_job_id, j.state,
 			       j.role_id, j.lane_selector_json, j.max_attempts,
@@ -1092,6 +1115,19 @@ func HandleRecoveryRequeueStale(ctx context.Context, runner db.Runner, envelope 
 			return nil, err
 		}
 		if len(rows) == 0 {
+			// #82: when the job is held by a LIVE claimant (active lease) rather
+			// than a stale/expired one, guide the operator to the transfer path
+			// instead of the bare "no stale lease" error.
+			hasActive, lerr := existsRow(ctx, tx, `
+				SELECT 1 FROM striatumd.leases
+				 WHERE repository_id = $1 AND resource_id = $2 AND state = 'active' LIMIT 1`,
+				repositoryID, jobID)
+			if lerr != nil {
+				return nil, lerr
+			}
+			if hasActive {
+				return nil, rpc.NewError("invalid_transition", "job is held by a live claimant (active lease); after stopping the wrong session and inspecting, transfer it with `--force --justification \"<reason>\"` (preserves the attempt; does not retry the job)", nil)
+			}
 			return nil, rpc.NewError("invalid_transition", "job has no stale expired lease to requeue", nil)
 		}
 		row := rows[0]
@@ -1101,7 +1137,6 @@ func HandleRecoveryRequeueStale(ctx context.Context, runner db.Runner, envelope 
 		}
 		messageID := nullable(row["message_id"])
 		alreadyReclaimable := fmt.Sprint(row["state"]) == "queued" && fmt.Sprint(row["message_state"]) == "pending"
-		now := nowString()
 		if messageID == nil {
 			created, err := insertPendingMessageForJob(ctx, tx, repositoryID, row, now)
 			if err != nil {
