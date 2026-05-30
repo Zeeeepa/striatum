@@ -37,6 +37,15 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if err != nil {
 			return nil, err
 		}
+		// RFC 0095 §4 (F-I/#81): a closed/expired/stopped/lost session must never
+		// be granted work. A session closed with close_reason
+		// interrogation_window_closed whose supervised process is still alive used
+		// to reclaim its revision-cycle job here, letting a prior author rewrite
+		// its own challenged work without the fresh context the gate required.
+		// Refuse any non-active session up front.
+		if state := fmt.Sprint(session["state"]); state != "active" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
+		}
 		runID := fmt.Sprint(session["run_id"])
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
@@ -802,6 +811,15 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
 		return nil, err
 	}
+	// RFC 0095 §4 (F-I/#81): refuse the await loop for a closed/expired/stopped/
+	// lost session before it can be delivered work, an interrogation question, or
+	// a conversation turn. The supervised process of a closed session must reach a
+	// terminal no_work state rather than reclaim a revision-cycle job.
+	if state, err := sessionState(ctx, runner, repositoryID, sessionID); err != nil {
+		return nil, err
+	} else if state != "active" {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
+	}
 
 	timeout := 30 * time.Second
 	pollInterval := 500 * time.Millisecond
@@ -922,6 +940,17 @@ func deliverPendingInterrogationQuestion(ctx context.Context, runner db.Runner, 
 			"body":             body,
 		}, nil
 	})
+}
+
+// sessionState returns the current sessions.state value for sessionID.
+func sessionState(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT state FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repositoryID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprint(row["state"]), nil
 }
 
 func isRunRunning(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (bool, error) {
