@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### #76 — disable the agy usage/feedback survey in the supervised lane
+
+A supervised agy lane could stall on the gemini-cli usage survey ("How's the CLI
+experience? [1] Good …") inside the PTY while a work packet was active, until an
+operator typed `0` to skip. The ephemeral `.gemini/settings.json` Striatum writes
+for the lane now sets `usageStatisticsEnabled: false` (the documented gemini-cli
+key that disables usage statistics and the periodic feedback prompt), unless the
+project already declares it. Additive and harmless if a given agy build ignores
+the key; needs live confirmation against an agy lane. Test extends
+`TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings`.
+
 ### #101 — claude_code agent-loop bootstrap is submitted (argv, not TUI-type-then-CR)
 
 Claude Code v2.1.x buffers a typed multi-line bootstrap prompt in its TUI input

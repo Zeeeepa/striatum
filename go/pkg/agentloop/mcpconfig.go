@@ -119,6 +119,15 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 			"headers": map[string]any{"Authorization": "Bearer " + bearer},
 		},
 	}
+	// #76: a supervised agy lane must not stall on the gemini-cli usage/feedback
+	// survey ("How's the CLI experience? [1] Good ...") inside the PTY while a
+	// work packet is active. usageStatisticsEnabled:false is the documented
+	// gemini-cli key that disables usage statistics and the periodic feedback
+	// prompt; set it unless the project already declares it. Additive and
+	// harmless if a given agy build ignores the key.
+	if _, declared := settings["usageStatisticsEnabled"]; !declared {
+		settings["usageStatisticsEnabled"] = false
+	}
 	body, err := json.Marshal(settings)
 	if err != nil {
 		return noop, err

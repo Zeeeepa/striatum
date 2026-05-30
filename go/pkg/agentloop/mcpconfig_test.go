@@ -133,6 +133,11 @@ func TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings(t *testing.T) {
 	if !strings.Contains(string(body), "oauth-personal") || !strings.Contains(string(body), "httpUrl") {
 		t.Fatalf("settings should merge existing auth with striatum mcpServers: %s", body)
 	}
+	// #76: the usage/feedback survey is disabled so a supervised lane does not
+	// stall on it inside the PTY.
+	if !strings.Contains(string(body), `"usageStatisticsEnabled":false`) {
+		t.Fatalf("settings should disable usage statistics/survey (#76): %s", body)
+	}
 	// Teardown restores the original file verbatim.
 	cleanup()
 	restored, _ := os.ReadFile(settingsPath)
