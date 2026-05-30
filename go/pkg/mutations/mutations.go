@@ -360,7 +360,8 @@ func verifyRequiredArtifacts(ctx context.Context, runner any, repositoryID, jobI
 	// Build finding 1: resolve cycle placeholders against the job attempt so a
 	// revision-cycle re-run verifies the attempt-scoped logical name + path the
 	// adjudicator actually published to (cycle_<attempt>), not the raw template.
-	expected := resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), intValue(job["attempt"]))
+	attempt := jobAttemptValue(job["attempt"])
+	expected := resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), attempt)
 	if len(expected) == 0 {
 		return nil
 	}
@@ -369,16 +370,22 @@ func verifyRequiredArtifacts(ctx context.Context, runner any, repositoryID, jobI
 		if artifact["required"] != true {
 			continue
 		}
+		// RFC 0095 §1 / #84: a required artifact is satisfied ONLY by an artifact
+		// produced at the job's CURRENT attempt. A prior attempt's artifact must
+		// not satisfy a re-opened attempt's gate, so the revision gate cannot be
+		// cleared by stale output — the fresh attempt must (re)publish its own
+		// attempt-scoped artifact.
 		_, err := oneRow(ctx, runner, `
 			SELECT 1 FROM striatumd.artifacts
 			 WHERE repository_id = $1 AND job_id = $2 AND logical_name = $3
-			   AND artifact_kind = $4 AND repo_path = $5
+			   AND artifact_kind = $4 AND repo_path = $5 AND attempt = $6
 			 LIMIT 1`,
 			repositoryID,
 			jobID,
 			artifact["logical_name"],
 			artifact["kind"],
 			artifact["path"],
+			attempt,
 		)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return rpc.NewError("invalid_transition", fmt.Sprintf(

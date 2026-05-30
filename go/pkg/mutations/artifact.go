@@ -31,6 +31,18 @@ var frontMatterSchemas = artifactcontracts.SchemaSet()
 // attempt-scoped artifact work in #84 / RFC 0095.
 const artifactLogicalNameConflictMessage = "artifact logical_name already exists with different content; an already-published artifact is immutable for this attempt. Publish a distinct logical_name (the job's existing published artifact is the one used at work.complete), or let a revision cycle re-open the job so a fresh attempt can publish its own attempt-scoped artifact; revising a published artifact across a revision cycle is tracked by attempt-scoped artifacts (#84 / RFC 0095)."
 
+// jobAttemptValue normalizes a jobs.attempt column value to the producing
+// attempt for an artifact. jobs.attempt is NOT NULL DEFAULT 1, but a missing or
+// zero value (e.g. a legacy row read before migration, or a partially seeded
+// test fixture) defaults to 1 — the same value migration 0018 backfills onto
+// pre-existing artifact rows — so the attempt-scoped keys stay coherent.
+func jobAttemptValue(value any) int {
+	if attempt := intValue(value); attempt > 0 {
+		return attempt
+	}
+	return 1
+}
+
 func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -117,10 +129,19 @@ func publishArtifact(
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
 	now := nowString()
+	// RFC 0095 §1 / #84: artifacts are attempt-scoped. A re-opened job (revision
+	// cycle, run.retry_job, checkpoint continue) bumps jobs.attempt; the prior
+	// attempt's row stays for provenance and must NOT collide with the fresh
+	// attempt's republish of the same logical_name. So the collision pre-check is
+	// keyed on the CURRENT attempt: only a row at this attempt with the same
+	// logical_name and DIFFERENT content is a conflict; a prior attempt's row is
+	// ignored and the fresh attempt INSERTs its own attempt-scoped row.
+	attempt := jobAttemptValue(job["attempt"])
 	existing, err := oneRow(ctx, runner, `
 		SELECT * FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3 AND logical_name = $4
-		 LIMIT 1`, repositoryID, job["run_id"], jobID, logicalName)
+		   AND attempt = $5
+		 LIMIT 1`, repositoryID, job["run_id"], jobID, logicalName, attempt)
 	if err == nil {
 		if fmt.Sprint(existing["content_sha256"]) == digest && fmt.Sprint(existing["repo_path"]) == pathText {
 			if kind == "escalation" {
@@ -158,10 +179,18 @@ func publishArtifact(
 	// Publishing *different* content at the same repo_path produces a
 	// different content_sha256, so it falls through to a fresh INSERT and is
 	// not silently collapsed; the same-content tuple is the only case we fold.
+	// RFC 0095 §1 / #84: the path+content uniqueness key is now attempt-scoped
+	// (UNIQUE (repository_id, run_id, repo_path, content_sha256, attempt)). Scope
+	// the idempotent-no-op detection to the CURRENT attempt so a fresh attempt
+	// that happens to republish byte-identical content at the same path still
+	// INSERTs its own attempt-scoped row (rather than folding into the prior
+	// attempt's row); within an attempt the same tuple remains an idempotent
+	// no-op success as before (#58).
 	pathDup, err := oneRow(ctx, runner, `
 		SELECT artifact_id, logical_name FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND repo_path = $3 AND content_sha256 = $4
-		 LIMIT 1`, repositoryID, job["run_id"], pathText, digest)
+		   AND attempt = $5
+		 LIMIT 1`, repositoryID, job["run_id"], pathText, digest, attempt)
 	if err == nil {
 		if kind == "escalation" {
 			block, ok := frontMatterBlock(string(payload))
@@ -239,9 +268,9 @@ func publishArtifact(
 		INSERT INTO striatumd.artifacts (
 		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
 		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
-		  created_at, author_line, blob_key, blob_sha256, blob_content_type
+		  created_at, author_line, blob_key, blob_sha256, blob_content_type, attempt
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12,$13,$14,$15)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12,$13,$14,$15,$16)`,
 		repositoryID,
 		artifactID,
 		job["run_id"],
@@ -257,6 +286,7 @@ func publishArtifact(
 		nullable(blobKey),
 		nullable(blobSha256),
 		nullable(blobContentType),
+		attempt,
 	); err != nil {
 		return nil, err
 	}

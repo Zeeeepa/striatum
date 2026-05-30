@@ -791,7 +791,7 @@ func evaluateAutoFinalizeArtifact(ctx context.Context, runner any, repositoryID,
 	// The current work message's created_at is the current attempt's re-enqueue
 	// boundary (RFC 0095 Phase 2 / #65 P2). A satisfying artifact older than it
 	// belongs to a prior attempt and must not auto-finalize the re-opened job.
-	existing, err := autoFinalizeExistingArtifactStatus(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), logicalName, pathText, payload, job["message_created_at"])
+	existing, err := autoFinalizeExistingArtifactStatus(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), logicalName, pathText, payload, job["message_created_at"], jobAttemptValue(job["attempt"]))
 	if err != nil {
 		return autoFinalizeArtifactRefusal(declared, err.Error(), nil)
 	}
@@ -908,26 +908,29 @@ func autoFinalizeLaneEvidenceRefusal(ctx context.Context, runner any, repository
 	return "", nil
 }
 
-func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, repositoryID, runID, jobID, logicalName, pathText string, payload []byte, attemptBoundary any) (map[string]any, error) {
+func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, repositoryID, runID, jobID, logicalName, pathText string, payload []byte, attemptBoundary any, attempt int) (map[string]any, error) {
 	digest := sha256Hex(payload)
+	// RFC 0095 §1 / #84: artifacts are attempt-scoped. Restrict the satisfying
+	// artifact lookup to the job's CURRENT attempt so a re-opened job is never
+	// auto-finalized from a PRIOR attempt's row — the prior row simply does not
+	// match this query, and the function reports `would_publish` (the fresh lane
+	// must publish its own attempt-scoped artifact, or a manual complete fires).
+	// The created_at boundary check below is retained as defense-in-depth for the
+	// legacy/NULL-attempt path (Phase 2 / #65 P2).
 	row, err := oneRow(ctx, runner, `
 		SELECT artifact_id, repo_path, content_sha256, created_at
 		  FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
-		   AND logical_name = $4
-		 LIMIT 1`, repositoryID, runID, jobID, logicalName)
+		   AND logical_name = $4 AND attempt = $5
+		 LIMIT 1`, repositoryID, runID, jobID, logicalName, attempt)
 	if err == nil {
 		if fmt.Sprint(row["repo_path"]) == pathText && fmt.Sprint(row["content_sha256"]) == digest {
-			// RFC 0095 Phase 2 (#65 P2): attempt-aware recovery. A re-opened job
-			// (revision cycle, run.retry_job, or checkpoint.resolve continue) bumps
-			// the attempt and re-enqueues a fresh work message. If the only
-			// satisfying artifact predates the current attempt's re-enqueue, it is
-			// the PRIOR attempt's unchanged output: auto-finalizing from it would
-			// re-complete the re-opened job without the fresh lane doing any work
-			// (the wedge). Refuse it so the job stays in the lane's hands; the
-			// fresh attempt must (re)publish its own artifact before auto-finalize
-			// (or a manual complete) can fire. A NULL boundary (no message join)
-			// keeps the legacy behavior.
+			// Phase 2 (#65 P2) defense-in-depth: even within the current attempt,
+			// if a satisfying artifact predates the current attempt's re-enqueue
+			// boundary it is the prior attempt's unchanged output (e.g. before the
+			// precise attempt column existed) — refuse it so the fresh lane must
+			// (re)publish before auto-finalize fires. A NULL boundary (no message
+			// join) keeps the legacy behavior.
 			if stale, reason := autoFinalizeArtifactPredatesAttempt(row["created_at"], attemptBoundary); stale {
 				return map[string]any{"status": "stale_attempt", "reason": reason}, nil
 			}

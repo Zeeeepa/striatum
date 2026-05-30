@@ -221,6 +221,42 @@ func TestMigrationSixteenInterrogationsIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationEighteenWidensArtifactAttemptScope is RFC 0095 §1 / GH #84:
+// migration 18 records the producing attempt on each artifact and widens BOTH
+// artifact unique keys with `attempt`, so a re-opened attempt may republish the
+// same logical_name/path under its own attempt. It is owner-applied (it ALTERs
+// the owner-held artifacts table), so unlike migrations >=16 it is ALLOWED to
+// ALTER an owner table and there is no ownership-safety guard here.
+func TestMigrationEighteenWidensArtifactAttemptScope(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 18 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 18 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"ALTER TABLE striatumd.artifacts",
+		"ADD COLUMN IF NOT EXISTS attempt integer NOT NULL DEFAULT 1",
+		"DROP CONSTRAINT IF EXISTS artifacts_repository_id_run_id_job_id_logical_name_key",
+		"UNIQUE (repository_id, run_id, job_id, logical_name, attempt)",
+		"DROP CONSTRAINT IF EXISTS artifacts_repository_id_run_id_repo_path_content_sha256_key",
+		"UNIQUE (repository_id, run_id, repo_path, content_sha256, attempt)",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 18 missing %q", needle)
+		}
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")

@@ -859,10 +859,16 @@ func publishRecoveredArtifact(ctx context.Context, runner any, repositoryID stri
 	}
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
+	// RFC 0095 §1 / #84: artifacts are attempt-scoped. Surgical recovery must key
+	// its collision check (and the INSERT below) on the job's CURRENT attempt, so
+	// a re-opened job's prior-attempt row neither mis-fires the conflict nor
+	// mis-attributes the recovered artifact to attempt 1.
+	attempt := jobAttemptValue(job["attempt"])
 	existing, err := oneRow(ctx, runner, `
 		SELECT * FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3 AND logical_name = $4
-		 LIMIT 1`, repositoryID, job["run_id"], job["job_id"], logicalName)
+		   AND attempt = $5
+		 LIMIT 1`, repositoryID, job["run_id"], job["job_id"], logicalName, attempt)
 	if err == nil {
 		if fmt.Sprint(existing["content_sha256"]) == digest && fmt.Sprint(existing["repo_path"]) == pathText {
 			return map[string]any{"status": "already_published", "artifact_id": existing["artifact_id"]}, nil
@@ -887,11 +893,11 @@ func publishRecoveredArtifact(ctx context.Context, runner any, repositoryID stri
 		INSERT INTO striatumd.artifacts (
 		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
 		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
-		  created_at, author_line
+		  created_at, author_line, attempt
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12,$13)`,
 		repositoryID, artifactID, job["run_id"], job["job_id"], sessionID, logicalName,
-		kind, pathText, digest, len(payload), now, nullable(firstAuthorLine(payload))); err != nil {
+		kind, pathText, digest, len(payload), now, nullable(firstAuthorLine(payload)), attempt); err != nil {
 		return nil, err
 	}
 	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "artifact.published", sessionID, job["job_id"], nil, artifactID, leaseID, map[string]any{

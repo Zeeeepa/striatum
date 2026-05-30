@@ -208,28 +208,31 @@ func TestCheckpointContinueReopenReleasesLease(t *testing.T) {
 
 // publishArtifactRow registers an artifact row directly (bypassing publishArtifact's
 // disk checks) so a test can model a prior attempt's already-registered artifact.
-func publishArtifactRow(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, sessionID, logicalName, kind, path, sha string, createdAt time.Time) string {
+// The row is recorded at the supplied attempt (RFC 0095 §1 / #84 attempt-scoped
+// artifacts); a unique artifact_id per (logical_name, job, attempt) keeps the
+// widened unique key happy when a test seeds several attempts.
+func publishArtifactRow(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, sessionID, logicalName, kind, path, sha string, createdAt time.Time, attempt int) string {
 	t.Helper()
-	artifactID := "art_" + logicalName + "_" + jobID
+	artifactID := fmt.Sprintf("art_%s_%s_a%d", logicalName, jobID, attempt)
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.artifacts (
 		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
-		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11)`,
-		repoID, artifactID, runID, jobID, sessionID, logicalName, kind, path, sha, 128, createdAt); err != nil {
+		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode, created_at, attempt
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12)`,
+		repoID, artifactID, runID, jobID, sessionID, logicalName, kind, path, sha, 128, createdAt, attempt); err != nil {
 		t.Fatalf("insert artifact row: %v", err)
 	}
 	return artifactID
 }
 
-// TestAutoFinalizeRefusesStaleAttemptArtifact is the RFC 0095 Phase 2 (#65 P2)
-// regression at the decision point: recovery auto-finalize must NOT re-complete
-// a re-opened job from the PRIOR attempt's unchanged artifact. The fix compares
-// the satisfying artifact's created_at against the current attempt's re-enqueue
-// boundary (the current work message's created_at): an artifact older than the
-// boundary is the prior attempt's output and is refused (status stale_attempt);
-// an artifact at or after the boundary is the fresh attempt's own work and is
-// accepted (status already_published).
+// TestAutoFinalizeRefusesStaleAttemptArtifact is the RFC 0095 §1 / #84 (and the
+// Phase 2 / #65 P2 created_at fallback) regression at the decision point:
+// recovery auto-finalize must NOT re-complete a re-opened job from the PRIOR
+// attempt's artifact. With the precise `attempt` column, a prior-attempt artifact
+// does not even match the current-attempt lookup (status would_publish); the
+// created_at boundary stays as defense-in-depth for a same-attempt row that
+// predates the re-enqueue. A current-attempt artifact at/after the boundary is
+// the fresh lane's own work and is accepted (status already_published).
 func TestAutoFinalizeRefusesStaleAttemptArtifact(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
@@ -245,6 +248,7 @@ func TestAutoFinalizeRefusesStaleAttemptArtifact(t *testing.T) {
 		"jobs":        []any{map[string]any{"id": "synth", "type": "synthesis", "role_id": "synthesizer"}},
 	})
 	now := time.Now().UTC().Truncate(time.Second)
+	// The job is at attempt 2 (re-opened once).
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.jobs (
 		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
@@ -258,39 +262,45 @@ func TestAutoFinalizeRefusesStaleAttemptArtifact(t *testing.T) {
 
 	logicalName := "synthesis_doc"
 	path := "docs/synthesis.md"
-	// Register the prior attempt's artifact with the REAL payload digest so the
-	// same-content branch (the one the P2 fix guards) is exercised. It was created
-	// BEFORE the current attempt's re-enqueue boundary.
 	payload := []byte("synthesis-body")
 	digest := sha256Hex(payload)
 	priorArtifactCreatedAt := now.Add(-10 * time.Minute)
-	publishArtifactRow(t, ctx, runner, repoID, runID, jobID, sessionID, logicalName, "synthesis", path, digest, priorArtifactCreatedAt)
+	// The PRIOR attempt's artifact (attempt 1), created before the current
+	// attempt's re-enqueue boundary.
+	publishArtifactRow(t, ctx, runner, repoID, runID, jobID, sessionID, logicalName, "synthesis", path, digest, priorArtifactCreatedAt, 1)
 
 	statusFor := func(boundary any) map[string]any {
 		t.Helper()
-		status, err := autoFinalizeExistingArtifactStatus(ctx, runner, repoID, runID, jobID, logicalName, path, payload, boundary)
+		status, err := autoFinalizeExistingArtifactStatus(ctx, runner, repoID, runID, jobID, logicalName, path, payload, boundary, 2)
 		if err != nil {
 			t.Fatalf("autoFinalizeExistingArtifactStatus: %v", err)
 		}
 		return status
 	}
 
-	// Boundary AFTER the artifact (the re-opened attempt re-enqueued later): the
-	// artifact is stale and must be refused — the #65 P2 wedge.
-	if got := fmt.Sprint(statusFor(now)["status"]); got != "stale_attempt" {
-		t.Fatalf("status with stale artifact = %q, want stale_attempt", got)
+	// Only the attempt-1 artifact exists, but the job is at attempt 2: the
+	// attempt-scoped lookup finds nothing, so auto-finalize reports would_publish
+	// (it will NOT silently re-complete the re-opened job from the prior attempt).
+	if got := fmt.Sprint(statusFor(now)["status"]); got != "would_publish" {
+		t.Fatalf("status with only prior-attempt artifact = %q, want would_publish", got)
 	}
-	// Boundary BEFORE the artifact (a normal first-attempt finalize): the
-	// artifact is the lane's own fresh work and is accepted.
-	if got := fmt.Sprint(statusFor(priorArtifactCreatedAt.Add(-time.Second))["status"]); got != "already_published" {
-		t.Fatalf("status with fresh artifact = %q, want already_published", got)
+
+	// Publish the fresh attempt-2 artifact (same content/path, attempt 2), created
+	// at/after the boundary. Now the current attempt is satisfied and accepted.
+	publishArtifactRow(t, ctx, runner, repoID, runID, jobID, sessionID, logicalName, "synthesis", path, digest, now, 2)
+	if got := fmt.Sprint(statusFor(now.Add(-time.Second))["status"]); got != "already_published" {
+		t.Fatalf("status with fresh attempt-2 artifact = %q, want already_published", got)
 	}
-	// Boundary EQUAL to the artifact's created_at: not strictly before, so the
-	// artifact counts as fresh (truncated-second tie goes to the lane).
-	if got := fmt.Sprint(statusFor(priorArtifactCreatedAt)["status"]); got != "already_published" {
-		t.Fatalf("status with equal-second boundary = %q, want already_published", got)
+
+	// Defense-in-depth: even at the current attempt, a row that predates the
+	// re-enqueue boundary is refused as stale_attempt (the Phase 2 / #65 P2 guard
+	// for the legacy/NULL-attempt path). Use a boundary AFTER the attempt-2 row.
+	if got := fmt.Sprint(statusFor(now.Add(time.Minute))["status"]); got != "stale_attempt" {
+		t.Fatalf("status with current-attempt artifact predating boundary = %q, want stale_attempt", got)
 	}
-	// A NULL boundary (no current message join) keeps the legacy behavior.
+
+	// A NULL boundary (no current message join) keeps the legacy behavior for the
+	// matched current-attempt row.
 	if got := fmt.Sprint(statusFor(nil)["status"]); got != "already_published" {
 		t.Fatalf("status with NULL boundary = %q, want already_published (legacy)", got)
 	}
