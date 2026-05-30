@@ -53,24 +53,3 @@ jobs:
 
       - name: Fresh clone smoke
         run: make smoke
-
-  frontend:
-    name: Frontend bundle check
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: src/striatum/web/frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        run: make ui-install
-
-      - name: Build and verify committed bundle
-        run: make ui-check-bundle
-
-      - name: Frontend tests
-        run: make ui-test

@@ -5,6 +5,11 @@ Date: 2026-05-24
 Accepted: 2026-05-25 (closure run `run_74896f697a83f9f4c76c090b53cd7508`;
 aggregate validation green — see
 `docs/operator/artifacts/rfc-0078-closure/verify/SUMMARY.md`)
+Final cleanup: 2026-05-30 — the deferred `src/` tree (the dead TS/React frontend
++ vite output, ~71 files) was deleted together with the Makefile `ui-*` targets
+and the CI `frontend` job. The only shipped web surface is the Go SSE UI
+(`go/pkg/webassets`, RFC 0092); no Go code referenced `src/` except historical
+provenance comments.
 author: proposer-codex-gpt-5.5-001
 Context:
 [`RFC 0030`](0030-daemon-rpc-server-and-version-skew-protocol.md),

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### RFC 0078 Gate G — delete the retired `src/` tree
+
+The deferred final cleanup from RFC 0078. Removed the `src/` tree (~71 tracked
+files: the dead TS/React frontend, vite output, and legacy web/static assets)
+together with its coupled build gates — the Makefile `ui-*` targets
+(`ui-install`/`ui-build`/`ui-check-bundle`/…) and the `.github/workflows/ci.yml`
+`frontend` job. The only shipped web surface is the Go server-rendered SSE UI
+(`go/pkg/webassets`, RFC 0092); no Go code referenced `src/` except historical
+provenance comments. Also dropped the now-dead `.gitignore` un-ignore rules for
+the deleted bundle and added RFC-0078 historical banners to
+`docs/explanation/harness-friction-patterns.md` and `docs/reference/prd.md`
+(D018) where they cited retired `src/striatum/...py` paths. Go build + vet + lint
+green; no CI step depends on the removed frontend.
+
 ### Backlog triage sweep — close/RFC/fix the open dogfood-friction issues
 
 Triaged all 36 open GH issues (friction logs from three dogfood runs). Closed the

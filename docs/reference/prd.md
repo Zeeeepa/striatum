@@ -63,7 +63,9 @@ Accepted foundation:
 - D016: Build outputs are durable and idempotent.
 - D017: Coordinator starts/selects a branch and requests commits from the
   human by default.
-- D018: Implement v1 in Python.
+- D018: Implement v1 in Python. *(Superseded by RFC 0078: the Python runtime is
+  retired and the `src/` tree removed; the product is Go-only — `striatum`,
+  `striatumd`, `striatum-supervisor-helper` build from `go/`.)*
 - D019: Role definitions are reusable artifacts; context docs are generic; task
   prompts may reference roles.
 - D020: Coordinator chat commands such as "read prompt foo" are coordinator

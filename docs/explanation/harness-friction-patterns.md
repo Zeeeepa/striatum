@@ -5,6 +5,14 @@ Date: 2026-05-12
 Owner: striatum maintainers
 See: [`docs/rfcs/0040-mcp-driven-dogfood-harness.md`](../rfcs/0040-mcp-driven-dogfood-harness.md)
 
+> **Historical note (RFC 0078):** The `src/striatum/...py` file paths cited
+> below are the **retired Python implementation** — the `src/` tree was deleted
+> when RFC 0078 Gate G landed. They are preserved as provenance for the
+> *patterns*; the live equivalents are in `go/pkg/...` (daemon read handlers in
+> `go/pkg/reads`, contract/workflow validation in `go/pkg/workflowauthoring` and
+> `go/pkg/artifactcontracts`, and the method contract in
+> `contracts/daemon_methods.json`).
+
 This document is the long-form companion to RFC 0040. It records the
 three recurring friction patterns observed across dogfoods 036-039 and
 the fixes that landed in v1.29.0. Future RFCs that propose harness
