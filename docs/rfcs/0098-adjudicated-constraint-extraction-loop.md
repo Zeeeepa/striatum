@@ -276,6 +276,12 @@ workflow quality measurable instead of vibe-based; they do not gate anything.
 
 ## Implementation Plan (slices, smallest blast radius first)
 
+> **Status (2026-05-30): Slices 1–3 LANDED** (the V1 target). Slice 1
+> `6a43c13`; slice 2 (generator shape + fixture) and slice 3
+> (discharge-verifying final review + `constraint_discharge` shape) landed in the
+> backlog sweep. Slice 4 (first-class constraint objects + coverage metrics)
+> remains deferred.
+
 - **Slice 1 — artifact + gate (no daemon method).** `collaboration_ledger.v1.1`
   additive schema; the shape-scoped `adjudicated_constraint_extraction` +
   `needs_revision ⇒ non-empty constraints[]` publish gate; contract accepts the

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### RFC 0098 slices 2–3 — generator shape + discharge-verifying final review
+
+Completes the RFC 0098 V1 target (slices 1–3).
+
+- **Slice 2 (generator + fixture):** `adjudicated_constraint_extraction` is
+  registered in the collaboration shape pack, so
+  `workflow generate --shape adjudicated_constraint_extraction` emits a
+  `striatum.workflow.v1.1` 8-phase graph (survey → convener_synthesis →
+  cross_exam → adjudication → revision_synthesis → constraint_discharge_review →
+  spec_publication → final_review), one `phase_synthesis` per phase, with
+  `${cycle}`-templated logical names on every re-publishable revision-cycle
+  artifact (so republish doesn't collide on the append-only table). Roles +
+  posture-specific prompts; starter fixture
+  `examples/adjudicated-constraint-extraction-flow/`. Passes `workflow validate`
+  and the `run.prepare` phase rules.
+- **Slice 3 (discharge gate):** `finding`/`findings_ledger` additively accept a
+  `constraint_discharge[]` block (`discharged|missing|partial|accepted_risk`;
+  `accepted_risk` requires owner+stage). `final_review` becomes a **typecheck**:
+  `enforceConstraintDischarge` (in `publishArtifact`, covering both
+  `artifact.publish` and `review.submit`, no new daemon method) loads the latest
+  cleared ACE `collaboration_ledger.v1.1`'s binding+`final_review_required`
+  constraints and **fails closed** (exit 6, naming the offending ids) unless every
+  one is `discharged` or `accepted_risk` — without re-running prior phases.
+
 ### RFC 0078 Gate G — delete the retired `src/` tree
 
 The deferred final cleanup from RFC 0078. Removed the `src/` tree (~71 tracked
