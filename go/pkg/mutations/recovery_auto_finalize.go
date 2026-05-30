@@ -614,7 +614,8 @@ func autoFinalizeCandidateRows(ctx context.Context, runner any, repositoryID, ru
 	return queryRows(ctx, runner, `
 		SELECT j.*, l.lease_id, l.owner_session_id, l.expires_at,
 		       l.state AS lease_state, s.state AS session_state,
-		       qm.message_id, qm.state AS message_state
+		       qm.message_id, qm.state AS message_state,
+		       qm.created_at AS message_created_at
 		  FROM striatumd.jobs j
 		  JOIN striatumd.leases l
 		    ON l.repository_id = j.repository_id
@@ -787,11 +788,14 @@ func evaluateAutoFinalizeArtifact(ctx context.Context, runner any, repositoryID,
 	} else if reason != "" {
 		return autoFinalizeArtifactRefusal(declared, reason, nil)
 	}
-	existing, err := autoFinalizeExistingArtifactStatus(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), logicalName, pathText, payload)
+	// The current work message's created_at is the current attempt's re-enqueue
+	// boundary (RFC 0095 Phase 2 / #65 P2). A satisfying artifact older than it
+	// belongs to a prior attempt and must not auto-finalize the re-opened job.
+	existing, err := autoFinalizeExistingArtifactStatus(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), logicalName, pathText, payload, job["message_created_at"])
 	if err != nil {
 		return autoFinalizeArtifactRefusal(declared, err.Error(), nil)
 	}
-	if existing["status"] == "conflict" {
+	if existing["status"] == "conflict" || existing["status"] == "stale_attempt" {
 		return autoFinalizeArtifactRefusal(declared, fmt.Sprint(existing["reason"]), nil)
 	}
 	return map[string]any{
@@ -904,16 +908,29 @@ func autoFinalizeLaneEvidenceRefusal(ctx context.Context, runner any, repository
 	return "", nil
 }
 
-func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, repositoryID, runID, jobID, logicalName, pathText string, payload []byte) (map[string]any, error) {
+func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, repositoryID, runID, jobID, logicalName, pathText string, payload []byte, attemptBoundary any) (map[string]any, error) {
 	digest := sha256Hex(payload)
 	row, err := oneRow(ctx, runner, `
-		SELECT artifact_id, repo_path, content_sha256
+		SELECT artifact_id, repo_path, content_sha256, created_at
 		  FROM striatumd.artifacts
 		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
 		   AND logical_name = $4
 		 LIMIT 1`, repositoryID, runID, jobID, logicalName)
 	if err == nil {
 		if fmt.Sprint(row["repo_path"]) == pathText && fmt.Sprint(row["content_sha256"]) == digest {
+			// RFC 0095 Phase 2 (#65 P2): attempt-aware recovery. A re-opened job
+			// (revision cycle, run.retry_job, or checkpoint.resolve continue) bumps
+			// the attempt and re-enqueues a fresh work message. If the only
+			// satisfying artifact predates the current attempt's re-enqueue, it is
+			// the PRIOR attempt's unchanged output: auto-finalizing from it would
+			// re-complete the re-opened job without the fresh lane doing any work
+			// (the wedge). Refuse it so the job stays in the lane's hands; the
+			// fresh attempt must (re)publish its own artifact before auto-finalize
+			// (or a manual complete) can fire. A NULL boundary (no message join)
+			// keeps the legacy behavior.
+			if stale, reason := autoFinalizeArtifactPredatesAttempt(row["created_at"], attemptBoundary); stale {
+				return map[string]any{"status": "stale_attempt", "reason": reason}, nil
+			}
 			return map[string]any{"status": "already_published", "artifact_id": row["artifact_id"]}, nil
 		}
 		return map[string]any{"status": "conflict", "reason": "artifact logical name already exists with different content"}, nil
@@ -922,6 +939,27 @@ func autoFinalizeExistingArtifactStatus(ctx context.Context, runner any, reposit
 		return map[string]any{"status": "would_publish", "artifact_id": nil}, nil
 	}
 	return nil, err
+}
+
+// autoFinalizeArtifactPredatesAttempt reports whether a satisfying artifact's
+// created_at is strictly before the current attempt's re-enqueue boundary (the
+// current work message's created_at). When it is, the artifact belongs to a
+// prior attempt and must not be used to auto-finalize the re-opened job.
+func autoFinalizeArtifactPredatesAttempt(artifactCreatedAt, attemptBoundary any) (bool, string) {
+	boundary, ok := asTime(attemptBoundary)
+	if !ok {
+		return false, ""
+	}
+	created, ok := asTime(artifactCreatedAt)
+	if !ok {
+		return false, ""
+	}
+	if created.Before(boundary) {
+		return true, fmt.Sprintf(
+			"satisfying artifact predates the current attempt's re-enqueue (artifact created_at %s < message enqueued_at %s); a re-opened job must republish before auto-finalize",
+			created.UTC().Format(time.RFC3339), boundary.UTC().Format(time.RFC3339))
+	}
+	return false, ""
 }
 
 func finalizeAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID string, candidate map[string]any, allowNoProcessExecution bool) (map[string]any, error) {

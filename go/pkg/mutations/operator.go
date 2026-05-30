@@ -211,30 +211,17 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				if fmt.Sprint(job["state"]) != "waiting_human" {
 					return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint job is not in waiting_human (state=%q)", job["state"]), nil)
 				}
-				messageID := nullable(job["current_message_id"])
-				if messageID != nil {
-					if err := tx.Exec(ctx, `
-						UPDATE striatumd.queue_messages
-						   SET state = 'pending', current_lease_id = NULL, updated_at = $1
-						 WHERE repository_id = $2 AND message_id = $3`, now, repositoryID, messageID); err != nil {
-						return nil, err
-					}
-					if err := tx.Exec(ctx, `
-						UPDATE striatumd.jobs
-						   SET state = 'queued', current_lease_id = NULL, ready_at = $1
-						 WHERE repository_id = $2 AND job_id = $3`, now, repositoryID, blockerJobID); err != nil {
-						return nil, err
-					}
-				} else {
-					if err := tx.Exec(ctx, `
-						UPDATE striatumd.jobs
-						   SET state = 'blocked', current_lease_id = NULL
-						 WHERE repository_id = $1 AND job_id = $2`, repositoryID, blockerJobID); err != nil {
-						return nil, err
-					}
-					if _, err := enqueueJob(ctx, tx, repositoryID, fmt.Sprint(blockerJobID)); err != nil {
-						return nil, err
-					}
+				// RFC 0095 Phase 2 (#65 P3): re-open atomically through the shared
+				// helper. The prior inline path moved the existing message back to
+				// `pending` (or re-enqueued) but never released a still-active lease
+				// and never bumped the attempt, so a re-claim could fail the
+				// uq_active_resource_lease index and a stale prior-attempt artifact
+				// could later auto-finalize the job (the #65 P2 wedge). The helper
+				// releases the lease, retires the parked message, re-blocks
+				// transitive downstream terminal jobs, clears stale verdicts, bumps
+				// the attempt, and re-enqueues a fresh message.
+				if _, err := reopenJobForAttempt(ctx, tx, repositoryID, job, "checkpoint_continue"); err != nil {
+					return nil, err
 				}
 				downstream, err = downstreamJobs(ctx, tx, repositoryID, fmt.Sprint(blockerJobID))
 				if err != nil {

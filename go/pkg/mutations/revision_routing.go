@@ -3,8 +3,6 @@ package mutations
 import (
 	"context"
 	"fmt"
-
-	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // revisionCycle is the runtime view of a workflow `cycles[]` entry that the
@@ -119,8 +117,6 @@ func routeRevisionCycle(
 		return nil, false, nil
 	}
 
-	now := nowString()
-
 	// Complete the review job (the verdict is recorded; the review is done).
 	if err := completeReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID, "needs_revision routed to revision cycle"); err != nil {
 		return nil, false, err
@@ -166,22 +162,15 @@ func routeRevisionCycle(
 		}, true, nil
 	}
 
-	// Reset the cycle target's transitive downstream jobs (the reviews that
-	// reviewed it, and anything further downstream) back to `blocked` so the
-	// normal dependency gating re-enqueues them as the target — and then each
-	// subsequent job — re-completes. Without this, the reviews stay `completed`
-	// and `maybeEnqueueDownstream` (which only enqueues `blocked` jobs) skips
-	// them, leaving the revised work UNREVIEWED (RFC 0083 review-after-revision
-	// contract). This must run before re-opening the target itself, so the
-	// recursive walk still sees the target's current downstream edges.
-	if err := resetDownstreamForRevision(ctx, runner, repositoryID, fmt.Sprint(target["job_id"]), now); err != nil {
-		return nil, false, err
-	}
-
-	if err := reopenJobForRevision(ctx, runner, repositoryID, target, now); err != nil {
-		return nil, false, err
-	}
-	messageID, err := enqueueJob(ctx, runner, repositoryID, fmt.Sprint(target["job_id"]))
+	// Re-open the cycle target atomically (RFC 0095 Phase 2 / #65 P3): release
+	// the prior lease, cancel the prior message, reset the target's transitive
+	// downstream terminal jobs back to `blocked` and clear their stale verdicts
+	// (so the reviews that reviewed it — and anything further downstream —
+	// re-run after the revision per the RFC 0083 review-after-revision
+	// contract), bump the attempt, and re-enqueue a fresh message. Consolidating
+	// the prior separate reset/reopen/enqueue steps guarantees no dangling lease
+	// or message survives to wedge the re-claim.
+	messageID, err := reopenJobForAttempt(ctx, runner, repositoryID, target, "revision_cycle")
 	if err != nil {
 		return nil, false, err
 	}
@@ -268,16 +257,43 @@ func isTerminalJobState(state string) bool {
 	}
 }
 
-// reopenJobForRevision resets a (typically completed) cycle-target job back to
-// a blocked state so enqueueJob can re-issue its work. It releases any active
-// lease, cancels in-flight work messages and open blockers, clears terminal
-// timestamps, and bumps the attempt counter.
-func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, job map[string]any, now string) error {
-	state := fmt.Sprint(job["state"])
-	if !isTerminalJobState(state) {
-		return rpc.NewError("invalid_transition", fmt.Sprintf("cycle target job state %q cannot be re-opened for revision", state), nil)
+// reopenJobForAttempt is the RFC 0095 Phase 2 (#65 P3) single atomic re-open
+// helper. Every re-open path (the revision-cycle router, run.retry_job, and
+// checkpoint.resolve continue) funnels through it so a re-opened job can never
+// be left with a dangling active lease or a stale pending work message that
+// would later make `work.claim_next` / `work.await_packet` fail the
+// `uq_active_resource_lease` / `uq_active_work_message_per_job` partial unique
+// indexes (the #65 P3 wedge: `duplicate active job lease` on re-claim).
+//
+// In a single transaction it: (a) releases the prior active lease for the job
+// (release_reason carries the caller's re-open reason), (b) cancels the prior
+// pending/claimed/acked work message, (c) cancels open blockers, (d) resets the
+// job's transitive downstream terminal jobs back to `blocked` and clears their
+// stale verdicts (the F1 router's existing reset, so the reviews that reviewed
+// this job re-run after the revision), (e) clears the job's stale verdicts,
+// (f) resets the job to `blocked` and bumps `attempt`, and (g) re-enqueues a
+// fresh `pending` work message. It returns the new message id.
+//
+// The reset is idempotent: re-running it against an already-reset job (no active
+// lease, no pending message, attempt already bumped) simply bumps the attempt
+// again and re-enqueues, which is the same contract the legacy paths had.
+func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, job map[string]any, reason string) (string, error) {
+	if reason == "" {
+		reason = "reopened"
 	}
-	return resetJobToBlocked(ctx, runner, repositoryID, fmt.Sprint(job["job_id"]), now)
+	jobID := fmt.Sprint(job["job_id"])
+	now := nowString()
+	// Re-block the transitive downstream terminal jobs BEFORE re-opening the
+	// target so the recursive walk still sees the target's current downstream
+	// edges. This reuses the F1 router's reset so the reviews (and anything
+	// further downstream) re-run after the revision.
+	if err := resetDownstreamForRevision(ctx, runner, repositoryID, jobID, now); err != nil {
+		return "", err
+	}
+	if err := resetJobToBlockedWithReason(ctx, runner, repositoryID, jobID, now, reason); err != nil {
+		return "", err
+	}
+	return enqueueJob(ctx, runner, repositoryID, jobID)
 }
 
 // resetJobToBlocked is the shared reset core used both to re-open the cycle
@@ -287,28 +303,43 @@ func reopenJobForRevision(ctx context.Context, runner any, repositoryID string, 
 // verdict supersedes the prior round and the (job, session) verdict uniqueness
 // constraint is freed), clears terminal timestamps, and bumps the attempt.
 func resetJobToBlocked(ctx context.Context, runner any, repositoryID, jobID, now string) error {
+	return resetJobToBlockedWithReason(ctx, runner, repositoryID, jobID, now, "revision_cycle")
+}
+
+// resetJobToBlockedWithReason is resetJobToBlocked parameterized by the lease
+// release_reason. The reason is purely diagnostic (it lands in
+// leases.release_reason); the reset itself is identical regardless of which
+// re-open path invoked it.
+func resetJobToBlockedWithReason(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
 	if !ok {
 		return fmt.Errorf("runner does not support exec")
 	}
-	// Release any active lease still pinned to the job.
+	if releaseReason == "" {
+		releaseReason = "revision_cycle"
+	}
+	// Release any active lease still pinned to the job. Without this, a later
+	// re-claim's INSERT into striatumd.leases (state='active') would violate the
+	// uq_active_resource_lease partial unique index and wedge the re-open.
 	if err := exec.Exec(ctx, `
 		UPDATE striatumd.leases
-		   SET state = 'released', released_at = $1, release_reason = 'revision_cycle'
+		   SET state = 'released', released_at = $1, release_reason = $4
 		 WHERE repository_id = $2 AND resource_id = $3 AND state = 'active'`,
-		now, repositoryID, jobID); err != nil {
+		now, repositoryID, jobID, releaseReason); err != nil {
 		return err
 	}
 	// Cancel any in-flight work messages so enqueueJob can publish a fresh one
 	// (the uq_active_work_message_per_job partial unique index would otherwise
-	// reject a new pending message).
+	// reject a new pending message). `blocked` is also cancelled: a job that was
+	// parked on a human checkpoint leaves its current message in `blocked`, and a
+	// re-open via checkpoint.resolve must retire it rather than orphan it.
 	if err := exec.Exec(ctx, `
 		UPDATE striatumd.queue_messages
 		   SET state = 'canceled', updated_at = $1, current_lease_id = NULL
 		 WHERE repository_id = $2 AND job_id = $3
-		   AND state IN ('pending','claimed','acked')`,
+		   AND state IN ('pending','claimed','acked','blocked')`,
 		now, repositoryID, jobID); err != nil {
 		return err
 	}

@@ -265,33 +265,18 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		if !retriable {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("job state %q is not retriable (must be failed, canceled, or blocked, or a completed revision-cycle target)", previousState), nil)
 		}
-		now := nowString()
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.jobs
-			   SET state = 'queued',
-			       started_at = NULL,
-			       completed_at = NULL,
-			       current_lease_id = NULL,
-			       current_message_id = NULL,
-			       attempt = attempt + 1
-			 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID); err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.blockers
-			   SET state = 'canceled', resolved_at = $1
-			 WHERE repository_id = $2 AND job_id = $3 AND resolved_at IS NULL`, now, repositoryID, jobID); err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.queue_messages
-			   SET state = 'canceled', updated_at = $1
-			 WHERE repository_id = $2
-			   AND job_id = $3
-			   AND state IN ('pending','claimed','acked')`, now, repositoryID, jobID); err != nil {
-			return nil, err
-		}
-		if _, err := enqueueJob(ctx, tx, repositoryID, jobID); err != nil {
+		// RFC 0095 Phase 2 (#65 P3): re-open atomically through the single shared
+		// helper so a retry can never leave a dangling active lease (the prior
+		// implementation reset the job to queued + bumped the attempt but never
+		// released the active lease, so a fresh `work.claim_next` would later fail
+		// the uq_active_resource_lease index with `duplicate active job lease`).
+		// reopenJobForAttempt releases the prior lease, cancels the prior message,
+		// cancels open blockers, re-blocks transitive downstream terminal jobs +
+		// clears their stale verdicts (a no-op for the typical failed/canceled/
+		// blocked retry whose downstream is not terminal; the desired re-review
+		// reset for a completed revision-cycle target), clears this job's stale
+		// verdicts, bumps the attempt, and re-enqueues a fresh message.
+		if _, err := reopenJobForAttempt(ctx, tx, repositoryID, job, "retry_job"); err != nil {
 			return nil, err
 		}
 		runRevived := false
