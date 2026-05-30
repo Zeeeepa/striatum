@@ -542,12 +542,13 @@ func validateMarkdownAuthorLine(ctx context.Context, runner any, repositoryID st
 	for _, line := range markdownTitleBlockAuthorLines(text) {
 		canonical := canonicalBylineForm(line)
 		if canonical == "" || canonical != expected {
-			// #73: surface the canonical expected byline alongside the submitted
-			// one so the agent/operator can fix the artifact without
-			// reverse-engineering the lane attestation state that derived it.
+			// #73/#106: name the target file and the exact replacement line so an
+			// agent can repair in one edit without reverse-engineering the lane
+			// attestation state that derived the byline. The same required byline
+			// is also in the packet's expected_artifacts[].author_line.
 			return rpc.NewError("artifact_error", fmt.Sprintf(
-				"markdown artifact author line %q does not match the expected work packet author line %q",
-				canonical, expected,
+				"markdown artifact author line in %s is %q but the work packet requires %q; set the title-block author line to exactly %q and re-publish (this byline is also in the packet's expected_artifacts[].author_line).",
+				path, canonical, expected, expected,
 			), nil)
 		}
 	}

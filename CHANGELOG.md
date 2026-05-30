@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### #106 — byline rejection names the file and the exact replacement
+
+The `artifact.publish` author-line rejection (enriched in #73 to name the expected
+byline) now also names the **target file** and frames the fix as a concrete
+one-edit repair — "author line in `<path>` is `X` but the work packet requires
+`Y`; set the title-block author line to exactly `Y` and re-publish" — and points
+at the packet's `expected_artifacts[].author_line` where the required byline also
+lives. An agent can repair in one edit instead of a failed-publish round-trip.
+Test: `TestPublishArtifactBylineMismatchNamesBothLines`.
+
 ### #76 — disable the agy usage/feedback survey in the supervised lane
 
 A supervised agy lane could stall on the gemini-cli usage survey ("How's the CLI

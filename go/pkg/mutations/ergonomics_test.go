@@ -48,8 +48,14 @@ The change is correct.
 		t.Fatal("expected a byline-mismatch error, got nil")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "does not match the expected work packet author line") {
-		t.Fatalf("error does not use the enriched wording: %v", err)
+	// #73/#106: the enriched error names the target file, the submitted byline,
+	// the required byline, and the exact replacement instruction.
+	if !strings.Contains(msg, "the work packet requires") || !strings.Contains(msg, "re-publish") {
+		t.Fatalf("error does not use the enriched repair wording: %v", err)
+	}
+	// Target file named (#106).
+	if !strings.Contains(msg, "FINDING.md") {
+		t.Fatalf("error must name the target file; got: %v", err)
 	}
 	// Submitted byline (canonical form, lowercased).
 	if !strings.Contains(msg, "author: reviewer-claude-007") {
