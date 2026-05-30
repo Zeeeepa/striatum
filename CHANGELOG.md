@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### RFC 0100 Phase 1 — self-describing artifact contracts (#74 / #79 / #88)
+
+Artifact front-matter validation stops forcing lanes to reverse-engineer Go
+source mid-run.
+
+- **Standard optional-metadata allowlist (#74/#79).** Any artifact kind now
+  tolerates a common set of byline/workflow metadata keys (`author`, `workflow`,
+  `phase`, `lane`, `role`, `model`, `date`, `created_at`, `updated_at`,
+  `visibility`, `title`, `status`, `tags`, `summary`, `related`, `run_id`,
+  `session_id`, `ordinal`, `cycle`) free-form, so a lane keeps the natural front
+  matter its template produces. A kind that gives one of these a required,
+  checked meaning (e.g. `decision.title`) still enforces it.
+- **Enriched validation errors (#74/#79).** A genuinely unknown field, a missing
+  required field, or a failed value check now names the kind's required keys,
+  optional keys, and the standard-metadata set, and points at
+  `docs/reference/spec.md#artifact-front-matter-schemas`. The
+  `collaboration_ledger` `entries` error describes the required
+  `{ by, kind, refs: [dialogue:<seq>] }` shape instead of a bare "is invalid".
+  The substance gate itself is unchanged (still strict by design).
+- **Clearing-verdict wording (#88).** The generated `adjudicator` role and
+  `adjudicate_collaboration` task prompt now name the `verdict` enum explicitly
+  and state that a clearing verdict is `accept`/`accept_with_findings`, never
+  `clear` (the value that failed publication in the Engram entity forum run).
+- No schema change; spec updated. Tests in `pkg/artifactcontracts`.
+
 ### #65 P1 / RFC 0095 Phase 3 — panel-owned interrogation window
 
 The interrogating panel's preserved-context window is now owned by the review

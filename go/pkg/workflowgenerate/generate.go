@@ -1044,7 +1044,7 @@ func collaborationAdjudicatorJob(spec Spec, topic string) map[string]any {
 	// guard (which would deadlock the revision cycle). See RFC 0093 design
 	// synthesis §4.6 (cycle_<N> naming) and pkg/mutations/collaboration_ledger.go
 	// for the runtime resolver.
-	result := job("adjudicate", "phase_synthesis", "Adjudicate dialogue substance", "adjudicator", collaborationAdjudicatorLane(spec), spec.ArtifactRoot+"/dialogue/adjudicator", "COLLABORATION_LEDGER_${cycle}.md", "collaboration_ledger", "collaboration_ledger_${cycle}", "adjudicate_collaboration", "Read only the dialogue trajectory for "+topic+" and publish the collaboration ledger verdict.")
+	result := job("adjudicate", "phase_synthesis", "Adjudicate dialogue substance", "adjudicator", collaborationAdjudicatorLane(spec), spec.ArtifactRoot+"/dialogue/adjudicator", "COLLABORATION_LEDGER_${cycle}.md", "collaboration_ledger", "collaboration_ledger_${cycle}", "adjudicate_collaboration", "Read only the dialogue trajectory for "+topic+" and publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`).")
 	result["phase_id"] = "dialogue"
 	result["fresh_session_required"] = true
 	return result
@@ -1703,7 +1703,7 @@ func roleStub(role string) string {
 		"holder":            "# Holder Role\n\nYou hold the leading proposal in preserved context. Publish the declared holder artifact, remain live for interrogation, and answer falsifying questions from the dialogue participants.\n",
 		"falsifier":         "# Falsifier Role\n\nYou use the existing interrogation tools to challenge the holder's claim. Ask for a concrete gap, record the dialogue turn references, and do not publish the collaboration ledger.\n",
 		"cross_examiner":    "# Cross-Examiner Role\n\nYou ask one falsifying interrogation question before the finding or proposal publishes. Record the challenge and rebuttal turn references in your declared artifact.\n",
-		"adjudicator":       "# Adjudicator Role\n\nYou read only the curated dialogue trajectory, never raw terminal output. Publish the collaboration ledger and verdict according to the substance rubric.\n",
+		"adjudicator":       "# Adjudicator Role\n\nYou read only the curated dialogue trajectory, never raw terminal output. Publish the collaboration ledger and verdict according to the substance rubric. The `verdict` field MUST be one of: accept, accept_with_findings, needs_revision, reject. A clearing verdict (the one that lets the downstream phase publish) is `accept` or `accept_with_findings` — do not write `clear` or any other value.\n",
 		"scribe":            "# Scribe Role\n\nYou record only the decision trail visible in the dialogue trajectory. Do not hypothesize, infer hidden reasoning, or add claims that are not present in the curated dialogue.\n",
 		"committer":         "# Committer Role\n\nYou publish the downstream proposal or finding only after the collaboration ledger verdict clears the phase gate.\n",
 		"convener":          "# Convener Role\n\nYou frame the problem, draft the candidate synthesis, and stay live for cross-examination. On a revision cycle you receive the prior cycle's constraints[] as binding input and must discharge each row explicitly. Do not treat dialogue completion as acceptance; the adjudicator ledger decides whether the gate clears.\n",

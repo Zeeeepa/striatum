@@ -658,3 +658,63 @@ func aceBranches() string {
   product: defer_with_successor
 `
 }
+
+// --- RFC 0100 #74 / #79: tolerate standard metadata + enriched errors --------
+
+func TestSynthesisAcceptsStandardWorkflowMetadata(t *testing.T) {
+	// #74: the natural artifact template carries author/workflow/phase/lane/date/
+	// visibility; these must not be rejected as unknown fields.
+	payload := []byte(`---
+schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+author: "synthesizer-claude-opus-4-7-001"
+workflow: "entity-relationship-forum"
+phase: "forum"
+lane: "claude_code"
+date: "2026-05-30"
+visibility: "operator"
+---
+
+# Forum Synthesis
+`)
+	if err := ValidateFrontMatter("synthesis", "FORUM_SYNTHESIS.md", payload); err != nil {
+		t.Fatalf("synthesis with standard workflow metadata should validate, got: %v", err)
+	}
+}
+
+func TestUnknownFieldErrorNamesAllowedKeys(t *testing.T) {
+	// #74/#79: a genuinely unknown field is still rejected, but the error must
+	// name the allowed keys so a lane never has to read Go source.
+	payload := []byte(`---
+schema_version: "striatum.synthesis.v1"
+artifact_kind: "synthesis"
+totally_made_up_key: "x"
+---
+
+# S
+`)
+	err := ValidateFrontMatter("synthesis", "S.md", payload)
+	if err == nil {
+		t.Fatal("expected unknown-field rejection")
+	}
+	for _, want := range []string{"totally_made_up_key", "required keys", "optional keys", "standard metadata", "schema_version", "author"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should name %q; got: %v", want, err)
+		}
+	}
+}
+
+func TestCollaborationLedgerEntriesErrorDescribesShape(t *testing.T) {
+	// #79: when entries fails its value check, the error describes the required
+	// shape (by / kind / refs: dialogue:<seq>) rather than just "is invalid".
+	payload := strings.Replace(validCollaborationLedger("needs_revision"), "kind: challenge", "kind: gossip", 1)
+	err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
+	if err == nil {
+		t.Fatal("expected entries rejection")
+	}
+	for _, want := range []string{`field "entries" is invalid`, "dialogue:<seq>", "spec.md#artifact-front-matter-schemas"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("entries error should describe %q; got: %v", want, err)
+		}
+	}
+}

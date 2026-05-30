@@ -631,6 +631,18 @@ list style (`key: "value"`, `flag: true`, `items: ["a", "b"]`) remains valid,
 and schemas may now opt into nested mappings or list-of-mapping rows where the
 contract declares them.
 
+**Standard optional metadata (RFC 0100).** Any artifact kind tolerates a common
+set of byline/workflow metadata keys without rejection, so a lane can keep the
+natural front matter its template produces instead of reverse-engineering each
+kind's schema: `author`, `workflow`, `phase`, `lane`, `role`, `model`, `date`,
+`created_at`, `updated_at`, `visibility`, `title`, `status`, `tags`, `summary`,
+`related`, `run_id`, `session_id`, `ordinal`, `cycle`. These are accepted
+free-form (not value-checked) unless a specific kind gives one of them a
+required, checked meaning (e.g. `decision.title`, `decision.run_id`). A field
+that is neither in the kind's schema nor in this standard set is still rejected,
+but the rejection now names the kind's required keys, optional keys, and the
+standard-metadata set — no source reading required.
+
 V1 schemas:
 
 - `striatum.decision.v1` (kind `decision`): required `schema_version`,

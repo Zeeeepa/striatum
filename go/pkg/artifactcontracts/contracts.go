@@ -253,6 +253,79 @@ var Schemas = map[string]Schema{
 	},
 }
 
+// StandardOptionalMetadata are byline/workflow metadata keys that any markdown
+// artifact may carry without rejection, tolerated free-form (not value-checked).
+// Agents naturally include these in artifact templates (author, workflow, phase,
+// lane, date, visibility, ...); rejecting them as "unknown fields" forced lanes
+// to reverse-engineer each kind's schema mid-run (RFC 0100 / #74 / #79). A kind
+// that gives one of these a required, value-checked meaning (e.g. decision.title,
+// decision.run_id) still enforces it through its schema Fields — this set only
+// suppresses the unknown-field rejection for kinds that do not define the key.
+var StandardOptionalMetadata = map[string]bool{
+	"author":     true,
+	"workflow":   true,
+	"phase":      true,
+	"lane":       true,
+	"role":       true,
+	"model":      true,
+	"date":       true,
+	"created_at": true,
+	"updated_at": true,
+	"visibility": true,
+	"title":      true,
+	"status":     true,
+	"tags":       true,
+	"summary":    true,
+	"related":    true,
+	"run_id":     true,
+	"session_id": true,
+	"ordinal":    true,
+	"cycle":      true,
+}
+
+// SchemaKeyNames returns the sorted required and optional field names a kind's
+// schema declares, so validation errors (and, later, work packets) can name the
+// contract a lane must satisfy without it reading Go source (RFC 0100).
+func SchemaKeyNames(kind string) (required, optional []string, ok bool) {
+	schema, ok := Schemas[kind]
+	if !ok {
+		return nil, nil, false
+	}
+	for name, field := range schema.Fields {
+		if field.Required {
+			required = append(required, name)
+		} else {
+			optional = append(optional, name)
+		}
+	}
+	sort.Strings(required)
+	sort.Strings(optional)
+	return required, optional, true
+}
+
+func standardMetadataNames() []string {
+	names := make([]string, 0, len(StandardOptionalMetadata))
+	for name := range StandardOptionalMetadata {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// invalidFieldMessage produces an actionable error when a front-matter field
+// fails its value check, naming the expected shape so the lane does not have to
+// read Go source (RFC 0100 / #79).
+func invalidFieldMessage(kind, name string) string {
+	switch {
+	case kind == "collaboration_ledger" && name == "verdict":
+		return `collaboration_ledger artifact front matter field "verdict" is invalid; allowed verdicts are accept, accept_with_findings, needs_revision, reject`
+	case kind == "collaboration_ledger" && name == "entries":
+		return `collaboration_ledger artifact front matter field "entries" is invalid; entries must be a non-empty list of objects { by: <participant>, kind: claim|challenge|rebuttal|..., refs: ["dialogue:<seq>", ...] } — see docs/reference/spec.md#artifact-front-matter-schemas`
+	default:
+		return fmt.Sprintf("%s artifact front matter field %q is invalid — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name)
+	}
+}
+
 func IsAllowedKind(kind string) bool {
 	return allowedKinds[kind]
 }
@@ -315,26 +388,32 @@ func ValidateFrontMatter(kind string, path string, payload []byte) error {
 		value, exists := parsed[name]
 		if !exists {
 			if field.Required {
-				return fmt.Errorf("%s artifact front matter missing required field %q", kind, name)
+				req, _, _ := SchemaKeyNames(kind)
+				return fmt.Errorf("%s artifact front matter missing required field %q; %s requires [%s] — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name, kind, strings.Join(req, ", "))
 			}
 			continue
 		}
 		if !field.Check(value) {
-			if kind == "collaboration_ledger" && name == "verdict" {
-				return fmt.Errorf(`%s artifact front matter field "verdict" is invalid; allowed verdicts are accept, accept_with_findings, needs_revision, reject`, kind)
-			}
-			return fmt.Errorf("%s artifact front matter field %q is invalid", kind, name)
+			return fmt.Errorf("%s", invalidFieldMessage(kind, name))
 		}
 	}
 	extra := []string{}
 	for name := range parsed {
-		if _, ok := schema.Fields[name]; !ok {
-			extra = append(extra, name)
+		if _, ok := schema.Fields[name]; ok {
+			continue
 		}
+		// RFC 0100 / #74 / #79: tolerate natural workflow/byline metadata so a
+		// lane is not forced to strip template front matter to publish.
+		if StandardOptionalMetadata[name] {
+			continue
+		}
+		extra = append(extra, name)
 	}
 	if len(extra) > 0 {
 		sort.Strings(extra)
-		return fmt.Errorf("%s artifact front matter has unknown fields: %s", kind, strings.Join(extra, ", "))
+		req, opt, _ := SchemaKeyNames(kind)
+		return fmt.Errorf("%s artifact front matter has unknown fields: %s; %s accepts required keys [%s], optional keys [%s], plus standard metadata [%s] — see docs/reference/spec.md#artifact-front-matter-schemas",
+			kind, strings.Join(extra, ", "), kind, strings.Join(req, ", "), strings.Join(opt, ", "), strings.Join(standardMetadataNames(), ", "))
 	}
 	if err := validateKindSpecific(kind, path, parsed, payload); err != nil {
 		return err
