@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### RFC 0095 / 0096 Phase 1 — revision-safe lifecycle + lane-sandbox local fixes
+
+Bootstrapped via subagents (the runner-fixes can't be dogfooded through the
+broken runner). No schema change.
+
+- #57 (RFC 0095 §6): the write-scope guard now flags **only** what the current
+  attempt did — a path it created outside `allowed_paths`, or a tracked file it
+  mutated away from baseline. `dirty→clean` baseline transitions and untouched
+  operator files are no longer false violations.
+- #58 (RFC 0095 §7): `review.submit` / `publish-artifact` is idempotent — an
+  already-published identical finding (same `repo_path` + `content_sha256`) is a
+  no-op success that records the verdict, instead of a raw Postgres
+  unique-constraint crash. Different content at the same path still errors cleanly.
+- #81 (RFC 0095 §4): a non-active (`closed`/`superseded`/`expired`) session is
+  refused `work.claim_next` / `work.await_packet` — a closed-but-alive session
+  can no longer reclaim its revision-cycle job.
+- #60/#75 (RFC 0095 §5): `register-session --replace`/`--force` atomically closes
+  the prior `(run, lane)` session; without it the duplicate error names the exact
+  session to close. Parallel same-`(role,lane)` jobs now hold distinct active
+  sessions (no implicit supersede-on-register).
+- #87/#70/#86 (RFC 0096 §2/§3): supervised lanes get a **minimal allowlist
+  environment** (no daemon DSN/secret inheritance); the agy `.gemini/settings.json`
+  bearer-token file is removed on every teardown path (graceful/stop/kill); the
+  agent-loop bootstrap prompt forbids authoring control-plane helper scripts in
+  the target repo.
+
 ### GH #62 / #63 follow-ups (daemon + CLI fixes)
 
 - #63 F2: `checkpoint.resolve` gains an `override` action for `revision_routing`
