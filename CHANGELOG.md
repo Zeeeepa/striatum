@@ -15,6 +15,11 @@ broken runner). No schema change.
   already-published identical finding (same `repo_path` + `content_sha256`) is a
   no-op success that records the verdict, instead of a raw Postgres
   unique-constraint crash. Different content at the same path still errors cleanly.
+- #59 (artifact contracts): the front-matter parser accepts standard multi-line
+  YAML sequences (block-style lists) instead of rejecting them, and reports
+  malformed front matter with line-numbered syntax errors. Covered by
+  `TestParseFrontMatterAllowsMultilineLists` /
+  `TestParseFrontMatterReturnsLineNumberedSyntaxErrors`.
 - #81 (RFC 0095 §4): a non-active (`closed`/`superseded`/`expired`) session is
   refused `work.claim_next` / `work.await_packet` — a closed-but-alive session
   can no longer reclaim its revision-cycle job.
