@@ -85,3 +85,35 @@ Fix #120 (grant the `interrogate` capability path for interrogating-panel
 reviewers; ideally also #114 duplicate-key reject and #115 snapshot signal), then
 prepare a fresh run from this scaffold to actually build + review the conformance
 harness.
+
+---
+
+## Update — run #3 (2026-05-31, after #120 fix)
+
+Re-ran from the corrected scaffold after fixing #120 by adding a top-level
+`review_panels` block (design_panel: synth→3 design reviewers; build_panel:
+implement→3 build reviewers; interrogation max_rounds 2) — which grants reviewers
+the `interrogate` capability the prompts require.
+
+Run `run_9925b2502a256e077a24805c35004707` (branch `…-v3`):
+- **The #120 fix held.** The entire design phase completed cleanly: 2 designs +
+  synth + all 3 design reviews at attempt 1, with real interrogation, zero
+  `work.block`s, zero open blockers (run #2 wedged here; run #3 sailed through).
+  This is the proven win and the reason the `review_panels` change is committed.
+- **Wedged at the implement lane (new failure, #121, #101 class).** `implement`
+  bootstrapped (tools/list, ack, await) then its `claude` process landed on the
+  Claude Code welcome/“new version available” splash and never progressed — no
+  `work.heartbeat` for ~40 min, zero `go/` code, while the run read `running`
+  (dishonest liveness, #117). Recovery left the repo-write job in `running` limbo
+  with no session and no operator verb to return it to claimable
+  (`recovery requeue-stale` refuses repo-write per D036; attempt 1/1, no budget) —
+  the RFC 0101 Layer 3 gap. Filed as #121.
+
+This is the RFC 0097 self-hosting paradox demonstrated a second time, one phase
+later than #120: the runner-fix (the L2 conformance harness) cannot be built
+*through* the unfixed runner. No conformance-harness Go was produced in either
+run; that awaits #121 (Layer 3 repo-write recovery + claude welcome-screen
+suppression).
+
+What lands from this session: the **#120 fix** (`review_panels`, proven through
+the design panel), **RFC 0102** (operator attention economy), and this record.
