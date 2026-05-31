@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### #85 (partial) — bootstrap prompt steers lanes off background MCP-discovery probes
+
+A fresh agy lane tripped `agent_mcp_discovery_stall` because it spawned a
+background task to probe the MCP endpoint and waited on it past the 60s discovery
+deadline before claiming any work. The bootstrap prompt now tells lanes not to
+spawn a background probe/curl/"discovery" of the MCP endpoint (it is already
+configured and reachable) and to call `tools/list` then `work.await_packet`
+directly in the foreground. Best-effort behavior steering (like #76); the
+deterministic fix (a discovery-stall recovery / the agy turn-driver, #95) remains
+open.
+
 ### #80 (partial) — bootstrap prompt tells lanes to heartbeat during long local work
 
 A self-driving lane doing long local artifact repair (reading source, editing,

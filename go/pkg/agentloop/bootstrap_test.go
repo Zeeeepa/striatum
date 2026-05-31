@@ -67,6 +67,9 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 		// healthy-but-slow lane is not classified stalled.
 		"work.heartbeat",
 		"lease.heartbeat_after_seconds",
+		// #85: steer lanes away from background MCP-discovery probes that idle the
+		// lane and trip the discovery stall before any work is claimed.
+		"Do NOT spawn a background task to probe",
 		"interrogation_question",
 		"do not print \"await next packet\"",
 		"session.report",
