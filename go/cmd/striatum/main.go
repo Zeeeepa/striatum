@@ -57,6 +57,14 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "codex" {
 		return runCodex(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
 	}
+	// #111: `workflow` (bare) and `workflow --help` carry no recognized subcommand,
+	// so localcommands.Lookup misses them and they fall to the daemon route as an
+	// "unknown command". Route them to the local workflow dispatcher (which lists
+	// the subcommands) before the lookup.
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "workflow" &&
+		(len(globals.CommandArgs) < 2 || routes.IsHelpArg(globals.CommandArgs[1])) {
+		return runWorkflow(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
+	}
 	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
 		commandArgs := globals.CommandArgs
 		switch commandArgs[0] {
@@ -209,9 +217,22 @@ func containsFlag(args []string, flag string) bool {
 }
 
 func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
-	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow {validate|generate|templates} ...")
-		return 2
+	// #111: `workflow --help` (and bare `workflow`) lists the subcommands instead
+	// of an "unknown flag" error.
+	if len(args) == 0 || routes.IsHelpArg(args[0]) {
+		out := stdout
+		if len(args) == 0 {
+			out = stderr
+		}
+		_, _ = fmt.Fprintln(out, "usage: striatum workflow {validate|generate|templates} ...")
+		_, _ = fmt.Fprintln(out, "  validate <path>            validate a workflow.json against the authoring rules")
+		_, _ = fmt.Fprintln(out, "  generate --shape <shape>   render a starter workflow from a catalog shape")
+		_, _ = fmt.Fprintln(out, "  templates {list|show}      browse the bundled shape/lane-set catalog")
+		_, _ = fmt.Fprintln(out, "Run `striatum workflow <subcommand> --help` for a subcommand's flags.")
+		if len(args) == 0 {
+			return 2
+		}
+		return 0
 	}
 	switch args[0] {
 	case "validate":
@@ -252,6 +273,10 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 			return "", false
 		}
 		switch key {
+		case "-h", "--help", "help":
+			_, _ = fmt.Fprintln(stdout, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
+			_, _ = fmt.Fprintln(stdout, "Run `striatum workflow templates list --kind shape` for the generatable shapes.")
+			return 0
 		case "--shape":
 			shape, _ = next()
 		case "--lane-set":
@@ -388,9 +413,16 @@ func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int
 		rest = append(rest, a)
 	}
 	args = rest
-	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow templates {list|show} [--kind <kind>] [--json]")
-		return 2
+	if len(args) == 0 || routes.IsHelpArg(args[0]) { // #111: support --help
+		out := stderr
+		rc := 2
+		if len(args) > 0 {
+			out, rc = stdout, 0
+		}
+		_, _ = fmt.Fprintln(out, "usage: striatum workflow templates {list|show} [--kind <kind>] [--json]")
+		_, _ = fmt.Fprintln(out, "  list [--kind shape|lane_set|role_pack|adversary_pack]   browse the catalog (shapes marked example-only are not --shape generatable)")
+		_, _ = fmt.Fprintln(out, "  show <template-id>                                      show one template")
+		return rc
 	}
 	catalog, err := workflowtemplates.Load()
 	if err != nil {
@@ -445,6 +477,13 @@ func runWorkflowTemplates(args []string, stdout io.Writer, stderr io.Writer) int
 }
 
 func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
+	for _, a := range args { // #111: support --help instead of "unknown flag"
+		if routes.IsHelpArg(a) {
+			_, _ = fmt.Fprintln(stdout, "usage: striatum workflow validate [--allow-same-model-pairing] [--json] <path>")
+			_, _ = fmt.Fprintln(stdout, "Validates a workflow.json against the authoring rules (phases, edges, lanes, same-model pairing).")
+			return 0
+		}
+	}
 	allowSameModel, jsonOutput, paths, err := parseWorkflowValidateArgs(args)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, err.Error())

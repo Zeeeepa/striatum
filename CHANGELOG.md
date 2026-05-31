@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### #111 — catalog/generator shape reconciliation + `workflow --help`
+
+The template catalog advertised `iterated_interrogating_panel` as a shape, but
+`workflow generate --shape iterated_interrogating_panel` rejected it (it is an
+example fixture, not one of the generator's 13 shapes), with an opaque "must be
+one of" error.
+
+- The catalog entry is now marked `generatable: false`; `workflow templates list`
+  flags example-only shapes ("not a `workflow generate --shape` value; copy the
+  example workflow at `<path>`").
+- `workflow generate` with an example-only shape returns a clear, example-pointing
+  error instead of the generic list (`exampleOnlyShapeHint`).
+- A reconcile test (`TestCatalogAndGeneratorShapesAgree`) fails if the catalog and
+  the generator ever drift — every generatable catalog shape must be a generator
+  shape and vice versa. The generator exports `SupportedShapes()`/`IsSupportedShape`.
+- `striatum workflow --help` and `workflow {generate,validate,templates} --help`
+  now print usage instead of "unknown command/flag" (the #104 help fix reaches the
+  local workflow subcommands).
+
 ### #110 — enum front-matter rejections name the accepted values
 
 A `commit_request` with an invalid `confirmation_status` was rejected with a bare

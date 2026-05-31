@@ -153,6 +153,15 @@ func SpecFromMap(raw map[string]any) (Spec, error) {
 	}
 	shape, err := choice(raw, "shape", shapes, "spec")
 	if err != nil {
+		// #111: when the requested shape is a catalog template that is
+		// example-only (advertised for discovery but not generated), point the
+		// operator at its example fixture instead of the generic "must be one of"
+		// list — the catalog and the generator must otherwise agree (reconcile test).
+		if rawShape, _ := raw["shape"].(string); rawShape != "" {
+			if hint := exampleOnlyShapeHint(rawShape); hint != "" {
+				return Spec{}, genErr(hint, "spec.shape")
+			}
+		}
 		return Spec{}, err
 	}
 	laneSet, err := choice(raw, "lane_set", laneSets, "spec")
@@ -2427,6 +2436,45 @@ func boolFrom(value any) (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+// SupportedShapes returns the sorted shape ids `workflow generate` can produce.
+// The template catalog must not advertise any other shape as generatable (#111);
+// the reconcile test enforces catalog ↔ generator agreement.
+func SupportedShapes() []string {
+	return sortedKeys(shapes)
+}
+
+// IsSupportedShape reports whether the generator can produce the given shape.
+func IsSupportedShape(shape string) bool {
+	_, ok := shapes[shape]
+	return ok
+}
+
+// exampleOnlyShapeHint returns a clear message when the requested shape is a
+// catalog template marked example-only (generatable: false) rather than a
+// generated shape, pointing the operator at its example fixture instead of the
+// generic "must be one of" list (#111). Empty when the shape is not a known
+// example-only template.
+func exampleOnlyShapeHint(rawShape string) string {
+	catalog, err := workflowtemplates.Load()
+	if err != nil {
+		return ""
+	}
+	entry, err := catalog.Get(rawShape)
+	if err != nil {
+		return ""
+	}
+	generatable, ok := entry["generatable"].(bool)
+	if !ok || generatable {
+		return ""
+	}
+	msg := fmt.Sprintf("shape %q is an example-only template, not a generated shape", rawShape)
+	if path, _ := entry["example_workflow_path"].(string); path != "" {
+		msg += fmt.Sprintf("; copy and adapt its example workflow at %s", path)
+	}
+	msg += fmt.Sprintf(", or pick a generated shape: %v", SupportedShapes())
+	return msg
 }
 
 func set(values ...string) map[string]struct{} {

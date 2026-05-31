@@ -196,6 +196,7 @@
     {
       "template_id": "iterated_interrogating_panel",
       "kind": "shape",
+      "generatable": false,
       "display_name": "Iterated interrogating panel",
       "summary": "Two chained design+build loops, each fanning out to three independent lanes, synthesizing, then an interrogating panel review with a bounded needs_revision cycle.",
       "recommended_for": ["high-stakes design-then-build work", "patterns that need preserved-context interrogation", "panel review with bounded re-work"],

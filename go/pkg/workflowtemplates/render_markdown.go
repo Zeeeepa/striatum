@@ -114,6 +114,16 @@ func WriteMarkdown(repoRoot string, targetPath string, options MarkdownWriteOpti
 
 func shapeSection(entry map[string]any) ([]string, error) {
 	lines := templateSection(entry, []string{"recommended_for", "default_lane_sets", "required_options"})
+	// #111: an example-only shape is advertised for discovery but is NOT a
+	// `workflow generate --shape` value; say so and point at the example fixture
+	// so operators do not select it as a generated shape.
+	if generatable, ok := entry["generatable"].(bool); ok && !generatable {
+		note := "**Example-only** — not a `workflow generate --shape` value."
+		if path, ok := entry["example_workflow_path"].(string); ok && path != "" {
+			note += fmt.Sprintf(" Copy and adapt the example workflow at `%s`.", path)
+		}
+		lines = append(lines, note, "")
+	}
 	preview, _ := entry["graph_preview"].(map[string]any)
 	if preview == nil {
 		return stripTrailingBlank(lines), nil
