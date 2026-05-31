@@ -312,18 +312,32 @@ func standardMetadataNames() []string {
 	return names
 }
 
+// enumFieldValues lists the accepted values for enum front-matter fields so a
+// rejection names them (#110 / RFC 0100), instead of a bare "is invalid" that
+// forces a lane to read Go source. This map is the error-message source; each
+// kind's schema oneOfValue check is the validator — keep the two in sync.
+var enumFieldValues = map[string]map[string][]string{
+	"collaboration_ledger":         {"verdict": {"accept", "accept_with_findings", "needs_revision", "reject"}},
+	"finding":                      {"verdict_intent": {"accept", "accept_with_findings", "needs_revision", "reject"}},
+	"decision":                     {"outcome": {"accepted", "rejected", "accepted_with_follow_up"}},
+	"commit_request":               {"confirmation_status": {"pending", "operator_confirmed", "human_confirmed", "refused"}},
+	"pr_request":                   {"confirmation_status": {"pending", "human_confirmed", "refused"}},
+	"harness_improvement_proposal": {"target": {"prompt", "workflow", "spec", "defaults", "documentation"}},
+}
+
 // invalidFieldMessage produces an actionable error when a front-matter field
-// fails its value check, naming the expected shape so the lane does not have to
-// read Go source (RFC 0100 / #79).
+// fails its value check, naming the accepted enum values (or the expected shape)
+// so the lane does not have to read Go source (RFC 0100 / #79 / #110).
 func invalidFieldMessage(kind, name string) string {
-	switch {
-	case kind == "collaboration_ledger" && name == "verdict":
-		return `collaboration_ledger artifact front matter field "verdict" is invalid; allowed verdicts are accept, accept_with_findings, needs_revision, reject`
-	case kind == "collaboration_ledger" && name == "entries":
-		return `collaboration_ledger artifact front matter field "entries" is invalid; entries must be a non-empty list of objects { by: <participant>, kind: claim|challenge|rebuttal|..., refs: ["dialogue:<seq>", ...] } — see docs/reference/spec.md#artifact-front-matter-schemas`
-	default:
-		return fmt.Sprintf("%s artifact front matter field %q is invalid — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name)
+	if fields, ok := enumFieldValues[kind]; ok {
+		if values, ok := fields[name]; ok {
+			return fmt.Sprintf("%s artifact front matter field %q is invalid; allowed values are %s — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name, strings.Join(values, ", "))
+		}
 	}
+	if kind == "collaboration_ledger" && name == "entries" {
+		return `collaboration_ledger artifact front matter field "entries" is invalid; entries must be a non-empty list of objects { by: <participant>, kind: claim|challenge|rebuttal|..., refs: ["dialogue:<seq>", ...] } — see docs/reference/spec.md#artifact-front-matter-schemas`
+	}
+	return fmt.Sprintf("%s artifact front matter field %q is invalid — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name)
 }
 
 func IsAllowedKind(kind string) bool {

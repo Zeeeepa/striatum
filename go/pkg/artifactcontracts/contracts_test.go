@@ -289,7 +289,7 @@ func TestCollaborationLedgerV11FindingsAndBranchVocabulary(t *testing.T) {
 	t.Run("refined states are branch dispositions, not verdicts", func(t *testing.T) {
 		payload := strings.Replace(validACECollaborationLedger("needs_revision", aceUnresolvedConstraint(), "", ""), `verdict: "needs_revision"`, `verdict: "blocked_pending_answer"`, 1)
 		err := ValidateFrontMatter("collaboration_ledger", "LEDGER.md", []byte(payload))
-		if err == nil || !strings.Contains(err.Error(), "allowed verdicts are accept, accept_with_findings, needs_revision, reject") {
+		if err == nil || !strings.Contains(err.Error(), "allowed values are accept, accept_with_findings, needs_revision, reject") {
 			t.Fatalf("error = %v", err)
 		}
 	})
@@ -715,6 +715,35 @@ func TestCollaborationLedgerEntriesErrorDescribesShape(t *testing.T) {
 	for _, want := range []string{`field "entries" is invalid`, "dialogue:<seq>", "spec.md#artifact-front-matter-schemas"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("entries error should describe %q; got: %v", want, err)
+		}
+	}
+}
+
+// #110: an invalid commit_request confirmation_status names the accepted enum
+// values so a lane does not have to read Go source for the contract.
+func TestCommitRequestInvalidConfirmationStatusNamesEnum(t *testing.T) {
+	payload := []byte(`---
+schema_version: "striatum.commit_request.v1"
+artifact_kind: "commit_request"
+request_id: "req_1"
+base_head: "abc123"
+branch: "striatum/x"
+git_snapshot_hash: "deadbeef"
+included_paths: ["CHANGELOG.md"]
+commit_message: "msg"
+rationale: "why"
+confirmation_status: "operator-confirmed"
+---
+
+# Commit Request
+`)
+	err := ValidateFrontMatter("commit_request", "COMMIT_REQUEST.md", payload)
+	if err == nil {
+		t.Fatal("expected confirmation_status rejection")
+	}
+	for _, want := range []string{`field "confirmation_status" is invalid`, "allowed values are", "pending", "operator_confirmed", "human_confirmed", "refused"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error should name %q; got: %v", want, err)
 		}
 	}
 }

@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### #110 — enum front-matter rejections name the accepted values
+
+A `commit_request` with an invalid `confirmation_status` was rejected with a bare
+"field is invalid". Enum front-matter fields now name their accepted values in
+the error via a small `enumFieldValues` registry (generalizing the
+`collaboration_ledger.verdict` case): `commit_request`/`pr_request`
+`confirmation_status`, `decision.outcome`, `finding.verdict_intent`,
+`harness_improvement_proposal.target`, and the ledger verdict all report e.g.
+"allowed values are pending, operator_confirmed, human_confirmed, refused". Test
+`TestCommitRequestInvalidConfirmationStatusNamesEnum`.
+
+### #109 — write_scope violation names the path and explains the fix
+
+The `work.complete` write-scope-drift error was generic ("changed paths outside
+allowed_paths or inside forbidden_paths"). It now names the offending path(s)
+inline and states the two valid resolutions — revert them, or (if a legitimate
+index/status file such as `docs/rfcs/README.md` a cleanup step must update)
+**widen the job's `write_scope.allowed_paths` in the workflow**, since a job
+cannot extend its own scope at `work.complete`. Striatum can't auto-scope a
+custom job's index files, but the failure is now self-explaining instead of
+leaving the operator to leave the index stale / fail completion / force a
+revision. Helper `writeScopeViolationMessage`; test
+`TestWriteScopeViolationMessageGuidesIndexFileScope`.
+
 ### #85 (partial) — bootstrap prompt steers lanes off background MCP-discovery probes
 
 A fresh agy lane tripped `agent_mcp_discovery_stall` because it spawned a

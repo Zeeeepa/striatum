@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -364,5 +365,27 @@ func TestPublishedRunArtifactIgnoredPathsHonorsLiveSiblingExpectedArtifact(t *te
 	}
 	if ignored[selfPath] {
 		t.Fatalf("this lane's own path must not be ignored, got %#v", ignored)
+	}
+}
+
+// #109: the write_scope violation message names the offending path(s) and
+// explains that a legitimate index/status file (e.g. docs/rfcs/README.md a
+// cleanup step must update) requires widening the job's write_scope — a job
+// cannot widen its own scope at work.complete.
+func TestWriteScopeViolationMessageGuidesIndexFileScope(t *testing.T) {
+	msg := writeScopeViolationMessage(
+		[]string{"docs/rfcs/README.md"},
+		[]string{"docs/rfcs/0070-x.md", "CHANGELOG.md"},
+		[]string{".striatum/"},
+	)
+	for _, want := range []string{
+		"docs/rfcs/README.md",          // offending path named
+		"widen this job's write_scope", // the authoring fix
+		"cannot extend its own scope",  // why it can't be done at complete
+		"allowed_paths=",               // scope echoed
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("message missing %q; got: %s", want, msg)
+		}
 	}
 }
