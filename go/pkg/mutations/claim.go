@@ -308,13 +308,33 @@ func buildPacket(
 	if augmentation := augmentationReferences(workflow, fmt.Sprint(job["workflow_job_id"]), fmt.Sprint(run["repo_root"])); augmentation != nil {
 		packetContext["augmentation_references"] = augmentation
 	}
+	// #105: workflow-declared paths (role definition, context docs, prompts) are
+	// relative to the workflow directory, but a lane runs from the repo root.
+	// Surface the repo-root-relative workflow_root as the explicit base, and
+	// resolve the role definition_path to a repo-root-relative path so it opens
+	// on the first try (keeping the workflow-relative form for reference).
+	workflowRoot := workflowRootDir(snapshot)
+	roleBlock := map[string]any{
+		"role_id":         job["role_id"],
+		"definition_path": roleDef["definition_path"],
+		"inline_summary":  roleDef["summary"],
+	}
+	if rawDef, _ := roleDef["definition_path"].(string); rawDef != "" {
+		if resolved, rel := resolveWorkflowRelativePath(rawDef, workflowRoot); resolved != "" {
+			roleBlock["definition_path"] = resolved
+			if rel != "" {
+				roleBlock["workflow_relative_path"] = rel
+			}
+		}
+	}
 	packet := map[string]any{
 		"packet_version": "striatum.work-packet.v1",
 		"packet_id":      packetID,
 		"run": map[string]any{
-			"run_id":      run["run_id"],
-			"workflow_id": workflow["workflow_id"],
-			"repo_root":   run["repo_root"],
+			"run_id":        run["run_id"],
+			"workflow_id":   workflow["workflow_id"],
+			"repo_root":     run["repo_root"],
+			"workflow_root": workflowRoot,
 			"branch": map[string]any{
 				"name":      run["branch_name"],
 				"confirmed": nullable(run["branch_confirmed_at"]) != nil,
@@ -345,11 +365,7 @@ func buildPacket(
 			"fresh_session_required": freshRequired,
 			"interrogable":           interrogable,
 		},
-		"role": map[string]any{
-			"role_id":         job["role_id"],
-			"definition_path": roleDef["definition_path"],
-			"inline_summary":  roleDef["summary"],
-		},
+		"role":                roleBlock,
 		"context":             packetContext,
 		"task_prompt":         packetTaskPrompt(asMap(requirements["task_prompt"]), snapshot),
 		"inputs":              asList(requirements["inputs"]),
@@ -438,6 +454,45 @@ func packetTaskPrompt(taskPrompt map[string]any, snapshot map[string]any) map[st
 		result["workflow_source_path"] = sourcePath
 	}
 	return result
+}
+
+// workflowRootDir returns the repo-root-relative directory that holds the
+// workflow.json and its roles/, prompts/, and context files, derived from the
+// snapshot's source_path. Empty when the workflow has no recorded source path or
+// lives at the repo root. Self-driving lanes run from the repo root, so the
+// packet surfaces this as the base for any workflow-declared relative path (#105).
+func workflowRootDir(snapshot map[string]any) string {
+	sourcePath, _ := snapshot["source_path"].(string)
+	if sourcePath == "" || strings.HasPrefix(sourcePath, "/") {
+		return ""
+	}
+	dir := path.Clean(path.Dir(sourcePath))
+	if dir == "." || dir == "/" {
+		return ""
+	}
+	return dir
+}
+
+// resolveWorkflowRelativePath maps a path declared relative to the workflow
+// directory (e.g. roles/final_reviewer.md) to its repo-root-relative form
+// (striatum/<wf>/roles/final_reviewer.md) so a lane running from the repo root
+// can open it on the first try (#105). Returns the resolved repo-root-relative
+// path and the original workflow-relative form. Absolute paths, an empty
+// workflowRoot, and paths already prefixed with the workflow dir pass through.
+func resolveWorkflowRelativePath(rawPath, workflowRoot string) (resolved, workflowRelative string) {
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" || strings.HasPrefix(rawPath, "/") || workflowRoot == "" {
+		return rawPath, ""
+	}
+	cleaned := path.Clean(rawPath)
+	if cleaned == workflowRoot || strings.HasPrefix(cleaned, workflowRoot+"/") {
+		return cleaned, strings.TrimPrefix(cleaned, workflowRoot+"/")
+	}
+	joined := path.Clean(path.Join(workflowRoot, cleaned))
+	if joined == "." || joined == ".." || strings.HasPrefix(joined, "../") {
+		return rawPath, ""
+	}
+	return joined, cleaned
 }
 
 func workflowJobInterrogable(workflow map[string]any, workflowJobID string) bool {

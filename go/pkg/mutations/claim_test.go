@@ -462,3 +462,43 @@ func TestClaimNextRefusesClosedSession(t *testing.T) {
 		t.Fatalf("job should remain queued, got state: %v, err: %v", jobRow["state"], err)
 	}
 }
+
+// #105: a role/context path declared relative to the workflow dir resolves to a
+// repo-root-relative path so a lane running from the repo root opens it on the
+// first try, and the explicit workflow_root is derived from the snapshot.
+func TestResolveWorkflowRelativePathAndRoot(t *testing.T) {
+	root := workflowRootDir(map[string]any{
+		"source_path": "striatum/rfc-0070-semantic-context-quiz-panel-2026-05-30/workflow.json",
+	})
+	if root != "striatum/rfc-0070-semantic-context-quiz-panel-2026-05-30" {
+		t.Fatalf("workflow root = %q", root)
+	}
+
+	// Bare workflow-relative path -> repo-root-relative + original kept.
+	resolved, rel := resolveWorkflowRelativePath("roles/final_reviewer.md", root)
+	if resolved != root+"/roles/final_reviewer.md" {
+		t.Fatalf("resolved = %q, want %q", resolved, root+"/roles/final_reviewer.md")
+	}
+	if rel != "roles/final_reviewer.md" {
+		t.Fatalf("workflow-relative = %q", rel)
+	}
+
+	// Already repo-root-relative: not joined twice.
+	resolved2, rel2 := resolveWorkflowRelativePath(root+"/roles/x.md", root)
+	if resolved2 != root+"/roles/x.md" || rel2 != "roles/x.md" {
+		t.Fatalf("already-prefixed resolved=%q rel=%q", resolved2, rel2)
+	}
+
+	// Absolute path and empty root pass through unchanged.
+	if got, rel := resolveWorkflowRelativePath("/abs/x.md", root); got != "/abs/x.md" || rel != "" {
+		t.Fatalf("absolute path mutated: %q %q", got, rel)
+	}
+	if got, _ := resolveWorkflowRelativePath("roles/x.md", ""); got != "roles/x.md" {
+		t.Fatalf("empty root should pass through, got %q", got)
+	}
+
+	// A workflow at the repo root has no distinct workflow_root.
+	if got := workflowRootDir(map[string]any{"source_path": "workflow.json"}); got != "" {
+		t.Fatalf("repo-root workflow should yield empty root, got %q", got)
+	}
+}

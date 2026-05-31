@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### #105 — work packets resolve workflow-relative paths from the repo root
+
+A self-driving lane runs from the repo root, but workflow-declared paths (role
+definition, prompts, context docs) are relative to the workflow *directory* — so
+a packet's `role.definition_path: roles/final_reviewer.md` failed `wc
+roles/final_reviewer.md` from the root (the file is at
+`striatum/<wf>/roles/final_reviewer.md`). The work packet now:
+
+- surfaces `run.workflow_root` — the explicit repo-root-relative workflow
+  directory (from the snapshot `source_path`) as the base for any
+  workflow-relative path; and
+- resolves `role.definition_path` to a repo-root-relative path (keeping the
+  original under `role.workflow_relative_path`), matching the #90 task-prompt
+  treatment.
+
+Helpers `workflowRootDir` / `resolveWorkflowRelativePath`; test
+`TestResolveWorkflowRelativePathAndRoot`.
+
 ### #106 — byline rejection names the file and the exact replacement
 
 The `artifact.publish` author-line rejection (enriched in #73 to name the expected
