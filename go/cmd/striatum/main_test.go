@@ -80,6 +80,14 @@ func TestTopLevelHelpAndUnknownCommand(t *testing.T) {
 	if !strings.Contains(stdout.String(), "usage: striatum") {
 		t.Fatalf("help output = %q", stdout.String())
 	}
+	// #104: help lists the control surface (the work loop + key commands) so a
+	// self-driving lane does not have to fall back to raw MCP tools/list.
+	help := stdout.String()
+	for _, want := range []string{"work-packet loop", "work.await_packet", "claim-next", "publish-artifact", "complete", "run ", "recovery", "register-session", "--help"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help output missing %q; got:\n%s", want, help)
+		}
+	}
 
 	stdout.Reset()
 	stderr.Reset()

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### #104 — `striatum help` lists the command surface
+
+The top-level help printed only the one-line synopsis, so a self-driving lane (or
+operator) trying to discover the control surface fell back to raw MCP
+`tools/list` over curl. `striatum help` / `--help` (and the no-command case) now
+enumerate every command — daemon-routed verbs (with their subcommands) plus the
+local commands — grouped and sorted, and name the **work-packet loop** a lane
+runs (`claim-next → ack → publish-artifact / submit-review → complete`, or the
+equivalent MCP tools such as `work.await_packet`, which has no CLI verb), with a
+pointer to `striatum <command> [subcommand] --help` for flags. Generated from the
+route table so it stays complete. Test extends
+`TestTopLevelHelpAndUnknownCommand`.
+
 ### #105 — work packets resolve workflow-relative paths from the repo root
 
 A self-driving lane runs from the repo root, but workflow-declared paths (role

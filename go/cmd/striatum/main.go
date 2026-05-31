@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/cli/dispatch"
 	"github.com/halbritt/striatum/go/pkg/cli/localcommands"
+	"github.com/halbritt/striatum/go/pkg/cli/routes"
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	cliskills "github.com/halbritt/striatum/go/pkg/cli/skills"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
@@ -90,8 +92,54 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 }
 
+// usage lists the available commands so a self-driving lane (or an operator) can
+// discover the control surface instead of falling back to raw MCP `tools/list`
+// over curl (#104). It enumerates the daemon-routed verbs plus the local
+// commands, and names the work-packet loop self-driving lanes run.
 func usage(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "usage: striatum [--version] [--repo path|--repository-id id] command ...")
+	_, _ = fmt.Fprintln(out, "usage: striatum [--version] [--repo path|--repository-id id] <command> [subcommand] [flags]")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Self-driving lanes run the work-packet loop (or the equivalent MCP tools — e.g.")
+	_, _ = fmt.Fprintln(out, "work.await_packet, which has no CLI verb): claim-next -> ack -> do the work ->")
+	_, _ = fmt.Fprintln(out, "publish-artifact / submit-review -> complete, then repeat. Add --json for machine output.")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Commands (run `striatum <command> [subcommand] --help` for a command's flags):")
+
+	subs := map[string]map[string]bool{}
+	for _, route := range routes.All() {
+		if route.Deprecated {
+			continue
+		}
+		if subs[route.Command] == nil {
+			subs[route.Command] = map[string]bool{}
+		}
+		if route.Subcommand != "" {
+			subs[route.Command][route.Subcommand] = true
+		}
+	}
+	// Local commands handled before the daemon route (main.go run()).
+	for _, local := range []string{"scope-check", "codex", "daemon", "skills", "plugin"} {
+		if subs[local] == nil {
+			subs[local] = map[string]bool{}
+		}
+	}
+	commands := make([]string, 0, len(subs))
+	for name := range subs {
+		commands = append(commands, name)
+	}
+	sort.Strings(commands)
+	for _, name := range commands {
+		subNames := make([]string, 0, len(subs[name]))
+		for sub := range subs[name] {
+			subNames = append(subNames, sub)
+		}
+		sort.Strings(subNames)
+		if len(subNames) == 0 {
+			_, _ = fmt.Fprintf(out, "  %s\n", name)
+		} else {
+			_, _ = fmt.Fprintf(out, "  %-18s %s\n", name, strings.Join(subNames, " | "))
+		}
+	}
 }
 
 func runDaemonRoute(args []string, stdout io.Writer, stderr io.Writer) int {
