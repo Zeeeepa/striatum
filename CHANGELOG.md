@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### #108 — `release --transfer`: operator transfer of a repo-write job without an attempt bump
+
+A plain `work.release` of a repo-write job moves it to `blocked` (it can't
+`--requeue`), which reads like a failure — so an operator transferring a job away
+from a slow lane reached for `run.retry_job`, bumping the attempt and polluting
+run history. New `release --transfer` performs an operator-inspected transfer:
+the repo-write job returns to the queue with the **same attempt** (no retry bump)
+so a fresh session can claim it. A plain repo-write release-to-blocked now also
+carries a `note` + `next_actions` pointing at `--transfer` (or `recovery
+requeue-stale --force`) instead of `retry-job`. Completes the #82 transfer story
+from the `release` side. Tests `TestReleaseTransferRepoWritePreservesAttempt`,
+`TestReleaseRepoWriteBlockedGuidesToTransfer`.
+
+### #107 — `no_work` explains a fresh-session ineligibility instead of polling
+
+A spent session that finished one job kept getting bare `no_work` from
+`work.await_packet` while a same-role job sat `queued` — because that job is
+`fresh_session_required` and the spent session can never claim it, so the lane
+polled to the deadline and the coordinator had to infer the mismatch.
+`claim_next` now distinguishes "no work" from "work exists but this session is
+ineligible": it returns `ineligible_reason: fresh_session_required` plus the
+queued `workflow_job_id` and a hint to register a fresh session, and
+`await_packet` surfaces that and **stops polling** immediately (the session won't
+become eligible). Test `TestClaimNextExplainsFreshSessionIneligibility`.
+
 ### #104 — `striatum help` lists the command surface
 
 The top-level help printed only the one-line synopsis, so a self-driving lane (or

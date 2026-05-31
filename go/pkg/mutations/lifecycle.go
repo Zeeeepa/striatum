@@ -626,6 +626,12 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		reason = "released"
 	}
 	requeue := boolParam(envelope, "requeue")
+	// #108: an operator-inspected transfer of a live repo-write claim to a fresh
+	// session. Unlike a plain release (which blocks a repo-write job) or
+	// run.retry_job (which bumps the attempt), --transfer returns the job to the
+	// queue with the SAME attempt so a fresh session can claim it without the work
+	// looking like a retry/revision in run history.
+	transfer := boolParam(envelope, "transfer")
 	if sessionID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.release requires session_id and lease_id", nil)
 	}
@@ -656,13 +662,16 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, fmt.Sprint(job["job_id"])); err != nil {
 			return nil, err
 		}
-		if requeue && isRepoWrite(job) {
-			return nil, rpc.NewError("invalid_transition", "release --requeue is not supported for repo_write jobs; use striatum recovery requeue-stale after operator inspection", nil)
+		repoWrite := isRepoWrite(job)
+		if requeue && repoWrite && !transfer {
+			return nil, rpc.NewError("invalid_transition", "release --requeue is not supported for repo_write jobs; use release --transfer (an operator-inspected transfer that preserves the attempt) or recovery requeue-stale --force", nil)
 		}
 		now := nowString()
 		jobState := "blocked"
 		messageState := "blocked"
-		if requeue && !isRepoWrite(job) {
+		// A non-repo-write requeue, or an operator-inspected repo-write --transfer,
+		// returns the work to the queue with the same attempt (#108).
+		if (requeue && !repoWrite) || transfer {
 			jobState = "queued"
 			messageState = "pending"
 		}
@@ -687,10 +696,24 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastWorkReleaseAt); err != nil {
 			return nil, err
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "lease.released", sessionID, job["job_id"], messageID, nil, leaseID, map[string]any{"reason": reason, "job_state": jobState}); err != nil {
+		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "lease.released", sessionID, job["job_id"], messageID, nil, leaseID, map[string]any{"reason": reason, "job_state": jobState, "transfer": transfer}); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "released", "job_state": jobState}, nil
+		result := map[string]any{"status": "released", "job_state": jobState}
+		if jobState == "queued" {
+			result["transferred"] = true
+			result["attempt_preserved"] = true
+			result["attempt"] = job["attempt"]
+			result["next_actions"] = []string{"register_or_select_fresh_session", "claim_available_work"}
+		} else if repoWrite {
+			// #108: a plain repo-write release blocks the job, which reads like a
+			// failure/revision. Point the operator at the attempt-preserving
+			// transfer path so they don't reach for run.retry_job (which bumps the
+			// attempt and pollutes run history).
+			result["note"] = "repo-write job released to blocked. For a clean operator transfer that returns it to the queue with the SAME attempt, re-run release with --transfer (or use `recovery requeue-stale --run-id <run> --job-id <job> --force --justification \"...\"`) rather than `run retry-job`."
+			result["next_actions"] = []string{"release_with_transfer_preserves_attempt"}
+		}
+		return result, nil
 	})
 }
 

@@ -502,3 +502,72 @@ func TestResolveWorkflowRelativePathAndRoot(t *testing.T) {
 		t.Fatalf("repo-root workflow should yield empty root, got %q", got)
 	}
 }
+
+// #107: when the only remaining queued work for a role is fresh_session_required
+// and the current session is already spent, claim_next returns no_work WITH a
+// structured ineligibility reason (not a bare no_work), so the lane can stop and
+// the coordinator can register a fresh session.
+func TestClaimNextExplainsFreshSessionIneligibility(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_fresh_ineligible"
+	runID := "run_" + repoID
+	sess := "sess_spent_" + repoID
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"implementer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{"capabilities": []any{"write"}}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sess, "implementer", "claude", []string{"claim", "write"}, "active")
+
+	seedQueuedImplJob := func(jobID, wfJobID string, fresh bool) {
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.jobs (
+			  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			  title, job_type, fresh_session_required, idempotency_key,
+			  expected_artifacts_json, created_at
+			) VALUES ($1,$2,$3,$4,1,'queued','implementer','Impl','build',$5,'idem_'||$2,'[]'::jsonb,NOW())`,
+			repoID, jobID, runID, wfJobID, fresh); err != nil {
+			t.Fatalf("insert job %s: %v", jobID, err)
+		}
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.queue_messages (
+			  repository_id, message_id, run_id, job_id, kind, state, priority,
+			  target_role_id, target_lane_id, created_at, updated_at
+			) VALUES ($1,'msg_'||$2,$3,$2,'work','pending',0,'implementer','claude',NOW(),NOW())`,
+			repoID, jobID, runID); err != nil {
+			t.Fatalf("insert message %s: %v", jobID, err)
+		}
+	}
+
+	// Slice 1: claimable; the session claims it (becoming "spent").
+	seedQueuedImplJob("job_slice1", "slice1", false)
+	res1, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sess}))
+	if err != nil {
+		t.Fatalf("claim slice1: %v", err)
+	}
+	if res1["status"] != "claimed" {
+		t.Fatalf("expected slice1 claimed, got %#v", res1)
+	}
+
+	// Slice 2: queued, fresh_session_required -> the spent session is ineligible.
+	seedQueuedImplJob("job_slice2", "slice2_ui_diagnostics", true)
+	res2, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sess}))
+	if err != nil {
+		t.Fatalf("claim slice2: %v", err)
+	}
+	if res2["status"] != "no_work" {
+		t.Fatalf("expected no_work for the spent session, got %#v", res2)
+	}
+	if res2["ineligible_reason"] != "fresh_session_required" {
+		t.Fatalf("#107: expected ineligible_reason=fresh_session_required, got %#v", res2)
+	}
+	if res2["workflow_job_id"] != "slice2_ui_diagnostics" {
+		t.Fatalf("#107: expected the queued workflow_job_id named, got %#v", res2)
+	}
+	if hint, _ := res2["hint"].(string); !strings.Contains(hint, "fresh session") {
+		t.Fatalf("#107: expected a fresh-session hint, got %#v", res2)
+	}
+}

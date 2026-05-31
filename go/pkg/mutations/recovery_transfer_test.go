@@ -135,3 +135,61 @@ func leaseState(t *testing.T, ctx context.Context, runner db.Runner, repoID, lea
 	}
 	return fmt.Sprint(row["state"])
 }
+
+// #108: release --transfer of a repo-write job returns it to the queue with the
+// SAME attempt (an operator-inspected transfer to a fresh session), instead of
+// blocking it and forcing run.retry_job (which bumps the attempt).
+func TestReleaseTransferRepoWritePreservesAttempt(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_release_transfer"
+	sess := "sess_slow_" + repoID
+	_, jobID, leaseID, msgID := seedRepoWriteClaimedJob(t, ctx, runner, repoID, sess)
+
+	res, err := HandleReleaseWork(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sess, "lease_id": leaseID, "message_id": msgID,
+		"reason": "operator-direct-takeover-after-slow-inspection", "transfer": true,
+	}))
+	if err != nil {
+		t.Fatalf("release --transfer: %v", err)
+	}
+	if res["job_state"] != "queued" {
+		t.Fatalf("#108: --transfer should requeue (queued), got %v", res["job_state"])
+	}
+	if res["transferred"] != true || res["attempt_preserved"] != true {
+		t.Fatalf("expected transferred+attempt_preserved, got %#v", res)
+	}
+	if got := jobAttempt(t, ctx, runner, repoID, jobID); got != 1 {
+		t.Fatalf("#108: attempt must stay 1 (no retry bump), got %d", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "queued" {
+		t.Fatalf("job state = %q, want queued (reclaimable by a fresh session)", got)
+	}
+	if got := messageState(t, ctx, runner, repoID, msgID); got != "pending" {
+		t.Fatalf("message state = %q, want pending", got)
+	}
+}
+
+// #108: a plain repo-write release blocks the job but must guide the operator to
+// the attempt-preserving transfer path (so they don't reach for retry-job).
+func TestReleaseRepoWriteBlockedGuidesToTransfer(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_release_block_guide"
+	sess := "sess_slow_" + repoID
+	_, _, leaseID, msgID := seedRepoWriteClaimedJob(t, ctx, runner, repoID, sess)
+
+	res, err := HandleReleaseWork(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sess, "lease_id": leaseID, "message_id": msgID, "reason": "drop",
+	}))
+	if err != nil {
+		t.Fatalf("release: %v", err)
+	}
+	if res["job_state"] != "blocked" {
+		t.Fatalf("plain repo-write release should block, got %v", res["job_state"])
+	}
+	note, _ := res["note"].(string)
+	if !strings.Contains(note, "--transfer") {
+		t.Fatalf("#108: blocked repo-write release must guide to --transfer; got %#v", res)
+	}
+}

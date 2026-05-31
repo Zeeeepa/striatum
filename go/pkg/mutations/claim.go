@@ -105,6 +105,19 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			return nil, err
 		}
 		if len(rows) == 0 {
+			// #107: distinguish "no work at all" from "work exists but this session
+			// is structurally ineligible" — most commonly a fresh_session_required
+			// job for this role that this (already-spent) session can never claim.
+			// Surfacing the reason lets the lane stop polling and the coordinator
+			// register a fresh session instead of inferring the mismatch.
+			if wfJob := freshSessionBlockedWorkflowJob(ctx, tx, repositoryID, fmt.Sprint(session["role_id"]), fmt.Sprint(session["lane_id"]), sessionID, runID); wfJob != "" {
+				return map[string]any{
+					"status":            "no_work",
+					"ineligible_reason": "fresh_session_required",
+					"workflow_job_id":   wfJob,
+					"hint":              "a queued job for this role requires a fresh session; stop this lane and register/start a fresh session to claim it (striatum register-session <run> <role> <lane> --fresh).",
+				}, nil
+			}
 			return map[string]any{"status": "no_work"}, nil
 		}
 		chosen := rows[0]
@@ -981,6 +994,23 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return awaitWorkEnvelope(res), nil
 		}
 
+		// #107: if the only remaining work for this role is structurally
+		// ineligible for this session (e.g. a fresh_session_required job a spent
+		// session can never claim), surface the reason and stop polling — the
+		// session will not become eligible, so the coordinator should register a
+		// fresh session instead of the lane polling no_work until the deadline.
+		if reason, _ := res["ineligible_reason"].(string); reason != "" {
+			env := awaitNoneEnvelope()
+			env["ineligible_reason"] = reason
+			if v, ok := res["workflow_job_id"]; ok {
+				env["workflow_job_id"] = v
+			}
+			if v, ok := res["hint"]; ok {
+				env["hint"] = v
+			}
+			return env, nil
+		}
+
 		isRunning, err := isRunRunning(ctx, runner, repositoryID, sessionID)
 		if err != nil {
 			return nil, err
@@ -1010,6 +1040,41 @@ func awaitWorkEnvelope(res map[string]any) map[string]any {
 		out[key] = value
 	}
 	return out
+}
+
+// freshSessionBlockedWorkflowJob returns the workflow_job_id of a pending job
+// for this (role, lane) that is fresh_session_required and that the given
+// session cannot claim because it has already worked another job in this run
+// (the inverse of the claim eligibility filter). Empty when no such job exists.
+// Used to explain a no_work response instead of leaving the lane to poll
+// forever (#107).
+func freshSessionBlockedWorkflowJob(ctx context.Context, runner any, repositoryID, roleID, laneID, sessionID, runID string) string {
+	row, err := oneRow(ctx, runner, `
+		SELECT j.workflow_job_id AS workflow_job_id
+		  FROM striatumd.queue_messages qm
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = qm.repository_id AND j.job_id = qm.job_id
+		 WHERE qm.repository_id = $1
+		   AND qm.kind = 'work'
+		   AND qm.state = 'pending'
+		   AND qm.target_role_id = $2
+		   AND (qm.target_lane_id IS NULL OR qm.target_lane_id = $3)
+		   AND qm.run_id = $5
+		   AND j.fresh_session_required = true
+		   AND EXISTS (
+		     SELECT 1 FROM striatumd.work_packets wp
+		      WHERE wp.repository_id = qm.repository_id
+		        AND wp.run_id = qm.run_id
+		        AND wp.session_id = $4
+		        AND wp.job_id != qm.job_id
+		   )
+		 ORDER BY qm.priority DESC, qm.created_at ASC
+		 LIMIT 1`,
+		repositoryID, roleID, laneID, sessionID, runID)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprint(row["workflow_job_id"])
 }
 
 func awaitNoneEnvelope() map[string]any {
