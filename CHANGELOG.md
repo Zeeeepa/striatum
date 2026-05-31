@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### #80 (partial) — bootstrap prompt tells lanes to heartbeat during long local work
+
+A self-driving lane doing long local artifact repair (reading source, editing,
+re-publishing) between MCP calls was classified `stalled`
+(`agent_lease_heartbeat_stall`) even though it was actively working — the
+lease-heartbeat is the authoritative liveness signal, but the agent was never
+told to keep it warm during local work. The bootstrap prompt now instructs lanes
+to call `work.heartbeat` periodically (honoring the packet's
+`lease.heartbeat_after_seconds`) when a single packet's local work runs longer
+than a few minutes between MCP calls — the issue's accepted alternative ("provide
+an explicit heartbeat cadence/API for long local work"). The supervisor-helper
+auto-heartbeat and the status-honesty half (distinguish protocol silence during
+visible child activity from a true stall) remain open.
+
 ### #108 — `release --transfer`: operator transfer of a repo-write job without an attempt bump
 
 A plain `work.release` of a repo-write job moves it to `blocked` (it can't

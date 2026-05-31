@@ -63,6 +63,10 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 		"Use repository_id repo_1",
 		"work.await_packet",
 		"durable receive loop",
+		// #80: explicit heartbeat-cadence guidance for long local work so a
+		// healthy-but-slow lane is not classified stalled.
+		"work.heartbeat",
+		"lease.heartbeat_after_seconds",
 		"interrogation_question",
 		"do not print \"await next packet\"",
 		"session.report",
