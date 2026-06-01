@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v2.9.0 — 2026-06-01
+
+RFC 0101 (robust autonomous workflow execution) Phases 1–5 complete + deployed
+(schema 21): honest liveness, adapter conformance, the in-daemon autonomous
+recovery supervisor (same-attempt requeue, per-job budgets, stalled/dead-lane
+recovery), loud structured escalation (`needs_operator` run state), and the
+fault-injection chaos-suite regression gate — plus the 40P01 interrogation
+deadlock root-fix and the post-2.8.0 runner/DX batch.
+
 ### RFC 0101 Phase 5 — fault-injection chaos suite
 
 The end-to-end behavioral gate for the recovery→escalation arc. Phases 3/4 have
