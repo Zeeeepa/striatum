@@ -2,6 +2,63 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 3 Slice 2 — autonomous recovery decision tree + per-job budgets
+
+The crash-safe recovery sweep (`recovery.RunScheduler` →
+`ActiveRunSweep.SweepOnce` → `mutations.SweepRun` → `HandleRecoveryAuto`, ~60s per
+active run) gains an autonomous in-daemon recovery decision tree (OQ4 resolved
+in-daemon, D094). It runs INSIDE `HandleRecoveryAuto`'s existing `withTx`, after
+the auto-publish pass (so any recoverable job has already completed and is
+excluded) and before `refreshRunLiveness` (which then classifies whatever the
+tree leaves untouched). This builds directly on the Slice-1
+`requeueJobSameAttempt` primitive — Slice 1 was the manual
+`recovery.requeue_stale --force` entrypoint; Slice 2 is the autonomous one.
+
+- **New decision tree `recoverStuckJobs`** (`go/pkg/mutations/recovery_decision_tree.go`)
+  scans UNFINISHED jobs (`state IN ('claimed','running','stale_lease')` ) for the
+  run, classifies each job's owning session via `sessionliveness.Classify`, and:
+  - owning session `dead`/closed/absent AND lease released/expired/absent →
+    `requeueJobSameAttempt` on the SAME attempt (`requeue_count` budget). repo-write
+    jobs are reclaimed with `operatorOverride` — the bounded daemon loop IS the
+    inspection D036 requires of an interactive operator, so autonomous recovery
+    overrides the repo-write manual gate.
+  - `stalled` past its deadline with a still-`active`-but-expired lease →
+    force-expire (`release_reason='recovery_transfer'`) + `requeueJobSameAttempt`
+    (`transfer_count` budget).
+  - a leaked interrogation window (an interrogation-target session with no active
+    lease / open interrogations / pending panel consumers) → closed via
+    `maybeCloseInterrogationTarget` (no budget).
+  - `working_*` / `quiet` (pre-deadline) sessions and live unexpired leases are
+    left untouched — only genuinely stuck jobs are acted on.
+  It is idempotent + convergent: a requeued job becomes `queued` and is no longer
+  selected by the scan, and `requeueJobSameAttempt`'s `already_reclaimable` no-op
+  path skips the budget increment, so the 60s re-run does not climb counters.
+- **Per-job budgets** in new table `striatumd.job_recovery_state`
+  (migration `0020_job_recovery_state.sql`): `requeue_count` / `transfer_count` /
+  `respawn_count`, `last_recovery_action` / `last_recovery_at` / `last_stall_class`,
+  and `escalation_pending` / `escalated_at`. Before acting the tree reads the row;
+  if the relevant counter is at/over its limit it does NOT act — it sets
+  `escalation_pending=true` + `escalated_at` (Phase 4 will consume this to flip the
+  run to `needs_operator`; this slice only records it) and emits a
+  `recovery.budget_exhausted` event. On a real action it increments the counter +
+  stamps the action metadata. Defaults `max_requeues=2`, `max_transfers=3`, read
+  from the workflow's optional top-level `recovery_policy` block (RFC 0020 §Step 2;
+  this is its first Go consumer), honoring the documented `max_total_requeues_per_job`
+  as the requeue fallback and extended with `max_requeues` / `max_transfers`.
+- **`recovery_actions` surface**: `HandleRecoveryAuto` now reports a
+  `recovery_actions` summary (`acted_count`, per-job `actions`,
+  `escalation_pending_count`) alongside `published` / `skipped` / `liveness`.
+- Migration registered by bumping `db.LatestDaemonDBVersion` 19→20 and adding the
+  label in `go/pkg/db/migrations.go` (no SHA manifest to regenerate — SHAs are
+  computed from the embedded FS at runtime). The operator applies the idempotent
+  `CREATE TABLE IF NOT EXISTS` owner-side and bumps `substrate_version` to 20 at
+  deploy; pgtest applies it automatically.
+- Tests (`go/pkg/mutations/recovery_decision_tree_test.go`, PG-gated): a single
+  `SweepRun` auto-requeues a dead-lane running-limbo job to `queued`+`pending` on
+  the same attempt (`requeue_count`→1, fresh session claims it); the re-run is a
+  convergent no-op; a `working_local` job is NOT requeued; budget exhaustion sets
+  `escalation_pending` + stops requeuing; a leaked interrogation window is closed.
+
 ### RFC 0101 Phase 3 Slice 1 — same-attempt requeue for dead-lane repo-write jobs (#121)
 
 Closed #121 ask #1: when a supervised implement lane dies (operator

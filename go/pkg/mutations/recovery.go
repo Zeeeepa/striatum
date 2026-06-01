@@ -516,6 +516,30 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				return nil, err
 			}
 		}
+		// RFC 0101 Phase 3 Slice 2: the autonomous in-daemon recovery decision tree
+		// (OQ4 resolved in-daemon, D094). Runs after the auto-publish pass (so any
+		// recoverable job already completed and is excluded) and before
+		// refreshRunLiveness (which then classifies whatever the tree left
+		// untouched). It reclaims genuinely-stuck jobs on the same attempt within
+		// per-job budgets. Dry-run skips it (it mutates state).
+		recoveryActions := []map[string]any{}
+		if !dryRun {
+			workflow, werr := workflowForRun(ctx, tx, repositoryID, run)
+			if werr != nil {
+				return nil, werr
+			}
+			policy := recoveryPolicyFromWorkflow(workflow)
+			acted, rerr := recoverStuckJobs(ctx, tx, repositoryID, runID, policy)
+			if rerr != nil {
+				return nil, rerr
+			}
+			recoveryActions = acted
+			// A requeue may have completed the run's last unfinished job's removal
+			// from limbo; re-check completion so a fully-recovered run can settle.
+			if err := maybeCompleteRun(ctx, tx, repositoryID, runID); err != nil {
+				return nil, err
+			}
+		}
 		helperEvents, err := drainRunHelperEvents(ctx, tx, repositoryID, runID, dryRun)
 		if err != nil {
 			return nil, err
@@ -523,6 +547,12 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		liveness, err := refreshRunLiveness(ctx, tx, repositoryID, runID, dryRun)
 		if err != nil {
 			return nil, err
+		}
+		escalationPending := 0
+		for _, item := range recoveryActions {
+			if item["escalation_pending"] == true {
+				escalationPending++
+			}
 		}
 		return map[string]any{
 			"run_id":          runID,
@@ -533,6 +563,11 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"skipped":         skipped,
 			"helper_events":   helperEvents,
 			"liveness":        liveness,
+			"recovery_actions": map[string]any{
+				"acted_count":              len(recoveryActions),
+				"actions":                  recoveryActions,
+				"escalation_pending_count": escalationPending,
+			},
 		}, nil
 	})
 }

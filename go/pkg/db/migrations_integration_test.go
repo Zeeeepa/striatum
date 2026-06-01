@@ -27,6 +27,7 @@ func TestLiveMigrationsInstallCurrentSchemaInvariants(t *testing.T) {
 		"events",
 		"repo_event_chain_heads",
 		"auto_finalize_circuit_breakers",
+		"job_recovery_state",
 	} {
 		var exists bool
 		if err := pool.RawPool.QueryRow(ctx, `
