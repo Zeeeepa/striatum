@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+### #142 — `list workflows` queries the real `workflow_snapshots` columns
+
+`HandleListWorkflows` selected `snapshot_sha256` / `captured_at`, but the table
+has `content_sha256` / `loaded_at`, so `striatum list workflows` failed live with
+`column "snapshot_sha256" does not exist (SQLSTATE 42703)`. It now projects the
+real columns under the existing output aliases (`content_sha256 AS
+snapshot_sha256`, `loaded_at AS captured_at`) and orders by `loaded_at`. A
+hermetic schema-column regression test (`TestHandleListWorkflowsUsesCurrentSchemaColumnNames`)
+locks the projection, mirroring the artifacts one.
+
+### #133 — `register-session --replace` retries on a recovery deadlock
+
+`register-session --replace` could abort with a raw 40P01 deadlock while
+replacing a stale reviewer during autonomous recovery, leaving queued packets
+unclaimed until an operator retried by hand. `HandleRegisterSession` now runs
+under `withTxRetryOnDeadlock` — the same bounded tolerate-pattern RFC 0101 Phase
+0a applied to the claim/review/interrogation handlers (the register-session
+handler was missed). The transaction body fully rolls back on abort, so
+re-running is safe.
+
+### #127 / #132 / #140 — review verdict semantics: idempotent complete, synonym vocabulary, recoverable reject
+
+Three related review-path fixes:
+
+- **#127** — after `review.submit`/`verdict` completes a review job (releasing the
+  lease), a lane that then follows the generic packet instruction and calls
+  `work.complete` no longer hits a misleading `lease is not active`. A completed
+  verdict-capable job returns an idempotent `already_completed` no-op.
+- **#132** — `review.submit`/`verdict` now normalizes reviewer-natural verdict
+  synonyms onto the canonical vocabulary `{accept, accept_with_findings,
+  needs_revision, reject}` (e.g. `accepted_with_follow_up` → `accept_with_findings`,
+  `approve` → `accept`, `request_changes`/`changes_requested` → `needs_revision`,
+  `rejected` → `reject`). Unknown tokens still surface the "unknown verdict" error.
+- **#140** — a `reject` verdict on a review job whose workflow declares a bounded
+  revision cycle is refused with a clear correction (submit `needs_revision`, or
+  use `override-verdict` to force terminal rejection) instead of failing the run
+  with no recovery path. Workflows with no revision cycle keep the historical
+  terminal-reject behavior. See `docs/decisions/decision-log.md`.
+
 ### #101 — suppress Claude Code welcome/update screen in supervised lanes (self-hosting unblocker)
 
 A supervised `claude` lane spawned by the daemon otherwise parks on the Claude

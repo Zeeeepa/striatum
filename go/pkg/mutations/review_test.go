@@ -17,6 +17,123 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// #132: review.submit/verdict accepts reviewer-natural synonyms and maps them
+// to the canonical vocabulary; unknown tokens pass through unchanged.
+func TestNormalizeVerdictSynonyms(t *testing.T) {
+	cases := map[string]string{
+		"accept":                  "accept",
+		"approve":                 "accept",
+		"Approved":                "accept",
+		"accept_with_findings":    "accept_with_findings",
+		"accepted_with_follow_up": "accept_with_findings",
+		"accept_with_followup":    "accept_with_findings",
+		"needs_revision":          "needs_revision",
+		"request_changes":         "needs_revision",
+		"changes_requested":       "needs_revision",
+		" Revise ":                "needs_revision",
+		"reject":                  "reject",
+		"rejected":                "reject",
+		"something_unrecognized":  "something_unrecognized",
+	}
+	for in, want := range cases {
+		if got := normalizeVerdict(in); got != want {
+			t.Errorf("normalizeVerdict(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// #140: a `reject` verdict on a review job whose workflow declares a bounded
+// revision cycle is refused (recoverable steer to needs_revision), not recorded
+// as a non-recoverable run failure. The review job stays running so the lane can
+// re-submit needs_revision.
+func TestRejectWithRevisionCycleRefused(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_reject_cycle"
+	cycles := []any{
+		map[string]any{
+			"from":            "review_design_codex",
+			"to":              "synth",
+			"on_verdict":      "needs_revision",
+			"max_iterations":  float64(2),
+			"allow_same_lane": true,
+		},
+	}
+	_, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, cycles)
+
+	_, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"verdict":    "reject",
+	}))
+	if err == nil {
+		t.Fatalf("expected reject to be refused when a revision cycle is declared")
+	}
+	if !strings.Contains(err.Error(), "needs_revision") {
+		t.Fatalf("refusal should steer to needs_revision; got %v", err)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "running" {
+		t.Fatalf("review job state = %q, want running (reject refused, not failed)", got)
+	}
+}
+
+// #140: with NO revision cycle declared, `reject` keeps its historical terminal
+// behavior (fails the review job).
+func TestRejectWithoutCycleStillFails(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_reject_no_cycle"
+	_, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"verdict":    "reject",
+	}))
+	if err != nil {
+		t.Fatalf("record reject verdict: %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "failed" {
+		t.Fatalf("status = %v, want failed", result["status"])
+	}
+}
+
+// #127: after a verdict completes a review job, a follow-up work.complete is an
+// idempotent no-op (already_completed), not a misleading "lease is not active".
+func TestCompleteAfterVerdictIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_complete_after_verdict"
+	_, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+
+	if _, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"verdict":    "accept",
+	})); err != nil {
+		t.Fatalf("record accept verdict: %v", err)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "completed" {
+		t.Fatalf("review job state = %q, want completed after accept", got)
+	}
+
+	result, err := HandleCompleteWork(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     reviewJobID,
+		"lease_id":   leaseID,
+		"summary":    "lane followed the generic complete instruction",
+	}))
+	if err != nil {
+		t.Fatalf("complete after verdict should not error; got %v", err)
+	}
+	if fmt.Sprint(result["status"]) != "already_completed" {
+		t.Fatalf("status = %v, want already_completed", result["status"])
+	}
+}
+
 func TestOverrideVerdictRecoversCompletedReviewWithoutPriorVerdict(t *testing.T) {
 	tx := newReviewOverrideFakeTx()
 	tx.reviewState = "completed"

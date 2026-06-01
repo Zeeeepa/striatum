@@ -895,10 +895,26 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
+		jobType := fmt.Sprint(job["job_type"])
+		// #127: review/phase_synthesis jobs complete via review.submit/verdict,
+		// which records the verdict and releases the lease. A lane that then
+		// follows the generic packet instruction and calls work.complete would
+		// otherwise hit a misleading "lease is not active" (the lease was just
+		// released by the verdict). Return an idempotent no-op for an
+		// already-completed verdict job instead — the job is done, complete is a
+		// no-op here, and this is reported clearly rather than as a lease failure.
+		if isVerdictCapableJobType(jobType) && fmt.Sprint(job["state"]) == "completed" {
+			label := verdictCapableJobLabel(jobType)
+			return map[string]any{
+				"status":       "already_completed",
+				"job_id":       jobID,
+				"completed_by": "verdict",
+				"note":         fmt.Sprintf("%s jobs complete via submit-review; work.complete is a no-op once the verdict is recorded", label),
+			}, nil
+		}
 		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, jobID); err != nil {
 			return nil, err
 		}
-		jobType := fmt.Sprint(job["job_type"])
 		if isVerdictCapableJobType(jobType) {
 			label := verdictCapableJobLabel(jobType)
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("%s jobs must use submit-review instead of complete", label), nil)

@@ -21,7 +21,7 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 	sessionID := stringParam(envelope, "session_id")
 	jobID := stringParam(envelope, "job_id")
 	leaseID := stringParam(envelope, "lease_id")
-	verdict := stringParam(envelope, "verdict")
+	verdict := normalizeVerdict(stringParam(envelope, "verdict"))
 	findingsArtifactID := nullable(stringParam(envelope, "findings_artifact_id"))
 	rationale := nullable(stringParam(envelope, "rationale"))
 	if sessionID == "" || jobID == "" || leaseID == "" || verdict == "" {
@@ -41,7 +41,7 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	jobID := stringParam(envelope, "job_id")
 	leaseID := stringParam(envelope, "lease_id")
 	pathText := stringParam(envelope, "path")
-	verdict := stringParam(envelope, "verdict")
+	verdict := normalizeVerdict(stringParam(envelope, "verdict"))
 	// #96: capture whether the caller passed explicit identity flags BEFORE
 	// applying defaults. When the verdict-capable job has exactly one required
 	// expected artifact, we infer the missing logical_name/kind from it (below,
@@ -408,6 +408,33 @@ func resolveOverrideSession(ctx context.Context, runner any, repositoryID, reque
 	return sessionID, nil
 }
 
+// normalizeVerdict maps reviewer-natural verdict synonyms onto the canonical
+// daemon verdict vocabulary {accept, accept_with_findings, needs_revision,
+// reject} (#132). Supervised reviewers and adapters reach for tokens like
+// "accepted_with_follow_up", "approve", or "request_changes" that are not the
+// canonical spelling; accepting the common synonyms avoids spurious submit
+// failures and duplicate artifacts (#132) and steers change-request language to
+// the recoverable needs_revision rather than terminal reject (#140). Unknown
+// tokens pass through unchanged so the existing "unknown verdict" path still
+// reports them.
+func normalizeVerdict(verdict string) string {
+	switch strings.ToLower(strings.TrimSpace(verdict)) {
+	case "accept", "approve", "approved", "accepted":
+		return "accept"
+	case "accept_with_findings", "accepted_with_findings",
+		"accept_with_follow_up", "accepted_with_follow_up",
+		"accept_with_followup", "accepted_with_followup":
+		return "accept_with_findings"
+	case "needs_revision", "needs_revisions", "request_changes",
+		"changes_requested", "request_change", "needs_changes", "revise":
+		return "needs_revision"
+	case "reject", "rejected":
+		return "reject"
+	default:
+		return verdict
+	}
+}
+
 func recordVerdict(
 	ctx context.Context,
 	runner any,
@@ -580,6 +607,26 @@ func recordVerdict(
 		}
 		return map[string]any{"status": "waiting_human", "job_id": jobID, "verdict": verdict, "blocker_id": blockerID, "verdict_id": verdictID}, nil
 	case "reject":
+		// #140: `reject` fails the review job and the whole run with no
+		// recovery path. Supervised reviewers (especially codex) conflate
+		// "request changes" with reject and wedge the run non-recoverably. When
+		// the workflow declares a bounded revision cycle for this review job, a
+		// reject is almost always a misfired change-request: refuse it with a
+		// clear correction so the lane self-corrects to the recoverable
+		// needs_revision, and keep override-verdict as the explicit force path
+		// for a genuine terminal rejection. Workflows with no revision cycle keep
+		// the historical terminal-reject behavior.
+		rejectCycles, err := workflowCyclesForJob(ctx, runner, repositoryID, job)
+		if err != nil {
+			return nil, err
+		}
+		if _, hasRevisionCycle := matchRevisionCycle(rejectCycles, "needs_revision"); hasRevisionCycle {
+			return nil, rpc.NewError(
+				"invalid_transition",
+				"reject is terminal and this workflow declares a bounded revision cycle for this review; submit needs_revision to request changes (recoverable), or use override-verdict to force a terminal rejection",
+				map[string]any{"recoverable_verdict": "needs_revision", "submitted_verdict": "reject"},
+			)
+		}
 		if err := failReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID); err != nil {
 			return nil, err
 		}
