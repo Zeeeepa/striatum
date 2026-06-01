@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 1 (slice 1) — PTY-output lease auto-heartbeat (#80/#136)
+
+A self-driving lane doing long LOCAL work (reading/editing files between MCP
+calls) emitted no protocol heartbeat, so the protocol-only classifier tripped
+`agent_lease_heartbeat_stall` on a lane that was demonstrably alive and
+producing output. The supervisor-helper now meters PTY **output volume** (D028 —
+volume/timing only, never content) and tags a progress event `meaningful` once
+output crosses an OQ1 threshold (≥512 bytes AND ≥20s since the last fire, both
+env-overridable via `STRIATUM_HELPER_MEANINGFUL_BYTES` /
+`STRIATUM_HELPER_HEARTBEAT_INTERVAL`); a steady spinner/redraw never crosses it.
+On a meaningful progress event the **daemon** (sole lease authority, D094)
+refreshes the session's active lease the way `work.heartbeat` does
+(`last_heartbeat_at` + extended `expires_at` + `last_work_heartbeat_at` via
+`sessionliveness.Record`) and appends a `lease.heartbeat` event tagged
+`source: supervisor_pty_progress`; no active lease is a safe no-op. Migration-free
+(no classifier/schema change — reuses the existing `last_work_heartbeat_at`
+rung). New `progressMeter` (`go/pkg/supervisor/progress_meter.go`); tests in
+`progress_meter_test.go` + `supervision_test.go`. Restart-gated: takes effect
+after the new `striatumd` + `striatum-supervisor-helper` binaries are deployed.
+Slice 2 (distinct pty-activity / in-tool classifier states for #83/#117) needs a
+migration + an MCP-server tool-call seam and is deferred.
+
 ### #123 — auto branch confirmation verifies the branch before recording it confirmed
 
 `run.prepare` with `branch.mode: auto` could mark the working branch `confirmed`
