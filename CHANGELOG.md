@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### #119 — `workflow validate` catches agent-loop capability + artifact-kind misconfig
+
+Two misconfigurations that previously slipped past `validate` and only failed at
+run/publish time (or stalled silently) are now caught at author time (exit 8):
+a lane whose `supervision` sets `transport: pty_helper` or `require_tmux: true`
+but does **not** declare `adapter_capabilities.agent_loop: true` is rejected (the
+daemon's `laneUsesAgentLoop` would be false, the PTY bootstrap prompt never
+delivered, and the lane would stall without claiming — the #113 shape); and an
+`expected_artifacts[].kind` that is absent or not a known artifact kind is
+rejected with a field-pathed error naming the full valid-kind set. Helper
+`sortedKindList`; 5 new tests in `workflow_test.go`.
+
 ### RFC 0101 Phase 1 (slice 2) — honest classifier states + in-tool/dead signals (#83/#117)
 
 `sessionliveness.Classify` no longer collapses every live lane to a generic
