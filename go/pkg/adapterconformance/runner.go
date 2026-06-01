@@ -71,7 +71,7 @@ func RunLive(t *testing.T, ctx context.Context, h *Harness, fx *Fixture, adapter
 	report := LiveReport{Adapter: adapter, Mode: mode}
 
 	gate := make(chan struct{})
-	ready := make(chan struct{})
+	seeded := make(chan struct{})
 	cfg := testagent.Config{
 		Endpoint:     h.MCPEndpoint(),
 		Token:        h.Token,
@@ -89,7 +89,7 @@ func RunLive(t *testing.T, ctx context.Context, h *Harness, fx *Fixture, adapter
 	}
 	if scope.IncludeInterrogation {
 		cfg.InterrogationGate = gate
-		cfg.InterrogationReady = ready
+		cfg.InterrogationSeeded = seeded
 	}
 
 	agent := testagent.New(cfg)
@@ -104,10 +104,7 @@ func RunLive(t *testing.T, ctx context.Context, h *Harness, fx *Fixture, adapter
 
 	var interrogationID string
 	if scope.IncludeInterrogation {
-		// Wait for the agent to register, ack, and heartbeat, then signal it is
-		// about to enter its interrogation wait. The harness seeds the
-		// interrogator (and attests both sessions) and opens+asks now, so the
-		// round trip is deterministic.
+		// Wait for the agent to register, ack, and heartbeat and reach the gate.
 		select {
 		case <-gate:
 		case <-done:
@@ -117,11 +114,20 @@ func RunLive(t *testing.T, ctx context.Context, h *Harness, fx *Fixture, adapter
 		}
 		sessionID := agent.SessionID()
 		if sessionID != "" {
+			// Seed the interrogator + attestation while the agent is paused at the
+			// gate (not yet polling), so the raw fixture INSERTs do not race the
+			// claim path — a pure test-seeding artifact, not the product deadlock.
 			fx.SeedInterrogator(t, ctx, h.Runner, sessionID)
+			// Release the agent to begin answer-polling. RFC 0101 Phase 0a (#137):
+			// the open+ask below now runs CONCURRENTLY with the agent's
+			// work.await_packet — the exact #103/#137 race — with NO "ask committed"
+			// handshake. It completes deadlock-free because of the daemon-side root
+			// fix, regression-proving it end to end.
+			close(seeded)
 			interrogationID = openAndAsk(t, ctx, h, fx, sessionID)
+		} else {
+			close(seeded)
 		}
-		// Open+ask have committed; release the agent to poll for the question.
-		close(ready)
 	}
 
 	<-done

@@ -265,6 +265,33 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 	)
 }
 
+// lockRunInterrogation acquires a per-run transaction-scoped advisory lock that
+// serializes the interrogation critical section against an interrogation
+// target's own await/claim transaction (RFC 0101 Phase 0a / #137/#103).
+//
+// The deadlock it breaks: the claim path (work.await_packet -> HandleClaimNext)
+// locks `sessions` FOR UPDATE then `runs` FOR UPDATE, while the interrogation
+// answer path locks the target `sessions` row (via sessionliveness.Record)
+// inside a transaction that — concurrently with a sibling claim on the same run
+// — ends up wanting `runs`, so two transactions acquire {sessions, runs} in
+// opposite order and Postgres aborts one with SQLSTATE 40P01. Taking this
+// advisory lock as the FIRST statement in both transactions gives both an
+// identical, earlier serialization point, so the {sessions, runs} cycle cannot
+// form.
+//
+// The key is per-run (repository_id + run_id), the NARROWEST scope that covers
+// the interrogation<->target interaction without serializing unrelated runs. It
+// is intentionally NOT taken on the ordinary claim hot path: only the
+// interrogation handlers always take it, and the await/claim path takes it ONLY
+// when the awaiting session is a live interrogation target (see
+// sessionInterrogationTarget). Parallel reviewers claiming sibling jobs on a
+// run with no live interrogation never touch it, so the #103 parallel-claim
+// throughput is preserved.
+func lockRunInterrogation(ctx context.Context, runner db.TxRunner, repositoryID, runID string) error {
+	key := "striatum:interrogation:" + repositoryID + ":" + runID
+	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
+}
+
 func rowByID(ctx context.Context, runner any, repositoryID, table, column, value string, forUpdate bool) (map[string]any, error) {
 	suffix := ""
 	if forUpdate {

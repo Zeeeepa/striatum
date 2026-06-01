@@ -2,6 +2,7 @@ package adapterconformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,7 +10,35 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// seedExec runs a fixture INSERT, retrying a transient Postgres deadlock
+// (SQLSTATE 40P01) a few times. RFC 0101 Phase 0a (#137): with the
+// InterrogationReady handshake removed, the agent polls work.await_packet
+// CONCURRENTLY with the harness seeding the interrogator attestation. The raw
+// fixture INSERTs take FK row-share locks on runs/sessions that can momentarily
+// race the agent's claim transaction (which takes FOR UPDATE on the same rows);
+// that is a pure test-seeding race, NOT the interrogation deadlock under test
+// (which is fixed in the daemon handlers and proven by
+// TestInterrogationAwaitDeadlock). A bounded retry keeps the fixture robust
+// without masking any product behavior.
+func seedExec(t *testing.T, ctx context.Context, runner db.Runner, what, sql string, args ...any) {
+	t.Helper()
+	const attempts = 5
+	for attempt := 0; attempt < attempts; attempt++ {
+		err := runner.Exec(ctx, sql, args...)
+		if err == nil {
+			return
+		}
+		var pgErr *pgconn.PgError
+		if attempt < attempts-1 && errors.As(err, &pgErr) && pgErr.Code == "40P01" {
+			time.Sleep(time.Duration(attempt+1) * 10 * time.Millisecond)
+			continue
+		}
+		t.Fatalf("%s: %v", what, err)
+	}
+}
 
 // Fixture is a validation-passing single-job workflow seeded into a temp target
 // repo for the live conformance runner (DESIGN §1.3 fixture.go). It is a
@@ -210,14 +239,12 @@ func seedFixtureSession(t *testing.T, ctx context.Context, runner db.Runner, rep
 	if err != nil {
 		t.Fatalf("encode caps: %v", err)
 	}
-	if err := runner.Exec(ctx, `
+	seedExec(t, ctx, runner, "seed session "+sessionID, `
 		INSERT INTO striatumd.sessions (
 		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
 		  capabilities_json, state, registered_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'active',$9)`,
-		repositoryID, sessionID, runID, role, lane, sessionID+"-slug", ordinal, capsArg, now); err != nil {
-		t.Fatalf("seed session %s: %v", sessionID, err)
-	}
+		repositoryID, sessionID, runID, role, lane, sessionID+"-slug", ordinal, capsArg, now)
 }
 
 // attestFixtureSession seeds an attached supervisor + pointer + daemon
@@ -229,32 +256,26 @@ func attestFixtureSession(t *testing.T, ctx context.Context, runner db.Runner, r
 	now := time.Now().UTC()
 	supID := "sup_" + sessionID
 	pid := os.Getpid()
-	if err := runner.Exec(ctx, `
+	seedExec(t, ctx, runner, "attest supervisor "+sessionID, `
 		INSERT INTO striatumd.process_supervisors (
 		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
 		  scratch_path, pid, state, started_at
 		) VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'/tmp','/tmp/scratch',$6,'attached',$7)`,
-		repositoryID, supID, runID, sessionID, lane, pid, now); err != nil {
-		t.Fatalf("attest supervisor %s: %v", sessionID, err)
-	}
+		repositoryID, supID, runID, sessionID, lane, pid, now)
 	dsupID := "dsup_" + sessionID
-	if err := runner.Exec(ctx, `
+	seedExec(t, ctx, runner, "attest pointer "+sessionID, `
 		INSERT INTO striatumd.process_supervisor_pointers (
 		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
 		  pid, pid_start_time, state, updated_at, metadata_json
 		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)`,
-		repositoryID, supID, dsupID, runID, sessionID, pid, now); err != nil {
-		t.Fatalf("attest pointer %s: %v", sessionID, err)
-	}
-	if err := runner.Exec(ctx, `
+		repositoryID, supID, dsupID, runID, sessionID, pid, now)
+	seedExec(t, ctx, runner, "attest daemon supervisor "+sessionID, `
 		INSERT INTO striatumd.daemon_supervisors (
 		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
 		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
 		  pid_start_time, state, started_at, heartbeat_at
 		) VALUES ($1,$2,$3,$4,$5,'inst',$6,'[]'::jsonb,'sha','/tmp',$7,'','attached',$8,$8)`,
-		dsupID, repositoryID, runID, sessionID, supID, lane, pid, now); err != nil {
-		t.Fatalf("attest daemon supervisor %s: %v", sessionID, err)
-	}
+		dsupID, repositoryID, runID, sessionID, supID, lane, pid, now)
 }
 
 // fixtureArtifactBody is the progress_note the happy path publishes: a valid

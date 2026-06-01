@@ -87,14 +87,26 @@ type Config struct {
 	// and heartbeated and is about to enter its interrogation-answer wait. The
 	// harness uses it to seed+open+ask the interrogation at the right moment so
 	// the round trip is deterministic (C7). Ignored when nil.
+	//
+	// RFC 0101 Phase 0a (#137): the agent no longer waits for an "ask committed"
+	// signal after closing the gate — it polls work.await_packet CONCURRENTLY
+	// with the harness's interrogation.open/ask/answer. That concurrency used to
+	// deadlock the two transactions on the same DB (the #103 shape); the
+	// daemon-side root fix (per-run interrogation advisory lock +
+	// withTxRetryOnDeadlock on the interrogation handlers) makes it safe, so the
+	// former InterrogationReady ("ask committed") handshake is retired and this
+	// C7 path regression-proves the fix end to end.
 	InterrogationGate chan struct{}
-	// InterrogationReady, when non-nil, is awaited by the agent AFTER it closes
-	// InterrogationGate and BEFORE it polls for the question. The harness closes
-	// it once interrogation.open + interrogation.ask have committed, so the agent
-	// never polls work.await_packet concurrently with the harness's ask — which
-	// would deadlock the two transactions on the same DB (#103 shape). Ignored
-	// when nil.
-	InterrogationReady chan struct{}
+	// InterrogationSeeded, when non-nil, is awaited by the agent AFTER it closes
+	// InterrogationGate and BEFORE it begins answer-polling. The harness closes it
+	// once the interrogator session + its attestation rows are SEEDED (pure test
+	// setup) — NOT after the interrogation is asked. This serializes only the raw
+	// fixture INSERTs (which take FK row-share locks on runs/sessions and would
+	// otherwise race the claim path's FOR UPDATE — a test-seeding artifact, not the
+	// product deadlock), while leaving interrogation.open/ask CONCURRENT with the
+	// agent's poll so the product deadlock fix is genuinely exercised. Ignored when
+	// nil.
+	InterrogationSeeded chan struct{}
 	// InterrogationWait bounds how long the agent waits for a delivered
 	// interrogation question before giving up. ModeIgnoreInterrogation also waits
 	// this long but never answers.
@@ -251,11 +263,14 @@ func (a *Agent) Run(ctx context.Context) (Result, error) {
 	// deterministic. ModeIgnoreInterrogation waits but never answers.
 	if a.cfg.InterrogationGate != nil {
 		close(a.cfg.InterrogationGate)
-		// Wait for the harness to finish open+ask before polling, so the agent's
-		// await_packet does not race (and deadlock) with interrogation.ask.
-		if a.cfg.InterrogationReady != nil {
+		// RFC 0101 Phase 0a (#137): wait only until the harness has SEEDED the
+		// interrogator attestation (test-fixture setup), then poll for the question
+		// while the harness's interrogation.open/ask runs CONCURRENTLY — racing the
+		// answer against the ask exactly as production does. The daemon-side root
+		// fix makes that race deadlock-free (no 40P01).
+		if a.cfg.InterrogationSeeded != nil {
 			select {
-			case <-a.cfg.InterrogationReady:
+			case <-a.cfg.InterrogationSeeded:
 			case <-ctx.Done():
 				return res, ctx.Err()
 			}

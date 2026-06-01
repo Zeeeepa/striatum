@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 0a — interrogation deadlock root-fix
+
+Root-fixed the Postgres deadlock (SQLSTATE `40P01`) the Phase-2 conformance
+harness previously masked with an `InterrogationReady` handshake (#137/#133/
+#134/#130/#131; #103 shape). The confirmed cycle is between an interrogation
+target's `work.await_packet` claim transaction — which locks `striatumd.sessions`
+(target) then `striatumd.runs` `FOR UPDATE` — and the target's `interrogation.answer`
+transaction, which locks the same `sessions` row via `sessionliveness.Record`
+while a sibling claim on the run holds `runs`: two transactions acquire
+`{sessions, runs}` in opposite order and Postgres aborts one. The fix uses the
+two existing patterns: (1) **tolerate** — all four interrogation handlers
+(`interrogation.open/ask/answer/close`) now run under `withTxRetryOnDeadlock`
+(the same wrapper the claim path uses) so a transient `40P01` is retried, not
+surfaced; and (2) **root-fix** — a per-run transaction-scoped advisory lock
+(`pg_advisory_xact_lock(hashtext("striatum:interrogation:"+repo+run))`) acquired
+as the FIRST statement in each interrogation handler AND in `HandleClaimNext`
+*only when the awaiting session is a live interrogation target*
+(`sessionInterrogationTarget`). This gives both sides an identical, earlier
+serialization point so the cycle cannot form, while ordinary parallel claims on
+a run with no live interrogation never take the lock — preserving the #103
+parallel-claim throughput on the hot `await_packet`/claim path (the narrowest key
+that breaks the cycle). A new PG-gated regression
+(`go/pkg/adapterconformance/interrogation_deadlock_test.go`,
+`TestInterrogationAwaitDeadlock`) races `work.await_packet`/`work.claim_next`
+against `interrogation.ask`+`interrogation.answer` on one run with no handshake,
+50 iterations; it reproduces the `40P01` deterministically with the fix reverted
+and passes clean with it. The `InterrogationReady` ("ask committed") workaround
+is retired from the conformance harness — the C7 path now runs `interrogation.open`/
+`ask` CONCURRENTLY with the agent's `work.await_packet` and stays green, proving
+the fix end to end (a narrower `InterrogationSeeded` signal now serializes only
+the raw fixture attestation INSERTs, a test-seeding artifact, not the product
+race).
+
 ### RFC 0101 Phase 2 (Slice 2) — fake-agent lifecycle conformance runner
 
 The chosen fake-agent fixture: `go/pkg/adapterconformance/` gains an in-process

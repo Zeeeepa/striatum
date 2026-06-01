@@ -39,7 +39,17 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 	if sessionID == targetSessionID {
 		return nil, rpc.NewError("invalid_transition", "a session cannot interrogate itself", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0101 Phase 0a (#137): serialize against the target's own await/claim
+		// transaction on the same run BEFORE any FOR UPDATE so the {sessions, runs}
+		// lock cycle cannot form. The interrogator's run_id is the per-run key.
+		runID, err := sessionRunID(ctx, tx, repositoryID, sessionID)
+		if err != nil {
+			return nil, interrogationSessionError(err, "interrogator session not found")
+		}
+		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		interrogator, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
 		if err != nil {
 			return nil, interrogationSessionError(err, "interrogator session not found")
@@ -57,7 +67,7 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 		if err != nil {
 			return nil, interrogationSessionError(err, "target session not found")
 		}
-		runID := fmt.Sprint(interrogator["run_id"])
+		runID = fmt.Sprint(interrogator["run_id"])
 		if fmt.Sprint(target["run_id"]) != runID {
 			return nil, rpc.NewError("invalid_transition", "interrogation is single-run scoped: interrogator and target must share a run", nil)
 		}
@@ -106,7 +116,17 @@ func HandleInterrogationAsk(ctx context.Context, runner db.Runner, envelope rpc.
 	if sessionID == "" || interrogationID == "" || body == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.ask requires session_id, interrogation_id, and body", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0101 Phase 0a (#137): take the per-run interrogation lock first so
+		// this critical section serializes against the target's await/claim on the
+		// same run (see lockRunInterrogation).
+		runID, err := interrogationRunID(ctx, tx, repositoryID, interrogationID)
+		if err != nil {
+			return nil, err
+		}
+		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
 		if err != nil {
 			return nil, err
@@ -165,7 +185,18 @@ func HandleInterrogationAnswer(ctx context.Context, runner db.Runner, envelope r
 	if sessionID == "" || interrogationID == "" || body == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.answer requires session_id, interrogation_id, and body", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0101 Phase 0a (#137): the answer path locks the target `sessions`
+		// row (sessionliveness.Record) and was the half of the {sessions, runs}
+		// cycle that aborted with 40P01. Take the per-run lock first so it
+		// serializes against the target's concurrent await/claim.
+		runID, err := interrogationRunID(ctx, tx, repositoryID, interrogationID)
+		if err != nil {
+			return nil, err
+		}
+		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
 		if err != nil {
 			return nil, err
@@ -234,7 +265,17 @@ func HandleInterrogationClose(ctx context.Context, runner db.Runner, envelope rp
 	if sessionID == "" || interrogationID == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.close requires session_id and interrogation_id", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0101 Phase 0a (#137): close also closes the target session (window
+		// teardown), touching `sessions`; take the per-run lock first for a uniform
+		// lock order across all interrogation mutations.
+		lockRunID, err := interrogationRunID(ctx, tx, repositoryID, interrogationID)
+		if err != nil {
+			return nil, err
+		}
+		if err := lockRunInterrogation(ctx, tx, repositoryID, lockRunID); err != nil {
+			return nil, err
+		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
 		if err != nil {
 			return nil, err
@@ -554,6 +595,35 @@ func bumpInterrogationTurn(ctx context.Context, tx db.TxRunner, repositoryID, in
 		   SET turn_count = turn_count + 1
 		 WHERE repository_id = $1 AND interrogation_id = $2`,
 		repositoryID, interrogationID)
+}
+
+// interrogationRunID resolves the run_id for an interrogation without taking a
+// row lock, so the per-run advisory lock (lockRunInterrogation) can be acquired
+// as the FIRST statement in the transaction (RFC 0101 Phase 0a). An unknown
+// interrogation_id surfaces the same not_found error lockInterrogation would.
+func interrogationRunID(ctx context.Context, runner any, repositoryID, interrogationID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT run_id FROM striatumd.interrogations
+		 WHERE repository_id = $1 AND interrogation_id = $2`, repositoryID, interrogationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", rpc.NewError("not_found", "unknown interrogation_id", nil)
+	}
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprint(row["run_id"]), nil
+}
+
+// sessionRunID resolves the run_id for a session without a row lock, for the
+// interrogation.open per-run advisory lock acquisition order.
+func sessionRunID(ctx context.Context, runner any, repositoryID, sessionID string) (string, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT run_id FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repositoryID, sessionID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprint(row["run_id"]), nil
 }
 
 func lockInterrogation(ctx context.Context, runner any, repositoryID, interrogationID string) (map[string]any, error) {
