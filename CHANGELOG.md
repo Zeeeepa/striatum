@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### #113 — bundled example workflows converted off retired one-shot lane commands
+
+Six bundled examples drove their lanes with retired one-shot commands
+(`codex exec` via `sh -c`, `claude --print`) that print once and exit without
+ever calling `work.await_packet`, so the lane never claimed work. Each such lane
+is converted to the proven agent-loop shape: a bare interactive CLI
+(`codex --yolo` / `claude --dangerously-skip-permissions`),
+`adapter_capabilities.agent_loop: true`, and
+`supervision: {transport: pty_helper, require_tmux: true}` — the shape the daemon
+wraps in the agent-loop executor and bootstraps over the PTY. Converted:
+`code-change-flow`, `support-ledger-flow`, `failed-review-revision-cycle`,
+`rfc-ledger-cleanup`, `three-lane-design-build-review`,
+`iterated-interrogating-panel` (already-agent-loop `agy` lanes left untouched).
+`harness-profiles` was a grep false positive (doc string, not a lane command);
+`rfc-0014-operational-artifact-home` is a historical fixture and left alone. The
+generator/catalog were confirmed not to emit retired commands. All six now pass
+`striatum workflow validate` (exit 0), including the new #119 agent-loop-capability
+check; two orthogonal pre-existing authoring gaps were also closed to make them
+runnable (same-model review-pairing acceptance; `document_only` reviewer
+`inputs`).
+
 ### #119 — `workflow validate` catches agent-loop capability + artifact-kind misconfig
 
 Two misconfigurations that previously slipped past `validate` and only failed at
