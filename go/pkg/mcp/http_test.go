@@ -101,13 +101,85 @@ type activityRecorder struct {
 	repositoryID string
 	sessionID    string
 	columns      []string
+	// calls accumulates every RecordSessionActivity invocation so a test can
+	// assert an ordered boundary pair (tool-call start then finish, #83).
+	calls []recordedActivity
+}
+
+type recordedActivity struct {
+	repositoryID string
+	sessionID    string
+	columns      []string
 }
 
 func (r *activityRecorder) RecordSessionActivity(_ context.Context, repositoryID string, sessionID string, columns ...string) error {
 	r.repositoryID = repositoryID
 	r.sessionID = sessionID
 	r.columns = append([]string(nil), columns...)
+	r.calls = append(r.calls, recordedActivity{
+		repositoryID: repositoryID,
+		sessionID:    sessionID,
+		columns:      append([]string(nil), columns...),
+	})
 	return nil
+}
+
+// TestHTTPHandlerToolsCallRecordsToolCallBoundary guards RFC 0101 Phase 1
+// (#83): a session-scoped tools/call stamps last_tool_call_started_at before
+// dispatch and last_tool_call_finished_at after it returns, so the liveness
+// classifier can report working_tool with a visible since/deadline while a lane
+// is inside a hidden MCP call. Only the boundary timing is recorded, never tool
+// content (D028).
+func TestHTTPHandlerToolsCallRecordsToolCallBoundary(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	recorder := &activityRecorder{}
+	handler.Service.ActivityRecorder = recorder
+	body := `{"jsonrpc":"2.0","id":"read","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1","session_id":"sess_1"}}}`
+
+	responseRecorder := postJSON(t, handler, EndpointPath, body, "read.secret")
+	response := decodeTestResponse(t, responseRecorder)
+	if response.Error != nil {
+		t.Fatalf("tools/call error = %#v", response.Error)
+	}
+
+	var started, finished int
+	startedIndex, finishedIndex := -1, -1
+	for i, call := range recorder.calls {
+		if call.repositoryID != "repo_1" || call.sessionID != "sess_1" {
+			t.Fatalf("call %d scope = repo %q session %q", i, call.repositoryID, call.sessionID)
+		}
+		for _, column := range call.columns {
+			switch column {
+			case sessionliveness.LastToolCallStartedAt:
+				started++
+				startedIndex = i
+			case sessionliveness.LastToolCallFinishedAt:
+				finished++
+				finishedIndex = i
+			}
+		}
+	}
+	if started != 1 || finished != 1 {
+		t.Fatalf("want exactly one start and one finish; got start=%d finish=%d calls=%#v", started, finished, recorder.calls)
+	}
+	if startedIndex >= finishedIndex {
+		t.Fatalf("start must be recorded before finish; startIndex=%d finishIndex=%d", startedIndex, finishedIndex)
+	}
+}
+
+// TestHTTPHandlerToolsCallUnscopedSkipsBoundary asserts a tools/call without a
+// session_id records no tool-call boundary (the recorder is a no-op when the
+// scope is absent), so anonymous/unscoped calls are unaffected.
+func TestHTTPHandlerToolsCallUnscopedSkipsBoundary(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	recorder := &activityRecorder{}
+	handler.Service.ActivityRecorder = recorder
+	body := `{"jsonrpc":"2.0","id":"read","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+
+	postJSON(t, handler, EndpointPath, body, "read.secret")
+	if len(recorder.calls) != 0 {
+		t.Fatalf("unscoped tools/call must record no activity; got %#v", recorder.calls)
+	}
 }
 
 func TestHTTPHandlerToolsCallMutationPath(t *testing.T) {

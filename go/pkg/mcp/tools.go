@@ -45,6 +45,20 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 		Params:          arguments,
 		CapabilityToken: token,
 	}
+	// RFC 0101 Phase 1 (Layer 1, #83): stamp the tool-call boundary so the
+	// liveness classifier can report working_tool with a visible since/deadline
+	// for a lane that is blocked inside a hidden MCP/tool call (which otherwise
+	// holds a live lease and reads as a contentless "live"). We record the START
+	// before dispatching and the FINISH once it returns — only the timing of the
+	// boundary is observed, never tool content (D028). repositoryID/sessionID
+	// come from the call arguments; recordActivity is a no-op when either is
+	// absent, so unscoped/anonymous tool calls are unaffected.
+	repositoryID, _ := arguments["repository_id"].(string)
+	sessionID, _ := arguments["session_id"].(string)
+	_ = s.recordActivity(ctx, repositoryID, sessionID, sessionliveness.LastToolCallStartedAt)
+	defer func() {
+		_ = s.recordActivity(ctx, repositoryID, sessionID, sessionliveness.LastToolCallFinishedAt)
+	}()
 	response := s.RPC.HandleWithoutHandshake(ctx, envelope, "mcp")
 	if response.OK {
 		return toolResult(name, true, response.AuditID, "", "", response.Data)
