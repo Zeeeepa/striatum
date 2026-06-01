@@ -257,6 +257,43 @@ func TestMigrationEighteenWidensArtifactAttemptScope(t *testing.T) {
 	}
 }
 
+// TestMigrationNineteenAddsPTYAndToolLivenessColumns is RFC 0101 Phase 1: the
+// migration adds last_pty_activity_at / last_tool_call_started_at /
+// last_tool_call_finished_at to the owner-held sessions table so the classifier
+// can fuse PTY + tool-call signals (#80/#83/#117). Like migration 12 it ALTERs
+// an owner table, so it is owner-applied; it is idempotent (every ADD COLUMN is
+// IF NOT EXISTS) so a re-run is a safe no-op.
+func TestMigrationNineteenAddsPTYAndToolLivenessColumns(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 19 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 19 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"ALTER TABLE striatumd.sessions",
+		"ADD COLUMN IF NOT EXISTS last_pty_activity_at timestamptz",
+		"ADD COLUMN IF NOT EXISTS last_tool_call_started_at timestamptz",
+		"ADD COLUMN IF NOT EXISTS last_tool_call_finished_at timestamptz",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 19 missing %q", needle)
+		}
+	}
+	if migration.Label == "" {
+		t.Fatal("migration 19 has no label")
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")
@@ -285,4 +322,3 @@ func TestDeriveMigrationLockKey(t *testing.T) {
 		t.Fatal("expected non-zero migration lock key")
 	}
 }
-

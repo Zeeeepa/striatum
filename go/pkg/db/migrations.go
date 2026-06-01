@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 18
+	LatestDaemonDBVersion = 19
 	MigrationLockKey      = 332933
 )
 
@@ -48,6 +48,7 @@ func Migrations() ([]Migration, error) {
 		16: "interrogation sessions (RFC 0082)",
 		17: "multi-party conversation (RFC 0086)",
 		18: "attempt-scoped artifacts (RFC 0095 / GH #84)",
+		19: "PTY-activity + tool-call liveness timestamps (RFC 0101 Phase 1)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {

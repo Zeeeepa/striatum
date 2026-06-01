@@ -22,6 +22,9 @@ const (
 	LastSessionHeartbeatAt  = "last_session_heartbeat_at"
 	LastSessionQuestionAt   = "last_session_question_at"
 	LastSessionEscalateAt   = "last_session_escalate_at"
+	LastPTYActivityAt       = "last_pty_activity_at"
+	LastToolCallStartedAt   = "last_tool_call_started_at"
+	LastToolCallFinishedAt  = "last_tool_call_finished_at"
 	LivenessStallClass      = "liveness_stall_class"
 	LivenessStallSince      = "liveness_stall_since"
 	ActiveLeaseID           = "active_lease_id"
@@ -42,6 +45,35 @@ const (
 	DeadlineQuestionPending = "question_pending"
 	DeadlineEscalation      = "escalation_pending"
 	DeadlineProtocolIdle    = "protocol_idle"
+	DeadlineToolCall        = "tool_call"
+)
+
+// Protocol states (RFC 0101 Phase 1, Layer 1). These are precise, projection-
+// only liveness states reported on Result.Protocol. They are NEVER persisted to
+// the liveness_stall_class column (which keeps its constrained Stall* enum), so
+// they do not interact with the migration 0012 CHECK constraint. They make
+// supervise status / dashboard honest about a lane that is working rather than
+// collapsing every live lane to a generic "live":
+//
+//   - ProtocolWorkingProtocol — fresh MCP/protocol activity within its window.
+//   - ProtocolWorkingLocal     — protocol quiet but the child PTY is producing
+//     output (the #80 honest-local-work case).
+//   - ProtocolWorkingTool      — inside an MCP/tool call (started after finished),
+//     with a visible since + deadline (the #83 in-tool case).
+//   - ProtocolQuiet            — no fresh signal yet, still before the deadline.
+//   - ProtocolDead             — the lane never reached the daemon and produced
+//     no PTY output past the discovery deadline (the #117 case): report dead,
+//     not a misleading agent_mcp_discovery_stall.
+const (
+	ProtocolInactive        = "inactive"
+	ProtocolLive            = "live"
+	ProtocolStalled         = "stalled"
+	ProtocolAttention       = "attention"
+	ProtocolWorkingProtocol = "working_protocol"
+	ProtocolWorkingLocal    = "working_local"
+	ProtocolWorkingTool     = "working_tool"
+	ProtocolQuiet           = "quiet"
+	ProtocolDead            = "dead"
 )
 
 type execer interface {
@@ -67,6 +99,16 @@ type Policy struct {
 	LeaseHeartbeatSeconds int
 	LeaseHeartbeatSlack   int
 	ProtocolIdleSeconds   int
+	// ProtocolFreshSeconds is the window within which recent protocol activity
+	// counts as working_protocol. PTYFreshSeconds is the window within which
+	// recent PTY output counts as working_local. ToolCallSeconds is the visible
+	// deadline a lane is allowed to sit inside a single MCP/tool call before the
+	// working_tool state crosses its deadline (#83 visible timeout). These drive
+	// the precise protocol-state classification only; they never relax the
+	// existing stall edges.
+	ProtocolFreshSeconds int
+	PTYFreshSeconds      int
+	ToolCallSeconds      int
 }
 
 type Activity struct {
@@ -85,6 +127,9 @@ type Activity struct {
 	LastSessionHeartbeatAt *time.Time
 	LastSessionQuestionAt  *time.Time
 	LastSessionEscalateAt  *time.Time
+	LastPTYActivityAt      *time.Time
+	LastToolCallStartedAt  *time.Time
+	LastToolCallFinishedAt *time.Time
 	PersistedStallClass    string
 	PersistedStallSince    *time.Time
 	ActiveLeaseID          string
@@ -100,6 +145,13 @@ type Result struct {
 	StallSince      *time.Time
 	DeadlineName    string
 	DeadlineSeconds int
+	// ToolCallSince and ToolCallDeadline are populated only for the
+	// working_tool protocol state (#83): they give the operator a visible
+	// timestamp for when the in-flight MCP/tool call started and the wall-clock
+	// instant by which it must finish before the lane is treated as stalled
+	// inside a hidden tool call. They are nil for every other state.
+	ToolCallSince    *time.Time
+	ToolCallDeadline *time.Time
 }
 
 var allowedColumns = map[string]bool{
@@ -116,6 +168,9 @@ var allowedColumns = map[string]bool{
 	LastSessionHeartbeatAt: true,
 	LastSessionQuestionAt:  true,
 	LastSessionEscalateAt:  true,
+	LastPTYActivityAt:      true,
+	LastToolCallStartedAt:  true,
+	LastToolCallFinishedAt: true,
 }
 
 func DefaultPolicy() Policy {
@@ -126,6 +181,9 @@ func DefaultPolicy() Policy {
 		LeaseHeartbeatSeconds: 300,
 		LeaseHeartbeatSlack:   30,
 		ProtocolIdleSeconds:   300,
+		ProtocolFreshSeconds:  60,
+		PTYFreshSeconds:       60,
+		ToolCallSeconds:       180,
 	}
 }
 
@@ -183,6 +241,11 @@ func ProjectionFromRow(row map[string]any, now time.Time) map[string]any {
 		"last_session_question_at":       timeValue(activity.LastSessionQuestionAt),
 		"last_session_escalate_at":       timeValue(activity.LastSessionEscalateAt),
 		"last_session_report_kind":       nullableText(lastSessionReportKind(activity)),
+		"last_pty_activity_at":           timeValue(activity.LastPTYActivityAt),
+		"last_tool_call_started_at":      timeValue(activity.LastToolCallStartedAt),
+		"last_tool_call_finished_at":     timeValue(activity.LastToolCallFinishedAt),
+		"tool_call_since":                timeValue(result.ToolCallSince),
+		"tool_call_deadline":             timeValue(result.ToolCallDeadline),
 		"active_lease_id":                nullableText(activity.ActiveLeaseID),
 		"active_lease_expires_at":        timeValue(activity.ActiveLeaseExpiresAt),
 		"active_lease_last_heartbeat_at": timeValue(activity.ActiveLeaseHeartbeatAt),
@@ -210,6 +273,9 @@ func ActivityFromRow(row map[string]any) Activity {
 		LastSessionHeartbeatAt: timeFromAny(row[LastSessionHeartbeatAt]),
 		LastSessionQuestionAt:  timeFromAny(row[LastSessionQuestionAt]),
 		LastSessionEscalateAt:  timeFromAny(row[LastSessionEscalateAt]),
+		LastPTYActivityAt:      timeFromAny(row[LastPTYActivityAt]),
+		LastToolCallStartedAt:  timeFromAny(row[LastToolCallStartedAt]),
+		LastToolCallFinishedAt: timeFromAny(row[LastToolCallFinishedAt]),
 		PersistedStallClass:    stringValue(row[LivenessStallClass]),
 		PersistedStallSince:    timeFromAny(row[LivenessStallSince]),
 		ActiveLeaseID:          stringValue(row[ActiveLeaseID]),
@@ -232,9 +298,25 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 	}
 	if !discovered(activity) {
 		if missed(activity.RegisteredAt, policy.DiscoverySeconds, now) {
-			return stallResult(activity, StallDiscovery, DeadlineDiscovery, policy.DiscoverySeconds, activity.RegisteredAt)
+			// #117: a lane that never reached the daemon over MCP AND produced no
+			// PTY output past the discovery deadline did not "stall while
+			// discovering MCP" — it never produced anything, so for an operator it
+			// is dead at spawn, not a lane that is still trying. Report the
+			// operator-visible Protocol as "dead" so supervise status / dashboard
+			// is honest. We deliberately keep StallClass as the underlying
+			// agent_mcp_discovery_stall: it is the persisted enum the liveness
+			// sweep records and the recovery-action library keys on (a dead lane
+			// past discovery is still recovered via the discovery deadline), and
+			// keeping it avoids widening the migration-0012 CHECK constraint. A
+			// lane that IS producing PTY output (alive, just slow to bind MCP)
+			// keeps the plain discovery-stall classification (Protocol "stalled").
+			result := stallResult(activity, StallDiscovery, DeadlineDiscovery, policy.DiscoverySeconds, activity.RegisteredAt)
+			if !ptyActive(activity) {
+				result.Protocol = ProtocolDead
+			}
+			return result
 		}
-		return Result{Protocol: "live", Lease: leaseState(activity, "")}
+		return workingResult(activity, policy, now)
 	}
 	// The await-packet deadline is anchored on LastToolsListAt, so it is only
 	// meaningful once tools/list has been recorded. A lane discovered via other
@@ -245,13 +327,13 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		if missed(activity.LastToolsListAt, policy.AwaitPacketSeconds, now) {
 			return stallResult(activity, StallAwaitPacket, DeadlineAwaitPacket, policy.AwaitPacketSeconds, activity.LastToolsListAt)
 		}
-		return Result{Protocol: "live", Lease: leaseState(activity, "")}
+		return workingResult(activity, policy, now)
 	}
 	if activity.LastPacketDeliveredAt != nil && !hasAckEquivalentAfter(activity, activity.LastPacketDeliveredAt) {
 		if missed(activity.LastPacketDeliveredAt, policy.AckSeconds, now) {
 			return stallResult(activity, StallAck, DeadlineAck, policy.AckSeconds, activity.LastPacketDeliveredAt)
 		}
-		return Result{Protocol: "live", Lease: leaseState(activity, "")}
+		return workingResult(activity, policy, now)
 	}
 	// An active lease is the authoritative liveness signal for a working lane.
 	// The lease-heartbeat rung is the terminal classification for any lease
@@ -271,7 +353,7 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		if missed(base, threshold, now) {
 			return stallResult(activity, StallLeaseHeartbeat, DeadlineLeaseHeartbeat, threshold, base)
 		}
-		return Result{Protocol: "live", Lease: leaseState(activity, "")}
+		return workingResult(activity, policy, now)
 	}
 	base := latestTime(
 		activity.LastMCPRequestAt,
@@ -287,12 +369,131 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		activity.LastSessionHeartbeatAt,
 		activity.LastSessionQuestionAt,
 		activity.LastSessionEscalateAt,
+		// RFC 0101 Phase 1 (Layer 1, #80): PTY output the helper recorded is a
+		// real progress signal. A lane doing long LOCAL work between MCP calls
+		// keeps producing PTY output, so including last_pty_activity_at here keeps
+		// it out of agent_protocol_idle_stall and lets it surface as working_local
+		// — honoring G2 (never report stalled while demonstrably producing
+		// output). A lane that stops producing output still trips the idle stall
+		// at ProtocolIdleSeconds, so dead-lane detection is preserved.
+		activity.LastPTYActivityAt,
 		activity.RegisteredAt,
 	)
 	if missed(base, policy.ProtocolIdleSeconds, now) {
 		return stallResult(activity, StallProtocolIdle, DeadlineProtocolIdle, policy.ProtocolIdleSeconds, base)
 	}
-	return Result{Protocol: "live", Lease: leaseState(activity, "")}
+	return workingResult(activity, policy, now)
+}
+
+// workingResult derives the precise protocol state for a lane that has cleared
+// every stall rung (it is not stalled, dead, or awaiting attention). Instead of
+// collapsing every such lane to a generic "live", it reports which kind of
+// progress signal is currently fresh so supervise status / dashboard is honest
+// (RFC 0101 Phase 1, Layer 1, G2):
+//
+//   - working_tool   — the lane is inside an MCP/tool call (a tool-call start
+//     recorded with no matching finish after it). Exposes a visible since
+//     (when the call started) and a deadline (#83) so an operator can see a lane
+//     that is blocked inside a hidden call rather than a contentless "live".
+//   - working_protocol — fresh MCP/protocol activity within ProtocolFreshSeconds.
+//   - working_local  — protocol quiet, but the child PTY produced output within
+//     PTYFreshSeconds (the #80 honest-local-work signal).
+//   - quiet          — none of the above is fresh, but the lane has not yet
+//     missed any deadline (the pre-deadline window). It is not stalled; it is
+//     simply between signals.
+//
+// This never relaxes a stall edge: workingResult is only reached after every
+// missed-deadline check has already returned, so a genuinely stalled or dead
+// lane never reaches here. Lease state is reported unchanged.
+func workingResult(activity Activity, policy Policy, now time.Time) Result {
+	now = now.UTC()
+	lease := leaseState(activity, "")
+
+	// working_tool: a tool-call start that has no finish recorded after it means
+	// the lane is currently inside that call. Surface a visible since + deadline.
+	if inTool, since := inToolCall(activity); inTool {
+		result := Result{
+			Protocol:      ProtocolWorkingTool,
+			Lease:         lease,
+			DeadlineName:  DeadlineToolCall,
+			ToolCallSince: since,
+		}
+		if policy.ToolCallSeconds > 0 {
+			result.DeadlineSeconds = policy.ToolCallSeconds
+			if since != nil {
+				deadline := since.UTC().Add(time.Duration(policy.ToolCallSeconds) * time.Second)
+				result.ToolCallDeadline = &deadline
+			}
+		}
+		return result
+	}
+
+	protocolFresh := protocolActivityFresh(activity, policy, now)
+	if protocolFresh {
+		return Result{Protocol: ProtocolWorkingProtocol, Lease: lease}
+	}
+
+	if ptyActive(activity) && !missed(activity.LastPTYActivityAt, policy.PTYFreshSeconds, now) {
+		return Result{Protocol: ProtocolWorkingLocal, Lease: lease}
+	}
+
+	// No fresh protocol or PTY signal, but no deadline missed either: the lane is
+	// quiet, not stalled. Reporting "quiet" (rather than "live") tells the
+	// operator there is currently no positive progress signal, while making clear
+	// it is still inside its grace window.
+	return Result{Protocol: ProtocolQuiet, Lease: lease}
+}
+
+// inToolCall reports whether the lane is currently inside an MCP/tool call: a
+// tool-call start has been recorded and no tool-call finish has been recorded at
+// or after it. The returned timestamp is when the in-flight call started (#83).
+func inToolCall(activity Activity) (bool, *time.Time) {
+	if activity.LastToolCallStartedAt == nil {
+		return false, nil
+	}
+	if after(activity.LastToolCallFinishedAt, activity.LastToolCallStartedAt) {
+		return false, nil
+	}
+	// A finish recorded at exactly the same instant as the start counts as
+	// completed (the call returned within the timestamp resolution).
+	if activity.LastToolCallFinishedAt != nil &&
+		activity.LastToolCallFinishedAt.UTC().Equal(activity.LastToolCallStartedAt.UTC()) {
+		return false, nil
+	}
+	return true, activity.LastToolCallStartedAt
+}
+
+// ptyActive reports whether the lane has ever produced PTY output the helper
+// recorded (last_pty_activity_at is set). Used both to keep an honestly-working
+// local lane out of the dead classification (#117) and to drive working_local.
+func ptyActive(activity Activity) bool {
+	return activity.LastPTYActivityAt != nil
+}
+
+// protocolActivityFresh reports whether any protocol/MCP signal is fresh within
+// ProtocolFreshSeconds. It mirrors the discovered() signal set so a lane that
+// just made a protocol call reads working_protocol.
+func protocolActivityFresh(activity Activity, policy Policy, now time.Time) bool {
+	if policy.ProtocolFreshSeconds <= 0 {
+		return false
+	}
+	latest := latestTime(
+		activity.LastMCPRequestAt,
+		activity.LastToolsListAt,
+		activity.LastAwaitPacketAt,
+		activity.LastPacketDeliveredAt,
+		activity.LastAckAt,
+		activity.LastWorkBlockAt,
+		activity.LastWorkReleaseAt,
+		activity.LastWorkCompleteAt,
+		activity.LastWorkHeartbeatAt,
+		activity.LastSessionReadyAt,
+		activity.LastSessionHeartbeatAt,
+		activity.LastSessionQuestionAt,
+		activity.LastSessionEscalateAt,
+		activity.ActiveLeaseHeartbeatAt,
+	)
+	return latest != nil && !missed(latest, policy.ProtocolFreshSeconds, now)
 }
 
 func RemoveProjectionSourceFields(row map[string]any) {
@@ -311,6 +512,9 @@ func RemoveProjectionSourceFields(row map[string]any) {
 		LastSessionHeartbeatAt,
 		LastSessionQuestionAt,
 		LastSessionEscalateAt,
+		LastPTYActivityAt,
+		LastToolCallStartedAt,
+		LastToolCallFinishedAt,
 		LivenessStallClass,
 		LivenessStallSince,
 		ActiveLeaseID,

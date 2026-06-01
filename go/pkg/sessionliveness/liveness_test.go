@@ -280,6 +280,230 @@ func TestClassifyActiveLeaseGovernsWorkingLane(t *testing.T) {
 	}
 }
 
+// TestClassifyPreciseWorkingStates guards RFC 0101 Phase 1 (Layer 1, G2): a
+// lane that has cleared every stall rung is reported with a PRECISE protocol
+// state — working_protocol / working_local / working_tool / quiet — instead of
+// being collapsed to a generic "live", so supervise status is honest about what
+// kind of progress signal (if any) is currently fresh.
+func TestClassifyPreciseWorkingStates(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	// A lane that has discovered MCP, driven the protocol, and acked its packet,
+	// so it is past every stall rung and reaches workingResult.
+	settled := func() Activity {
+		return Activity{
+			SessionState:          "active",
+			RegisteredAt:          at(now.Add(-30 * time.Minute)),
+			LastToolsListAt:       at(now.Add(-29 * time.Minute)),
+			LastAwaitPacketAt:     at(now.Add(-28 * time.Minute)),
+			LastPacketDeliveredAt: at(now.Add(-27 * time.Minute)),
+			LastAckAt:             at(now.Add(-26 * time.Minute)),
+		}
+	}
+
+	tests := []struct {
+		name             string
+		mutate           func(Activity) Activity
+		wantProtocol     string
+		wantToolSince    bool
+		wantToolDeadline bool
+	}{
+		{
+			name: "working_protocol on fresh protocol activity",
+			mutate: func(a Activity) Activity {
+				a.LastWorkHeartbeatAt = at(now.Add(-10 * time.Second)) // within ProtocolFreshSeconds
+				return a
+			},
+			wantProtocol: ProtocolWorkingProtocol,
+		},
+		{
+			name: "working_local when protocol quiet but PTY fresh (#80)",
+			mutate: func(a Activity) Activity {
+				// Protocol last touched 5m ago (stale vs ProtocolFreshSeconds 60s)
+				// but the child PTY produced output 10s ago.
+				a.LastMCPRequestAt = at(now.Add(-5 * time.Minute))
+				a.LastPTYActivityAt = at(now.Add(-10 * time.Second))
+				return a
+			},
+			wantProtocol: ProtocolWorkingLocal,
+		},
+		{
+			name: "working_tool while inside an MCP/tool call (#83)",
+			mutate: func(a Activity) Activity {
+				// A tool call started 30s ago with no finish recorded after it.
+				a.LastMCPRequestAt = at(now.Add(-30 * time.Second))
+				a.LastToolCallStartedAt = at(now.Add(-30 * time.Second))
+				return a
+			},
+			wantProtocol:     ProtocolWorkingTool,
+			wantToolSince:    true,
+			wantToolDeadline: true,
+		},
+		{
+			name: "working_tool takes precedence over fresh protocol activity",
+			mutate: func(a Activity) Activity {
+				a.LastWorkHeartbeatAt = at(now.Add(-5 * time.Second)) // would be working_protocol
+				a.LastToolCallStartedAt = at(now.Add(-5 * time.Second))
+				return a
+			},
+			wantProtocol:     ProtocolWorkingTool,
+			wantToolSince:    true,
+			wantToolDeadline: true,
+		},
+		{
+			name: "tool call finished is not working_tool",
+			mutate: func(a Activity) Activity {
+				a.LastToolCallStartedAt = at(now.Add(-40 * time.Second))
+				a.LastToolCallFinishedAt = at(now.Add(-39 * time.Second)) // finished after start
+				a.LastWorkHeartbeatAt = at(now.Add(-39 * time.Second))    // fresh protocol
+				return a
+			},
+			wantProtocol: ProtocolWorkingProtocol,
+		},
+		{
+			name: "quiet when no signal is fresh but no deadline missed",
+			mutate: func(a Activity) Activity {
+				// Last protocol touch 90s ago (stale vs 60s ProtocolFreshSeconds) but
+				// still inside the 300s protocol-idle deadline; no PTY, no tool call.
+				a.LastMCPRequestAt = at(now.Add(-90 * time.Second))
+				return a
+			},
+			wantProtocol: ProtocolQuiet,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.mutate(settled()), policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != "" {
+				t.Fatalf("working state must not carry a stall class; got %q", got.StallClass)
+			}
+			if tc.wantToolSince && got.ToolCallSince == nil {
+				t.Fatalf("working_tool must expose a since; result = %#v", got)
+			}
+			if !tc.wantToolSince && got.ToolCallSince != nil {
+				t.Fatalf("non-tool state must not expose a since; result = %#v", got)
+			}
+			if tc.wantToolDeadline {
+				if got.ToolCallDeadline == nil {
+					t.Fatalf("working_tool must expose a deadline; result = %#v", got)
+				}
+				if got.DeadlineName != DeadlineToolCall {
+					t.Fatalf("working_tool deadline name = %q, want %q", got.DeadlineName, DeadlineToolCall)
+				}
+				// Deadline must be since + ToolCallSeconds.
+				wantDeadline := got.ToolCallSince.Add(time.Duration(policy.ToolCallSeconds) * time.Second)
+				if !got.ToolCallDeadline.Equal(wantDeadline) {
+					t.Fatalf("deadline = %v, want %v", got.ToolCallDeadline, wantDeadline)
+				}
+			}
+		})
+	}
+}
+
+// TestClassifyDeadAtSpawnIsNotDiscoveryStall guards #117: a lane that never
+// reached the daemon over MCP AND produced no PTY output past the discovery
+// deadline reads as DEAD (operator-visible Protocol), not a misleading
+// agent_mcp_discovery_stall. The underlying StallClass is deliberately retained
+// (the liveness sweep / recovery library key on it) but the protocol surface is
+// honest. A lane producing PTY output past the deadline keeps the plain
+// discovery stall (it is alive, just slow to bind MCP).
+func TestClassifyDeadAtSpawnIsNotDiscoveryStall(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	registered := at(now.Add(-2 * time.Minute)) // past DiscoverySeconds (60s)
+
+	tests := []struct {
+		name          string
+		in            Activity
+		wantProtocol  string
+		wantStall     string
+		wantStallKept bool
+	}{
+		{
+			name:         "dead: no mcp, no pty, past discovery deadline",
+			in:           Activity{SessionState: "active", RegisteredAt: registered},
+			wantProtocol: ProtocolDead,
+			wantStall:    StallDiscovery,
+		},
+		{
+			name: "alive-but-slow: pty output present keeps plain discovery stall",
+			in: Activity{
+				SessionState:      "active",
+				RegisteredAt:      registered,
+				LastPTYActivityAt: at(now.Add(-5 * time.Second)),
+			},
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallDiscovery,
+		},
+		{
+			name: "before deadline with no signal is quiet, not dead",
+			in: Activity{
+				SessionState: "active",
+				RegisteredAt: at(now.Add(-10 * time.Second)), // inside DiscoverySeconds
+			},
+			wantProtocol: ProtocolQuiet,
+			wantStall:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.in, policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+		})
+	}
+}
+
+// TestProjectionExposesNewLivenessColumns asserts the read-layer projection
+// surfaces the new PTY/tool-call timestamps and, for an in-tool lane, the
+// visible tool_call_since / tool_call_deadline (#83).
+func TestProjectionExposesNewLivenessColumns(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	started := now.Add(-30 * time.Second)
+	row := map[string]any{
+		"state":               "active",
+		"registered_at":       now.Add(-30 * time.Minute),
+		LastToolsListAt:       now.Add(-29 * time.Minute),
+		LastAwaitPacketAt:     now.Add(-28 * time.Minute),
+		LastPacketDeliveredAt: now.Add(-27 * time.Minute),
+		LastAckAt:             now.Add(-26 * time.Minute),
+		LastMCPRequestAt:      started,
+		LastPTYActivityAt:     now.Add(-15 * time.Second),
+		LastToolCallStartedAt: started,
+	}
+	projection := ProjectionFromRow(row, now)
+	if projection["protocol"] != ProtocolWorkingTool {
+		t.Fatalf("protocol = %v, want working_tool", projection["protocol"])
+	}
+	for _, key := range []string{"last_pty_activity_at", "last_tool_call_started_at", "tool_call_since", "tool_call_deadline"} {
+		if projection[key] == nil {
+			t.Fatalf("projection[%q] is nil; want a timestamp: %#v", key, projection)
+		}
+	}
+	if projection["last_tool_call_finished_at"] != nil {
+		t.Fatalf("last_tool_call_finished_at should be nil when never finished: %#v", projection["last_tool_call_finished_at"])
+	}
+}
+
+func TestRecordAcceptsToolCallAndPTYColumns(t *testing.T) {
+	for _, column := range []string{LastPTYActivityAt, LastToolCallStartedAt, LastToolCallFinishedAt} {
+		runner := &recordFakeRunner{}
+		if err := Record(context.Background(), runner, "repo_1", "sess_1", column); err != nil {
+			t.Fatalf("Record(%s): %v", column, err)
+		}
+		if !strings.Contains(runner.sql, column+" = $1") {
+			t.Fatalf("sql for %s = %s", column, runner.sql)
+		}
+	}
+}
+
 func TestRecordUpdatesMCPRequestAndRequestedColumns(t *testing.T) {
 	runner := &recordFakeRunner{}
 	err := Record(context.Background(), runner, "repo_1", "sess_1", LastToolsListAt)
