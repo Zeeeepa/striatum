@@ -26,3 +26,15 @@ CREATE TABLE IF NOT EXISTS striatumd.job_recovery_state (
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (repository_id, job_id)
 );
+
+-- The daemon connects as striatumd_rw; grant it DML on the new table (the
+-- owner-applied table would otherwise be inaccessible to the runtime role and
+-- the recovery sweep would fail permission-denied). Matches the grant pattern
+-- every other table-creating migration uses (e.g. 0011 escalation_inbox).
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'striatumd_rw') THEN
+    GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.job_recovery_state TO striatumd_rw;
+  END IF;
+END;
+$$;
