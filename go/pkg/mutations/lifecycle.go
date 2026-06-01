@@ -60,7 +60,13 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 	}
 	operatorLabel := stringParam(envelope, "operator_label")
 
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	// #133: register-session --replace can race a concurrent claim/recovery
+	// transaction and abort with a 40P01 deadlock during stale-reviewer
+	// recovery. Retry the same bounded way the RFC 0101 Phase 0a handlers do
+	// (claim/review/interrogation) so the recovery path tolerates the deadlock
+	// internally instead of surfacing it to the operator. The body fully rolls
+	// back on abort, so re-running from scratch is safe.
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
 			return nil, err
