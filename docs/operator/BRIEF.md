@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-01_robust-autonomous-execution"
-supersedes: "brief_2026-05-24_current_todo_1_5"
+brief_id: "brief_2026-06-01b_rfc0101-phase1-landed"
+supersedes: "brief_2026-06-01_robust-autonomous-execution"
 scope_links: ["docs/rfcs/0101-robust-autonomous-workflow-execution.md", "docs/rfcs/0102-operator-attention-economy.md", "docs/rfcs/0095-revision-safe-workflow-lifecycle.md", "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "docs/rfcs/0097-full-workflow-run-orchestration.md", "dogfoods/rfc-0101-l2-conformance/OPERATOR_REPORT.md", "dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md", "CHANGELOG.md", "docs/rfcs/README.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -43,12 +43,42 @@ Since the prior brief (which stopped at RFC 0078) the work has been the
 deployed. Reconcile the RFC index status column when you next touch it (AGENTS
 rule: fix the doc when it disagrees with source).
 
+## Landed 2026-06-01 (autonomous run, deployed at schema 19)
+
+A bootstrap-via-subagent burn-down (vehicle: subagents/single-implementer for
+foundational fixes, then dogfood) landed and **deployed** on `main`:
+
+- **RFC 0101 Phase 1 — honest liveness: COMPLETE.** Slice 1 — the supervisor
+  helper meters PTY output volume (OQ1 threshold, env-tunable) and the daemon
+  auto-heartbeats the active lease on meaningful output (#80/#136 mechanism).
+  Slice 2 — precise classifier states `working_protocol/working_local/
+  working_tool/quiet/dead`, **#117** dead-at-spawn (Protocol `dead`, keeps
+  `StallClass=agent_mcp_discovery_stall`), **#83** in-tool tool-call recording
+  with a visible deadline, and the `last_pty_activity_at` producer. Projection-
+  only states (never persisted → no CHECK-constraint risk). **Migration 0019**
+  owner-applied (schema 18→19) — daemon redeployed, doctor green.
+- **Closed:** #114 (validate dup keys), #119 (validate agent_loop cap +
+  artifact kind), #122 (help lists authoring verbs), #129 (`.claude` lock
+  teardown), #113 (examples off retired one-shot commands → agent-loop shape).
+  **Landed:** #123 (auto branch-confirm verifies the branch).
+- **Deployed, behavioral confirmation pending a live lane:** #80, #136, #83,
+  #117. **#135** kept open — the prototyped liveness gate did **not** close the
+  same-token impersonation vector; the real fix is per-session token binding
+  (thread rpc `AuthContext` into handlers), tracked under RFC 0096.
+
 ## Current Frontier
 
-The active arc is **RFC 0101 — robust autonomous workflow execution** (the
-umbrella that makes a run survive lane failure and run to completion *or fail
-loudly* without a human babysitter) and its operator-side complement **RFC 0102
-— operator attention economy**. Both are `proposed` (filed 2026-05-31 / today).
+RFC 0101 **Phase 1 is done and live**; the frontier is now **Phase 2 — adapter
+conformance + persistent turn-driver** (the keystone that breaks the
+self-hosting paradox), then **#121** (same-attempt repo-write recovery, the
+acute blocker), **RFC 0096 V2** (PG-less lane sandbox; #70/#87/#135), and
+Phases 3-5. Phase 2's conformance harness has open design questions (real
+installed-CLI vs fake-agent in CI) and should be designed deliberately, not
+fire-and-forgotten. The umbrella **RFC 0101** and operator-side **RFC 0102**
+remain `proposed`. **RFC 0097** (run self-orchestration) sits on top and
+hard-depends on RFC 0095 + 0096.
+
+### Original framing (RFC 0101 L2 dogfood, 2026-05-31)
 RFC 0101 frames the recurring dogfood failure taxonomy as one run-level
 property and supplies five defense layers: (1) honest liveness, (2) adapter
 conformance + persistent turn-driver in CI, (3) bounded autonomous
@@ -69,11 +99,14 @@ dogfood its own fixes).
 
 ## Next Actions
 
-1. **Drive RFC 0101 defense layers.** Acute first: #121 (implement-lane stall +
-   no same-attempt recovery) and #95 (agy closes after first turn, breaking
-   multi-turn interrogating jobs). Then honest liveness (#80/#83), adapter
-   conformance (#85/#76/#101), bounded self-recovery (#82/#108/#65/#84), loud
-   escalation (#107).
+1. **RFC 0101 Phase 2 (keystone) — design it deliberately.** Adapter conformance
+   fixture against the *installed* CLI + persistent turn-driver (#95/#85/#76/#70/
+   #113-done/#118/#125/#139), promoting the #101/#121 bootstrap to a contract
+   clause. Open question to resolve first: real-CLI vs fake-agent conformance in
+   CI. Then **#121** (same-attempt repo-write recovery on RFC 0095 attempt
+   primitives — the acute blocker), then bounded self-recovery (Phase 3) and loud
+   escalation (Phase 4). Confirm the deployed Phase-1 states (#80/#136/#83/#117)
+   against a real lane and close them.
 2. **RFC 0102 levers:** narrow the operator loop to one control surface
    (CLI / daemon MCP — no tmux/psql/systemctl/hand-rolled drivers in the normal
    path), add one high-signal `attention` view, and operate in
@@ -88,7 +121,9 @@ dogfood its own fixes).
 ## Blockers
 
 - **#121** — repo-write implement lanes can wedge on a welcome-screen stall with
-  no same-attempt recovery verb; the run can't self-recover. RFC 0101 L3.
+  no same-attempt recovery verb; the run can't self-recover. RFC 0101 L3 / Phase
+  3 seed. (Phase 1 honest-liveness is now deployed, so a stalled lane is at least
+  classified honestly — but autonomous recovery is not yet built.)
 - **#95** — agy self-driving session closes after the first turn and
   re-registers a duplicate unattested session, breaking multi-turn (interrogating)
   review/synthesis.
