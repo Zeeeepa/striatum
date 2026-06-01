@@ -119,6 +119,32 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 		if _, err := appendResolveEvent(ctx, tx, repositoryID, fmt.Sprint(blocker["run_id"]), "escalation.resolved", nil, nullableResolve(blocker["job_id"]), nil, nil, nil, eventPayload); err != nil {
 			return nil, err
 		}
+		// RFC 0101 Phase 4: resolving an escalation must clear the run's
+		// needs_operator state so the recovery sweep (running/paused filter) and
+		// new claims (claim.go gates on run.state='running') resume. The job was
+		// already requeued by Phase 3, or the operator re-prepares it; either way
+		// the run is no longer silently stuck. Guarded on state='needs_operator' so
+		// resolving an unrelated escalation on a still-running run is a no-op, and a
+		// terminal/canceled run is never revived. UPDATE ... RETURNING reports
+		// whether the flip happened so run.resumed is emitted only when it did.
+		runID := fmt.Sprint(blocker["run_id"])
+		clearedRows, err := queryAnyRows(ctx, tx, `
+			UPDATE striatumd.runs
+			   SET state = 'running'
+			 WHERE repository_id = $1 AND run_id = $2 AND state = 'needs_operator'
+			RETURNING run_id`, repositoryID, runID)
+		if err != nil {
+			return nil, err
+		}
+		if len(clearedRows) > 0 {
+			if _, err := appendResolveEvent(ctx, tx, repositoryID, runID, "run.resumed", nil, nullableResolve(blocker["job_id"]), nil, nil, nil, map[string]any{
+				"reason":        "escalation_resolved",
+				"escalation_id": escalationID,
+				"from_state":    "needs_operator",
+			}); err != nil {
+				return nil, err
+			}
+		}
 		return map[string]any{}, nil
 	})
 	if err != nil {

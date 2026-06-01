@@ -785,5 +785,7 @@ func isEscalationClassBlocker(blocker map[string]any) bool {
 		kind == "no_available_reviewer_lane" ||
 		kind == "committee_stalemate" ||
 		kind == "override_required" ||
-		kind == "ai_self_declared"
+		kind == "ai_self_declared" ||
+		// RFC 0101 Phase 4: daemon-authored recovery-exhausted escalation.
+		kind == recoveryExhaustedBlockerKind
 }

@@ -153,6 +153,14 @@ func (tx *escalationResolveFakeTx) Query(_ context.Context, sql string, _ ...any
 			}},
 		}, nil
 	}
+	// RFC 0101 Phase 4: the `UPDATE striatumd.runs ... RETURNING run_id` that
+	// clears needs_operator. This fake does not model a needs_operator run, so
+	// the guarded UPDATE affects zero rows (the common case: resolving an
+	// escalation on a still-running run). The live-PG mutations tests cover the
+	// flip path. Returning no rows means run.resumed is not emitted here.
+	if strings.Contains(sql, "UPDATE striatumd.runs") {
+		return &fakeRows{fields: []string{"run_id"}, rows: [][]any{}}, nil
+	}
 	return &fakeRows{
 		fields: []string{"blocker_id", "run_id", "job_id", "state", "payload_json"},
 		rows: [][]any{{

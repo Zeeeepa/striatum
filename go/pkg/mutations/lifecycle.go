@@ -1005,7 +1005,10 @@ func isEscalation(severity string, kind string) bool {
 	switch kind {
 	case "ambiguous_goal", "missing_authority", "contradicting_decisions",
 		"no_available_reviewer_lane", "committee_stalemate", "override_required",
-		"ai_self_declared":
+		"ai_self_declared",
+		// RFC 0101 Phase 4: a daemon-authored escalation for a job the
+		// autonomous recovery loop could not reclaim within its per-job budget.
+		recoveryExhaustedBlockerKind:
 		return true
 	}
 	return false

@@ -75,6 +75,30 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			}
 		}
 	}
+	// RFC 0101 Phase 4: a run flipped to needs_operator by the recovery sweep
+	// (autonomous recovery exhausted its per-job budget) is a LOUD, actionable
+	// problem — not a warning. Surface the count + the specific run ids and add
+	// each to `problems` with the escalation reason so `ok` goes false.
+	needsOperatorRuns := []string{}
+	if repositoryID != "" {
+		rows, err := collectRows(ctx, runner,
+			`SELECT run_id FROM striatumd.runs
+			  WHERE repository_id = $1 AND state = 'needs_operator'
+			  ORDER BY run_id`,
+			repositoryID,
+		)
+		if err == nil {
+			for _, row := range rows {
+				runID := superviseString(row["run_id"])
+				if runID == "" {
+					continue
+				}
+				needsOperatorRuns = append(needsOperatorRuns, runID)
+				problems = append(problems, "run_needs_operator."+runID+": autonomous recovery exhausted; resolve the recovery_exhausted escalation (escalation resolve) or cancel the run")
+			}
+		}
+	}
+
 	supervisorLiveness := []map[string]any{}
 	if repositoryID != "" {
 		if rows, err := reattachStatusRows(ctx, runner, repositoryID, "", "", ""); err == nil {
@@ -120,14 +144,16 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings := append([]string{}, codexWarnings...)
 
 	return map[string]any{
-		"ok":             len(problems) == 0,
-		"schema_version": schemaVersion,
-		"stale_leases":   staleLeases,
-		"waiting_human":  waitingHuman,
-		"supervisors":    supervisorLiveness,
-		"problems":       problems,
-		"warnings":       warnings,
-		"codex":          codexBlock,
-		"blob":           blobDoctorBlock(ctx, runner, repositoryID),
+		"ok":                  len(problems) == 0,
+		"schema_version":      schemaVersion,
+		"stale_leases":        staleLeases,
+		"waiting_human":       waitingHuman,
+		"needs_operator":      len(needsOperatorRuns),
+		"needs_operator_runs": needsOperatorRuns,
+		"supervisors":         supervisorLiveness,
+		"problems":            problems,
+		"warnings":            warnings,
+		"codex":               codexBlock,
+		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }

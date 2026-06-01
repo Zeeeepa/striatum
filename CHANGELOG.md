@@ -2,6 +2,70 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 4 — loud structured escalation (needs_operator run state)
+
+A run must never silently sit `running`. Phase 3 made the recovery sweep
+autonomously reclaim genuinely-stuck jobs within per-job budgets and, when a
+budget is exhausted, set `striatumd.job_recovery_state.escalation_pending=true` +
+`escalated_at` and emit a `recovery.budget_exhausted` event — but nothing
+consumed that flag. Phase 4 consumes it: it turns an unrecoverable stuck job into
+a loud, structured, operator-actionable escalation (RFC 0062) and flips the run
+to an explicit `needs_operator` state.
+
+- **Migration `0021_run_needs_operator.sql`** (owner-applied at deploy; pgtest
+  applies automatically): adds `'needs_operator'` to the `runs_state_check` CHECK
+  (DROP+ADD, same pattern as `0007_decision_propagation.sql`) and
+  `job_recovery_state.run_escalated_at timestamptz` (`ADD COLUMN IF NOT EXISTS` —
+  0020 is left immutable). No new GRANT (no new table). `LatestDaemonDBVersion`
+  20→21 in `go/pkg/db/migrations.go` with the version-21 label.
+- **Run-health escalation pass** (`go/pkg/mutations/recovery_escalation.go`,
+  `escalateExhaustedJobs`): called from `HandleRecoveryAuto` right AFTER
+  `recoverStuckJobs`, inside the same `withTx`, skipped on `dry_run`. For each
+  `job_recovery_state` row with `escalation_pending=true AND run_escalated_at IS
+  NULL` it creates a `blockers` row (`state='open'`, `blocker_kind='recovery_exhausted'`,
+  `severity='blocked'`, a description naming the workflow_job_id + stall_class) and
+  an `escalation_inbox` row (`state='pending'`, SAME id) carrying a structured
+  `payload_json` (`schema_version="striatum.recovery_escalation.v1"`,
+  `stuck_job`/`job_id`/`stall_class`/`last_recovery_action`/`requeue_count`/
+  `transfer_count`/`recovery_attempts` + a `suggested_operator_actions` list:
+  re-prepare with corrected write_scope / transfer to a fresh session / cancel the
+  run). It stamps `run_escalated_at=now()` (idempotency guard), appends a
+  `run.escalated` event, and — once at least one escalation is raised and the run
+  is still `running` — flips the run to `needs_operator` (guarded `WHERE
+  state='running'`) and appends a `run.needs_operator` event. The daemon authors
+  no markdown; the structured payload IS the escalation.
+- **New blocker kind `recovery_exhausted`** added to `isEscalation`
+  (`go/pkg/mutations/lifecycle.go`), `isEscalationClassBlocker`
+  (`go/pkg/mutations/artifact.go`), and `escalationPredicate`
+  (`go/pkg/reads/detail.go`) so it validates and is treated as an escalation
+  everywhere (it already matched `validBlockerKind`'s `^[a-z0-9._-]{1,64}$`).
+- **Transitions**: `running → needs_operator` (the sweep). Resolving the
+  escalation via `HandleEscalationResolve` (`go/pkg/reads/escalation_resolve.go`)
+  flips the run `needs_operator → running` (guarded `UPDATE ... WHERE
+  state='needs_operator' RETURNING run_id`) and emits a `run.resumed` event, so
+  the recovery sweep (`running`/`paused` filter) and new claims (claim gating on
+  `run.state='running'`) resume. `run.cancel` already allows `needs_operator →
+  canceled` (it only blocks `completed`/`failed`). The sweep's active-run query
+  (`go/pkg/recovery/sweep.go`, `state IN ('running','paused')`) already excludes
+  `needs_operator`, so an escalated run is not re-swept (confirmed; left unchanged).
+- **Surface**: `go/pkg/reads/doctor.go` now reports a `needs_operator` count +
+  `needs_operator_runs` list and adds each such run to `problems` (drives `ok`
+  false) — a problem, not a warning. `run status` already returns `r.state`, so
+  `needs_operator` + the open `recovery_exhausted` blocker surface there.
+- No new RPC method (the change extends the existing sweep + `escalation.resolve`
+  handlers), so the command-authority matrix is unchanged.
+- Tests (`go/pkg/mutations/recovery_escalation_test.go`, PG-gated):
+  `TestSweepEscalatesBudgetExhaustedJobToNeedsOperator` (a budget-exhausted job
+  becomes a `recovery_exhausted` blocker + `pending` escalation with the structured
+  payload, `run_escalated_at` stamped, run flipped to `needs_operator`);
+  `TestNeedsOperatorRunIsNotSwept` (excluded from the active-run query + a re-sweep
+  raises no duplicate escalation/blocker — idempotent via `run_escalated_at`);
+  `TestEscalationResolveClearsNeedsOperator` (resolve flips `needs_operator →
+  running`, marks both rows resolved, run is sweepable/claimable again). The
+  `pkg/reads` escalation-resolve fake learned to return zero rows for the new
+  `UPDATE striatumd.runs ... RETURNING` (the unit case is a still-running run).
+  All existing Phase 3 sweep + recovery tests stay green.
+
 ### RFC 0101 Phase 3 Slice 2b — recover stalled-but-session-active lanes (#121 parked agent)
 
 Closes a gap found reviewing Slice 2: the autonomous recovery decision tree

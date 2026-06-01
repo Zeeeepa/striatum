@@ -523,6 +523,7 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		// untouched). It reclaims genuinely-stuck jobs on the same attempt within
 		// per-job budgets. Dry-run skips it (it mutates state).
 		recoveryActions := []map[string]any{}
+		escalationsRaised := []map[string]any{}
 		if !dryRun {
 			workflow, werr := workflowForRun(ctx, tx, repositoryID, run)
 			if werr != nil {
@@ -539,6 +540,18 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			if err := maybeCompleteRun(ctx, tx, repositoryID, runID); err != nil {
 				return nil, err
 			}
+			// RFC 0101 Phase 4: consume escalation_pending. recoverStuckJobs flags a
+			// budget-exhausted job (Phase 3) but nothing acted on the flag. Here we
+			// turn each newly-exhausted job into a structured, operator-actionable
+			// escalation (blocker + escalation_inbox, RFC 0062) and flip the run to
+			// needs_operator so it never sits silently 'running'. Idempotent via the
+			// job_recovery_state.run_escalated_at guard; the sweep's running/paused
+			// active-run filter then excludes the escalated run from re-sweeping.
+			raised, eerr := escalateExhaustedJobs(ctx, tx, repositoryID, runID)
+			if eerr != nil {
+				return nil, eerr
+			}
+			escalationsRaised = raised
 		}
 		helperEvents, err := drainRunHelperEvents(ctx, tx, repositoryID, runID, dryRun)
 		if err != nil {
@@ -567,6 +580,10 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				"acted_count":              len(recoveryActions),
 				"actions":                  recoveryActions,
 				"escalation_pending_count": escalationPending,
+			},
+			"escalations": map[string]any{
+				"raised_count": len(escalationsRaised),
+				"raised":       escalationsRaised,
 			},
 		}, nil
 	})
