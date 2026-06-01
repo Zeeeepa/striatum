@@ -17,8 +17,9 @@ author: operator-claude-001
 Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
 runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
 are durable provenance; `.striatum/` is operational scratch only. Latest
-release is **v2.9.0 (2026-06-01)** — the full RFC 0101 robust-autonomous-execution
-arc (Phases 1–5), deployed at **schema 21**.
+release is **v2.9.1 (2026-06-01)** — the full RFC 0101 robust-autonomous-execution
+arc (Phases 1–5) **plus** RFC 0096 V2's first security slice (#135 per-session
+capability-token binding), deployed at **schema 22**.
 
 Since the prior brief (which stopped at RFC 0078) the work has been the
 **live-collaboration → autonomous-execution arc**:
