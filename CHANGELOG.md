@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v2.9.1 — 2026-06-01
+
+Security: RFC 0096 V2 first slice — per-session capability-token binding (#135),
+deployed at schema 22. Closes the cross-session impersonation vector for any
+session-bound caller and records honest operator-override provenance for the
+shared operator token. Remaining V2 (lane-env wiring so live lanes use their
+session-bound token, #70 token-out-of-work-tree, #87 PG-less lane sandbox) is
+live-lane-verification-gated and tracked as follow-up.
+
 ### RFC 0096 V2 / #135 — per-session capability-token binding
 
 Closes the cross-session impersonation vector: any holder of the repo-scoped
