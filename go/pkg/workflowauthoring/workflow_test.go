@@ -558,6 +558,55 @@ func TestLoadFileRejectsMalformedJSONWorkflowFile(t *testing.T) {
 	}
 }
 
+// --- GH #114: workflow validate must reject duplicate top-level keys ---
+
+func TestLoadFileRejectsDuplicateTopLevelKey(t *testing.T) {
+	repo := t.TempDir()
+	path := filepath.Join(repo, "workflow.json")
+	// Hand-craft JSON with a duplicate "lanes" key. encoding/json would
+	// silently take last-wins, but our duplicate-key scanner must catch it
+	// and return a clear error naming the duplicated key.
+	raw := `{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "dup-key-test",
+  "lanes": {"codex": {"adapter": "process", "command": ["true"]}},
+  "lanes": {"other": {"adapter": "process", "command": ["true"]}},
+  "workflow_version": "1",
+  "name": "Dup Key Test",
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "coordinator": {"role_id": "author", "lane_id": "codex"},
+  "roles": {"author": {}},
+  "context_docs": [],
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "jobs": [],
+  "edges": [],
+  "cycles": []
+}`
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	_, _, err := LoadFile(repo, "workflow.json")
+	if err == nil {
+		t.Fatal("LoadFile must reject duplicate top-level key but returned nil error")
+	}
+	if !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("LoadFile duplicate key error should mention 'duplicate': %v", err)
+	}
+	if !strings.Contains(err.Error(), "lanes") {
+		t.Fatalf("LoadFile duplicate key error should name the duplicated key 'lanes': %v", err)
+	}
+}
+
+func TestLoadFileAcceptsWorkflowWithNoDuplicateKeys(t *testing.T) {
+	// Sanity-check: a well-formed workflow must still load successfully.
+	repo := t.TempDir()
+	writeWorkflow(t, filepath.Join(repo, "workflow.json"), validWorkflow())
+	_, _, err := LoadFile(repo, "workflow.json")
+	if err != nil {
+		t.Fatalf("LoadFile valid workflow error = %v", err)
+	}
+}
+
 // --- GH #97: document_only reviewer with empty inputs is inconsistent ---
 
 func TestValidateRejectsDocumentOnlyReviewerWithoutInputs(t *testing.T) {

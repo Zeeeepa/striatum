@@ -134,6 +134,16 @@ func Load(path string) (map[string]any, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: expected a JSON object", path)}
 	}
+	// GH #114: detect duplicate top-level keys before decoding. Go's
+	// encoding/json silently takes last-wins for duplicate keys, so we scan
+	// the token stream ourselves. Only the top-level object is checked because
+	// the authoring contract does not allow duplicate sub-keys either, but the
+	// duplicate-lanes bug that motivated #114 is a top-level problem.
+	if dupKey, err := detectDuplicateTopLevelKey(raw); err != nil {
+		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: %s", path, err.Error())}
+	} else if dupKey != "" {
+		return nil, &Error{Message: fmt.Sprintf("workflow file has duplicate top-level key %q: %s", dupKey, path)}
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	var workflow map[string]any
@@ -147,6 +157,73 @@ func Load(path string) (map[string]any, error) {
 		return nil, err
 	}
 	return workflow, nil
+}
+
+// detectDuplicateTopLevelKey scans the JSON token stream and returns the first
+// duplicate key in the top-level object, or an empty string if none are found.
+// It returns an error only when the raw bytes are not parseable JSON at all.
+func detectDuplicateTopLevelKey(raw []byte) (string, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	// Consume the opening '{'.
+	tok, err := dec.Token()
+	if err != nil {
+		return "", err
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return "", nil // not an object; structural validation happens elsewhere
+	}
+	seen := map[string]bool{}
+	depth := 0 // nesting depth inside the top-level object
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", err
+		}
+		if depth == 0 {
+			// At depth 0 we alternate key / value. Keys are always strings.
+			key, ok := tok.(string)
+			if !ok {
+				continue
+			}
+			if seen[key] {
+				return key, nil
+			}
+			seen[key] = true
+			// Skip the value: if it is a nested object or array we must
+			// consume its tokens so the decoder stays in sync.
+			if err := skipValue(dec, &depth); err != nil {
+				return "", err
+			}
+		}
+	}
+	return "", nil
+}
+
+// skipValue advances the decoder past exactly one JSON value. It handles
+// nested objects and arrays by tracking depth so the caller can stay in sync.
+func skipValue(dec *json.Decoder, depth *int) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	switch v := tok.(type) {
+	case json.Delim:
+		switch v {
+		case '{', '[':
+			*depth++
+			for dec.More() {
+				if err := skipValue(dec, depth); err != nil {
+					return err
+				}
+			}
+			if _, err := dec.Token(); err != nil { // consume closing } or ]
+				return err
+			}
+			*depth--
+		}
+	}
+	return nil
 }
 
 func Validate(workflow map[string]any) error {
