@@ -16,19 +16,19 @@ import (
 type LaneReason string
 
 const (
-	ReasonNone                     LaneReason = ""
-	ReasonNoAttachedSupervisor     LaneReason = "no_attached_supervisor"
-	ReasonPIDMissing               LaneReason = "pid_missing"
-	ReasonDaemonSupervisorMissing  LaneReason = "daemon_supervisor_missing"
-	ReasonPointerStateMismatch     LaneReason = "pointer_state_mismatch"
-	ReasonDaemonStateMismatch      LaneReason = "daemon_state_mismatch"
-	ReasonPointerPIDMismatch       LaneReason = "pointer_pid_mismatch"
-	ReasonTmuxMetadataCorrupt      LaneReason = "tmux_metadata_corrupt"
-	ReasonStartTokenUnverified     LaneReason = "start_token_unverified"
-	ReasonPIDGone                  LaneReason = "pid_gone"
-	ReasonSupervisorStalled        LaneReason = "supervisor_stalled"
-	ReasonPIDIdentityMismatch      LaneReason = "pid_identity_mismatch"
-	ReasonPIDIdentityUnavailable   LaneReason = "pid_identity_unavailable"
+	ReasonNone                    LaneReason = ""
+	ReasonNoAttachedSupervisor    LaneReason = "no_attached_supervisor"
+	ReasonPIDMissing              LaneReason = "pid_missing"
+	ReasonDaemonSupervisorMissing LaneReason = "daemon_supervisor_missing"
+	ReasonPointerStateMismatch    LaneReason = "pointer_state_mismatch"
+	ReasonDaemonStateMismatch     LaneReason = "daemon_state_mismatch"
+	ReasonPointerPIDMismatch      LaneReason = "pointer_pid_mismatch"
+	ReasonTmuxMetadataCorrupt     LaneReason = "tmux_metadata_corrupt"
+	ReasonStartTokenUnverified    LaneReason = "start_token_unverified"
+	ReasonPIDGone                 LaneReason = "pid_gone"
+	ReasonSupervisorStalled       LaneReason = "supervisor_stalled"
+	ReasonPIDIdentityMismatch     LaneReason = "pid_identity_mismatch"
+	ReasonPIDIdentityUnavailable  LaneReason = "pid_identity_unavailable"
 )
 
 // deliveryReasonAttachClientExited is the delivery_liveness reason emitted when
@@ -40,12 +40,12 @@ const deliveryReasonAttachClientExited = "attach_client_exited"
 
 type Health struct {
 	Bound, Alive, Attested, Deliverable bool
-	Stall         sessionliveness.Result
-	Reason        LaneReason
-	LivenessClass string
-	SupervisorID  string
-	PID           int
-	DeliveryReason string
+	Stall                               sessionliveness.Result
+	Reason                              LaneReason
+	LivenessClass                       string
+	SupervisorID                        string
+	PID                                 int
+	DeliveryReason                      string
 }
 
 func (h Health) LiveTarget() bool { return h.Attested && h.Alive }
@@ -68,21 +68,21 @@ func (p ProdProbe) ProbeLane(ctx context.Context, meta gosupervisor.TmuxMeta, pi
 		"agent_loop_mode": meta.AgentLoopMode,
 	}
 	tmux := map[string]any{
-		"state":                    meta.Tmux.State,
-		"session_name":             meta.Tmux.SessionName,
-		"window_id":                meta.Tmux.WindowID,
-		"pane_id":                  meta.Tmux.PaneID,
-		"pane_start_token":         meta.Tmux.PaneStartToken,
-		"attach_command":           meta.Tmux.AttachCommand,
-		"unavailable_reason":       meta.Tmux.UnavailableReason,
-		"captured_at":              meta.Tmux.CapturedAt,
-		"probe_skipped_at":         meta.Tmux.ProbeSkippedAt,
-		"last_ok_at":               meta.Tmux.LastOkAt,
-		"last_unavailable_detail":  meta.Tmux.LastUnavailableDetail,
-		"liveness_state":           meta.Tmux.LivenessState,
-		"pane_pid":                 meta.Tmux.PanePID,
-		"attach_client_pid":        meta.Tmux.AttachClientPID,
-		"probe_unavailable_count":  meta.Tmux.ProbeUnavailableCount,
+		"state":                   meta.Tmux.State,
+		"session_name":            meta.Tmux.SessionName,
+		"window_id":               meta.Tmux.WindowID,
+		"pane_id":                 meta.Tmux.PaneID,
+		"pane_start_token":        meta.Tmux.PaneStartToken,
+		"attach_command":          meta.Tmux.AttachCommand,
+		"unavailable_reason":      meta.Tmux.UnavailableReason,
+		"captured_at":             meta.Tmux.CapturedAt,
+		"probe_skipped_at":        meta.Tmux.ProbeSkippedAt,
+		"last_ok_at":              meta.Tmux.LastOkAt,
+		"last_unavailable_detail": meta.Tmux.LastUnavailableDetail,
+		"liveness_state":          meta.Tmux.LivenessState,
+		"pane_pid":                meta.Tmux.PanePID,
+		"attach_client_pid":       meta.Tmux.AttachClientPID,
+		"probe_unavailable_count": meta.Tmux.ProbeUnavailableCount,
 	}
 	if meta.Tmux.DeliveryLiveness != nil {
 		tmux["delivery_liveness"] = map[string]any{
@@ -123,14 +123,14 @@ type Facts struct {
 	PIDStartTime       string
 	SupervisorState    string
 
-	HasPointer               bool
+	HasPointer                bool
 	PointerDaemonSupervisorID string
-	PointerPID               int
-	PointerPIDStartTime      string
-	PointerState             string
-	PointerTmuxMeta          gosupervisor.TmuxMeta
-	HelperPID                int
-	HelperPIDStartTime       string
+	PointerPID                int
+	PointerPIDStartTime       string
+	PointerState              string
+	PointerTmuxMeta           gosupervisor.TmuxMeta
+	HelperPID                 int
+	HelperPIDStartTime        string
 
 	HasDaemonSupervisor bool
 	DaemonSupervisorID  string
@@ -291,6 +291,9 @@ func (c Checker) Check(ctx context.Context, runner any, repositoryID, sessionID 
 		       s.last_session_heartbeat_at AS last_session_heartbeat_at,
 		       s.last_session_question_at AS last_session_question_at,
 		       s.last_session_escalate_at AS last_session_escalate_at,
+		       s.last_pty_activity_at AS last_pty_activity_at,
+		       s.last_tool_call_started_at AS last_tool_call_started_at,
+		       s.last_tool_call_finished_at AS last_tool_call_finished_at,
 		       s.liveness_stall_class AS liveness_stall_class,
 		       s.liveness_stall_since AS liveness_stall_since,
 		       active_lease.lease_id AS active_lease_id,
