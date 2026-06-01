@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### #123 — auto branch confirmation verifies the branch before recording it confirmed
+
+`run.prepare` with `branch.mode: auto` could mark the working branch `confirmed`
+(run → `ready`) without the branch actually existing or being checked out, so a
+later `commit-apply` / `worktree.create` silently operated on the wrong branch.
+`runPrepare` now checks the current branch and, when it differs from the
+suggested branch, checks out an existing branch or creates it (matching
+`branch.confirm --create` semantics) before recording confirmation; a failed git
+operation surfaces a `workflow_error` instead of a ghost confirmation, and the
+`run.branch_confirmed` event records the real `created` flag. Helper
+`gitBranchExists`; tests `TestGitBranchExists`, `TestAutoConfirmBranchCreatesOrChecksOut`.
+
+### #122 — top-level `--help` lists the local workflow authoring subcommands
+
+`striatum --help` advertised `workflow accept-risk | accepted-risks` (the
+daemon-routed verbs from `routes.All()`) but omitted the local authoring
+subcommands `validate` / `generate` / `templates`, which `runWorkflow()`
+dispatches before the daemon route. `usage()` now adds them so the full workflow
+surface is discoverable. Test extends `TestTopLevelHelpAndUnknownCommand`.
+
+### #114 — `workflow validate` rejects duplicate top-level keys
+
+A `workflow.json` with two top-level `"lanes"` keys was silently accepted
+(`encoding/json` takes last-wins). `Load` now scans the JSON token stream via
+`detectDuplicateTopLevelKey` before decoding and fails with an error naming the
+duplicated key. Helper `skipValue` keeps the decoder in sync across nested
+values. Tests `TestLoadFileRejectsDuplicateTopLevelKey`,
+`TestLoadFileAcceptsWorkflowWithNoDuplicateKeys`.
+
 ### #111 — catalog/generator shape reconciliation + `workflow --help`
 
 The template catalog advertised `iterated_interrogating_panel` as a shape, but
