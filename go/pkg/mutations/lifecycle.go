@@ -404,6 +404,9 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 					}
 				}
 			}
+			// #129: remove the Claude lane's ephemeral .claude/scheduled_tasks.lock
+			// on session close too (mirrors the #62 .gemini/settings.json cleanup).
+			agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 		}
 
 		return map[string]any{

@@ -258,3 +258,36 @@ func TestCleanupGeminiSettings(t *testing.T) {
 		cleanup()
 	})
 }
+
+// TestCleanupClaudeScheduledTasksLock is the #129 regression: a supervised
+// Claude lane writes .claude/scheduled_tasks.lock into the target work tree, and
+// lane teardown must remove that one file — but never other .claude/ contents,
+// which may be operator config.
+func TestCleanupClaudeScheduledTasksLock(t *testing.T) {
+	repo := t.TempDir()
+	claudeDir := filepath.Join(repo, ".claude")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lockPath := filepath.Join(claudeDir, "scheduled_tasks.lock")
+	if err := os.WriteFile(lockPath, []byte("lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// An unrelated operator-owned .claude file that must be preserved.
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	if err := os.WriteFile(settingsPath, []byte(`{"operator":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	CleanupClaudeScheduledTasksLock(repo)
+
+	if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+		t.Fatalf("scheduled_tasks.lock was not removed: stat err = %v", err)
+	}
+	if _, err := os.Stat(settingsPath); err != nil {
+		t.Fatalf("teardown must not remove unrelated .claude contents: %v", err)
+	}
+	// Idempotent: a second call (or a missing file / empty root) is a safe no-op.
+	CleanupClaudeScheduledTasksLock(repo)
+	CleanupClaudeScheduledTasksLock("")
+}

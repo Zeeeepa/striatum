@@ -181,6 +181,23 @@ func CleanupGeminiSettings(repoRoot, supervisorID string) {
 	}
 }
 
+// CleanupClaudeScheduledTasksLock removes the ephemeral
+// .claude/scheduled_tasks.lock that a supervised Claude lane writes into the
+// target work tree (#129, mirroring the #62 .gemini/settings.json cleanup). Lane
+// teardown must not leave this operational lock file dirtying the work tree.
+//
+// Conservative by design: it removes ONLY that one lock file — never broader
+// .claude/ contents, which may be the operator's own Claude config. Best-effort
+// and idempotent (a missing repo root or absent file is a no-op), so it is safe
+// to call on every terminal supervisor transition, and from any teardown path.
+func CleanupClaudeScheduledTasksLock(repoRoot string) {
+	if repoRoot == "" {
+		return
+	}
+	lockPath := filepath.Join(repoRoot, ".claude", "scheduled_tasks.lock")
+	_ = os.Remove(lockPath)
+}
+
 func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(), error) {
 	cfg := map[string]any{
 		"mcpServers": map[string]any{

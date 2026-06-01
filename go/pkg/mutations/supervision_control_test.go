@@ -476,7 +476,11 @@ func hasEnvKey(env []string, key string) bool {
 // graceful exit, supervise stop, and tmux kill/lost) and asserts the token file
 // is gone, plus the non-terminal "attached" case which must NOT clean.
 func TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown(t *testing.T) {
-	plant := func(repo string) (settingsPath, createdMarker string) {
+	// plant seeds the per-launch lane operational files a teardown must clean:
+	// the agy .gemini/settings.json token file (#62) and the Claude
+	// .claude/scheduled_tasks.lock (#129), plus an unrelated operator-owned
+	// .claude file that must be preserved.
+	plant := func(repo string) (settingsPath, lockPath, operatorClaude string) {
 		t.Helper()
 		settingsPath = filepath.Join(repo, ".gemini", "settings.json")
 		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
@@ -492,17 +496,29 @@ func TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown(t *testing.T) {
 		if err := os.MkdirAll(scratch, 0o755); err != nil {
 			t.Fatalf("mkdir scratch: %v", err)
 		}
-		createdMarker = filepath.Join(scratch, "settings.json.created")
-		if err := os.WriteFile(createdMarker, nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(scratch, "settings.json.created"), nil, 0o600); err != nil {
 			t.Fatalf("write created marker: %v", err)
 		}
-		return settingsPath, createdMarker
+		// Simulate the Claude lane's ephemeral lock + an operator .claude file.
+		claudeDir := filepath.Join(repo, ".claude")
+		if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+			t.Fatalf("mkdir .claude: %v", err)
+		}
+		lockPath = filepath.Join(claudeDir, "scheduled_tasks.lock")
+		if err := os.WriteFile(lockPath, []byte("lock"), 0o600); err != nil {
+			t.Fatalf("write lock: %v", err)
+		}
+		operatorClaude = filepath.Join(claudeDir, "settings.json")
+		if err := os.WriteFile(operatorClaude, []byte(`{"operator":true}`), 0o600); err != nil {
+			t.Fatalf("write operator .claude file: %v", err)
+		}
+		return settingsPath, lockPath, operatorClaude
 	}
 
 	for _, state := range []string{"stopped", "lost", "failed"} {
 		t.Run("terminal_"+state, func(t *testing.T) {
 			repo := t.TempDir()
-			settingsPath, _ := plant(repo)
+			settingsPath, lockPath, operatorClaude := plant(repo)
 			tx := &superviseControlFakeTx{repoRoot: repo}
 			endedAt := "2026-05-30T00:00:00Z"
 			reason := "teardown via " + state
@@ -512,18 +528,27 @@ func TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown(t *testing.T) {
 			if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
 				t.Fatalf("state %s left the token file on disk: stat err = %v", state, err)
 			}
+			if _, err := os.Stat(lockPath); !os.IsNotExist(err) {
+				t.Fatalf("state %s left .claude/scheduled_tasks.lock on disk: stat err = %v", state, err)
+			}
+			if _, err := os.Stat(operatorClaude); err != nil {
+				t.Fatalf("state %s removed unrelated operator .claude file: %v", state, err)
+			}
 		})
 	}
 
 	t.Run("non_terminal_attached_keeps_file", func(t *testing.T) {
 		repo := t.TempDir()
-		settingsPath, _ := plant(repo)
+		settingsPath, lockPath, _ := plant(repo)
 		tx := &superviseControlFakeTx{repoRoot: repo}
 		if err := updateSupervisorState(context.Background(), tx, "repo_1", "sup_1", "dsup_1", "attached", "2026-05-30T00:00:00Z", 123, "tok", "", nil, nil); err != nil {
 			t.Fatalf("updateSupervisorState(attached): %v", err)
 		}
 		if _, err := os.Stat(settingsPath); err != nil {
 			t.Fatalf("non-terminal transition removed the live token file: %v", err)
+		}
+		if _, err := os.Stat(lockPath); err != nil {
+			t.Fatalf("non-terminal transition removed the live .claude lock: %v", err)
 		}
 	})
 }

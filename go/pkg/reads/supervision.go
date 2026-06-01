@@ -1350,15 +1350,17 @@ func updateSupervisorState(ctx context.Context, runner db.TxRunner, repositoryID
 }
 
 // cleanupSupervisorLaneMCPConfig resolves the supervisor's working directory and
-// removes/restores any per-launch lane MCP config it wrote (the agy
-// .gemini/settings.json bearer-token file). Best-effort: a missing repo root or
-// absent scratch markers leave nothing to do.
+// removes/restores any per-launch lane operational files the lane wrote into the
+// target work tree: the agy .gemini/settings.json bearer-token file (#62) and
+// the Claude .claude/scheduled_tasks.lock (#129). Best-effort: a missing repo
+// root or absent files leave nothing to do.
 func cleanupSupervisorLaneMCPConfig(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) {
 	repoRoot := supervisorRepoRoot(ctx, runner, repositoryID, supervisorID)
 	if repoRoot == "" {
 		return
 	}
 	agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
+	agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 }
 
 // supervisorRepoRoot reads the supervisor's recorded working directory (cwd),

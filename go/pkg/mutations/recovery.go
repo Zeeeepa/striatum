@@ -149,6 +149,7 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 					return nil, err
 				}
 				agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
+				agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 			}
 			if _, err := appendEvent(ctx, tx, repositoryID, runID, "process.lost", row["session_id"], row["job_id"], nil, nil, row["lease_id"], map[string]any{
 				"process_id": processID,
