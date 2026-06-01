@@ -126,7 +126,7 @@ is the acute open blocker** and the named RFC 0101 L3 gap. No harness Go was
 built — the self-hosting paradox held again (a broken runner can't reliably
 dogfood its own fixes).
 
-## Issue burn-down 2026-06-01 (32 → 18 open)
+## Issue burn-down 2026-06-01 (32 → 17 open)
 
 A `max-closed-count-first` burn-down pass (plan `~/.claude/plans/typed-shimmying-diffie.md`):
 
@@ -144,7 +144,7 @@ A `max-closed-count-first` burn-down pass (plan `~/.claude/plans/typed-shimmying
   `systemctl --user restart striatumd`; verify the RUNNING `/proc/<pid>/exe` sha,
   not just the file. (Cost a live false-negative on #142.)
 
-**Remaining 18, heavier/architectural (route via dogfood or bootstrap-subagent w/ review):**
+**Remaining 17, heavier/architectural (route via dogfood or bootstrap-subagent w/ review):**
 #141 (agent-loop receiver reconnect across daemon socket recreation + supervisor
 re-bind), #125 (codex readiness-vs-`work.ack` guard); **RFC 0096 V2** security
 #135/#70/#87; **RFC 0100 P2** #126/#128; **RFC 0097** #115/#138; **RFC 0099/0102**
