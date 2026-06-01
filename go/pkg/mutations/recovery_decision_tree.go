@@ -271,21 +271,37 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		// Decide the operational recovery action.
 		var action, counterColumn string
 		var forceExpire bool
+		var closeStalledOwner bool
 		switch {
 		case sessionDead && leaseClearedOrGone && !leaseStaleActive(row):
 			// CASE 1: dead/closed/absent owner, lease released/expired/absent, and
 			// the auto-publish pass already ran (any recoverable artifact would have
 			// completed the job, so a job still unfinished here has none). Requeue
-			// on the same attempt.
+			// on the same attempt. CASE 1 takes precedence for a dead/absent session;
+			// the !sessionDead guard on CASE 2 makes the precedence unambiguous (a
+			// closed/absent session is sessionDead and never broadens into CASE 2).
 			action = "requeue_same_attempt"
 			counterColumn = "requeue_count"
-		case protocol == sessionliveness.ProtocolStalled && hasActiveLease && leaseExpired(row, now):
-			// CASE 2: stalled past its deadline but still holding an active-but-
-			// expired lease — a transfer. Force-expire the residual lease, then
-			// requeue on the same attempt.
+		case !sessionDead && protocol == sessionliveness.ProtocolStalled:
+			// CASE 2 (RFC 0101 Phase 3 Slice 2b, #121 parked agent): the owning
+			// session is still present and state='active' but HONESTLY stalled. The
+			// Phase 1 honest-liveness contract guarantees protocol==stalled means NO
+			// protocol + NO PTY + NO tool-call progress past the deadline — i.e.
+			// genuinely stuck — so acting on it is safe regardless of lease state.
+			// This fires whether the lease is expired, released, or absent: by the
+			// time the decision tree runs, HandleRecoveryAuto's expireLeases pass has
+			// already flipped a past-expiry active lease to 'expired', so the old
+			// `hasActiveLease && leaseExpired` precondition could never observe the
+			// live #121 case. It is a transfer to a fresh session, on the
+			// transfer_count budget. requeueJobSameAttempt already force-expires any
+			// residual active lease, so dropping the hasActiveLease precondition is
+			// safe; forceExpire stays true as belt-and-suspenders. Because the
+			// session never closed itself, also close the superseded stalled owner
+			// below so the parked lane cannot wake up to double-work or reclaim.
 			action = "transfer_requeue"
 			counterColumn = "transfer_count"
 			forceExpire = true
+			closeStalledOwner = true
 		default:
 			// working_* / quiet (pre-deadline), or a live lease that has not yet
 			// expired: not genuinely stuck. Leave it.
@@ -376,19 +392,81 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		if err := recordRecoveryAction(ctx, tx, repositoryID, runID, jobID, counterColumn, action, stallClass); err != nil {
 			return nil, err
 		}
+		// RFC 0101 Phase 3 Slice 2b: when CASE 2 transferred a job away from a
+		// still-active stalled owning session, close that session so the parked
+		// lane cannot wake up to double-work or reclaim the job a fresh lane now
+		// owns. Mirrors the #121 manual flow (the operator did `session close`).
+		// Only the session that OWNS this job is touched; interrogation-target
+		// sessions are handled by the panel-window logic (closeLeakedInterrogationWindow),
+		// not here. The close is guarded on still-active (idempotent).
+		ownerClosed := false
+		if closeStalledOwner && !sessionAbsent {
+			closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClass)
+			if cerr != nil {
+				return nil, cerr
+			}
+			ownerClosed = closed
+		}
 		actions = append(actions, map[string]any{
-			"workflow_job_id": workflowJobID,
-			"job_id":          jobID,
-			"action":          action,
-			"budget":          counterColumn,
-			"count":           current + 1,
-			"limit":           limit,
-			"repo_write":      repoWrite,
-			"stall_class":     stallClass,
-			"acted":           true,
+			"workflow_job_id":       workflowJobID,
+			"job_id":                jobID,
+			"action":                action,
+			"budget":                counterColumn,
+			"count":                 current + 1,
+			"limit":                 limit,
+			"repo_write":            repoWrite,
+			"stall_class":           stallClass,
+			"acted":                 true,
+			"stalled_owner_closed":  ownerClosed,
+			"stalled_owner_session": nullable(sessionID),
 		})
 	}
 	return actions, nil
+}
+
+// closeStalledOwningSession closes a still-active stalled session that OWNS a job
+// the decision tree just transferred (CASE 2). It is guarded on state='active'
+// so a session another actor already closed (or that was never active) is left
+// untouched — making it idempotent and safe to re-run. It records a
+// session.closed event with the recovery reason so the audit trail is honest.
+// It deliberately does NOT touch interrogation-target sessions: those are the
+// panel-window logic's responsibility (closeLeakedInterrogationWindow).
+func closeStalledOwningSession(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID, sessionID, stallClass string) (bool, error) {
+	if sessionID == "" || sessionID == "<nil>" {
+		return false, nil
+	}
+	// Guard: only close a session that is STILL active (idempotent — a session
+	// some other actor already closed, or that was never active, is left alone).
+	// The decision tree already holds FOR UPDATE on the owning job; the session
+	// row itself is read fresh here so a concurrent close is observed.
+	stillActive, err := existsRow(ctx, tx, `
+		SELECT 1 FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2 AND state = 'active'
+		 LIMIT 1`, repositoryID, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if !stillActive {
+		return false, nil
+	}
+	now := nowString()
+	const closeReason = "recovery_stalled_transfer"
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET state = 'closed', closed_at = $1, close_reason = $2
+		 WHERE repository_id = $3 AND session_id = $4 AND state = 'active'`,
+		now, closeReason, repositoryID, sessionID); err != nil {
+		return false, err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.closed", sessionID, jobID, nil, nil, nil, map[string]any{
+		"session_id":  sessionID,
+		"reason":      closeReason,
+		"source":      "recovery_decision_tree",
+		"stall_class": stallClass,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // closeLeakedInterrogationWindow closes a leaked interrogation window owned by
@@ -420,16 +498,6 @@ func closeLeakedInterrogationWindow(ctx context.Context, tx db.TxRunner, reposit
 // would have a brand-new active lease).
 func leaseStaleActive(row map[string]any) bool {
 	return fmt.Sprint(nullable(row["lease_state"])) == "active"
-}
-
-// leaseExpired reports whether the job's resolved lease has an expires_at in the
-// past relative to now (the transfer precondition for a still-active lease).
-func leaseExpired(row map[string]any, now time.Time) bool {
-	expires, ok := timeFromAny(row["lease_expires_at"])
-	if !ok {
-		return false
-	}
-	return expires.Before(now)
 }
 
 func sessionStateLabel(sessionID, sessionState string) string {

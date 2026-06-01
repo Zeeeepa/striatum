@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 3 Slice 2b — recover stalled-but-session-active lanes (#121 parked agent)
+
+Closes a gap found reviewing Slice 2: the autonomous recovery decision tree
+(`recoverStuckJobs`) could not recover a parked/stalled lane whose owning session
+was still `state='active'` (the #121 welcome-screen case, the silent wedge
+RFC 0101 must eliminate). `HandleRecoveryAuto` calls `expireLeases(...)` BEFORE
+the tree runs, so by the time the tree saw the job the stalled lane's lease was
+already `expired` ⇒ the old CASE 2 (`stalled && hasActiveLease && leaseExpired`)
+could never fire; and because nobody closed the session (no operator), it was
+`active` + `stalled` (not `dead`) ⇒ CASE 1 could not fire either. The job fell to
+`default: continue`, was recovered by neither case, and was never escalated
+(escalation only follows a real budget-exhausted action) — wedging forever.
+
+- **Broadened CASE 2** (`go/pkg/mutations/recovery_decision_tree.go`): it now fires
+  for an unfinished job whenever the owning session is present-and-`active` but
+  honestly `stalled` (`!sessionDead && protocol == ProtocolStalled`), regardless of
+  whether the lease is `expired`, `released`, or absent — the `hasActiveLease &&
+  leaseExpired` precondition is dropped (`requeueJobSameAttempt` already
+  force-expires any residual active lease). The Phase 1 honest-liveness contract
+  guarantees `stalled` means NO protocol + NO PTY + NO tool-call progress past the
+  deadline, so acting on it is safe. CASE 1 (dead/closed/absent → `requeue_count`)
+  is unchanged and still takes precedence; CASE 2's `!sessionDead` guard makes the
+  ordering unambiguous. The transfer keeps the `transfer_count` budget.
+- **Closes the superseded stalled session** (`closeStalledOwningSession`): when
+  CASE 2 transfers a job whose owning session is still `active`, the tree now also
+  closes that session (`state='closed'`, `close_reason='recovery_stalled_transfer'`)
+  and emits a `session.closed` event — mirroring the #121 manual flow (the operator
+  did `session close`) so the parked lane cannot wake up to double-work or reclaim a
+  job a fresh lane now owns. Guarded on still-`active` (idempotent); only the
+  session that OWNS the recovered job is touched — interrogation-target sessions
+  remain the panel-window logic's responsibility.
+- **Preserved Slice 2 safety**: `working_protocol` / `working_local` / `working_tool`
+  / `quiet` (pre-deadline) sessions are still NEVER requeued — the #80 protection
+  holds even with an expired lease. Budgets, `escalation_pending`, convergence, and
+  the `recovery_actions` summary are unchanged (the summary now also carries
+  `stalled_owner_closed` / `stalled_owner_session` on a transfer action).
+- No DB schema change in this slice.
+- Tests (`go/pkg/mutations/recovery_decision_tree_test.go`, PG-gated):
+  `TestSweepRecoversStalledSessionActiveLane` (the gap — failed `acted_count=0`
+  before the fix; now requeues to `queued`+`pending` same attempt, `transfer_count`
+  →1, owning session `closed` with `recovery_stalled_transfer`, fresh session
+  claims it); `TestSweepDoesNotRequeueWorkingLocalWithExpiredLease` and
+  `TestSweepDoesNotRequeueWorkingToolPreDeadline` (the #80 protection holds with an
+  expired lease); every existing Slice 2 test stays green.
+
 ### RFC 0101 Phase 3 Slice 2 — autonomous recovery decision tree + per-job budgets
 
 The crash-safe recovery sweep (`recovery.RunScheduler` →
