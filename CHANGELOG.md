@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### #129 — remove `.claude/scheduled_tasks.lock` on lane teardown
+
+A supervised Claude lane writes `.claude/scheduled_tasks.lock` into the target
+work tree; teardown left it behind, dirtying the tree. New
+`agentloop.CleanupClaudeScheduledTasksLock` removes ONLY that one lock file
+(never broader `.claude/` contents, which may be operator config), wired at the
+terminal-state choke point `cleanupSupervisorLaneMCPConfig` (mutations + reads
+copies) plus the `supervise.stop`, session-close, and recovery teardown paths —
+path-independent and idempotent, mirroring the #62 `.gemini/settings.json`
+cleanup. Tests `TestCleanupClaudeScheduledTasksLock` +
+`TestUpdateSupervisorStateCleansLaneMCPConfigOnEveryTeardown`.
+
 ### RFC 0101 Phase 1 (slice 1) — PTY-output lease auto-heartbeat (#80/#136)
 
 A self-driving lane doing long LOCAL work (reading/editing files between MCP
