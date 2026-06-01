@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-01c_rfc0101-phase1-2-landed"
-supersedes: "brief_2026-06-01b_rfc0101-phase1-landed"
+brief_id: "brief_2026-06-01d_rfc0101-complete-v2.9.0"
+supersedes: "brief_2026-06-01c_rfc0101-phase1-2-landed"
 scope_links: ["docs/rfcs/0101-robust-autonomous-workflow-execution.md", "docs/rfcs/0102-operator-attention-economy.md", "docs/rfcs/0095-revision-safe-workflow-lifecycle.md", "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "docs/rfcs/0097-full-workflow-run-orchestration.md", "dogfoods/rfc-0101-l2-conformance/OPERATOR_REPORT.md", "dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md", "CHANGELOG.md", "docs/rfcs/README.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -17,8 +17,8 @@ author: operator-claude-001
 Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
 runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
 are durable provenance; `.striatum/` is operational scratch only. Latest
-release is **v2.8.0 (2026-05-29)**; `Unreleased` in `CHANGELOG.md` holds a
-post-v2.8.0 runner/DX fix batch (#100-#111, #80/#85 partials) not yet bumped.
+release is **v2.9.0 (2026-06-01)** — the full RFC 0101 robust-autonomous-execution
+arc (Phases 1–5), deployed at **schema 21**.
 
 Since the prior brief (which stopped at RFC 0078) the work has been the
 **live-collaboration → autonomous-execution arc**:
@@ -43,50 +43,62 @@ Since the prior brief (which stopped at RFC 0078) the work has been the
 deployed. Reconcile the RFC index status column when you next touch it (AGENTS
 rule: fix the doc when it disagrees with source).
 
-## Landed 2026-06-01 (autonomous run, deployed at schema 19)
+## Landed 2026-06-01 — RFC 0101 COMPLETE (v2.9.0, deployed at schema 21)
 
-A bootstrap-via-subagent burn-down (vehicle: subagents/single-implementer for
-foundational fixes, then dogfood) landed and **deployed** on `main`:
+The full **RFC 0101 robust-autonomous-execution arc (Phases 1–5)** is landed,
+deployed, and released as **v2.9.0** (tag pushed). Vehicle: bootstrap-via-subagent
+(worktree + background) with every diff operator-reviewed before integration.
 
-- **RFC 0101 Phase 1 — honest liveness: COMPLETE.** Slice 1 — the supervisor
-  helper meters PTY output volume (OQ1 threshold, env-tunable) and the daemon
-  auto-heartbeats the active lease on meaningful output (#80/#136 mechanism).
-  Slice 2 — precise classifier states `working_protocol/working_local/
-  working_tool/quiet/dead`, **#117** dead-at-spawn (Protocol `dead`, keeps
-  `StallClass=agent_mcp_discovery_stall`), **#83** in-tool tool-call recording
-  with a visible deadline, and the `last_pty_activity_at` producer. Projection-
-  only states (never persisted → no CHECK-constraint risk). **Migration 0019**
-  owner-applied (schema 18→19) — daemon redeployed, doctor green.
-- **RFC 0101 Phase 2 — fake-agent conformance fixture: LANDED** (`go/pkg/
-  adapterconformance/`). C0 **AdapterContract golden = the #101 regression gate**
-  (claude/codex/agy must use argv bootstrap, not `pty_submit`) + C2 env-leak
-  golden (hermetic, ride `make check`); a fake-agent in-process-daemon runner
-  proves **C3–C10 + C7** live and **arms the taxonomy** (each broken mode →
-  its exact `FailureClass`), PG-gated (skip without `STRIATUM_PG_TEST_URL`, run
-  in CI; confirmed green ~13s). Deferred = the live-CLI **Tier B** (C1 pre-flight,
-  C11 PTY launch, C12 work-tree scan, skip-ledger, the `striatum-adapter-
-  conformance` driver binary + Make Tier-B wiring) and #118 turn-driver.
-- **Closed:** #113, #114, #116 (clean supervise-start error), #119, #122, #124
-  (no spurious auto-finalize rec), #129. **Landed:** #123 (auto branch-confirm).
-- **Deployed, behavioral confirmation pending a live lane:** #80, #136, #83,
-  #117. **#135** kept open — the prototyped liveness gate did **not** close the
-  same-token impersonation vector; the real fix is per-session token binding
-  (thread rpc `AuthContext` into handlers), tracked under RFC 0096.
+- **Phase 1 — honest liveness** (schema 19): PTY-activity + tool-call boundary
+  recording, precise classifier states (`working_protocol/working_local/
+  working_tool/quiet/stalled/dead`), lease auto-heartbeat. Closes #80/#83/#117/#136.
+- **Phase 2 — adapter conformance** fake-agent fixture (`go/pkg/adapterconformance/`):
+  C0 #101 argv-bootstrap gate + C2 env-leak golden + C3–C10/C7 live taxonomy.
+- **Phase 0a — 40P01 interrogation deadlock ROOT-FIXED** (`e1e95ac3`): the
+  `sessions⇄runs` cycle between the claim path and `interrogation.answer`. Per-run
+  advisory lock (taken first, only for live interrogation targets) + `withTxRetryOnDeadlock`
+  on all interrogation handlers; 50-iteration regression test; the conformance
+  `InterrogationReady` workaround removed. Clears the #130/#131/#133/#134/#137 cluster root.
+- **Phase 3 — autonomous in-daemon recovery supervisor** (schema 20): the existing
+  60s `recovery.sweep` now ACTS on classifier states with PG-persisted per-job
+  budgets — `requeueJobSameAttempt` (dead/closed/absent lane → requeue, no attempt
+  bump), stalled-but-active-session recovery (+ close the parked session),
+  transfer, leaked-window close. Closes **#121** (the acute blocker) + the
+  operator verb `recovery requeue-stale --force` for dead-lane repo-write + `session
+  close --requeue-job`. Files: `recovery.go` (`requeueJobSameAttempt`),
+  `recovery_decision_tree.go` (`recoverStuckJobs`), migration `0020 job_recovery_state`.
+- **Phase 4 — loud structured escalation** (schema 21): a `needs_operator` run
+  state. On budget exhaustion the sweep raises a `recovery_exhausted` blocker +
+  `escalation_inbox` row (structured `striatum.recovery_escalation.v1` payload) and
+  flips the run `running → needs_operator`; `escalation resolve` clears it; doctor
+  surfaces needs_operator runs as **problems**. Files: `recovery_escalation.go`,
+  migration `0021 run_needs_operator`.
+- **Phase 5 — fault-injection chaos suite** (`adapterconformance/chaos_test.go`,
+  PG-gated): drives the real fake-agent lifecycle through the in-process daemon,
+  injects dead/stalled-lane faults (deterministic time-warp), runs the sweep, and
+  asserts self-recover (fresh lane completes, attempt preserved) OR escalate-loudly
+  within budget — RFC 0101 acceptance #2/#3/#4. **It caught a real bug in deployed
+  Phase 3 recovery** (a duplicate-message 23505 sweep-wedge: `HandleClaimNext`
+  doesn't stamp `jobs.current_message_id`, so requeue must resolve the live work
+  message directly — now fixed in `recovery.go`).
 
 ## Current Frontier
 
-RFC 0101 **Phase 1 (honest liveness) is done+live** and **Phase 2's fake-agent
-conformance fixture is landed** (operator chose fake-agent over live-CLI in CI;
-C0 #101 gate + C3–C10/C7 live + armed taxonomy). The frontier is now: **#121**
-(same-attempt repo-write recovery — the acute blocker; note a lease-transfer-
-without-attempt-bump verb already landed for #82, so investigate the residual
-gap before building); the **Phase 2 Tier-B remainder** (C1/C11/C12 + driver
-binary + Make wiring); **Phase 3** (autonomous recovery supervisor, on RFC 0095
-attempt primitives) → **Phase 4/5**; and **RFC 0096 V2** (PG-less lane sandbox;
-#70/#87/#135 token-binding). The umbrella **RFC 0101** and operator-side **RFC
-0102** remain `proposed`. **RFC 0097** (run self-orchestration) sits on top and
-hard-depends on RFC 0095 + 0096. The conformance harness also reproduced a
-`40P01`/#103-class interrogation deadlock (noted on #137).
+RFC 0101 is **complete + live (v2.9.0, schema 21)**: recovery + escalation run
+autonomously in the daemon; the chaos suite is the hermetic regression gate. The
+frontier is now the **capstone + backlog**:
+
+- **RFC 0097 self-hosting milestone (acceptance #5):** develop a runner-fix via an
+  orchestrated dogfood *through* the now-robust runner. The chaos suite already
+  proves the self-hosting loop at the DAEMON level (fault → autonomous recover →
+  fresh lane completes through production handlers); a full live multi-lane CLI
+  dogfood is the remaining ultimate proof (TTY-dependent; attempt in a dedicated
+  interactive session).
+- **Backlog** (see `~/.claude/plans/golden-hugging-teacup.md`): **RFC 0096 V2**
+  security (#70/#87/#135 token-binding, PG-less lane sandbox), **RFC 0100 P2** DX
+  (#126/#128/#132), **RFC 0097** orchestration (#115/#138), **RFC 0099/0102**
+  operator side (#92). Confirm-and-close the deployed Phase-1 issues (#80/#83/#117/#136)
+  and the fixed-but-open #120/#123 against live behavior.
 
 ### Original framing (RFC 0101 L2 dogfood, 2026-05-31)
 RFC 0101 frames the recurring dogfood failure taxonomy as one run-level
@@ -109,37 +121,37 @@ dogfood its own fixes).
 
 ## Next Actions
 
-1. **#121 — same-attempt repo-write recovery** (the acute blocker). The
-   fake-agent conformance fixture is landed; #121 is the next high-value unit.
-   First investigate the residual gap vs the already-landed #82 lease-transfer-
-   without-attempt-bump verb, then build/​wire on RFC 0095 attempt primitives.
-   Then **Phase 3** (autonomous recovery supervisor) → **Phase 4/5**, the **Phase
-   2 Tier-B remainder** (C1/C11/C12 + driver binary), and **RFC 0096 V2**
-   (#70/#87/#135 token-binding). Confirm the deployed Phase-1 states
-   (#80/#136/#83/#117) against a real supervised lane and close them.
-2. **RFC 0102 levers:** narrow the operator loop to one control surface
-   (CLI / daemon MCP — no tmux/psql/systemctl/hand-rolled drivers in the normal
-   path), add one high-signal `attention` view, and operate in
-   `(run, workflow_job_id)` identifiers, not the `sess_/sup_/lease_` zoo.
-3. **Burn the backlog:** 35 open issues (#70-#138), clustered by owning RFC
-   (lifecycle→0095, security→0096, liveness→0091, agy, artifact-contracts,
-   CLI/DX). Ship each fix as a separate commit; bootstrap product fixes via
-   subagents or single-implementer runs while orchestrated dogfoods are blocked.
-4. **Reconcile the RFC index** status column (0095/0098/0100 → landed) and bump
-   the version + promote `CHANGELOG.md` `Unreleased` when the next unit lands.
+1. **RFC 0097 self-hosting capstone:** scaffold a small runner-fix dogfood and
+   drive it *through* the live runner end-to-end, surviving ≥1 lane hiccup via the
+   now-deployed autonomous recovery. The chaos suite is the daemon-level proof; a
+   live multi-lane CLI dogfood is the ultimate proof (TTY-dependent — best in a
+   dedicated interactive session). Be honest if the welcome-screen (#101 lane-env)
+   or agy multi-turn (#95) friction still wedges it.
+2. **Backlog (dependency-ordered; see `~/.claude/plans/golden-hugging-teacup.md`):**
+   **RFC 0096 V2** security (#70/#87 lane-PG-deny, #135 per-session token-binding,
+   PG-less lane OS user) → **RFC 0100 P2** DX (#126/#128/#132, single-implementer)
+   → **RFC 0097** orchestration (#115 frozen-snapshot signal, #138 shared-resource
+   coordination) → **RFC 0099/0102** operator side (#92 constrained operator
+   consumes the Phase-4 escalation). Confirm-and-close the deployed Phase-1 issues
+   (#80/#83/#117/#136) and the fixed-but-open #120/#123 against live behavior.
+3. **RFC 0102 levers:** narrow the operator loop to one control surface, one
+   high-signal `attention` view, `(run, workflow_job_id)` identifiers.
 
 ## Blockers
 
-- **#121** — repo-write implement lanes can wedge on a welcome-screen stall with
-  no same-attempt recovery verb; the run can't self-recover. RFC 0101 L3 / Phase
-  3 seed. (Phase 1 honest-liveness is now deployed, so a stalled lane is at least
-  classified honestly — but autonomous recovery is not yet built.)
 - **#95** — agy self-driving session closes after the first turn and
   re-registers a duplicate unattested session, breaking multi-turn (interrogating)
-  review/synthesis.
-- **Self-hosting paradox** — orchestrated dogfoods *through* the runner stay
-  blocked until RFC 0095/0096 robustness fully lands; product fixes are
-  bootstrapped via subagents / minimal single-implementer runs in the meantime.
+  review/synthesis. (Relevant to a multi-lane self-hosting dogfood with agy.)
+- **Self-hosting paradox — substrate now landed.** RFC 0101 (recovery +
+  escalation, schema 21) is the robustness substrate the paradox waited on. The
+  chaos suite proves the recovery loop end-to-end at the daemon level; the
+  remaining open question is whether a full live multi-lane CLI dogfood clears the
+  lane-boundary friction (#101 welcome-screen lane-env hardening, #95 agy).
+  Vehicle for foundational fixes stays bootstrap-via-subagent until a live dogfood
+  is proven.
+
+**Resolved this release:** #121 (same-attempt repo-write recovery — Phase 3),
+the #130/#131/#133/#134/#137 deadlock-cluster root (Phase 0a).
 
 ## Hazards / Do Not
 
