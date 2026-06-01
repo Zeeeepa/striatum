@@ -89,12 +89,18 @@ RFC 0101 is **complete + live (v2.9.0, schema 21)**: recovery + escalation run
 autonomously in the daemon; the chaos suite is the hermetic regression gate. The
 frontier is now the **capstone + backlog**:
 
-- **RFC 0097 self-hosting milestone (acceptance #5):** develop a runner-fix via an
-  orchestrated dogfood *through* the now-robust runner. The chaos suite already
-  proves the self-hosting loop at the DAEMON level (fault → autonomous recover →
-  fresh lane completes through production handlers); a full live multi-lane CLI
-  dogfood is the remaining ultimate proof (TTY-dependent; attempt in a dedicated
-  interactive session).
+- **RFC 0097 self-hosting milestone (acceptance #5): PROVEN LIVE 2026-06-01**
+  (`8e9ac86b`). `dogfoods/rfc-0097-self-hosting/` — a minimal single-claude-lane
+  document dogfood — was driven end-to-end through the production handlers
+  hands-off (prepare → confirm → start → register → supervise → lane self-drives
+  claim → publish → complete → **run auto-finalized to `completed`**); artifact
+  `content_sha256` matched the on-disk file exactly. #101 confirmed live (lane
+  bootstrapped past the update screen). The chaos suite already proved this at the
+  DAEMON level; this closes the full live CLI proof. Finding: a self-driving
+  claude lane needs `--dangerously-skip-permissions` (bare `["claude"]` parks on
+  an MCP permission prompt) — a stale-scaffold mistake, not a runner bug (#113
+  CLOSED already fixed the real examples). See
+  `dogfoods/rfc-0097-self-hosting/OPERATOR_REPORT.md`.
 - **Backlog** (see `~/.claude/plans/golden-hugging-teacup.md`): **RFC 0096 V2**
   security (#70/#87/#135 token-binding, PG-less lane sandbox), **RFC 0100 P2** DX
   (#126/#128/#132), **RFC 0097** orchestration (#115/#138), **RFC 0099/0102**
@@ -122,19 +128,14 @@ dogfood its own fixes).
 
 ## Next Actions
 
-1. **RFC 0097 self-hosting capstone — now UNBLOCKED:** **#101 is fixed + deployed**
-   (supervised claude lanes get `DISABLE_AUTOUPDATER=1` +
-   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`; the update-nag that wedged the
-   implement lane is suppressed; hermetic C2 golden gates it; live-efficacy
-   confirmation is the one remaining live step). Next: scaffold a minimal
-   single-claude-lane document dogfood and drive it *through* the live runner
-   end-to-end (bootstrap → claim → publish → complete) — the RFC 0101 acceptance #5
-   live proof; the chaos suite already proves it at the daemon level. Best run with
-   fresh context (a multi-step live drive: prepare → start → register-session →
-   supervise start → watch the lane → teardown). Residual risks: the first-run
-   onboarding splash (`~/.claude.json hasCompletedOnboarding`, env can't set it —
-   normally already true for the operator profile) and, for a 3-lane shape, agy
-   multi-turn (#95).
+1. **RFC 0097 self-hosting capstone — DONE (proven live 2026-06-01, `8e9ac86b`).**
+   The minimal single-claude-lane document dogfood completed end-to-end through
+   the production handlers, hands-off, run auto-finalized to `completed`, artifact
+   hash matched. #101 confirmed live. The next escalation is a *multi-lane* /
+   product-fix dogfood driven through the runner (now the preferred vehicle over
+   bootstrap-via-subagent) — gated on agy multi-turn (#95) for any agy seat; use
+   claude/codex seats until #95 lands. Lane shape lesson: claude seats need
+   `--dangerously-skip-permissions`.
 2. **Backlog (dependency-ordered; see `~/.claude/plans/golden-hugging-teacup.md`):**
    **RFC 0096 V2** security — #135 per-session token-binding **DONE/deployed** (v2.9.1,
    schema 22); remaining: lane-env wiring so live lanes USE their session-bound
