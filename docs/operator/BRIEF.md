@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-01b_rfc0101-phase1-landed"
-supersedes: "brief_2026-06-01_robust-autonomous-execution"
+brief_id: "brief_2026-06-01c_rfc0101-phase1-2-landed"
+supersedes: "brief_2026-06-01b_rfc0101-phase1-landed"
 scope_links: ["docs/rfcs/0101-robust-autonomous-workflow-execution.md", "docs/rfcs/0102-operator-attention-economy.md", "docs/rfcs/0095-revision-safe-workflow-lifecycle.md", "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "docs/rfcs/0097-full-workflow-run-orchestration.md", "dogfoods/rfc-0101-l2-conformance/OPERATOR_REPORT.md", "dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md", "CHANGELOG.md", "docs/rfcs/README.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -57,10 +57,17 @@ foundational fixes, then dogfood) landed and **deployed** on `main`:
   with a visible deadline, and the `last_pty_activity_at` producer. Projection-
   only states (never persisted → no CHECK-constraint risk). **Migration 0019**
   owner-applied (schema 18→19) — daemon redeployed, doctor green.
-- **Closed:** #114 (validate dup keys), #119 (validate agent_loop cap +
-  artifact kind), #122 (help lists authoring verbs), #129 (`.claude` lock
-  teardown), #113 (examples off retired one-shot commands → agent-loop shape).
-  **Landed:** #123 (auto branch-confirm verifies the branch).
+- **RFC 0101 Phase 2 — fake-agent conformance fixture: LANDED** (`go/pkg/
+  adapterconformance/`). C0 **AdapterContract golden = the #101 regression gate**
+  (claude/codex/agy must use argv bootstrap, not `pty_submit`) + C2 env-leak
+  golden (hermetic, ride `make check`); a fake-agent in-process-daemon runner
+  proves **C3–C10 + C7** live and **arms the taxonomy** (each broken mode →
+  its exact `FailureClass`), PG-gated (skip without `STRIATUM_PG_TEST_URL`, run
+  in CI; confirmed green ~13s). Deferred = the live-CLI **Tier B** (C1 pre-flight,
+  C11 PTY launch, C12 work-tree scan, skip-ledger, the `striatum-adapter-
+  conformance` driver binary + Make Tier-B wiring) and #118 turn-driver.
+- **Closed:** #113, #114, #116 (clean supervise-start error), #119, #122, #124
+  (no spurious auto-finalize rec), #129. **Landed:** #123 (auto branch-confirm).
 - **Deployed, behavioral confirmation pending a live lane:** #80, #136, #83,
   #117. **#135** kept open — the prototyped liveness gate did **not** close the
   same-token impersonation vector; the real fix is per-session token binding
@@ -68,15 +75,18 @@ foundational fixes, then dogfood) landed and **deployed** on `main`:
 
 ## Current Frontier
 
-RFC 0101 **Phase 1 is done and live**; the frontier is now **Phase 2 — adapter
-conformance + persistent turn-driver** (the keystone that breaks the
-self-hosting paradox), then **#121** (same-attempt repo-write recovery, the
-acute blocker), **RFC 0096 V2** (PG-less lane sandbox; #70/#87/#135), and
-Phases 3-5. Phase 2's conformance harness has open design questions (real
-installed-CLI vs fake-agent in CI) and should be designed deliberately, not
-fire-and-forgotten. The umbrella **RFC 0101** and operator-side **RFC 0102**
-remain `proposed`. **RFC 0097** (run self-orchestration) sits on top and
-hard-depends on RFC 0095 + 0096.
+RFC 0101 **Phase 1 (honest liveness) is done+live** and **Phase 2's fake-agent
+conformance fixture is landed** (operator chose fake-agent over live-CLI in CI;
+C0 #101 gate + C3–C10/C7 live + armed taxonomy). The frontier is now: **#121**
+(same-attempt repo-write recovery — the acute blocker; note a lease-transfer-
+without-attempt-bump verb already landed for #82, so investigate the residual
+gap before building); the **Phase 2 Tier-B remainder** (C1/C11/C12 + driver
+binary + Make wiring); **Phase 3** (autonomous recovery supervisor, on RFC 0095
+attempt primitives) → **Phase 4/5**; and **RFC 0096 V2** (PG-less lane sandbox;
+#70/#87/#135 token-binding). The umbrella **RFC 0101** and operator-side **RFC
+0102** remain `proposed`. **RFC 0097** (run self-orchestration) sits on top and
+hard-depends on RFC 0095 + 0096. The conformance harness also reproduced a
+`40P01`/#103-class interrogation deadlock (noted on #137).
 
 ### Original framing (RFC 0101 L2 dogfood, 2026-05-31)
 RFC 0101 frames the recurring dogfood failure taxonomy as one run-level
@@ -99,14 +109,14 @@ dogfood its own fixes).
 
 ## Next Actions
 
-1. **RFC 0101 Phase 2 (keystone) — design it deliberately.** Adapter conformance
-   fixture against the *installed* CLI + persistent turn-driver (#95/#85/#76/#70/
-   #113-done/#118/#125/#139), promoting the #101/#121 bootstrap to a contract
-   clause. Open question to resolve first: real-CLI vs fake-agent conformance in
-   CI. Then **#121** (same-attempt repo-write recovery on RFC 0095 attempt
-   primitives — the acute blocker), then bounded self-recovery (Phase 3) and loud
-   escalation (Phase 4). Confirm the deployed Phase-1 states (#80/#136/#83/#117)
-   against a real lane and close them.
+1. **#121 — same-attempt repo-write recovery** (the acute blocker). The
+   fake-agent conformance fixture is landed; #121 is the next high-value unit.
+   First investigate the residual gap vs the already-landed #82 lease-transfer-
+   without-attempt-bump verb, then build/​wire on RFC 0095 attempt primitives.
+   Then **Phase 3** (autonomous recovery supervisor) → **Phase 4/5**, the **Phase
+   2 Tier-B remainder** (C1/C11/C12 + driver binary), and **RFC 0096 V2**
+   (#70/#87/#135 token-binding). Confirm the deployed Phase-1 states
+   (#80/#136/#83/#117) against a real supervised lane and close them.
 2. **RFC 0102 levers:** narrow the operator loop to one control surface
    (CLI / daemon MCP — no tmux/psql/systemctl/hand-rolled drivers in the normal
    path), add one high-signal `attention` view, and operate in
