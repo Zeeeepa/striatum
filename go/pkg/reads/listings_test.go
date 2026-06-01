@@ -59,6 +59,66 @@ func (listArtifactsFakeRunner) Query(_ context.Context, sql string, args ...any)
 	}}), nil
 }
 
+type listWorkflowsFakeRunner struct{}
+
+func (listWorkflowsFakeRunner) Exec(context.Context, string, ...any) error {
+	return errors.New("list workflows must be read-only")
+}
+
+func (listWorkflowsFakeRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return dashboardAllFakeRow{}
+}
+
+func (listWorkflowsFakeRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", errors.New("unexpected scalar query")
+}
+
+func (listWorkflowsFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	return nil, errors.New("list workflows must not open a transaction")
+}
+
+func (listWorkflowsFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
+	// #142: workflow_snapshots has content_sha256 / loaded_at, not
+	// snapshot_sha256 / captured_at. Reject the legacy projection that 42703'd.
+	if strings.Contains(sql, " snapshot_sha256, captured_at") ||
+		strings.Contains(sql, "ORDER BY captured_at") {
+		return nil, errors.New("list workflows selected legacy snapshot column names")
+	}
+	if !strings.Contains(sql, "content_sha256 AS snapshot_sha256") ||
+		!strings.Contains(sql, "loaded_at AS captured_at") ||
+		!strings.Contains(sql, "ORDER BY loaded_at") {
+		return nil, errors.New("list workflows did not project current schema columns")
+	}
+	if len(args) != 1 || args[0] != "repo_a" {
+		return nil, errors.New("unexpected args")
+	}
+	return dashboardAllRowsFromMaps([]map[string]any{{
+		"workflow_snapshot_id": "wfs_1",
+		"workflow_id":          "demo-flow",
+		"workflow_version":     "2026-06-01",
+		"snapshot_sha256":      "abc",
+		"captured_at":          "2026-06-01T00:00:00Z",
+	}}), nil
+}
+
+func TestHandleListWorkflowsUsesCurrentSchemaColumnNames(t *testing.T) {
+	result, err := HandleListWorkflows(context.Background(), listWorkflowsFakeRunner{}, rpc.Envelope{
+		Params: map[string]any{
+			"repository_id": "repo_a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleListWorkflows: %v", err)
+	}
+	if result["count"] != 1 {
+		t.Fatalf("count = %#v", result["count"])
+	}
+	items := result["items"].([]map[string]any)
+	if items[0]["workflow_id"] != "demo-flow" || items[0]["snapshot_sha256"] != "abc" {
+		t.Fatalf("workflow row = %#v", items[0])
+	}
+}
+
 func TestHandleListArtifactsUsesCurrentSchemaColumnNames(t *testing.T) {
 	result, err := HandleListArtifacts(context.Background(), listArtifactsFakeRunner{}, rpc.Envelope{
 		Params: map[string]any{

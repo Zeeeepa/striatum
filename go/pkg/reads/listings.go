@@ -178,10 +178,10 @@ func HandleListWorkflows(ctx context.Context, runner db.Runner, envelope rpc.Env
 	limit, count := limitClause(envelope, 200)
 	items, err := collectRows(ctx, runner,
 		`SELECT workflow_snapshot_id, workflow_id, workflow_version,
-		        snapshot_sha256, captured_at
+		        content_sha256 AS snapshot_sha256, loaded_at AS captured_at
 		   FROM striatumd.workflow_snapshots
 		  WHERE repository_id = $1
-		  ORDER BY captured_at DESC`+limit,
+		  ORDER BY loaded_at DESC`+limit,
 		repositoryID,
 	)
 	if err != nil {
