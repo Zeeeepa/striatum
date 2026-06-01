@@ -45,21 +45,21 @@ fan-out (3 independent lanes)  →  synthesis  →  interrogating panel review
 
 ## Execution substrate — agent-loop-first
 
-This pattern is **agent-loop-first**. All lanes are intended to run via the
-MCP agent-loop (`striatumd -agent-loop <cmd>`), not the `--print` supervised
-wrapper. Interrogation requires **preserved context** so the reviewed agent
-can answer from its own working memory; the `--print` wrapper spawns a
-fresh process per packet (no memory) and cannot be interrogated truthfully.
+This pattern is **agent-loop-first**. Every lane declares
+`adapter_capabilities.agent_loop: true` plus
+`supervision.transport: pty_helper` (`require_tmux: true`), so the daemon
+wraps each lane in the RFC 0088 agent-loop executor and the agent claims
+work as an MCP client over the PTY. Interrogation requires **preserved
+context** so the reviewed agent can answer from its own working memory; a
+one-shot command (`--print`, `-p`, `codex exec`) spawns a fresh process per
+packet (no memory), never claims work, and cannot be interrogated
+truthfully — so none of those flags appear on any lane here.
 
-The `lanes` block in `workflow.json` declares `adapter: process` with the
-canonical lane commands (matching the three-lane example) because those are
-the schema-valid lane fields; the agent-loop substrate is an operator-side
-choice at launch, not a `workflow.json` field. Do not invent
-non-schema lane fields to express it. If a given adapter's agent-loop does
-not function, that lane may fall back to `--print` for **fan-out/review
-authoring only** and MUST NOT be the interrogation target. The
-interrogation target is always an agent-loop lane (claude is the known-good
-baseline).
+The `lanes` block declares `adapter: process` with bare interactive agent
+CLIs (`codex`, `claude`, `agy`); the agent-loop shape is expressed directly
+through the `adapter_capabilities` and `supervision` lane fields. Do not add
+one-shot flags to any lane. The interrogation target is always an agent-loop
+lane (claude is the known-good baseline).
 
 ## Lanes, roles, and panel shape
 

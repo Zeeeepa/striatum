@@ -51,11 +51,15 @@ examples/three-lane-design-build-review/
 
 ## Running
 
-The placeholder lane commands (`codex exec -`, `claude --print`,
-`gemini -p`) are scaffolding. Replace them with the wrappers your
-target repository actually uses (typically the supervised wrappers
-under `.striatum/bin/`). The fixture validates as-is; substitute real
-commands before running.
+The lane commands are bare interactive agent CLIs (`codex`, `claude`,
+`agy`) declared with `adapter_capabilities.agent_loop: true` and
+`supervision.transport: pty_helper` so the daemon wraps each lane in the
+RFC 0088 agent-loop executor — the agent connects as an MCP client and
+claims work over the PTY. Do **not** add one-shot flags (`--print`,
+`-p`, `codex exec`): those print once and exit without ever claiming a
+work packet. Substitute the exact agent CLIs/models your target
+repository uses, keeping the agent-loop lane shape intact. The fixture
+validates as-is.
 
 ```bash
 # Validate
