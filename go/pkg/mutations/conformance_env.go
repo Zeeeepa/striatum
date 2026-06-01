@@ -10,19 +10,23 @@ package mutations
 
 // SupervisedLaneEnv builds the full environment a supervised lane process would
 // receive, given an explicit base environment (the daemon's os.Environ() in
-// production). The conformance C2 golden passes a base that includes banned
-// secret-bearing vars (DATABASE_URL, PG*, *POSTGRES*, *DSN*) and asserts that:
+// production) and the bare CLI adapter name (e.g. "claude"). The conformance C2
+// golden passes a base that includes banned secret-bearing vars (DATABASE_URL,
+// PG*, *POSTGRES*, *DSN*) and asserts that:
 //
 //   - the required keys survive (PATH, HOME, STRIATUM_MCP_URL, the bearer token
-//     material, and the run/session/supervisor/repo/lane id vars); and
+//     material, and the run/session/supervisor/repo/lane id vars);
+//   - the per-adapter hardening keys survive (e.g. the #101 claude
+//     welcome/update-nag suppression: DISABLE_AUTOUPDATER,
+//     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC); and
 //   - none of the banned keys survive — a leak is an EnvSecretLeak.
 //
 // It is exported solely for hermetic assertion: it composes the production
 // supervisedEnvPassThrough allowlist filter with supervisedEnvEntries via
-// mergeEnvReplacing exactly as supervisedEnv does, but takes the base env as a
-// parameter (instead of reading os.Environ()) so the test controls it
-// deterministically. Behavior is unchanged from supervisedEnv.
-func SupervisedLaneEnv(base []string, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	entries := supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
+// mergeEnvReplacing exactly as supervisedEnv does, but takes the base env and
+// adapter as parameters (instead of reading os.Environ() / config) so the test
+// controls them deterministically. Behavior is unchanged from supervisedEnv.
+func SupervisedLaneEnv(adapter string, base []string, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
+	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
 	return mergeEnvReplacing(supervisedEnvPassThrough(base), entries)
 }

@@ -26,7 +26,7 @@ func TestSupervisedLaneEnvDropsBannedKeepsRequired(t *testing.T) {
 		"STRIATUM_POSTGRES_DSN=host=x",
 		"STRIATUM_PG_TEST_URL=postgres://leak",
 	}
-	env := SupervisedLaneEnv(base, "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	env := SupervisedLaneEnv("claude", base, "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
 
 	got := map[string]string{}
 	for _, entry := range env {

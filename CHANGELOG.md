@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### #101 — suppress Claude Code welcome/update screen in supervised lanes (self-hosting unblocker)
+
+A supervised `claude` lane spawned by the daemon otherwise parks on the Claude
+Code auto-updater "a new version is available" nag / welcome splash and never
+acts on its work packet — the single most common reason a live dogfood wedges
+(the implement-lane stall behind #121, RFC 0097 self-hosting milestone).
+
+The supervised lane env now carries, scoped to the `claude` adapter, the
+authoritative suppression switches (Claude Code docs
+`code.claude.com/docs/en/env-vars`; confirmed present in the installed
+claude 2.1.159 binary):
+
+- `DISABLE_AUTOUPDATER=1` — disables the auto-updater and its "update
+  available" check; per the docs it takes precedence over the `autoUpdates`
+  config.
+- `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` — the bundle switch (equivalent
+  to `DISABLE_AUTOUPDATER` + `DISABLE_FEEDBACK_COMMAND` +
+  `DISABLE_ERROR_REPORTING` + `DISABLE_TELEMETRY`), set alongside the explicit
+  `DISABLE_AUTOUPDATER` so the nag stays suppressed even if a future build
+  narrows the bundle.
+
+Injected in `mutations.supervisedEnvEntries` via a new per-adapter
+`supervisedAdapterEnvEntries` helper, keyed on the bare CLI adapter name
+(`agentloop.LaneAdapterName` of the raw lane argv0), so a real `supervise start`
+claude lane inherits the keys regardless of agent-loop wrapping. This is the
+claude sibling of the agy `usageStatisticsEnabled:false` survey-suppression
+(#76) and the #87 DSN/secret env-drop. The C2 lane-env conformance golden and
+the `mutations` env tests now assert the claude lane env carries both keys; a
+revert that drops them fails the golden with `AdapterContractViolation`
+(mirroring the C0 #101 argv-bootstrap regression gate). The keys do NOT reach
+codex/agy lanes. The operator's `~/.claude.json` is not touched, so the
+first-run onboarding/theme splash (gated on the `hasCompletedOnboarding` config
+flag, not an env var) remains the operator's responsibility for a
+never-onboarded profile; live efficacy on a real claude 2.1.159 lane is the
+remaining live-verification step.
+
 ## v2.9.1 — 2026-06-01
 
 Security: RFC 0096 V2 first slice — per-session capability-token binding (#135),

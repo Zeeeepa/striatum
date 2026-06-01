@@ -428,7 +428,7 @@ func TestSupervisedEnvAddsOperatorLocalBinsToPath(t *testing.T) {
 	t.Setenv("PATH", strings.Join([]string{"/usr/local/bin", "/usr/bin"}, string(os.PathListSeparator)))
 	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", "")
 
-	entries := supervisedEnvEntries("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
 	path := envValue(t, entries, "PATH")
 	want := strings.Join([]string{"/usr/local/bin", "/usr/bin", localBin, npmBin}, string(os.PathListSeparator))
 	if path != want {
@@ -437,7 +437,7 @@ func TestSupervisedEnvAddsOperatorLocalBinsToPath(t *testing.T) {
 	if countEnv(entries, "PATH") != 1 {
 		t.Fatalf("supervisedEnvEntries PATH count = %d, want 1", countEnv(entries, "PATH"))
 	}
-	if countEnv(supervisedEnv("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1"), "PATH") != 1 {
+	if countEnv(supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1"), "PATH") != 1 {
 		t.Fatalf("supervisedEnv should emit exactly one effective PATH")
 	}
 	for _, key := range []string{
@@ -478,7 +478,7 @@ func TestSupervisedEnvPathOverrideAppendsExistingAbsoluteDirs(t *testing.T) {
 		customTwo,
 	}, string(os.PathListSeparator)))
 
-	entries := supervisedEnvEntries("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
 	path := envValue(t, entries, "PATH")
 	want := strings.Join([]string{"/usr/bin", customOne, customTwo}, string(os.PathListSeparator))
 	if path != want {
@@ -513,7 +513,17 @@ func TestSupervisedEnvExcludesDaemonSecrets(t *testing.T) {
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("LC_ALL", "en_US.UTF-8")
 
-	env := supervisedEnv("/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	env := supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+
+	// 0. #101: the claude lane carries the welcome/update-nag suppression keys.
+	for key, want := range map[string]string{
+		"DISABLE_AUTOUPDATER":                      "1",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+	} {
+		if got := envValue(t, env, key); got != want {
+			t.Fatalf("#101 claude suppression %s = %q, want %q", key, got, want)
+		}
+	}
 
 	// 1. No daemon secret leaks through.
 	for _, banned := range []string{

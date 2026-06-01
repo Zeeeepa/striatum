@@ -149,7 +149,7 @@ func bootstrapDeliveryModeFor(command []string) bootstrapDeliveryMode {
 	if len(command) == 0 {
 		return bootstrapDeliveryPTYSubmit
 	}
-	switch laneAdapterName(command[0]) {
+	switch LaneAdapterName(command[0]) {
 	case "codex", "agy", "claude":
 		// Codex, agy, and Claude Code accept an initial prompt via argv and submit
 		// it themselves. Typing the multi-line bootstrap into their TUI leaves the
@@ -173,7 +173,7 @@ func bootstrapDeliveryModeFor(command []string) bootstrapDeliveryMode {
 // which it continues the session as a long-lived interactive agent-loop.
 func appendBootstrapArgv(command []string, prompt string) []string {
 	out := append([]string(nil), command...)
-	if len(command) > 0 && laneAdapterName(command[0]) == "agy" {
+	if len(command) > 0 && LaneAdapterName(command[0]) == "agy" {
 		return append(out, "--prompt-interactive", prompt)
 	}
 	return append(out, prompt)

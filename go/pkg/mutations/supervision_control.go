@@ -50,6 +50,23 @@ type supervisionStartConfig struct {
 	RequireTmux        bool
 }
 
+// adapterName returns the bare CLI adapter name of the lane (e.g. "claude"),
+// derived from the RAW lane argv0 (OriginalCommand) rather than the possibly
+// agent-loop–wrapped Command — so per-adapter env hardening
+// (supervisedAdapterEnvEntries / #101) keys off the real child CLI, not the
+// "striatumd -agent-loop" wrapper. Uses the same canonical argv→adapter mapping
+// as the agent-loop wiring (agentloop.LaneAdapterName).
+func (c supervisionStartConfig) adapterName() string {
+	argv := c.OriginalCommand
+	if len(argv) == 0 {
+		argv = c.Command
+	}
+	if len(argv) == 0 {
+		return ""
+	}
+	return agentloop.LaneAdapterName(argv[0])
+}
+
 type supervisorControlRow struct {
 	SupervisorID       string
 	RunID              string
@@ -1443,7 +1460,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	defer func() { _ = stdin.Close() }()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
-	cmd.Env = supervisedEnv(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
+	cmd.Env = supervisedEnv(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -1483,7 +1500,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		SupervisorID:    supervisorID,
 		ScratchDir:      filepath.Dir(scratch),
 		Command:         config.Command,
-		Env:             supervisedEnvEntries(config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID),
+		Env:             supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID),
 		WorkingDir:      config.RepoRoot,
 		PacketInputPath: pipePath,
 		RequireTmux:     config.RequireTmux,
@@ -2375,13 +2392,19 @@ func currentDaemonInstanceID() string {
 // wrapper adds only the small, named pass-through set the adapters genuinely
 // need (agent-loop MCP bootstrap vars + a handful of OS basics). Everything
 // else — including every *DSN*/*POSTGRES*/PG*/DATABASE_URL var — is dropped.
-func supervisedEnv(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	entries := supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
+//
+// adapter is the bare CLI adapter name (agentloop.LaneAdapterName of the raw
+// lane argv0, e.g. "claude"); it scopes per-adapter env hardening such as the
+// #101 Claude Code welcome/update-nag suppression. It is the OriginalCommand
+// adapter, not the agent-loop wrapper ("striatumd"), so the keys reach the real
+// child CLI regardless of agent-loop wrapping.
+func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
+	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
 	return mergeEnvReplacing(supervisedEnvPassThrough(os.Environ()), entries)
 }
 
-func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	return []string{
+func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
+	entries := []string{
 		"PATH=" + supervisedPath(),
 		"STRIATUM_REPOSITORY_ID=" + repositoryID,
 		"STRIATUM_RUN_ID=" + runID,
@@ -2389,6 +2412,46 @@ func supervisedEnvEntries(repoRoot, repositoryID, runID, sessionID, supervisorID
 		"STRIATUM_SUPERVISOR_ID=" + supervisorID,
 		"STRIATUM_REPO=" + repoRoot,
 		"STRIATUM_LANE_ID=" + laneID,
+	}
+	return append(entries, supervisedAdapterEnvEntries(adapter)...)
+}
+
+// supervisedAdapterEnvEntries returns the per-adapter, non-secret operational
+// env knobs a supervised lane needs so its CLI acts on the work packet instead
+// of parking on a startup splash. It is the env sibling of the per-adapter
+// command/config hardening in agentloop.injectLaneMCPConfig (and of the agy
+// usageStatisticsEnabled:false survey-suppression, #76).
+//
+// claude (#101 / RFC 0101 L2 lane-env hardening): a daemon-spawned Claude Code
+// lane otherwise parks on the auto-updater "a new version is available" nag /
+// onboarding splash and never acts on its packet — the single most common live
+// dogfood wedge (the implement-lane stall behind #121). These are the
+// authoritative env switches (Claude Code docs, code.claude.com/docs/en/env-vars,
+// confirmed present in the installed claude 2.1.159 binary):
+//
+//   - DISABLE_AUTOUPDATER=1: disable the auto-updater + its "update available"
+//     check; per the docs it takes precedence over the autoUpdates config.
+//   - CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1: the bundle switch — equivalent
+//     to setting DISABLE_AUTOUPDATER, DISABLE_FEEDBACK_COMMAND,
+//     DISABLE_ERROR_REPORTING, and DISABLE_TELEMETRY together. We set it
+//     alongside the explicit DISABLE_AUTOUPDATER so the update-nag stays
+//     suppressed even if a future build narrows the bundle.
+//
+// Both keys are claude-namespaced / claude-read and harmless to other adapters,
+// but we scope them per-adapter to keep the lane env minimal and the intent
+// auditable. The first-run onboarding/theme splash is gated on the ~/.claude.json
+// hasCompletedOnboarding config flag rather than an env var; we deliberately do
+// NOT write the operator's ~/.claude.json (see report), so env covers the
+// update-nag (the live #101 wedge) but not a never-onboarded profile.
+func supervisedAdapterEnvEntries(adapter string) []string {
+	switch adapter {
+	case "claude":
+		return []string{
+			"DISABLE_AUTOUPDATER=1",
+			"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1",
+		}
+	default:
+		return nil
 	}
 }
 

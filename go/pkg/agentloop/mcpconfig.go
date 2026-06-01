@@ -27,7 +27,7 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 	if len(command) == 0 || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(token.Token) == "" {
 		return command, noop, nil
 	}
-	switch laneAdapterName(command[0]) {
+	switch LaneAdapterName(command[0]) {
 	case "claude":
 		// claude accepts `--mcp-config <file> --strict-mcp-config` and loads
 		// ONLY the striatum server from the ephemeral file, ignoring any stale
@@ -65,8 +65,13 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 	}
 }
 
-// laneAdapterName maps a (possibly absolute) argv0 to a bare adapter name.
-func laneAdapterName(arg0 string) string {
+// LaneAdapterName maps a (possibly absolute) lane argv0 to its bare adapter
+// name (e.g. "/home/u/.local/bin/claude" → "claude"). It is the single canonical
+// argv→adapter mapping the agent-loop wiring uses; the mutations package reuses
+// it to scope per-adapter supervised-lane env hardening (see
+// supervisedAdapterEnvEntries / #101) so the daemon and the agent-loop agree on
+// adapter identity from one source.
+func LaneAdapterName(arg0 string) string {
 	base := filepath.Base(strings.TrimSpace(arg0))
 	base = strings.TrimSuffix(base, ".exe")
 	return base

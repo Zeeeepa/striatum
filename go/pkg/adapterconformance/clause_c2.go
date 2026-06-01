@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 )
 
@@ -44,6 +45,23 @@ var c2RequiredKeys = []string{
 	"STRIATUM_LANE_ID",
 }
 
+// c2AdapterRequiredKeys are the per-adapter operational env keys the supervised
+// child env MUST carry, keyed by bare CLI adapter name (DESIGN §1.4 / #101).
+//
+// claude (#101 / RFC 0101 L2): the supervised Claude Code lane env must carry
+// the welcome/update-nag suppression keys so a daemon-spawned claude acts on its
+// work packet instead of parking on the auto-updater "a new version is
+// available" splash — the implement-lane stall behind #121. A revert that drops
+// them from supervisedAdapterEnvEntries fails this golden, exactly like the C0
+// #101 argv-bootstrap regression gate. Mirrors the agy #76 survey-suppression
+// pattern asserted in C0.
+var c2AdapterRequiredKeys = map[string][]string{
+	"claude": {
+		"DISABLE_AUTOUPDATER",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+	},
+}
+
 // c2BannedExactKeys are exact key names that must NEVER reach the child env.
 var c2BannedExactKeys = []string{
 	"DATABASE_URL",
@@ -80,18 +98,27 @@ func assertC2(in AssertInput) ClauseResult {
 	c := Clause{ID: C2}
 	adapter := in.Adapter.Name
 
+	// The bare CLI adapter name (e.g. "claude") drives the production per-adapter
+	// env hardening; derive it the same way the agent-loop does, from the lane
+	// argv0. Falls back to "" (no per-adapter keys) when the command is absent.
+	cliAdapter := ""
+	if len(in.Adapter.Command) > 0 {
+		cliAdapter = agentloop.LaneAdapterName(in.Adapter.Command[0])
+	}
+
 	base := in.BaseEnv
 	if base == nil {
 		base = c2GoldenBaseEnv()
 	}
 
 	child := mutations.SupervisedLaneEnv(
+		cliAdapter,
 		base,
 		c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID,
 	)
 	childKeys := envKeySet(child)
 
-	// (1) required keys present.
+	// (1) required control-plane keys present.
 	var missing []string
 	for _, key := range c2RequiredKeys {
 		if !childKeys[key] {
@@ -105,6 +132,22 @@ func assertC2(in AssertInput) ClauseResult {
 			map[string]string{"missing_keys": strings.Join(missing, ",")})
 	}
 
+	// (1b) per-adapter operational keys present (#101 claude welcome/update-nag
+	// suppression; mirrors C0's agy #76 survey-suppression gate). A revert that
+	// drops them from supervisedAdapterEnvEntries fails here.
+	var missingAdapter []string
+	for _, key := range c2AdapterRequiredKeys[cliAdapter] {
+		if !childKeys[key] {
+			missingAdapter = append(missingAdapter, key)
+		}
+	}
+	if len(missingAdapter) > 0 {
+		sort.Strings(missingAdapter)
+		return c.contractFail(adapter, AdapterContractViolation,
+			fmt.Sprintf("supervised %s lane env is missing per-adapter hardening key(s) %v (#101 welcome/update-nag suppression regression)", cliAdapter, missingAdapter),
+			map[string]string{"missing_adapter_keys": strings.Join(missingAdapter, ","), "cli_adapter": cliAdapter})
+	}
+
 	// (2) no banned key survives.
 	if leaked := bannedKeysIn(childKeys); len(leaked) > 0 {
 		sort.Strings(leaked)
@@ -114,7 +157,7 @@ func assertC2(in AssertInput) ClauseResult {
 	}
 
 	return c.pass(adapter,
-		"supervised child env carries the required control-plane keys and no banned DSN/Postgres/secret var")
+		"supervised child env carries the required control-plane keys, the per-adapter hardening keys, and no banned DSN/Postgres/secret var")
 }
 
 // c2GoldenBaseEnv builds the controlled base environment the C2 golden feeds to
