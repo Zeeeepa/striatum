@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### #116 / #124 — honest operator signals (no raw 23505; no spurious auto-finalize rec)
+
+**#116**: `supervise start` no longer leaks a raw Postgres `23505` unique-constraint
+error when a stale supervisor row exists for the session. Inside the
+advisory-locked transaction it `SELECT … FOR UPDATE`s any
+`starting`/`attached`/`detached` supervisor; with `--replace` it supersedes the
+stale one (marks it lost via `markSupervisorLostInTx`) so the INSERT succeeds,
+and without `--replace` it returns a clean `invalid_transition` naming the stale
+supervisor id and pointing to `--replace`. The INSERT is also wrapped to convert
+any residual `23505` (the narrow post-SELECT race) into the same actionable
+error. `--replace` added to the `supervise start` usage. **#124**: `striatum
+status` only recommends `recovery_auto_finalize` when the auto-finalize dry-run
+reports `eligible_count > 0` (artifacts actually on disk and ready), not on
+`candidate_count` alone (running jobs that merely *might* be finalizable) — the
+cheap status path no longer emits a misleading next-action when nothing has
+landed. Tests in `supervision_control_test.go` + `status_test.go`.
+
 ### #113 — bundled example workflows converted off retired one-shot lane commands
 
 Six bundled examples drove their lanes with retired one-shot commands
