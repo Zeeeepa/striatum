@@ -122,15 +122,24 @@ dogfood its own fixes).
 
 ## Next Actions
 
-1. **RFC 0097 self-hosting capstone:** scaffold a small runner-fix dogfood and
-   drive it *through* the live runner end-to-end, surviving ≥1 lane hiccup via the
-   now-deployed autonomous recovery. The chaos suite is the daemon-level proof; a
-   live multi-lane CLI dogfood is the ultimate proof (TTY-dependent — best in a
-   dedicated interactive session). Be honest if the welcome-screen (#101 lane-env)
-   or agy multi-turn (#95) friction still wedges it.
+1. **RFC 0097 self-hosting capstone — now UNBLOCKED:** **#101 is fixed + deployed**
+   (supervised claude lanes get `DISABLE_AUTOUPDATER=1` +
+   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`; the update-nag that wedged the
+   implement lane is suppressed; hermetic C2 golden gates it; live-efficacy
+   confirmation is the one remaining live step). Next: scaffold a minimal
+   single-claude-lane document dogfood and drive it *through* the live runner
+   end-to-end (bootstrap → claim → publish → complete) — the RFC 0101 acceptance #5
+   live proof; the chaos suite already proves it at the daemon level. Best run with
+   fresh context (a multi-step live drive: prepare → start → register-session →
+   supervise start → watch the lane → teardown). Residual risks: the first-run
+   onboarding splash (`~/.claude.json hasCompletedOnboarding`, env can't set it —
+   normally already true for the operator profile) and, for a 3-lane shape, agy
+   multi-turn (#95).
 2. **Backlog (dependency-ordered; see `~/.claude/plans/golden-hugging-teacup.md`):**
-   **RFC 0096 V2** security (#70/#87 lane-PG-deny, #135 per-session token-binding,
-   PG-less lane OS user) → **RFC 0100 P2** DX (#126/#128/#132, single-implementer)
+   **RFC 0096 V2** security — #135 per-session token-binding **DONE/deployed** (v2.9.1,
+   schema 22); remaining: lane-env wiring so live lanes USE their session-bound
+   token (fully closes #135 live), #70/#87 lane-PG-deny + PG-less lane OS user →
+   **RFC 0100 P2** DX (#126/#128/#132, single-implementer)
    → **RFC 0097** orchestration (#115 frozen-snapshot signal, #138 shared-resource
    coordination) → **RFC 0099/0102** operator side (#92 constrained operator
    consumes the Phase-4 escalation). Confirm-and-close the deployed Phase-1 issues
