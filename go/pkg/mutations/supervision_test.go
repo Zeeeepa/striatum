@@ -180,6 +180,140 @@ func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 	}
 }
 
+// TestSuperviseReportMeaningfulProgressRefreshesActiveLease guards RFC 0101
+// Phase 1: a progress event the helper flagged meaningful refreshes the
+// session's active lease (last_heartbeat_at + extended expiry) and stamps
+// last_work_heartbeat_at so honest local work between MCP calls does not trip
+// agent_lease_heartbeat_stall (#80 / #136). The lane is the sole authority over
+// lease state, so the helper observes PTY volume and the daemon performs the
+// transition.
+func TestSuperviseReportMeaningfulProgressRefreshesActiveLease(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID: "sup_1",
+			RunID:        "run_1",
+			SessionID:    "sess_1",
+			State:        "attached",
+		},
+		activeLeaseID:       "lease_1",
+		activeLeaseResource: "job_1",
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_progress_meaningful",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "progress",
+			"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if !tx.sawExec("UPDATE striatumd.leases", "last_heartbeat_at", "expires_at") {
+		t.Fatalf("active lease was not heartbeat-refreshed: %#v", tx.execs)
+	}
+	if !tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
+		t.Fatalf("last_work_heartbeat_at was not stamped: %#v", tx.execs)
+	}
+	// Both a lease.heartbeat event (from the refresh) and the supervisor.progress
+	// event (from the report) are appended.
+	events := tx.eventInserts()
+	if len(events) < 2 {
+		t.Fatalf("expected lease.heartbeat + supervisor.progress events, got %d: %#v", len(events), tx.execs)
+	}
+	sawLeaseHeartbeat := false
+	for _, ev := range events {
+		if ev.args[3] == "lease.heartbeat" {
+			sawLeaseHeartbeat = true
+		}
+	}
+	if !sawLeaseHeartbeat {
+		t.Fatalf("lease.heartbeat event was not appended: %#v", events)
+	}
+}
+
+// TestSuperviseReportNonMeaningfulProgressLeavesLeaseAlone guards the rejection
+// side: a plain (spinner/redraw) progress event the helper did NOT flag must
+// not refresh the lease — we only keep a lane alive on real output evidence.
+func TestSuperviseReportNonMeaningfulProgressLeavesLeaseAlone(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID: "sup_1",
+			RunID:        "run_1",
+			SessionID:    "sess_1",
+			State:        "attached",
+		},
+		activeLeaseID: "lease_1",
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_progress_plain",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "progress",
+			"payload":       map[string]any{"bytes": 12, "total_bytes": 12},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if tx.sawExec("UPDATE striatumd.leases", "last_heartbeat_at", "expires_at") {
+		t.Fatalf("plain progress must not refresh the lease: %#v", tx.execs)
+	}
+	if tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
+		t.Fatalf("plain progress must not stamp last_work_heartbeat_at: %#v", tx.execs)
+	}
+}
+
+// TestSuperviseReportMeaningfulProgressNoLeaseIsNoop guards that a meaningful
+// progress event for a session that holds no active lease is a safe no-op: the
+// lease query returns no rows and no lease/work-heartbeat update is issued.
+func TestSuperviseReportMeaningfulProgressNoLeaseIsNoop(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID: "sup_1",
+			RunID:        "run_1",
+			SessionID:    "sess_1",
+			State:        "attached",
+		},
+		// activeLeaseID left empty => pgx.ErrNoRows
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_progress_no_lease",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "progress",
+			"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport: %v", err)
+	}
+	if tx.sawExec("UPDATE striatumd.leases", "last_heartbeat_at", "expires_at") {
+		t.Fatalf("no active lease => no lease update expected: %#v", tx.execs)
+	}
+	if tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
+		t.Fatalf("no active lease => no work-heartbeat stamp expected: %#v", tx.execs)
+	}
+}
+
 func TestSuperviseReportRecordsAttachClientExitAsDetached(t *testing.T) {
 	tx := &superviseReportFakeTx{
 		supervisor: supervisorReportRow{
@@ -489,10 +623,16 @@ func (r *superviseReportFakeRunner) BeginTx(context.Context) (db.TxRunner, error
 
 type superviseReportFakeTx struct {
 	supervisor supervisorReportRow
-	nextEvent  int64
-	execs      []superviseReportExec
-	committed  bool
-	rolledBack bool
+	// activeLeaseID, when set, is returned by the active-lease query that the
+	// RFC 0101 Phase 1 meaningful-progress path issues; activeLeaseResource is
+	// the resource_id for that lease. An empty activeLeaseID means the session
+	// holds no active lease (pgx.ErrNoRows).
+	activeLeaseID       string
+	activeLeaseResource string
+	nextEvent           int64
+	execs               []superviseReportExec
+	committed           bool
+	rolledBack          bool
 }
 
 type superviseReportExec struct {
@@ -507,6 +647,16 @@ func (tx *superviseReportFakeTx) Exec(_ context.Context, sql string, args ...any
 
 func (tx *superviseReportFakeTx) QueryRow(_ context.Context, sql string, _ ...any) db.Row {
 	switch {
+	case strings.Contains(sql, "FROM striatumd.leases") && strings.Contains(sql, "owner_session_id"):
+		if tx.activeLeaseID == "" {
+			return superviseReportFakeRow{err: pgx.ErrNoRows}
+		}
+		var resource any
+		if tx.activeLeaseResource != "" {
+			res := tx.activeLeaseResource
+			resource = &res
+		}
+		return superviseReportFakeRow{values: []any{tx.activeLeaseID, resource}}
 	case strings.Contains(sql, "FROM striatumd.process_supervisors"):
 		dsup := tx.supervisor.DaemonSupervisorID
 		var pid any

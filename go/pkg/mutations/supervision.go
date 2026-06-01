@@ -10,6 +10,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
@@ -307,6 +308,20 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 		return nil, err
 	}
 
+	// RFC 0101 Phase 1 (Layer 1): a progress event the helper flagged as
+	// meaningful is positive evidence the lane is producing real output (D028 —
+	// observed by volume/timing, never content). Refresh the active lease's
+	// work-heartbeat so honest local work between MCP calls keeps the lease
+	// alive instead of tripping agent_lease_heartbeat_stall (#80 / #136). This
+	// is the daemon-mediated form of the "auto-heartbeat the lease" mechanism:
+	// the helper observes the PTY and the daemon — the sole authority over lease
+	// state (D094) — performs the lease transition.
+	if event.EventType == gosupervisor.HelperEventProgress && progressIsMeaningful(event.Payload) && supervisor.SessionID != "" {
+		if err := refreshActiveLeaseWorkHeartbeat(ctx, runner, repositoryID, supervisor.RunID, supervisor.SessionID, now); err != nil {
+			return nil, err
+		}
+	}
+
 	payload := map[string]any{
 		"supervisor_id":        supervisor.SupervisorID,
 		"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
@@ -340,7 +355,7 @@ func curatedSuperviseReportPayload(event superviseReportEvent, now string) map[s
 	case gosupervisor.HelperEventPacketAccepted:
 		return copyAllowedPayloadFields(event.Payload, "bytes", "sequence")
 	case gosupervisor.HelperEventProgress:
-		return copyAllowedPayloadFields(event.Payload, "bytes", "total_bytes")
+		return copyAllowedPayloadFields(event.Payload, "bytes", "total_bytes", "meaningful")
 	case gosupervisor.HelperEventAgentStarted:
 		payload := copyAllowedPayloadFields(event.Payload, "pid", "attach_pid", "attach_client_pid")
 		if metadata := curatedAgentStartedMetadata(asMap(event.Payload["metadata"])); len(metadata) > 0 {
@@ -667,6 +682,73 @@ func refreshReportSupervisorHeartbeat(ctx context.Context, runner db.TxRunner, r
 		 WHERE repository_id = $2 AND daemon_supervisor_id = $3`,
 		now, repositoryID, supervisor.DaemonSupervisorID,
 	)
+}
+
+// progressIsMeaningful reports whether the helper tagged this progress event as
+// meaningful output (RFC 0101 Phase 1). The helper sets payload["meaningful"]
+// only when output volume crossed the OQ1 threshold within its window; a bare
+// redraw/spinner frame leaves it unset.
+func progressIsMeaningful(payload map[string]any) bool {
+	value, ok := payload["meaningful"]
+	if !ok || value == nil {
+		return false
+	}
+	if flag, ok := value.(bool); ok {
+		return flag
+	}
+	return false
+}
+
+// refreshActiveLeaseWorkHeartbeat finds the session's single active lease (if
+// any) and refreshes it the same way work.heartbeat does: it stamps the
+// session's last_work_heartbeat_at activity column (which sessionliveness.Classify
+// treats as a fresh lease/work signal) and extends the lease so the lane is not
+// reaped while it is demonstrably producing output. It is a no-op when the
+// session holds no active lease — a lease-less lane has no lease-heartbeat
+// deadline to miss, so there is nothing to refresh.
+func refreshActiveLeaseWorkHeartbeat(ctx context.Context, runner db.TxRunner, repositoryID string, runID string, sessionID string, now string) error {
+	var leaseID string
+	var resourceID *string
+	err := runner.QueryRow(ctx, `
+		SELECT lease_id, resource_id
+		  FROM striatumd.leases
+		 WHERE repository_id = $1 AND owner_session_id = $2 AND state = 'active'
+		 ORDER BY acquired_at DESC, lease_id DESC
+		 LIMIT 1`, repositoryID, sessionID).Scan(&leaseID, &resourceID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	if strings.TrimSpace(leaseID) == "" {
+		return nil
+	}
+	expiresAt := expiresAfter(1800)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET last_heartbeat_at = $1, expires_at = $2
+		 WHERE repository_id = $3 AND lease_id = $4`, now, expiresAt, repositoryID, leaseID); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET last_heartbeat_at = $1
+		 WHERE repository_id = $2 AND session_id = $3`, now, repositoryID, sessionID); err != nil {
+		return err
+	}
+	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastWorkHeartbeatAt); err != nil {
+		return err
+	}
+	resource := ""
+	if resourceID != nil {
+		resource = *resourceID
+	}
+	_, err = appendEvent(ctx, runner, repositoryID, runID, "lease.heartbeat", sessionID, resource, nil, nil, leaseID, map[string]any{
+		"expires_at": expiresAt,
+		"source":     "supervisor_pty_progress",
+	})
+	return err
 }
 
 func optionalStringParam(params map[string]any, key string) (string, error) {

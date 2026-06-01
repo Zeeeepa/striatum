@@ -285,6 +285,13 @@ func pumpPTYProgress(
 	}
 	buf := make([]byte, readSize)
 	total := 0
+	// RFC 0101 Phase 1: the meter watches output VOLUME (not content, per D028)
+	// and flags a progress event as meaningful when the lane has produced enough
+	// output within a window to count as real work rather than TUI redraw noise.
+	// The daemon refreshes the active lease work-heartbeat on a meaningful
+	// progress event, so honest local work between MCP calls no longer trips
+	// agent_lease_heartbeat_stall (#80 / #136).
+	meter := newProgressMeter()
 	for {
 		select {
 		case <-ctx.Done():
@@ -297,13 +304,17 @@ func pumpPTYProgress(
 			if _, writeErr := output.Write(buf[:n]); writeErr != nil {
 				return writeErr
 			}
+			payload := map[string]any{
+				"bytes":       n,
+				"total_bytes": total,
+			}
+			if meter.observe(n, time.Now()) {
+				payload["meaningful"] = true
+			}
 			if emitErr := emitter.emit(newHelperEvent(
 				HelperEventProgress,
 				supervisorID,
-				map[string]any{
-					"bytes":       n,
-					"total_bytes": total,
-				},
+				payload,
 			)); emitErr != nil {
 				return emitErr
 			}
