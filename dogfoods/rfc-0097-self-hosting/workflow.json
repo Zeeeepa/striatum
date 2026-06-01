@@ -16,7 +16,7 @@
     "claude": {
       "adapter": "process",
       "display_model": "Claude Opus 4.8",
-      "command": ["claude"],
+      "command": ["claude", "--dangerously-skip-permissions"],
       "adapter_capabilities": {"agent_loop": true},
       "supervision": {"transport": "pty_helper", "compatible": true, "require_tmux": true},
       "capabilities": ["write", "review"]
