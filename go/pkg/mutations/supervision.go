@@ -317,6 +317,14 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	// the helper observes the PTY and the daemon — the sole authority over lease
 	// state (D094) — performs the lease transition.
 	if event.EventType == gosupervisor.HelperEventProgress && progressIsMeaningful(event.Payload) && supervisor.SessionID != "" {
+		// Slice 2 (#80 working_local): stamp last_pty_activity_at on meaningful
+		// PTY output regardless of lease state — it is the raw "the child is
+		// producing output" signal the classifier reads to report working_local
+		// and to keep an honestly-working local lane out of protocol_idle.
+		if err := sessionliveness.Record(ctx, runner, repositoryID, supervisor.SessionID, sessionliveness.LastPTYActivityAt); err != nil {
+			return nil, err
+		}
+		// Lease-gated: refresh the active lease work-heartbeat (no-op without one).
 		if err := refreshActiveLeaseWorkHeartbeat(ctx, runner, repositoryID, supervisor.RunID, supervisor.SessionID, now); err != nil {
 			return nil, err
 		}

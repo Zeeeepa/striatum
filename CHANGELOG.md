@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 1 (slice 2) — honest classifier states + in-tool/dead signals (#83/#117)
+
+`sessionliveness.Classify` no longer collapses every live lane to a generic
+`live`. After the (unchanged) stall rungs it derives a precise, **projection-only**
+`Protocol` state — `working_protocol` (fresh MCP), `working_local` (PTY output
+between MCP calls, #80), `working_tool` (inside an MCP/tool call, with visible
+`tool_call_since`/`tool_call_deadline`, #83), `quiet`, or `dead`. These states
+live on `Result.Protocol` only and are **never** persisted to
+`liveness_stall_class`, so the migration-0012 CHECK constraint and the recovery
+library are untouched. **#117**: a lane past the discovery deadline with 0 MCP
+calls and no PTY output now reports `Protocol: dead` (honest "dead at spawn")
+while keeping `StallClass: agent_mcp_discovery_stall` for the recovery sweep; a
+lane still producing PTY output keeps the plain discovery stall. **#83**:
+`mcp/tools.go` stamps `last_tool_call_started_at`/`last_tool_call_finished_at`
+around each tool call (volume/timing only). **#80 producer**: the daemon stamps
+`last_pty_activity_at` on every meaningful PTY-progress event (lease-independent),
+which both feeds `working_local` and keeps an honestly-working local lane out of
+`agent_protocol_idle_stall`. New columns threaded through `lanehealth.Check` +
+the four `reads/*` SELECTs. **Migration 0019** (owner-applied, schema 19) adds
+the three `timestamptz` columns to `striatumd.sessions`. Restart-gated; the
+migration must be owner-applied before deploying the schema-19 binary. First-cut
+windows (`ProtocolFreshSeconds`/`PTYFreshSeconds`=60, `ToolCallSeconds`=180) per
+OQ1 — tune against the installed CLIs. New tests in `liveness_test.go`,
+`mcp/http_test.go`, `migrations_test.go`.
+
 ### #129 — remove `.claude/scheduled_tasks.lock` on lane teardown
 
 A supervised Claude lane writes `.claude/scheduled_tasks.lock` into the target
