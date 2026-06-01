@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -9,13 +10,54 @@ import (
 	"time"
 )
 
+// AuthContext is the resolved authorization decision for a single RPC request.
+//
+// RFC 0096 V2 / GH #135: SessionID, when non-empty, identifies the single
+// session a capability token is bound to (minted at session.register for one
+// lane). An empty SessionID means the token is session-UNBOUND — the
+// repo-scoped operator/coordinator token. Session-scoped handlers
+// (interrogation.answer and the work.* family) consult IsSessionBound() to
+// reject cross-session impersonation by a bound caller, and to record an
+// honest operator-override provenance marker when an unbound caller acts as a
+// lane.
 type AuthContext struct {
 	ClientID     string
 	TokenID      string
 	RepositoryID string
+	SessionID    string
 	Capability   Capability
 	Decision     string
 	DenialReason string
+}
+
+// IsSessionBound reports whether the resolved token is bound to a specific
+// session. A bound token may only act as its own session; an unbound token is
+// the shared operator/coordinator token and may act as any session under the
+// honest operator-override path.
+func (a AuthContext) IsSessionBound() bool {
+	return a.SessionID != ""
+}
+
+// authContextKey is the unexported context key under which the resolved
+// AuthContext is threaded from the RPC/MCP dispatch into mutation handlers, so
+// session-scoped handlers can read the caller's bound SessionID without
+// changing every handler signature.
+type authContextKey struct{}
+
+// WithAuthContext returns a child context carrying the resolved AuthContext.
+// The dispatch layer sets this immediately after Authorize succeeds.
+func WithAuthContext(ctx context.Context, auth AuthContext) context.Context {
+	return context.WithValue(ctx, authContextKey{}, auth)
+}
+
+// AuthFromContext returns the AuthContext threaded onto ctx by the dispatch
+// layer and whether one was present. When absent (e.g. a direct handler unit
+// test, or a transport that does not thread auth), ok is false and the caller
+// must treat the request as session-UNBOUND — never as a bound impersonation
+// bypass.
+func AuthFromContext(ctx context.Context) (AuthContext, bool) {
+	auth, ok := ctx.Value(authContextKey{}).(AuthContext)
+	return auth, ok
 }
 
 type Authorizer interface {
@@ -24,6 +66,12 @@ type Authorizer interface {
 
 type AllowAllAuthorizer struct{}
 
+// Authorize for AllowAllAuthorizer always allows and yields a session-UNBOUND
+// AuthContext (SessionID == ""). RFC 0096 V2: tests and dev wiring that use
+// AllowAllAuthorizer therefore exercise the operator-override path (honest
+// provenance), never a bound-session bypass — there is no way for AllowAll to
+// fabricate a bound SessionID, so it can never silently satisfy the
+// cross-session bound check.
 func (AllowAllAuthorizer) Authorize(required *Capability, repositoryID string, token string) AuthContext {
 	capability := Capability("")
 	if required != nil {
@@ -43,8 +91,12 @@ type TokenRecord struct {
 
 type CapabilityGrant struct {
 	RepositoryID string
-	ExpiresAt    time.Time
-	Revoked      bool
+	// SessionID binds this grant to a single session (RFC 0096 V2 / #135).
+	// Empty means the grant is session-unbound (the operator/coordinator
+	// repo-scoped grant, as before).
+	SessionID string
+	ExpiresAt time.Time
+	Revoked   bool
 }
 
 type MemoryAuthorizer struct {
@@ -124,6 +176,9 @@ func (a *MemoryAuthorizer) Authorize(required *Capability, repositoryID string, 
 		ctx.DenialReason = "capability_expired"
 		return ctx
 	}
+	// RFC 0096 V2 / #135: surface the grant's session binding so session-scoped
+	// handlers can enforce that a bound token only acts as its own session.
+	ctx.SessionID = grant.SessionID
 	ctx.Capability = *required
 	ctx.Decision = "allowed"
 	return ctx

@@ -79,6 +79,12 @@ func HandleInterrogationShow(ctx context.Context, runner db.Runner, envelope rpc
 			"kind":              payload["kind"],
 			"body":              payload["body"],
 		}
+		// RFC 0096 V2 / #135: surface the answer's responder provenance
+		// (target_session vs operator) so the turn record makes a coordinator
+		// override visible rather than silently attributing it to the lane.
+		if responder, ok := payload["responder"]; ok && responder != nil && responder != "" {
+			turn["responder"] = responder
+		}
 		turns = append(turns, turn)
 	}
 	return map[string]any{

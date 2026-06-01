@@ -301,13 +301,22 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			return nil, err
 		}
 		attestation := sessionLaneAttestation(ctx, tx, repositoryID, sessionID)
+		// RFC 0096 V2 / #135: mint a capability token BOUND to this session so a
+		// supervised lane can become session-bound and the cross-session
+		// impersonation enforcement fully bites. Returned to the caller; lane-env
+		// wiring to actually USE it is the remaining follow-up.
+		boundToken, err := mintSessionBoundToken(ctx, tx, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
 		return map[string]any{
-			"session_id":              sessionID,
-			"slug":                    slug,
-			"lane_attestation":        attestation["state"],
-			"lane_attestation_reason": attestation["reason"],
-			"operator_label":          recordedLabel,
-			"supervise_hint":          "striatum supervise start --session-id " + sessionID,
+			"session_id":               sessionID,
+			"slug":                     slug,
+			"lane_attestation":         attestation["state"],
+			"lane_attestation_reason":  attestation["reason"],
+			"operator_label":           recordedLabel,
+			"supervise_hint":           "striatum supervise start --session-id " + sessionID,
+			"session_capability_token": boundToken,
 		}, nil
 	})
 }

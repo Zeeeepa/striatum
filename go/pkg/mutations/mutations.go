@@ -143,6 +143,48 @@ func requireRepositoryID(envelope rpc.Envelope) (string, error) {
 	return value, nil
 }
 
+// sessionBinding is the result of evaluating the caller's capability-token
+// session binding against the act-as session a session-scoped handler is about
+// to act for (RFC 0096 V2 / #135).
+type sessionBinding struct {
+	// OperatorOverride is true when the caller's token is session-UNBOUND (the
+	// operator/coordinator repo-scoped token) acting as a lane. The action is
+	// allowed but must be recorded with honest operator provenance, never
+	// attributed to the target lane's own PTY.
+	OperatorOverride bool
+}
+
+// enforceSessionBinding is the per-session capability-token guard that closes
+// the cross-session impersonation vector (GH #135).
+//
+//   - If the caller's token is BOUND to a session, the act-as session
+//     (actSessionID, the session_id param) MUST equal the bound session, else
+//     capability_denied. This is what stops a compromised lane from answering
+//     an interrogation as another lane.
+//   - If the caller's token is UNBOUND (operator/coordinator), the action is
+//     allowed but flagged OperatorOverride so the handler records honest
+//     provenance (responder=operator), satisfying #135's explicit override
+//     mode.
+//   - When no AuthContext was threaded onto ctx at all (direct unit tests, or a
+//     transport that does not authorize) the caller is treated as UNBOUND —
+//     never as a bound impersonation bypass. Combined with
+//     AllowAllAuthorizer yielding an unbound context, dev/test wiring keeps
+//     working under operator-override semantics.
+func enforceSessionBinding(ctx context.Context, actSessionID string) (sessionBinding, error) {
+	auth, ok := rpc.AuthFromContext(ctx)
+	if !ok || !auth.IsSessionBound() {
+		return sessionBinding{OperatorOverride: true}, nil
+	}
+	if auth.SessionID != actSessionID {
+		return sessionBinding{}, rpc.NewError(
+			"capability_denied",
+			fmt.Sprintf("capability token is bound to session %s; cannot act as session %s", auth.SessionID, actSessionID),
+			nil,
+		)
+	}
+	return sessionBinding{OperatorOverride: false}, nil
+}
+
 func stringParam(envelope rpc.Envelope, key string) string {
 	if value, ok := envelope.Params[key].(string); ok {
 		return value

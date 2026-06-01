@@ -287,3 +287,20 @@ remediation phases should either daemon-route, quarantine, or delete.
     PostgreSQL-backed repository visibility and read projections. A missing
     daemon PostgreSQL connection fails closed; the legacy registry-backed
     no-`pg_conn` fallback is retired.
+11. Capability tokens may be bound to a single session (RFC 0096 V2 / GH #135).
+    The authorizer surfaces the grant's `session_id` on the resolved
+    `AuthContext` (`client_capabilities.session_id`; NULL = session-unbound),
+    and `rpc.Server.handle` threads that `AuthContext` onto the request context
+    after authorization. Session-scoped handlers
+    (`interrogation.open`/`ask`/`answer`/`close`) enforce it: a session-bound
+    token may act ONLY as its own session (else `capability_denied`), while an
+    unbound operator/coordinator token is still allowed but records honest
+    provenance — for `interrogation.answer` the turn and `interrogation.answered`
+    event carry `responder=operator` / `operator_override=true` rather than
+    falsely attributing the answer to the target lane. `session.register` mints
+    a session-bound token; wiring the supervised-lane env to USE it (so live
+    lanes become bound) is a tracked follow-up. `AllowAllAuthorizer` yields an
+    unbound `AuthContext`, so dev/test wiring exercises the operator-override
+    path, never a bound-session bypass. The `work.*` family is NOT yet enforced
+    (no act-as session distinct from the bound session today); it is the next
+    extension.

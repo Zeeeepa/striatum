@@ -85,20 +85,26 @@ func (a *PostgresAuthorizer) Authorize(required *Capability, repositoryID string
 	var capRepoID pgtype.Text
 	var capExpiresAt pgtype.Timestamptz
 	var capRevokedAt pgtype.Timestamptz
+	var capSessionID pgtype.Text
+	// RFC 0096 V2 / #135: also read session_id so the resolved AuthContext can
+	// carry the grant's session binding (NULL = session-unbound, the
+	// operator/coordinator grant). Prefer the narrowest grant: a
+	// session-scoped, repo-scoped grant over a broader one, so a lane minted a
+	// bound token enforces against its own session.
 	capErr := a.Runner.QueryRow(
 		ctx,
-		`SELECT capability_id, repository_id, expires_at, revoked_at
+		`SELECT capability_id, repository_id, expires_at, revoked_at, session_id
 		   FROM striatumd.client_capabilities
 		  WHERE client_id = $1
 		    AND capability = $2
 		    AND (repository_id IS NULL OR repository_id = $3)
 		    AND revoked_at IS NULL
-		  ORDER BY repository_id IS NULL
+		  ORDER BY session_id IS NULL, repository_id IS NULL
 		  LIMIT 1`,
 		clientID,
 		string(*required),
 		repositoryID,
-	).Scan(&capabilityID, &capRepoID, &capExpiresAt, &capRevokedAt)
+	).Scan(&capabilityID, &capRepoID, &capExpiresAt, &capRevokedAt, &capSessionID)
 	if capErr != nil {
 		if !errors.Is(capErr, pgx.ErrNoRows) {
 			return AuthContext{ClientID: clientID, TokenID: tokenID, RepositoryID: repositoryID, Decision: "denied", DenialReason: "internal_error"}
@@ -126,10 +132,15 @@ func (a *PostgresAuthorizer) Authorize(required *Capability, repositoryID string
 	if capExpiresAt.Valid && !capExpiresAt.Time.UTC().After(a.now()) {
 		return AuthContext{ClientID: clientID, TokenID: tokenID, RepositoryID: repositoryID, Decision: "denied", DenialReason: "capability_expired"}
 	}
+	boundSession := ""
+	if capSessionID.Valid {
+		boundSession = capSessionID.String
+	}
 	return AuthContext{
 		ClientID:     clientID,
 		TokenID:      tokenID,
 		RepositoryID: repositoryID,
+		SessionID:    boundSession,
 		Capability:   *required,
 		Decision:     "allowed",
 	}

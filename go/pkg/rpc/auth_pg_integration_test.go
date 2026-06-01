@@ -95,6 +95,50 @@ func insertCapability(t *testing.T, runner execer, capabilityID, clientID, repoI
 	}
 }
 
+// TestPostgresAuthorizerSurfacesSessionBinding verifies RFC 0096 V2 / #135: a
+// session-bound capability grant surfaces SessionID on the resolved
+// AuthContext (so session-scoped handlers can enforce per-session binding),
+// while an unbound grant yields an empty SessionID (operator/coordinator).
+func TestPostgresAuthorizerSurfacesSessionBinding(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.DB(t)
+	now := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_s','ident_s','/tmp/repo-s','/tmp/repo-s/.striatum','repo-s',$1,22,'active')`,
+		now,
+	); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	// bound token: a grant carrying session_id.
+	insertClient(t, runner, "client_bound", "tok_bound", "secret", "salt", now, "", "")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities (
+		  capability_id, client_id, repository_id, capability, granted_at, session_id
+		) VALUES ('cap_bound','client_bound','repo_s',$1,$2,'sess_target')`,
+		string(rpc.CapabilityWrite), now,
+	); err != nil {
+		t.Fatalf("insert bound capability: %v", err)
+	}
+	// unbound (operator) token: a grant with NULL session_id.
+	insertClient(t, runner, "client_unbound", "tok_unbound", "secret", "salt", now, "", "")
+	insertCapability(t, runner, "cap_unbound", "client_unbound", "repo_s", rpc.CapabilityWrite, now, "", "")
+
+	required := rpc.CapabilityWrite
+	auth := rpc.PostgresAuthorizer{Runner: runner, Clock: func() time.Time { return now }}
+
+	bound := auth.Authorize(&required, "repo_s", "tok_bound.secret")
+	if bound.Decision != "allowed" || !bound.IsSessionBound() || bound.SessionID != "sess_target" {
+		t.Fatalf("bound auth = %#v, want allowed bound to sess_target", bound)
+	}
+	unbound := auth.Authorize(&required, "repo_s", "tok_unbound.secret")
+	if unbound.Decision != "allowed" || unbound.IsSessionBound() {
+		t.Fatalf("unbound auth = %#v, want allowed and session-unbound", unbound)
+	}
+}
+
 func hmacHex(salt, secret string) string {
 	mac := hmac.New(sha256.New, []byte(salt))
 	mac.Write([]byte(secret))

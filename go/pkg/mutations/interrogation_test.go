@@ -301,6 +301,158 @@ func TestInterrogationAuthorization(t *testing.T) {
 	}
 }
 
+// --- RFC 0096 V2 / #135: per-session capability-token binding --------------
+
+// boundCtx threads an AuthContext bound to sessionID onto ctx, simulating a
+// lane that authenticated with a session-bound capability token. The dispatch
+// layer (rpc.Server.handle) sets this in production right after Authorize.
+func boundCtx(ctx context.Context, repoID, sessionID string) context.Context {
+	return rpc.WithAuthContext(ctx, rpc.AuthContext{
+		RepositoryID: repoID,
+		SessionID:    sessionID,
+		Capability:   rpc.CapabilityWrite,
+		Decision:     "allowed",
+	})
+}
+
+// operatorCtx threads an UNBOUND (operator/coordinator) AuthContext onto ctx —
+// the shared repo-scoped token, which is allowed to act as any lane but must
+// record honest operator provenance.
+func operatorCtx(ctx context.Context, repoID string) context.Context {
+	return rpc.WithAuthContext(ctx, rpc.AuthContext{
+		RepositoryID: repoID,
+		Capability:   rpc.CapabilityWrite,
+		Decision:     "allowed",
+	})
+}
+
+// TestInterrogationAnswerRejectsCrossSessionBoundToken is the vector, closed: a
+// token BOUND to session A cannot answer an interrogation as session B (the
+// target). This is the exact #135 spoof — a compromised/over-broad lane token
+// impersonating the target lane — and it must be refused capability_denied.
+func TestInterrogationAnswerRejectsCrossSessionBoundToken(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_intg_bound_cross"
+	_, interrogator, target := intgFixture(t, ctx, runner, repoID)
+	id := mustOpen(t, ctx, runner, repoID, interrogator, target)
+	if _, err := HandleInterrogationAsk(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": interrogator, "interrogation_id": id, "body": "Q",
+	})); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+
+	// The caller holds a token bound to the INTERROGATOR session but tries to
+	// answer AS the target. Closed: capability_denied.
+	spoofCtx := boundCtx(ctx, repoID, interrogator)
+	_, err := HandleInterrogationAnswer(spoofCtx, runner, intgEnv(repoID, map[string]any{
+		"session_id": target, "interrogation_id": id, "body": "spoofed",
+	}))
+	if !isRPCCode(err, "capability_denied") {
+		t.Fatalf("cross-session bound answer: want capability_denied, got %v", err)
+	}
+
+	// And nothing was recorded: the spoofed turn must not exist.
+	show, err := reads.HandleInterrogationShow(ctx, runner, intgEnv(repoID, map[string]any{"interrogation_id": id}))
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	for _, turn := range show["turns"].([]map[string]any) {
+		if fmt.Sprint(turn["body"]) == "spoofed" {
+			t.Fatalf("a rejected cross-session answer was recorded: %#v", turn)
+		}
+	}
+}
+
+// TestInterrogationAnswerBoundTokenSucceedsForOwnSession verifies the backward
+// half: a token bound to the TARGET session CAN answer for itself, and the turn
+// is honestly attributed to the target lane (responder=target_session).
+func TestInterrogationAnswerBoundTokenSucceedsForOwnSession(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_intg_bound_own"
+	_, interrogator, target := intgFixture(t, ctx, runner, repoID)
+	id := mustOpen(t, ctx, runner, repoID, interrogator, target)
+	if _, err := HandleInterrogationAsk(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": interrogator, "interrogation_id": id, "body": "Q",
+	})); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+
+	ownCtx := boundCtx(ctx, repoID, target)
+	res, err := HandleInterrogationAnswer(ownCtx, runner, intgEnv(repoID, map[string]any{
+		"session_id": target, "interrogation_id": id, "body": "honest answer",
+	}))
+	if err != nil {
+		t.Fatalf("own-session bound answer should succeed: %v", err)
+	}
+	if res["operator_override"] != false || res["responder"] != "target_session" {
+		t.Fatalf("own-session answer provenance = %#v, want responder=target_session, operator_override=false", res)
+	}
+	show, err := reads.HandleInterrogationShow(ctx, runner, intgEnv(repoID, map[string]any{"interrogation_id": id}))
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	turns := show["turns"].([]map[string]any)
+	answer := turns[len(turns)-1]
+	if fmt.Sprint(answer["body"]) != "honest answer" || fmt.Sprint(answer["responder"]) != "target_session" {
+		t.Fatalf("recorded answer = %#v, want body=honest answer responder=target_session", answer)
+	}
+}
+
+// TestInterrogationAnswerOperatorTokenRecordsOverrideProvenance verifies the
+// honest-provenance path: an UNBOUND (operator/coordinator) token answering as
+// a lane SUCCEEDS (preserving recovery/operator convenience) but the turn AND
+// the event record responder=operator / operator_override=true, so the trail
+// does NOT falsely attribute the answer to the target lane's PTY.
+func TestInterrogationAnswerOperatorTokenRecordsOverrideProvenance(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_intg_operator_override"
+	runID, interrogator, target := intgFixture(t, ctx, runner, repoID)
+	id := mustOpen(t, ctx, runner, repoID, interrogator, target)
+	if _, err := HandleInterrogationAsk(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": interrogator, "interrogation_id": id, "body": "Q",
+	})); err != nil {
+		t.Fatalf("ask: %v", err)
+	}
+
+	opCtx := operatorCtx(ctx, repoID)
+	res, err := HandleInterrogationAnswer(opCtx, runner, intgEnv(repoID, map[string]any{
+		"session_id": target, "interrogation_id": id, "body": "operator probe",
+	}))
+	if err != nil {
+		t.Fatalf("operator override answer should succeed: %v", err)
+	}
+	if res["operator_override"] != true || res["responder"] != "operator" {
+		t.Fatalf("operator answer provenance = %#v, want responder=operator, operator_override=true", res)
+	}
+
+	// The recorded turn carries the honest responder marker.
+	show, err := reads.HandleInterrogationShow(ctx, runner, intgEnv(repoID, map[string]any{"interrogation_id": id}))
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	turns := show["turns"].([]map[string]any)
+	answer := turns[len(turns)-1]
+	if fmt.Sprint(answer["responder"]) != "operator" {
+		t.Fatalf("operator-override turn must record responder=operator, got %#v", answer)
+	}
+
+	// The interrogation.answered event also records the override (audit trail).
+	ev, err := oneRow(ctx, runner, `
+		SELECT payload_json FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'interrogation.answered'
+		 ORDER BY event_id DESC LIMIT 1`, repoID, runID)
+	if err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	payload := asMap(ev["payload_json"])
+	if fmt.Sprint(payload["responder"]) != "operator" || payload["operator_override"] != true {
+		t.Fatalf("interrogation.answered event must record operator override, got %#v", payload)
+	}
+}
+
 // --- Required Test 4: live-target requirement ------------------------------
 
 func TestInterrogationOpenRequiresLiveTarget(t *testing.T) {
@@ -640,6 +792,8 @@ func TestInterrogationD028NoRawProviderOutput(t *testing.T) {
 	allowed := map[string]bool{
 		"message_id": true, "target_session_id": true, "created_at": true,
 		"turn": true, "turn_index": true, "kind": true, "body": true,
+		// RFC 0096 V2 / #135: curated answer-provenance marker.
+		"responder": true,
 	}
 	for _, turn := range show["turns"].([]map[string]any) {
 		for key := range turn {

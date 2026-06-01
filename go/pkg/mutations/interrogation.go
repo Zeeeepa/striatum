@@ -39,6 +39,12 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 	if sessionID == targetSessionID {
 		return nil, rpc.NewError("invalid_transition", "a session cannot interrogate itself", nil)
 	}
+	// RFC 0096 V2 / #135: a session-bound token may open only as its own
+	// (interrogator) session; an unbound operator token may open on behalf of
+	// any lane.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// RFC 0101 Phase 0a (#137): serialize against the target's own await/claim
 		// transaction on the same run BEFORE any FOR UPDATE so the {sessions, runs}
@@ -116,6 +122,11 @@ func HandleInterrogationAsk(ctx context.Context, runner db.Runner, envelope rpc.
 	if sessionID == "" || interrogationID == "" || body == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.ask requires session_id, interrogation_id, and body", nil)
 	}
+	// RFC 0096 V2 / #135: a session-bound token may ask only as its own
+	// (interrogator) session.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// RFC 0101 Phase 0a (#137): take the per-run interrogation lock first so
 		// this critical section serializes against the target's await/claim on the
@@ -185,6 +196,19 @@ func HandleInterrogationAnswer(ctx context.Context, runner db.Runner, envelope r
 	if sessionID == "" || interrogationID == "" || body == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.answer requires session_id, interrogation_id, and body", nil)
 	}
+	// RFC 0096 V2 / #135: close the cross-session impersonation vector. A
+	// session-bound token may answer ONLY for its own session; a compromised
+	// lane cannot answer as the interrogation target. An unbound operator token
+	// is allowed but the turn is recorded with honest operator provenance
+	// (responder=operator), not attributed to the target lane's PTY.
+	binding, err := enforceSessionBinding(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	responder := "target_session"
+	if binding.OperatorOverride {
+		responder = "operator"
+	}
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// RFC 0101 Phase 0a (#137): the answer path locks the target `sessions`
 		// row (sessionliveness.Record) and was the half of the {sessions, runs}
@@ -209,7 +233,7 @@ func HandleInterrogationAnswer(ctx context.Context, runner db.Runner, envelope r
 		}
 		interrogatorSessionID := fmt.Sprint(interrogation["interrogator_session_id"])
 		turnIndex := intValue(interrogation["turn_count"])
-		messageID, err := interrogationTurnMessage(ctx, tx, repositoryID, interrogation, "interrogation_answer", interrogatorSessionID, body, turnIndex, "completed")
+		messageID, err := interrogationTurnMessage(ctx, tx, repositoryID, interrogation, "interrogation_answer", interrogatorSessionID, body, turnIndex, "completed", responder)
 		if err != nil {
 			return nil, err
 		}
@@ -237,15 +261,19 @@ func HandleInterrogationAnswer(ctx context.Context, runner db.Runner, envelope r
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, interrogation["run_id"], "interrogation.answered", sessionID, nil, messageID, nil, nil, map[string]any{
-			"interrogation_id": interrogationID,
-			"turn_index":       turnIndex,
+			"interrogation_id":  interrogationID,
+			"turn_index":        turnIndex,
+			"responder":         responder,
+			"operator_override": binding.OperatorOverride,
 		}); err != nil {
 			return nil, err
 		}
 		return map[string]any{
-			"interrogation_id": interrogationID,
-			"message_id":       messageID,
-			"turn_index":       turnIndex,
+			"interrogation_id":  interrogationID,
+			"message_id":        messageID,
+			"turn_index":        turnIndex,
+			"responder":         responder,
+			"operator_override": binding.OperatorOverride,
 		}, nil
 	})
 }
@@ -262,6 +290,13 @@ func HandleInterrogationClose(ctx context.Context, runner db.Runner, envelope rp
 	}
 	sessionID := stringParam(envelope, "session_id")
 	interrogationID := stringParam(envelope, "interrogation_id")
+	if sessionID != "" {
+		// RFC 0096 V2 / #135: a session-bound token may close only as its own
+		// (interrogator) session.
+		if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+			return nil, err
+		}
+	}
 	if sessionID == "" || interrogationID == "" {
 		return nil, rpc.NewError("schema_invalid", "interrogation.close requires session_id and interrogation_id", nil)
 	}
@@ -554,7 +589,13 @@ func closeInterrogationTargetForReopen(ctx context.Context, runner any, reposito
 // interrogationTurnMessage writes a turn onto the message bus. Turns are curated
 // records (D028): the authored body text plus correlation identifiers, never
 // raw provider output.
-func interrogationTurnMessage(ctx context.Context, tx db.TxRunner, repositoryID string, interrogation map[string]any, kind, targetSessionID, body string, turnIndex int, state string) (string, error) {
+//
+// responder (RFC 0096 V2 / #135) records WHO authored the turn so the
+// provenance is honest: "target_session" for a turn produced by the bound
+// target lane, or "operator" when an unbound operator/coordinator token used
+// the override path to answer as the lane. An empty responder is omitted
+// (questions, which are always authored by the interrogator lane).
+func interrogationTurnMessage(ctx context.Context, tx db.TxRunner, repositoryID string, interrogation map[string]any, kind, targetSessionID, body string, turnIndex int, state string, responder ...string) (string, error) {
 	messageID, err := newID("msg")
 	if err != nil {
 		return "", err
@@ -570,6 +611,9 @@ func interrogationTurnMessage(ctx context.Context, tx db.TxRunner, repositoryID 
 		"interrogation_id": interrogationID,
 		"turn":             turn,
 		"turn_index":       turnIndex,
+	}
+	if len(responder) > 0 && responder[0] != "" {
+		payload["responder"] = responder[0]
 	}
 	payloadArg, err := db.JSONBArg(tx, payload)
 	if err != nil {

@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### RFC 0096 V2 / #135 — per-session capability-token binding
+
+Closes the cross-session impersonation vector: any holder of the repo-scoped
+capability token (the operator CLI, or a compromised lane) could `interrogation
+answer --session-id <other_session>` and have the turn falsely attributed to the
+target lane's PTY. Capability tokens can now be BOUND to a single session, and
+the session-scoped interrogation handlers enforce that binding.
+
+- **Auth model.** Added an optional `SessionID` to `rpc.CapabilityGrant` /
+  `rpc.AuthContext` and to the `client_capabilities` table (schema 22,
+  `0022_session_bound_capability.sql`, additive nullable column; NULL =
+  session-unbound). Both `MemoryAuthorizer` and the production
+  `PostgresAuthorizer` surface the grant's `session_id` on the resolved
+  `AuthContext`; `AuthContext.IsSessionBound()` reports whether a token is bound.
+- **AuthContext threaded to handlers.** `rpc.Server.handle` now wraps the request
+  context with the resolved `AuthContext` (`rpc.WithAuthContext`) immediately
+  after authorization succeeds; handlers read it via `rpc.AuthFromContext(ctx)` —
+  no per-handler signature change. When absent (direct unit tests), the caller is
+  treated as session-UNBOUND, never a bound-impersonation bypass.
+- **Enforcement (the close).** `interrogation.open`/`ask`/`answer`/`close`
+  enforce per-session binding via `enforceSessionBinding`: a session-bound token
+  may act ONLY as its own session, else `capability_denied` ("token is bound to
+  session X; cannot act as session Y"). An unbound operator/coordinator token is
+  still allowed (recovery/operator convenience) but `interrogation.answer`
+  records HONEST provenance — the turn payload and the `interrogation.answered`
+  event carry `responder=operator` / `operator_override=true` (vs
+  `responder=target_session` for a bound lane answering for itself). The
+  `interrogation.show` turn projection surfaces `responder` so the distinction is
+  visible in the turn record.
+- **Per-session token minting.** `session.register` now mints a capability token
+  bound to the new session (claim+write, repo-scoped, bounded TTL) and returns it
+  as `session_capability_token`. The production authorizer resolves it as
+  session-bound. Wiring the supervised-lane env to actually USE this per-session
+  token (so live lanes become bound and the enforcement fully bites end-to-end)
+  is the remaining follow-up — until then live lanes still carry the shared
+  repo-scoped token, which the enforcement treats as an honest operator override.
+- **Backward compatibility.** `AllowAllAuthorizer` (tests/dev) yields an unbound
+  `AuthContext`, so existing interrogation/work/claim tests keep passing under
+  operator-override semantics. No bound check can be silently satisfied by an
+  unbound token.
+- **Tests.** `TestInterrogationAnswerRejectsCrossSessionBoundToken` (the vector,
+  closed → `capability_denied`, nothing recorded),
+  `TestInterrogationAnswerBoundTokenSucceedsForOwnSession`,
+  `TestInterrogationAnswerOperatorTokenRecordsOverrideProvenance` (turn + event
+  record `responder=operator`), `TestPostgresAuthorizerSurfacesSessionBinding`,
+  and `TestRegisterSessionMintsSessionBoundToken`.
+
 ## v2.9.0 — 2026-06-01
 
 RFC 0101 (robust autonomous workflow execution) Phases 1–5 complete + deployed

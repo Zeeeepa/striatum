@@ -46,6 +46,47 @@ func TestRegisterSessionDefaultsToWorkflowLaneCapabilities(t *testing.T) {
 	}
 }
 
+// TestRegisterSessionMintsSessionBoundToken verifies RFC 0096 V2 / #135: the
+// register-session handler mints a capability token BOUND to the new session,
+// and the production authorizer resolves that token as session-bound (so the
+// per-session enforcement will bite once lanes carry it).
+func TestRegisterSessionMintsSessionBoundToken(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_lifecycle_token"
+	runID := "run_lifecycle_token"
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"reviewer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{"capabilities": []any{"write", "claim"}}},
+	})
+
+	result, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "claude",
+	}))
+	if err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	sessionID := fmt.Sprint(result["session_id"])
+	tokenInfo, ok := result["session_capability_token"].(map[string]any)
+	if !ok {
+		t.Fatalf("register did not return a session_capability_token: %#v", result)
+	}
+	token := fmt.Sprint(tokenInfo["token"])
+	if token == "" || fmt.Sprint(tokenInfo["session_id"]) != sessionID {
+		t.Fatalf("session_capability_token = %#v, want token bound to %s", tokenInfo, sessionID)
+	}
+
+	// The production authorizer must resolve this token as bound to the session.
+	required := rpc.CapabilityWrite
+	auth := rpc.PostgresAuthorizer{Runner: runner}
+	resolved := auth.Authorize(&required, repoID, token)
+	if resolved.Decision != "allowed" || !resolved.IsSessionBound() || resolved.SessionID != sessionID {
+		t.Fatalf("minted token auth = %#v, want allowed bound to %s", resolved, sessionID)
+	}
+}
+
 func TestRegisterSessionExplicitCapabilitiesOverrideLaneDefault(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner

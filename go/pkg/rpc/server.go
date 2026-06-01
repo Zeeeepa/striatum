@@ -97,7 +97,11 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 		}
 		err = RequireAllowed(auth)
 		if err == nil {
-			data, err = s.route(ctx, envelope)
+			// RFC 0096 V2 / #135: thread the resolved AuthContext onto the
+			// context so session-scoped handlers can read the caller's bound
+			// SessionID (if any) and enforce per-session binding without a
+			// signature change. Threaded only after Authorize succeeds.
+			data, err = s.route(WithAuthContext(ctx, auth), envelope)
 		}
 		if err != nil {
 			if rpcErr := (&Error{}); errors.As(err, &rpcErr) {
