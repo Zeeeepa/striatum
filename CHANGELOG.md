@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 2 (Slice 1) — hermetic adapter-conformance core (Tier A)
+
+New package `go/pkg/adapterconformance/` implementing the accepted RFC 0101
+Layer-2 design (`dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md`)
+as a hermetic suite that rides `make -C go check` (no PostgreSQL, daemon, or
+agent CLI): the closed `FailureClass` taxonomy partitioned into **contract** vs
+**infra** classes (with a self-validation test that the partition is total and
+disjoint), the ordered C0–C12 `Clause` list with `ContractProfile`
+(`Full`/`SingleShot`) and `ClauseResult.Status ∈ {Pass, ContractFail,
+InfraOutcome, Deferred}`, and two real hermetic asserts:
+- **C0 — AdapterContract golden (the #101 regression gate):** asserts
+  claude/codex/agy resolve to `argv` bootstrap delivery (a revert to `pty_submit`
+  re-introduces the #101 TUI-buffering stall and fails C0 with
+  `AdapterContractViolation`), agy appends `--prompt-interactive`, codex/claude
+  use a trailing positional, codex injects `-c mcp_servers.striatum.url=…`, and
+  the agy settings body carries `usageStatisticsEnabled:false` (#76). Verified to
+  fail loudly on a `pty_submit` revert.
+- **C2 — lane-env hardening golden:** the production supervised-lane env carries
+  the required keys and drops every banned `DATABASE_URL`/`PG*`/`*POSTGRES*`/
+  `*DSN*`/secret (`EnvSecretLeak` otherwise).
+
+C1 and C3–C12 are declared with their metadata but return `Deferred` (never a
+faked pass) — their live asserts + the `testagent/` fake-agent runner +
+in-process-daemon harness land in Slice 2. Tight, behavior-neutral exported
+accessors added to `agentloop` (`BootstrapDeliveryModeFor`,
+`AdapterBootstrapContract`, `CodexMCPURLOverrideArg`, `GeminiSettingsBody`) and
+`mutations` (`SupervisedLaneEnv`) so the golden asserts the real construction
+without duplicating it.
+
 ### #116 / #124 — honest operator signals (no raw 23505; no spurious auto-finalize rec)
 
 **#116**: `supervise start` no longer leaks a raw Postgres `23505` unique-constraint
