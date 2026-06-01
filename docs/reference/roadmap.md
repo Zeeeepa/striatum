@@ -13,6 +13,16 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ---
 
+> **STALE (as of 2026-06-01):** this roadmap is anchored at `v1.57.0` /
+> RFC 0078 and has not been refreshed through the v2.x line. For the current
+> frontier read **`docs/operator/BRIEF.md`** and the RFC index
+> (`docs/rfcs/README.md`). Short version: latest release is **v2.8.0**; the
+> active arc is **RFC 0101 robust autonomous workflow execution** — Phases 1-2
+> (honest liveness + adapter conformance) landed and deployed at schema 19,
+> Phases 3-5 (autonomous recovery → loud escalation → chaos suite) are in
+> progress. Treat the sequencing below as historical until the next `vX.Y.0`
+> refresh.
+
 ## 1. State as of 2026-05-25 (RFC 0078 Go-only cutover in progress)
 
 - **Latest tag:** `v1.57.0` remains the latest published release tag. The
