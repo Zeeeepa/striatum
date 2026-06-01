@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 2 (Slice 2) — fake-agent lifecycle conformance runner
+
+The chosen fake-agent fixture: `go/pkg/adapterconformance/` gains an in-process
+daemon harness (`harness.go` — an isolated `pgtest` database + the **production**
+RPC stack `mutations`/`reads`/`repositories` wrapped in `mcp.NewHTTPHandler` on
+an `httptest` loopback with an ephemeral capability token; never the live daemon
+or PostgreSQL), a configurable fake MCP agent (`testagent/agent.go`) that speaks
+JSON-RPC `tools/call`, a read-only `DaemonObserver` (`observer.go`), a fixture
+seeder (`fixture.go`), and a `RunLive` runner (`runner.go`) that turns clauses
+**C3–C10 + C7** from `Deferred` into live asserts. The happy path passes all
+in-scope clauses; the broken modes **arm the taxonomy** — each yields exactly its
+contract `FailureClass`: `never_tools_list`→`BootstrapStall` (C3),
+`await_never`→`AwaitPacketStall` (C4), `ack_never`→`AckStall` (C5),
+`no_heartbeat`→`HeartbeatMissed` (C6), `ignore_interrogation`→`InterrogationIgnored`
+(C7), `exit_before_complete`→`CompleteMissing`/`NoWorkLoopMissed` (C9/C10). Tests
+are PG-gated (skip cleanly without `STRIATUM_PG_TEST_URL`, run in CI); confirmed
+green against an ephemeral DB (~13s). The harness also surfaced a real
+`40P01`/#103-class deadlock between `interrogation.answer` polling and
+`interrogation.ask` (accommodated test-side via an `InterrogationReady`
+handshake; the daemon-side concurrency wart belongs to the #137/#133 cluster).
+C1 (real-CLI pre-flight), C11 (PTY launch via `supervise.start`), C12 (work-tree
+scan), the skip-ledger, and the `striatum-adapter-conformance` driver binary +
+Make/CI Tier-B wiring remain deferred.
+
 ### RFC 0101 Phase 2 (Slice 1) — hermetic adapter-conformance core (Tier A)
 
 New package `go/pkg/adapterconformance/` implementing the accepted RFC 0101
