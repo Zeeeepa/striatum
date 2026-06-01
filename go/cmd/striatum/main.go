@@ -131,6 +131,17 @@ func usage(out io.Writer) {
 			subs[local] = map[string]bool{}
 		}
 	}
+	// #122: the daemon-routed workflow subcommands (accept-risk, accepted-risks)
+	// appear in routes.All() but the local authoring subcommands (validate,
+	// generate, templates) are dispatched in runWorkflow() before the daemon
+	// route, so they never appear in routes.All(). Add them here so
+	// `striatum --help` lists the full workflow surface.
+	for _, authSub := range []string{"validate", "generate", "templates"} {
+		if subs["workflow"] == nil {
+			subs["workflow"] = map[string]bool{}
+		}
+		subs["workflow"][authSub] = true
+	}
 	commands := make([]string, 0, len(subs))
 	for name := range subs {
 		commands = append(commands, name)

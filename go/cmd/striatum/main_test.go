@@ -88,6 +88,14 @@ func TestTopLevelHelpAndUnknownCommand(t *testing.T) {
 			t.Fatalf("help output missing %q; got:\n%s", want, help)
 		}
 	}
+	// #122: top-level help must also list the local workflow authoring
+	// subcommands so they are discoverable alongside the daemon-routed
+	// workflow accept-risk | accepted-risks subcommands.
+	for _, want := range []string{"validate", "generate", "templates"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("help output missing workflow authoring subcommand %q; got:\n%s", want, help)
+		}
+	}
 
 	stdout.Reset()
 	stderr.Reset()
