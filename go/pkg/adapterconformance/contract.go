@@ -91,8 +91,9 @@ func (id ClauseID) String() string {
 // ContractProfile selects which clauses apply to an adapter (DESIGN §1.5).
 //
 //   - Full        — claude_code, codex: the multi-turn contract C0..C12.
-//   - SingleShot  — agy: a reduced single-turn profile (#95 turn-driver
-//     deferred); the multi-turn clauses are skipped via the ledger.
+//   - SingleShot  — agy: a reduced single-turn profile (the #95 persistent
+//     multi-turn self-driving loop is deferred); the multi-turn clauses are
+//     skipped via the ledger.
 type ContractProfile string
 
 const (
