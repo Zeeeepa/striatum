@@ -1,218 +1,125 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-05-24_current_todo_1_5"
-supersedes: "brief_2026-05-23_rfc0075_polish_closure"
-scope_links: ["docs/operator/plans/current-todo-1-5-2026-05-24.md", "docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json", "docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md", "docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md", "docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md", "docs/architecture/CLI_RETIREMENT_PARITY.md"]
+brief_id: "brief_2026-06-01_robust-autonomous-execution"
+supersedes: "brief_2026-05-24_current_todo_1_5"
+scope_links: ["docs/rfcs/0101-robust-autonomous-workflow-execution.md", "docs/rfcs/0102-operator-attention-economy.md", "docs/rfcs/0095-revision-safe-workflow-lifecycle.md", "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "docs/rfcs/0097-full-workflow-run-orchestration.md", "dogfoods/rfc-0101-l2-conformance/OPERATOR_REPORT.md", "dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md", "CHANGELOG.md", "docs/rfcs/README.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
 ---
 
 # Operator Brief
-author: operator-codex-001
+author: operator-claude-001
 
 ## State
 
-Striatum's live-state boundary is daemon-owned PostgreSQL. Go is the
-production daemon core, repository files are durable provenance, and
-`.striatum/` remains operational scratch only. Do not reintroduce repo-local
-SQLite authority, hosted services, telemetry, transcript capture, or external
-persistence without a product decision.
+Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
+runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
+are durable provenance; `.striatum/` is operational scratch only. Latest
+release is **v2.8.0 (2026-05-29)**; `Unreleased` in `CHANGELOG.md` holds a
+post-v2.8.0 runner/DX fix batch (#100-#111, #80/#85 partials) not yet bumped.
 
-The daemon MCP path is the target operator-control surface. `striatumd`
-serves MCP over loopback HTTP at `/mcp`, keeps `/mcp/sse` as the SSE/backcompat
-alias, capability-filters `tools/list`, routes `tools/call` through daemon
-RPC, and publishes the current endpoint as `mcp-http-endpoint`. The
-`agent-loop` supervisor is a PTY bootstrapper: agents connect as autonomous
-MCP clients instead of being fed polled JSON by a proxy wrapper.
+Since the prior brief (which stopped at RFC 0078) the work has been the
+**live-collaboration → autonomous-execution arc**:
 
-The RFC 0050/RFC 0075 live workflow-control cutover completed on 2026-05-23.
-No human or AI live workflow-control action now requires invoking
-`striatum` CLI verbs. Agents are documented to use daemon MCP first; humans
-use the local web UI for operator actions. Surviving CLI commands are
-classified in `docs/architecture/CLI_RETIREMENT_PARITY.md` as bootstrap,
-lane compatibility, or operator compatibility clients of daemon RPC. This
-cutover does not delete CLI commands; hiding or removing compatibility verbs
-is a later deprecation/release decision. The scaffolded design workflow ran as
-`run_4a5eb33b0d6b037e9f62a0335d04b349`; the implementation workflow ran as
-`run_ee2973e23ad697085a52766410906940`. Both completed.
+- Interrogating panels + chat UI (v2.4.x), N-party conversation (v2.5.0),
+  conversation turn-drivers (v2.6/2.7), and the RFC 0088/0089 agent-loop PTY
+  launcher (claude/codex/agy lanes complete agent-loop packets end-to-end).
+- **RFC 0093** structured live-collaboration shapes — accepted, V1 landed
+  (collaboration_ledger.v1 + adjudicator substance-gate).
+- **RFC 0095** revision-safe lifecycle — Phases 1-3 landed in source (#84
+  attempt-scoped artifacts deployed at **schema 18**; #65 panel-owned
+  interrogation window; closed-session/write-scope/idempotent-publish guards).
+- **RFC 0096** supervised-lane trust boundary — Phase 1 landed (allowlist lane
+  env, work-tree hygiene); the PG-less lane OS user (V2) is not built.
+- **RFC 0098** adjudicated constraint-extraction loop — V1 landed (slices 1-3,
+  productive-refusal gate + discharge-verifying final review); #89 closed.
+- **RFC 0100** self-describing artifact contracts — P1 landed (front-matter
+  schema surfaced + enriched validation errors).
 
-RFC 0075 is accepted for the current tmux-observable MCP-session contract
-(D131). The landed scope includes daemon-owned MCP activity timestamps,
-`session.report`, protocol liveness projections in status, dashboard,
-`supervise.status`, and web run-detail session chips, metadata-only stall
-transition events, tmux attach metadata projection, fail-closed
-`supervision.require_tmux` opt-in for PTY-helper lanes, and guardrails that
-keep tmux panes, pane text, terminal output, and transcripts as inspection
-metadata only, never workflow state.
+**Doc-vs-source drift to fix on contact:** `docs/rfcs/README.md` still marks
+0095 / 0098 / 0100 as `proposed` though their V1/phases have landed and
+deployed. Reconcile the RFC index status column when you next touch it (AGENTS
+rule: fix the doc when it disagrees with source).
 
-The TODO 55/56/59/60 product checkpoint is resolved by D124-D127 plus D133.
-D125's evidence gate is satisfied by three successful live dogfoods across
-review, build, and synthesis lane shapes with zero current contested
-audit-chain events. D133 flips auto-finalize live allowance on by default for
-workflows that do not explicitly opt out; the manual CLI/RPC command still
-defaults to dry-run preview unless live mode is requested.
+## Current Frontier
 
-The ordered backlog workflow completed on 2026-05-23 as
-`run_0937abb24a344dc268aa35d7c852359e`. It recorded the D125 live gate as
-still pending, expanded MCP workflow-control dispatch tests and the
-CLI-retirement parity ledger, pruned a legacy SQLite skills-test fixture skip,
-split static asset response orchestration out of `service.py`, accepted D130's
-link-only escalation artifact policy, closed F2 publication-policy docs, and
-refreshed current-doc generic language guardrails.
+The active arc is **RFC 0101 — robust autonomous workflow execution** (the
+umbrella that makes a run survive lane failure and run to completion *or fail
+loudly* without a human babysitter) and its operator-side complement **RFC 0102
+— operator attention economy**. Both are `proposed` (filed 2026-05-31 / today).
+RFC 0101 frames the recurring dogfood failure taxonomy as one run-level
+property and supplies five defense layers: (1) honest liveness, (2) adapter
+conformance + persistent turn-driver in CI, (3) bounded autonomous
+self-recovery, (4) loud structured escalation, (5) a fault-injection chaos
+suite. **RFC 0097** (run self-orchestration) sits on top and hard-depends on
+RFC 0095 + 0096.
 
-The next TODO workflow completed on 2026-05-23 as
-`run_492ecd5cf520f170be6a02414d576cd3`; final synthesis is
-`docs/operator/artifacts/next-todos-2026-05-23/final/SUMMARY.md`. It produced
-one operator-self-declared live D125 success in a review-shape workflow and a
-pending gate artifact, expanded exact MCP dispatch parity and service-route
-coverage for `review.override`, reactivated override-modal context tests,
-moved doctor page rendering/error mapping into `web/doctor.py`, corrected RFC
-0062's typed-escalation-inbox status, added a tmux authority-boundary
-architecture guardrail, and updated TODO/roadmap status for the doctor split
-and typed escalation inbox table.
+### RFC 0101 L2 dogfood reality (2026-05-31)
 
-A follow-up D125 evidence slice completed on 2026-05-23 as
-`run_6ff2b4939f9a37987cc9fb38413b8079`; report and pending gate artifacts are
-under `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/`.
-It added an operator-self-declared build-shape live `recovery.auto_finalize`
-success through workflow opt-in without `--force`.
-
-The final D125 evidence slice completed on 2026-05-24 as
-`run_3d182acb046f7b09dbc0dbd9a3a90363`; evidence and satisfied gate artifacts
-are under
-`docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/`.
-It added an operator-self-declared synthesis-shape live
-`recovery.auto_finalize` success through workflow opt-in without `--force`, and
-the export-time daemon doctor reported no audit-chain problems.
-
-A residual/deferred closure pass completed on 2026-05-23. It scaffolded and
-drove per-item workflows for TODO 62, TODO 63, TODO 16, TODO 2, artifact
-schema/redaction coverage, RFC 0040 packet-evidence debt, and the deferred
-items formerly listed as 14-27. The final synthesis is
-`docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md`.
-Current-scope closures: TODO 62 is done with PG/global guardrails covering
-future probes; TODO 63 is done with primitive daemon methods as the supported
-production path; TODO 2 is done for the process adapter; artifact schema and
-redaction coverage is current; RFC 0040 packet-evidence debt is closed by
-PostgreSQL artifact byline evidence; TODO 16 has a refreshed current-doc
-guardrail. Explicit non-core/no-action closures: RFC 0049 remains shelved,
-RFC 0054/0055/0056 optional doc/layout follow-ups are no-action, TODO 59
-external fetch UX and TODO 60 hosted providers are out of core, RFC 0058
-operator-tree init/rotation is optional, and Engram-side memory tools are
-external to Striatum.
-
-D125 is satisfied for the current repository state. The gate artifact records
-3 operator-self-declared live behavioral successes across 3 lane shapes and
-`contested_audit_chain_events: 0`. D133 now implements the bounded default-live
-policy change: absent workflow policy allows live auto-finalize, while
-`recovery.auto_finalize.enabled=false` is the workflow-level opt-out.
-
-The current TODO 1-5 workflow completed on 2026-05-24 as
-`run_f84b4145a7ee371c4b17cc6fc2c29880`; final synthesis is
-`docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md`.
-It satisfied the D125 evidence gate, deleted six stale skipped legacy SQLite
-fixtures while preserving current PG/daemon coverage, split historical
-dogfood route handling out of `service.py`, hardened `work.block` escalation
-payloads across Python/Go runtime paths, and accepted/landed RFC 0074 Phase B
-`implementation_panel` generator support in Python and Go. Aggregate
-validation passed with `go test ./...`, the full Python test suite, workflow
-validation, and catalog freshness checks.
-
-The follow-up TODO 49/61 cleanup on 2026-05-24 deleted the remaining legacy
-local-state implementation residue: the `src/striatum/legacy_sqlite/` package
-was already absent, and this slice removes the direct corpus exporter, the V1
-local-state schema module, the deterministic repo-local fixture, and the stale
-skipped compatibility tests. Active guardrails now require no production or
-active test imports of `sqlite3`, `striatum.legacy_sqlite`, `striatum.db`, or
-`striatum.migrations`. The retired `retired-local-state` file name remains only as a
-refusal/inspection signal for old working copies and as a redaction suffix.
-
-RFC 0078 (Go-only runtime and Python removal) is active and partially landed,
-not complete. The max-parallel workflow completed on 2026-05-24 as
-`run_ef93ee9055bb77e40d2ae2c846337176` with six live Codex sub-agents, the
-effective thread limit in this environment, and `max_active_jobs: 20` in the
-workflow definition. It produced the cutover ledger and handoffs, added the
-first Go `striatum workflow validate` CLI scaffold, and expanded Go artifact
-contract/front-matter parity.
-
-On 2026-05-25 the remaining RFC 0078 workflows were executed with six parallel
-sub-agents. Landed slices include the generated Go CLI RPC router from
-`contracts/daemon_methods.json`, shared Go artifact contracts, expanded Go
-workflow validation/lint/generator reuse, Go web service/security/static/SSE
-scaffolding, Go-only archive release and smoke scripts, and the now-retired
-Python-trace deletion guardrail. Aggregate validation passed after integration:
-`go test ./...`, `make check`, all seven RFC 0078 workflow validates,
-frontend API-client tests, release/package/fresh-clone smoke scripts, doc
-link/current-brief tests, route generation freshness, shell syntax checks, and
-`make release-check`.
-The strict deletion guardrail was retired after active Python surfaces were
-removed or archived; remaining Python mentions are historical provenance.
+`dogfoods/rfc-0101-l2-conformance/` reached an **accepted design synthesis** —
+the 3-model design panel cleared clean after the #120 reviewer-interrogate-grant
+fix landed (commit `259482d0`). Then the **implement repo-write lane wedged** on
+a Claude welcome-screen stall (#101 class) at spawn, and there is **no
+same-attempt recovery verb** to rescue it (#121). #120's fix is proven; **#121
+is the acute open blocker** and the named RFC 0101 L3 gap. No harness Go was
+built — the self-hosting paradox held again (a broken runner can't reliably
+dogfood its own fixes).
 
 ## Next Actions
 
-1. Monitor D133 default-live auto-finalize and use
-   `recovery.auto_finalize.enabled=false` only for workflows that require
-   strict agent-only finalization.
-2. Treat RFC 0050/RFC 0075 cutover as complete for live workflow control.
-   Keep the CLI survivor categories in `docs/architecture/CLI_RETIREMENT_PARITY.md`
-   current when adding daemon methods. Hide/delete compatibility CLI verbs only
-   through a later explicit deprecation/release decision.
-3. Continue bounded follow-through on later service split slices. Schedule new
-   bounded RFCs before implementing RFC 0052 Phase A, RFC 0053 schema/runtime
-   rename, Cross-Repo Live Scheduler V1, sealed apply, Windows support, or
-   local multi-operator tenancy.
-4. Treat RFC 0078 as closed for active runtime surfaces. Historical archived
-   Python references are provenance; do not reintroduce Python runtime,
-   packaging, or test surfaces without a new accepted decision.
+1. **Drive RFC 0101 defense layers.** Acute first: #121 (implement-lane stall +
+   no same-attempt recovery) and #95 (agy closes after first turn, breaking
+   multi-turn interrogating jobs). Then honest liveness (#80/#83), adapter
+   conformance (#85/#76/#101), bounded self-recovery (#82/#108/#65/#84), loud
+   escalation (#107).
+2. **RFC 0102 levers:** narrow the operator loop to one control surface
+   (CLI / daemon MCP — no tmux/psql/systemctl/hand-rolled drivers in the normal
+   path), add one high-signal `attention` view, and operate in
+   `(run, workflow_job_id)` identifiers, not the `sess_/sup_/lease_` zoo.
+3. **Burn the backlog:** 35 open issues (#70-#138), clustered by owning RFC
+   (lifecycle→0095, security→0096, liveness→0091, agy, artifact-contracts,
+   CLI/DX). Ship each fix as a separate commit; bootstrap product fixes via
+   subagents or single-implementer runs while orchestrated dogfoods are blocked.
+4. **Reconcile the RFC index** status column (0095/0098/0100 → landed) and bump
+   the version + promote `CHANGELOG.md` `Unreleased` when the next unit lands.
 
 ## Blockers
 
-- D125 default-live auto-finalize is no longer blocked on evidence or policy.
-  D133 has landed; any rollback or narrower per-job policy needs a new bounded
-  decision.
-- RFC 0050/RFC 0075 live workflow-control cutover is no longer blocked.
-  Remaining CLI compatibility cleanup is a future deprecation policy question,
-  not an active parity blocker.
-- RFC 0078 final deletion is no longer blocked by the retired Python-trace
-  guardrail. Any new Striatum runtime language is a future product decision.
-- Hosted Git provider behavior, external corpus-fetch UX, and Engram-side
-  memory tools are out of core unless later optional-extension decisions
-  accept them.
+- **#121** — repo-write implement lanes can wedge on a welcome-screen stall with
+  no same-attempt recovery verb; the run can't self-recover. RFC 0101 L3.
+- **#95** — agy self-driving session closes after the first turn and
+  re-registers a duplicate unattested session, breaking multi-turn (interrogating)
+  review/synthesis.
+- **Self-hosting paradox** — orchestrated dogfoods *through* the runner stay
+  blocked until RFC 0095/0096 robustness fully lands; product fixes are
+  bootstrapped via subagents / minimal single-implementer runs in the meantime.
 
 ## Hazards / Do Not
 
-- Do not write proxy wrappers that poll the daemon and spoon-feed JSON to
-  agents. Agents must operate as autonomous MCP clients.
-- Do not treat tmux panes, pane text, terminal output, or transcripts as
-  workflow state.
-- Do not delete CLI compatibility verbs without an explicit deprecation/release
-  decision. They are daemon clients, not live-state authorities.
-- Do not reopen retired repo-local state files or the legacy daemon registry in
-  production paths.
-- Do not add hosted services, telemetry, transcript capture, or external
-  persistence without a product decision.
-- Keep Engram references historical or explicitly optional.
+- **Operators scaffold dogfoods; they do not implement role artifacts.** Facing
+  implementation work → scaffold a fix-up dogfood (or a one-shot single-implementer
+  build) and launch it; do not author the role's artifact yourself.
+- **Revision-cycling interrogating panels wedge** (the #65/#84/#120/#121
+  family). When you need a fix to actually land, a one-shot single-implementer
+  build sidesteps the panel revision incoherence.
+- Stay on the daemon boundary: do not bypass the daemon, open Postgres directly,
+  treat tmux panes / terminal output / marker files as workflow state, or add
+  hosted services, telemetry, transcript capture, or external persistence
+  without a product decision.
+- Trust only returned JSON. Never fabricate session/run/lease ids or results;
+  verify every state-changer with a read; make state-changing calls sequentially.
 
 ## Pointers
 
-- `docs/operator/plans/next-todos-2026-05-23.md`
-- `docs/operator/plans/residual-deferred-closure-2026-05-23.md`
-- `docs/operator/artifacts/residual-deferred-closure-2026-05-23/final/SUMMARY.md`
-- `docs/operator/workflows/next-todos-2026-05-23/workflow.json`
-- `docs/operator/artifacts/next-todos-2026-05-23/final/SUMMARY.md`
-- `docs/operator/workflows/d125-auto-finalize-live-build-evidence-2026-05-23/workflow.json`
-- `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/REPORT.md`
-- `docs/operator/artifacts/d125-auto-finalize-live-build-evidence-2026-05-23/GATE.md`
-- `docs/operator/workflows/d125-auto-finalize-live-synthesis-evidence-2026-05-24/workflow.json`
-- `docs/operator/artifacts/d125-auto-finalize-live-synthesis-evidence-2026-05-24/GATE.md`
-- `docs/operator/plans/current-todo-1-5-2026-05-24.md`
-- `docs/operator/workflows/current-todo-1-5-2026-05-24/workflow.json`
-- `docs/operator/artifacts/current-todo-1-5-2026-05-24/final/SUMMARY.md`
-- `docs/operator/plans/rfc-0050-0075-final-cutover-design.md`
-- `docs/operator/plans/rfc-0050-0075-final-cutover-implementation.md`
-- `docs/operator/artifacts/rfc-0050-0075-final-cutover-implementation/final/SUMMARY.md`
-- `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`
-- `docs/rfcs/0077-mcp-activity-liveness-deadlines.md`
-- `docs/architecture/CLI_RETIREMENT_PARITY.md`
+- `docs/rfcs/0101-robust-autonomous-workflow-execution.md` (umbrella)
+- `docs/rfcs/0102-operator-attention-economy.md`
+- `docs/rfcs/0095-revision-safe-workflow-lifecycle.md`
+- `docs/rfcs/0096-supervised-lane-trust-boundary.md`
+- `docs/rfcs/0097-full-workflow-run-orchestration.md`
+- `docs/rfcs/0098-adjudicated-constraint-extraction-loop.md`
+- `docs/rfcs/0099-constrained-operator-mode.md`
+- `dogfoods/rfc-0101-l2-conformance/` (workflow, artifacts, OPERATOR_REPORT)
+- `CHANGELOG.md` (`Unreleased` + v2.x history)
+- `docs/rfcs/README.md` (RFC index — status column lags source; reconcile)
