@@ -731,8 +731,24 @@ func validateJobPaths(jobIndex int, jobID string, job map[string]any) error {
 		if path == "" || repoPathInvalid(path) {
 			return fieldErr(fmt.Sprintf("jobs[%d].expected_artifacts[%d].path", jobIndex, artifactIndex), "job %q has invalid artifact path", jobID)
 		}
-		if kind := stringValue(artifact["kind"]); kind != "" && !allowedArtifactKinds[kind] {
-			return errf("job %s declares unknown artifact kind %s", jobID, kind)
+		// GH #119: validate artifact kind. An empty or absent kind silently
+		// passes Validate but fails at publish time with a confusing error.
+		// Require a non-empty known kind so the misconfiguration surfaces at
+		// author time instead of at claim/publish time.
+		kind := stringValue(artifact["kind"])
+		if kind == "" {
+			return fieldErr(
+				fmt.Sprintf("jobs[%d].expected_artifacts[%d].kind", jobIndex, artifactIndex),
+				"job %q expected_artifacts[%d] is missing required field \"kind\"",
+				jobID, artifactIndex,
+			)
+		}
+		if !allowedArtifactKinds[kind] {
+			return fieldErr(
+				fmt.Sprintf("jobs[%d].expected_artifacts[%d].kind", jobIndex, artifactIndex),
+				"job %q declares unknown artifact kind %q; valid kinds: %s",
+				jobID, kind, strings.Join(sortedKindList(), ", "),
+			)
 		}
 		if err := validateArtifactInWriteScope(jobID, job, path); err != nil {
 			return err
@@ -766,6 +782,26 @@ func validateLanes(lanes map[string]any) error {
 		}
 		if mode := stringValue(lane["worktree_isolation"]); mode != "" && !worktreeIsolationValues[mode] {
 			return errf("lane %q worktree_isolation must be one of [off per_job]", laneID)
+		}
+		// GH #119: if a lane's supervision block explicitly requests an
+		// agent-loop transport (transport: "pty_helper" or require_tmux: true),
+		// it must also declare adapter_capabilities.agent_loop: true (or the
+		// deprecated top-level agent_loop: true). Without that flag the daemon's
+		// laneUsesAgentLoop returns false: the PTY session is launched without
+		// the agent-loop executor wrapper, the bootstrap prompt is never
+		// delivered, and the lane silently stalls without claiming work.
+		if supRaw, exists := lane["supervision"]; exists {
+			sup, _ := supRaw.(map[string]any)
+			if sup != nil {
+				wantsAgentLoopTransport := sup["require_tmux"] == true || sup["transport"] == "pty_helper"
+				if wantsAgentLoopTransport && !laneDeclaresAgentLoop(lane) {
+					return fieldErr(
+						fmt.Sprintf("lanes.%s.adapter_capabilities", laneID),
+						"lane %q sets supervision.require_tmux/transport=pty_helper but does not declare adapter_capabilities.agent_loop: true; the PTY bootstrap prompt will not be delivered and the lane will stall",
+						laneID,
+					)
+				}
+			}
 		}
 		constraints := map[string]any{}
 		if raw, exists := lane["constraints"]; exists {
@@ -1532,4 +1568,15 @@ func sortedKeys(values map[string][]map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+// sortedKindList returns the allowed artifact kind names in alphabetical order,
+// used to produce actionable error messages naming the full valid set.
+func sortedKindList() []string {
+	kinds := make([]string, 0, len(allowedArtifactKinds))
+	for kind := range allowedArtifactKinds {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }

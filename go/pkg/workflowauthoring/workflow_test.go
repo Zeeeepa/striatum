@@ -643,6 +643,178 @@ func TestValidateAcceptsDocumentOnlyReviewerWithInputs(t *testing.T) {
 	}
 }
 
+// --- GH #119: adapter_capabilities.agent_loop required when supervision uses pty_helper ---
+
+// TestValidateRejectsAgentLoopSupervisionWithoutCapability verifies that a lane
+// which enables PTY/tmux supervision (require_tmux: true or transport: pty_helper)
+// without declaring adapter_capabilities.agent_loop: true is rejected at validate
+// time. Without the flag laneUsesAgentLoop() returns false and the daemon skips
+// the agent-loop executor wrapper, so the bootstrap prompt is never delivered and
+// the lane stalls silently.
+func TestValidateRejectsAgentLoopSupervisionWithoutCapability(t *testing.T) {
+	// require_tmux: true without adapter_capabilities.agent_loop must fail.
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["agy"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"agy", "--dangerously-skip-permissions"},
+		"supervision": map[string]any{
+			"require_tmux": true,
+		},
+		// adapter_capabilities intentionally absent
+	}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "adapter_capabilities.agent_loop") {
+		t.Fatalf("Validate require_tmux without adapter_capabilities error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "agy") {
+		t.Fatalf("Validate error must name the offending lane: %v", err)
+	}
+
+	// transport: pty_helper without adapter_capabilities.agent_loop must also fail.
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["claude_interactive"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"claude", "--dangerously-skip-permissions"},
+		"supervision": map[string]any{
+			"transport": "pty_helper",
+		},
+		// adapter_capabilities intentionally absent
+	}
+	err = Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "adapter_capabilities.agent_loop") {
+		t.Fatalf("Validate transport=pty_helper without adapter_capabilities error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "claude_interactive") {
+		t.Fatalf("Validate error must name the offending lane: %v", err)
+	}
+}
+
+// TestValidateAcceptsAgentLoopLaneWithCapability verifies that a lane with PTY
+// supervision and adapter_capabilities.agent_loop: true passes validation, and
+// that a plain pipe lane with no supervision is also unaffected.
+func TestValidateAcceptsAgentLoopLaneWithCapability(t *testing.T) {
+	// require_tmux: true WITH adapter_capabilities.agent_loop must pass.
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["agy"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"agy", "--dangerously-skip-permissions"},
+		"adapter_capabilities": map[string]any{
+			"agent_loop": true,
+		},
+		"supervision": map[string]any{
+			"require_tmux": true,
+		},
+	}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate agent-loop lane with capability and require_tmux: %v", err)
+	}
+
+	// transport: pty_helper WITH adapter_capabilities.agent_loop must pass.
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["claude_interactive"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"claude", "--dangerously-skip-permissions"},
+		"adapter_capabilities": map[string]any{
+			"agent_loop": true,
+		},
+		"supervision": map[string]any{
+			"transport": "pty_helper",
+		},
+	}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate agent-loop lane with capability and transport=pty_helper: %v", err)
+	}
+
+	// A plain pipe lane with no supervision at all is unaffected.
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["pipe_lane"] = map[string]any{
+		"adapter": "process",
+		"command": []any{"codex", "--model", "gpt-4o", "--print"},
+	}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate pipe lane without supervision: %v", err)
+	}
+}
+
+// --- GH #119: expected_artifacts[].kind must be a known artifact kind ---
+
+// TestValidateRejectsUnknownArtifactKind verifies that a job declaring an
+// expected_artifacts entry with an unknown kind is rejected at validate time.
+func TestValidateRejectsUnknownArtifactKind(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["expected_artifacts"] = []any{map[string]any{
+		"logical_name": "draft",
+		"kind":         "totally_unknown_kind",
+		"path":         "src/draft.md",
+		"required":     true,
+	}}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "unknown artifact kind") {
+		t.Fatalf("Validate unknown artifact kind error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "totally_unknown_kind") {
+		t.Fatalf("Validate error must name the invalid kind: %v", err)
+	}
+	if !strings.Contains(err.Error(), "draft") {
+		t.Fatalf("Validate error must name the offending job: %v", err)
+	}
+}
+
+// TestValidateRejectsMissingArtifactKind verifies that a job declaring an
+// expected_artifacts entry without a kind field is rejected at validate time.
+func TestValidateRejectsMissingArtifactKind(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["expected_artifacts"] = []any{map[string]any{
+		"logical_name": "draft",
+		// kind intentionally absent
+		"path":     "src/draft.md",
+		"required": true,
+	}}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "missing required field") {
+		t.Fatalf("Validate missing artifact kind error = %v", err)
+	}
+	if !strings.Contains(err.Error(), "draft") {
+		t.Fatalf("Validate error must name the offending job: %v", err)
+	}
+}
+
+// TestValidateAcceptsKnownArtifactKinds verifies that all well-known artifact
+// kinds pass validation without requiring an exhaustive fixture per kind.
+func TestValidateAcceptsKnownArtifactKinds(t *testing.T) {
+	knownKinds := []string{
+		"finding", "findings_ledger", "synthesis", "decision", "handoff",
+		"marker", "other", "support_ledger", "action_item_ledger",
+		"harness_improvement_proposal", "escalation", "operator_brief",
+		"work_plan", "progress_note", "operator_report", "commit_request",
+		"pr_request", "auto_finalize_gate_evidence", "collaboration_ledger",
+		"patch_summary", "test_report", "prompt",
+	}
+	for _, kind := range knownKinds {
+		workflow := validWorkflow()
+		jobs := workflow["jobs"].([]any)
+		draft := jobs[0].(map[string]any)
+		draft["expected_artifacts"] = []any{map[string]any{
+			"logical_name": "artifact",
+			"kind":         kind,
+			"path":         "src/artifact.md",
+			"required":     true,
+		}}
+		if err := Validate(workflow); err != nil {
+			t.Fatalf("Validate known kind %q failed: %v", kind, err)
+		}
+	}
+}
+
 func writeWorkflow(t *testing.T, path string, workflow map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(workflow)
