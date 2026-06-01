@@ -78,6 +78,7 @@ var usageByGroup = map[string]Usage{
 	"supervise_start": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session whose lane to supervise"},
+			{Name: "replace", Bool: true, Help: "supersede any stale active supervisor for this session instead of refusing with a conflict error"},
 		},
 	},
 	"supervise_send": {

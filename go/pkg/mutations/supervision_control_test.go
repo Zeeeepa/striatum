@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -91,6 +92,117 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	eventTmux := payload["tmux"].(map[string]any)
 	if eventTmux["session_name"] != "striatum-run_1-lane_1-sup_1" {
 		t.Fatalf("started event tmux metadata = %#v", eventTmux)
+	}
+}
+
+// TestSuperviseStartReplaceSupersedessStaleActiveSupervisor guards #116: when
+// replace=true and a stale active supervisor row already exists for the
+// session, supervise.start must supersede (mark lost) the stale row and
+// succeed — never surface a raw Postgres 23505. The stale supervisor is
+// detected inside the advisory-locked transaction, marked lost via
+// markSupervisorLostInTx, and the new INSERT proceeds cleanly.
+func TestSuperviseStartReplaceSupersedessStaleActiveSupervisor(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(_ context.Context, _ supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+	}
+
+	repoRoot := t.TempDir()
+	// tx1 simulates the first transaction: advisory lock + stale supervisor found
+	// + supersede + INSERT. tx2 handles the attach update.
+	tx1 := &superviseControlFakeTx{staleSupervisorID: "sup_stale"}
+	tx2 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: repoRoot,
+		txs:      []*superviseControlFakeTx{tx1, tx2},
+	}
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_replace",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"replace":       true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStart with replace=true: %v", err)
+	}
+	if result["state"] != "attached" || result["session_id"] != "sess_1" {
+		t.Fatalf("replace=true start result = %#v", result)
+	}
+	// The stale supervisor must have been superseded: an UPDATE to
+	// process_supervisors involving the stale supervisor_id must appear
+	// in tx1's execs (from markSupervisorLostInTx).
+	if !tx1.sawExecArg("UPDATE striatumd.process_supervisors", "sup_stale") {
+		t.Fatalf("#116: replace=true must mark stale supervisor lost: %#v", tx1.execs)
+	}
+	// The new supervisor INSERT must also appear.
+	if !tx1.sawExec("INSERT INTO striatumd.process_supervisors") {
+		t.Fatalf("#116: replace=true must insert new supervisor: %#v", tx1.execs)
+	}
+}
+
+// TestSuperviseStartNoReplaceReturnsCleanErrorOnActiveSupervisor guards #116:
+// when replace is NOT set and a stale active supervisor exists, the handler
+// must return a clean actionable rpc.Error that names the session and advises
+// --replace — never a raw Postgres 23505.
+func TestSuperviseStartNoReplaceReturnsCleanErrorOnActiveSupervisor(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(_ context.Context, _ supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+	}
+
+	repoRoot := t.TempDir()
+	tx1 := &superviseControlFakeTx{staleSupervisorID: "sup_stale"}
+	runner := &superviseControlFakeRunner{
+		repoRoot: repoRoot,
+		txs:      []*superviseControlFakeTx{tx1},
+	}
+	_, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_no_replace",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			// replace is NOT set
+		},
+	})
+	if err == nil {
+		t.Fatalf("#116: expected clean error when stale supervisor exists without --replace")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("#116: expected rpc invalid_transition error, got: %#v", err)
+	}
+	// Must name the stale supervisor and direct operator to --replace.
+	if !strings.Contains(rpcErr.Message, "sup_stale") {
+		t.Fatalf("#116: clean error must name stale supervisor id: %q", rpcErr.Message)
+	}
+	if !strings.Contains(rpcErr.Message, "--replace") {
+		t.Fatalf("#116: clean error must mention --replace: %q", rpcErr.Message)
+	}
+	// Must NOT contain raw Postgres error text.
+	if strings.Contains(rpcErr.Message, "23505") || strings.Contains(rpcErr.Message, "duplicate key") {
+		t.Fatalf("#116: raw Postgres 23505 text must not escape: %q", rpcErr.Message)
 	}
 }
 
@@ -1434,15 +1546,16 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 }
 
 type superviseControlFakeTx struct {
-	pipePath   string
-	repoRoot   string
-	pid        int
-	pidStart   string
-	metadata   map[string]any
-	nextEvent  int64
-	execs      []superviseControlExec
-	committed  bool
-	rolledBack bool
+	pipePath          string
+	repoRoot          string
+	pid               int
+	pidStart          string
+	metadata          map[string]any
+	nextEvent         int64
+	execs             []superviseControlExec
+	committed         bool
+	rolledBack        bool
+	staleSupervisorID string // non-empty → supersedeStaleSupervisorIfRequested finds a stale supervisor
 }
 
 type superviseControlExec struct {
@@ -1464,6 +1577,15 @@ func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args .
 			cwd = tx.repoRoot
 		}
 		return superviseControlFakeRow{values: []any{cwd, filepath.Join(cwd, ".striatum", "scratch", "sup_1")}}
+	case strings.Contains(sql, "SELECT supervisor_id, run_id, state") && strings.Contains(sql, "state = ANY"):
+		// supersedeStaleSupervisorIfRequested: return stale supervisor if configured.
+		if tx.staleSupervisorID != "" {
+			return superviseControlFakeRow{values: []any{tx.staleSupervisorID, "run_1", "attached"}}
+		}
+		return superviseControlFakeRow{err: pgx.ErrNoRows}
+	case strings.Contains(sql, "SELECT daemon_supervisor_id") && strings.Contains(sql, "process_supervisor_pointers"):
+		// markSupervisorLostInTx looks up the daemon supervisor id.
+		return superviseControlFakeRow{values: []any{"dsup_stale"}}
 	case strings.Contains(sql, "SELECT supervisor_id, state") && strings.Contains(sql, "state = ANY"):
 		return superviseControlFakeRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "SELECT ps.supervisor_id") && strings.Contains(sql, "ps.scratch_path"):
@@ -1572,6 +1694,22 @@ func (tx *superviseControlFakeTx) sawExec(parts ...string) bool {
 		}
 		if ok {
 			return true
+		}
+	}
+	return false
+}
+
+// sawExecArg returns true when any exec has sqlPart in its SQL and argValue
+// among its args (checked via fmt.Sprint for flexible matching).
+func (tx *superviseControlFakeTx) sawExecArg(sqlPart, argValue string) bool {
+	for _, exec := range tx.execs {
+		if !strings.Contains(exec.sql, sqlPart) {
+			continue
+		}
+		for _, arg := range exec.args {
+			if fmt.Sprint(arg) == argValue {
+				return true
+			}
 		}
 	}
 	return false

@@ -22,6 +22,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 const (
@@ -116,6 +117,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
+	replace := boolParam(envelope, "replace")
 	config, err := loadSupervisionStartConfig(ctx, runner, repositoryID, sessionID)
 	if err != nil {
 		return nil, err
@@ -150,10 +152,10 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		if err := lockSuperviseStart(ctx, tx, repositoryID, sessionID); err != nil {
 			return nil, err
 		}
-		if err := ensureNoActiveSupervisor(ctx, tx, repositoryID, sessionID); err != nil {
+		if err := supersedeStaleSupervisorIfRequested(ctx, tx, repositoryID, sessionID, replace, startedAt); err != nil {
 			return nil, err
 		}
-		if err := insertStartingSupervisorRows(ctx, tx, repositoryID, config, supervisorID, daemonSupervisorID, scratch, pipePath, eventPath, startedAt); err != nil {
+		if err := insertStartingsSupervisorRowsWithCleanError(ctx, tx, repositoryID, config, supervisorID, daemonSupervisorID, scratch, pipePath, eventPath, startedAt, sessionID); err != nil {
 			return nil, err
 		}
 		payload := map[string]any{
@@ -763,9 +765,6 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	if err != nil {
 		return config, err
 	}
-	if err := ensureNoActiveSupervisor(ctx, runner, repositoryID, sessionID); err != nil {
-		return config, err
-	}
 	config.Command = command
 	config.Transport = transport
 	config.StdinDelivery = delivery
@@ -860,6 +859,67 @@ func ensureNoActiveSupervisor(ctx context.Context, runner any, repositoryID, ses
 		return err
 	}
 	return rpc.NewError("invalid_transition", fmt.Sprintf("session already has an active supervisor: %s (state=%s)", supervisorID, state), nil)
+}
+
+// supersedeStaleSupervisorIfRequested is called inside the advisory-locked
+// transaction for supervise.start. When replace=true and a stale active
+// supervisor exists for the session, it is superseded (marked lost) so the
+// subsequent INSERT does not collide with the unique partial index
+// uq_active_daemon_supervisor_pointer_per_session. When replace=false and a
+// stale supervisor exists, a clean actionable error is returned directing the
+// operator to retry with --replace. When no stale supervisor exists in either
+// case the call is a no-op.
+func supersedeStaleSupervisorIfRequested(ctx context.Context, runner db.TxRunner, repositoryID, sessionID string, replace bool, now string) error {
+	var supervisorID, runID, state string
+	err := runner.QueryRow(ctx, `
+		SELECT supervisor_id, run_id, state
+		  FROM striatumd.process_supervisors
+		 WHERE repository_id = $1 AND session_id = $2
+		   AND state = ANY($3)
+		 ORDER BY started_at DESC, supervisor_id DESC
+		 LIMIT 1
+		 FOR UPDATE`,
+		repositoryID, sessionID, []string{"starting", "attached", "detached"},
+	).Scan(&supervisorID, &runID, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// No active supervisor — proceed with INSERT.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// A stale supervisor exists.
+	if !replace {
+		return rpc.NewError("invalid_transition", fmt.Sprintf(
+			"session already has an active supervisor: %s (state=%s); retry with --replace to supersede it",
+			supervisorID, state,
+		), nil)
+	}
+	// replace=true: supersede the stale supervisor by marking it lost so the
+	// unique partial index allows the incoming INSERT.
+	reason := "superseded by supervise.start --replace"
+	return markSupervisorLostInTx(ctx, runner, repositoryID, supervisorID, runID, sessionID, reason, 0, map[string]any{"superseded_at": now})
+}
+
+// insertStartingsSupervisorRowsWithCleanError is a wrapper around
+// insertStartingSupervisorRows that detects a Postgres unique-constraint
+// violation (SQLSTATE 23505) on the process_supervisor_pointers partial index
+// and converts it into an actionable rpc.Error instead of surfacing the raw
+// database error to the operator. This guards the narrow race window between
+// the advisory-locked SELECT and the INSERT.
+func insertStartingsSupervisorRowsWithCleanError(ctx context.Context, runner db.TxRunner, repositoryID string, config supervisionStartConfig, supervisorID, daemonSupervisorID, scratch, pipePath, eventPath, startedAt, sessionID string) error {
+	err := insertStartingSupervisorRows(ctx, runner, repositoryID, config, supervisorID, daemonSupervisorID, scratch, pipePath, eventPath, startedAt)
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return rpc.NewError("invalid_transition", fmt.Sprintf(
+			"session already has an active supervisor for session_id=%q; retry with --replace to supersede it",
+			sessionID,
+		), nil)
+	}
+	return err
 }
 
 func requireActiveControlSupervisor(ctx context.Context, runner any, repositoryID, sessionID string, forUpdate bool) (supervisorControlRow, error) {
