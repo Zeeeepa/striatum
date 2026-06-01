@@ -197,7 +197,7 @@ func (c Clause) deferred(adapter string) ClauseResult {
 		Adapter:      adapter,
 		Status:       StatusDeferred,
 		FailureClass: FailureNone,
-		Message:      "requires the Slice-2 live/fake-agent runner (in-process striatumd + pgtest); not run hermetically",
+		Message:      "not asserted on the hermetic Tier-A path; C3..C10/C7 are asserted live by RunLive (runner.go), C1/C11/C12 are deferred to a follow-up slice (see doc.go)",
 	}
 }
 
@@ -370,11 +370,27 @@ func Contract() []Clause {
 	}
 }
 
-// deferredAssert returns an Assert that marks the clause as requiring the
-// Slice-2 live/fake-agent runner. It never fakes a Pass/Fail result.
+// deferredAssert returns an Assert that records the clause as NOT asserted on
+// the hermetic Tier-A path. The daemon-lifecycle clauses C3..C10 (and C7) ARE
+// asserted live by the Slice-2 fake-agent runner (RunLive in runner.go) over an
+// in-process striatumd + pgtest; they remain deferred here only because the
+// hermetic path has no daemon to observe. C1 (real-CLI pre-flight), C11
+// (no-premature-exit through the PTY path), and C12 (work-tree credential scan)
+// stay fully deferred to a follow-up slice (see doc.go). It never fakes a
+// Pass/Fail result.
 func deferredAssert(id ClauseID) func(AssertInput) ClauseResult {
 	return func(in AssertInput) ClauseResult {
 		c := Clause{ID: id}
 		return c.deferred(in.Adapter.Name)
 	}
 }
+
+// LiveClauses are the daemon-lifecycle clause ids the Slice-2 fake-agent runner
+// (RunLive) asserts live against the in-process daemon over pgtest. C7 is
+// asserted only when an interrogation is scripted (LiveScope.IncludeInterrogation).
+func LiveClauses() []ClauseID { return []ClauseID{C3, C4, C5, C6, C7, C8, C9, C10} }
+
+// StillDeferredClauses are the clause ids that remain deferred after Slice 2:
+// C1 (real-CLI pre-flight), C11 (no-premature-exit via supervise.start/PTY), and
+// C12 (work-tree credential scan). See doc.go for the follow-up.
+func StillDeferredClauses() []ClauseID { return []ClauseID{C1, C11, C12} }
