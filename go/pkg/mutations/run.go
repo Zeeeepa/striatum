@@ -412,6 +412,15 @@ func currentGitBranch(repoRoot string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// gitBranchExists reports whether a local branch with the given name exists in
+// the repository at repoRoot. It uses "git rev-parse --verify" which exits 0
+// iff the ref resolves.
+func gitBranchExists(repoRoot string, branch string) bool {
+	cmd := exec.Command("git", "rev-parse", "--verify", "refs/heads/"+branch)
+	cmd.Dir = repoRoot
+	return cmd.Run() == nil
+}
+
 func gitCreateOrCheckoutBranch(repoRoot string, branch string) (string, bool, error) {
 	create := exec.Command("git", "checkout", "-b", branch)
 	create.Dir = repoRoot
@@ -499,11 +508,37 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 	state := "needs_branch_confirmation"
 	var confirmedAt any
 	var confirmedBy any
+	// GH #123: auto branch confirmation must verify the branch actually exists
+	// or is checked out before recording it as confirmed. Without this check,
+	// run.prepare can record a confirmed branch that was never created, causing
+	// subsequent git operations (commit-apply, worktree.create) to silently
+	// operate on the wrong branch. When the branch does not exist, create it
+	// now via the same logic as branch.confirm --create. If the git operation
+	// fails, surface the error rather than recording a ghost confirmation.
+	autoConfirmCreated := false
 	if branch["mode"] == "auto" && suggestedBranch != "" {
+		current := currentGitBranch(repoRoot)
+		if current != suggestedBranch {
+			if gitBranchExists(repoRoot, suggestedBranch) {
+				// Branch exists but is not checked out: check it out.
+				_, _, createErr := gitCreateOrCheckoutBranch(repoRoot, suggestedBranch)
+				if createErr != nil {
+					return nil, rpc.NewError("workflow_error", fmt.Sprintf("auto branch confirm: branch %q exists but checkout failed: %s", suggestedBranch, createErr.Error()), nil)
+				}
+			} else {
+				// Branch does not exist: create it (matching --create semantics).
+				_, created, createErr := gitCreateOrCheckoutBranch(repoRoot, suggestedBranch)
+				if createErr != nil {
+					return nil, rpc.NewError("workflow_error", fmt.Sprintf("auto branch confirm: could not create branch %q: %s", suggestedBranch, createErr.Error()), nil)
+				}
+				autoConfirmCreated = created
+			}
+		}
 		state = "ready"
 		confirmedAt = now
 		confirmedBy = "daemon"
 	}
+	_ = autoConfirmCreated // recorded in the branch_confirmed event below
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.runs (
 		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
@@ -629,7 +664,7 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		if _, err := appendEvent(ctx, runner, repositoryID, runID, "run.branch_confirmed", nil, nil, nil, nil, nil, map[string]any{
 			"branch":  suggestedBranch,
 			"mode":    "auto",
-			"created": false,
+			"created": autoConfirmCreated,
 		}); err != nil {
 			return nil, err
 		}
