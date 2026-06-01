@@ -2,6 +2,53 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 3 Slice 1 — same-attempt requeue for dead-lane repo-write jobs (#121)
+
+Closed #121 ask #1: when a supervised implement lane dies (operator
+`session close`, dead pane, missed heartbeat) its repo-write job was left in
+"running-limbo" — `jobs.state` in `claimed`/`running`/`stale_lease`,
+`current_lease_id` NULL, the lease already `released` (not `expired`), and zero
+artifacts published. Nothing returned it to claimable on the SAME attempt: the
+auto-publish recovery skips a zero-artifact job, `recovery.requeue_stale` only
+matched a job JOINed to an `expired` lease (a `released` lease never qualified,
+so even `--force` errored "job has no stale expired lease to requeue"), and
+`reopenJobForAttempt` bumps the attempt and resets downstream (a content, not
+operational, recovery). `run_9925b2502a256e077a24805c35004707` wedged here.
+
+- **New internal primitive `requeueJobSameAttempt`** (`go/pkg/mutations/recovery.go`)
+  returns a dead-lane unfinished job to `queued` WITHOUT bumping `attempt`/`max_attempts`
+  and WITHOUT resetting downstream jobs. It force-expires any residual `active`
+  lease (`release_reason='recovery_requeue'`), reuses the job's live work message
+  (flipped back to `pending`, `current_lease_id` NULL) or mints a fresh pending
+  one via `insertPendingMessageForJob` when the current message is NULL/terminal,
+  and appends a `recovery.requeued_same_attempt` event carrying
+  `{repo_write, operator_override?, justification?, author?}`. It is idempotent:
+  an already-`queued`+`pending` job is a no-op success (`already_reclaimable`).
+- **`recovery.requeue_stale` now reclaims the dead-lane running-limbo case.**
+  When the expired-lease JOIN finds nothing and no `active` lease exists (the
+  job is not held by a live claimant), the verb now finds the running-limbo job
+  (`state IN ('claimed','running','stale_lease','queued')`) and routes it through
+  the new primitive. The D036 inspection gate is preserved — a repo-write job
+  still requires `--force --justification "<reason>"`, but `--force` now actually
+  SUCCEEDS for it instead of erroring. The #82 live-claimant transfer guidance
+  (active lease present) and the non-repo-write behavior / `next_actions` shape
+  are unchanged; the verb still also emits the legacy `recovery.stale_requeued`
+  audit event for backward compatibility.
+- **`session close --requeue-job`** (param `requeue_job`): opt-in flag that returns
+  the closing session's in-flight job to the queue on the same attempt (the
+  active-lease guard already guarantees the lease is released, i.e. the dead-lane
+  case) so a fresh lane can pick it up. Reports the requeued job under
+  `requeued_job` in the result; absent without the flag.
+- PG-gated regressions in `go/pkg/mutations/recovery_dead_lane_test.go`:
+  `TestRequeueStaleForceReclaimsDeadLaneRepoWriteSameAttempt` (requeue +
+  fresh `claim_next`, attempt unchanged, downstream untouched),
+  `TestRequeueStaleDeadLaneRepoWriteRefusedWithoutForce` (D036 preserved),
+  `TestRequeueStaleLiveClaimantGuidesToTransfer` (#82 guidance kept),
+  `TestRequeueStaleDeadLaneIdempotent` (second call = `already_reclaimable`),
+  `TestSessionCloseRequeueJobReturnsInflightJob`, and
+  `TestSessionCloseWithoutRequeueLeavesJobRunning`. No schema change.
+  Scope: the autonomous recovery-sweep integration + per-job budgets are Slice 2.
+
 ### RFC 0101 Phase 0a — interrogation deadlock root-fix
 
 Root-fixed the Postgres deadlock (SQLSTATE `40P01`) the Phase-2 conformance

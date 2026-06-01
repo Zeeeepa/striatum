@@ -344,6 +344,10 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	}
 	sessionID := stringParam(envelope, "session_id")
 	reason := strings.TrimSpace(stringParam(envelope, "reason"))
+	// RFC 0101 Phase 3 Slice 1 (#121 ask #1): opt-in flag to return the closed
+	// session's in-flight (running-limbo) job to the queue on the SAME attempt so
+	// a fresh lane can pick it up, instead of leaving the job stranded.
+	requeueJob := boolParam(envelope, "requeue_job")
 	if sessionID == "" {
 		return nil, rpc.NewError("schema_invalid", "session.close requires session_id", nil)
 	}
@@ -409,7 +413,7 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 		}
 
-		return map[string]any{
+		result := map[string]any{
 			"session_id":   sessionID,
 			"run_id":       session["run_id"],
 			"role_id":      session["role_id"],
@@ -417,7 +421,54 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"state":        "closed",
 			"closed_at":    now,
 			"close_reason": reason,
-		}, nil
+		}
+
+		// #121 ask #1: optionally return the session's in-flight job to the queue
+		// on the same attempt. The active-lease check above guarantees the lease is
+		// already released, so this is exactly the dead-lane running-limbo case.
+		if requeueJob {
+			inflight, ierr := queryRows(ctx, tx, `
+				SELECT j.job_id, j.run_id, j.workflow_job_id, j.state,
+				       j.role_id, j.lane_selector_json, j.max_attempts,
+				       j.write_scope_json, j.current_message_id, j.current_lease_id
+				  FROM striatumd.jobs j
+				  JOIN striatumd.leases l
+				    ON l.repository_id = j.repository_id
+				   AND l.resource_type = 'job'
+				   AND l.resource_id = j.job_id
+				 WHERE j.repository_id = $1
+				   AND l.owner_session_id = $2
+				   AND j.state IN ('claimed', 'running', 'stale_lease')
+				 ORDER BY l.acquired_at DESC
+				 LIMIT 1
+				 FOR UPDATE OF j`, repositoryID, sessionID)
+			if ierr != nil {
+				return nil, ierr
+			}
+			if len(inflight) == 0 {
+				result["requeued_job"] = nil
+				result["requeue_job_note"] = "no in-flight job found for this session to requeue"
+			} else {
+				job := inflight[0]
+				opts := requeueSameAttemptOptions{
+					operatorOverride: isRepoWrite(job),
+					justification:    reason,
+				}
+				rq, rqerr := requeueJobSameAttempt(ctx, tx, repositoryID, job, opts)
+				if rqerr != nil {
+					return nil, rqerr
+				}
+				result["requeued_job"] = map[string]any{
+					"job_id":              job["job_id"],
+					"workflow_job_id":     job["workflow_job_id"],
+					"message_id":          rq.messageID,
+					"repo_write":          isRepoWrite(job),
+					"already_reclaimable": rq.alreadyReclaimable,
+				}
+			}
+		}
+
+		return result, nil
 	})
 }
 

@@ -66,6 +66,7 @@ var usageByGroup = map[string]Usage{
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session to close"},
 			{Name: "reason", Required: true, Help: "why the session is being closed (the daemon rejects an empty reason: \"session close reason must not be empty\")"},
+			{Name: "requeue-job", Bool: true, Help: "return this session's in-flight job to the queue on the same attempt (no attempt bump, no downstream reset) so a fresh lane can pick it up (#121)"},
 		},
 	},
 	"checkpoint_resolve": {
