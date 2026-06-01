@@ -12,6 +12,7 @@
     "role_id": "coordinator",
     "lane_id": "claude_code"
   },
+  "allow_same_model_review_pairing": true,
   "lanes": {
     "codex": {
       "adapter": "process",
@@ -242,6 +243,9 @@
       "task_prompt": {
         "path": "prompts/review_design.md"
       },
+      "inputs": [
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
@@ -276,6 +280,9 @@
       "task_prompt": {
         "path": "prompts/review_design.md"
       },
+      "inputs": [
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
@@ -310,6 +317,9 @@
       "task_prompt": {
         "path": "prompts/review_design.md"
       },
+      "inputs": [
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
@@ -379,6 +389,10 @@
       "task_prompt": {
         "path": "prompts/review_build.md"
       },
+      "inputs": [
+        "build_handoff",
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
@@ -413,6 +427,10 @@
       "task_prompt": {
         "path": "prompts/review_build.md"
       },
+      "inputs": [
+        "build_handoff",
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,
@@ -447,6 +465,10 @@
       "task_prompt": {
         "path": "prompts/review_build.md"
       },
+      "inputs": [
+        "build_handoff",
+        "design_synthesis"
+      ],
       "write_scope": {
         "mode": "review_only_artifact",
         "repo_write": false,

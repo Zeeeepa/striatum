@@ -12,6 +12,7 @@
     "role_id": "author",
     "lane_id": "codex"
   },
+  "allow_same_model_review_pairing": true,
   "lanes": {
     "codex": {
       "adapter": "process",

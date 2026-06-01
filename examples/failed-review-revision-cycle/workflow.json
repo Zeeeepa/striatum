@@ -16,6 +16,7 @@
     "root_review_needs_revision": "human_checkpoint",
     "description": "When the bounded revision cycle is exhausted, route the next needs_revision verdict to a human checkpoint instead of looping forever."
   },
+  "allow_same_model_review_pairing": true,
   "lanes": {
     "codex": {
       "adapter": "process",
