@@ -126,6 +126,31 @@ is the acute open blocker** and the named RFC 0101 L3 gap. No harness Go was
 built — the self-hosting paradox held again (a broken runner can't reliably
 dogfood its own fixes).
 
+## Issue burn-down 2026-06-01 (32 → 18 open)
+
+A `max-closed-count-first` burn-down pass (plan `~/.claude/plans/typed-shimmying-diffie.md`):
+
+- **Phase 1 confirm-and-close (9):** #80/#83/#117/#120/#121/#123/#130/#136/#137 —
+  verified fix-commit ancestry + repro/test before closing. **Reopened 3** that were
+  over-attributed to the RFC 0101 Phase 0a deadlock commit: #131/#134 are the #65
+  interrogation-window-closure family (not the 40P01 deadlock); #133 was a real
+  register-session deadlock the Phase 0a fix did not cover.
+- **Phase 2 fixes (deployed @ `988b9653`, schema 22):** #142 (`list workflows`
+  42703 — column alias), #133 (register-session retries on recovery deadlock),
+  #127/#132/#140 (verdict semantics — idempotent complete, synonym vocab, recoverable
+  reject; **D158**), #118 (closed obsolete — single_shot/turn-driver retired by D150).
+  All with regression tests; full `pkg/mutations` suite green.
+- **Deploy lesson:** `make install` does NOT restart the running daemon — needs
+  `systemctl --user restart striatumd`; verify the RUNNING `/proc/<pid>/exe` sha,
+  not just the file. (Cost a live false-negative on #142.)
+
+**Remaining 18, heavier/architectural (route via dogfood or bootstrap-subagent w/ review):**
+#141 (agent-loop receiver reconnect across daemon socket recreation + supervisor
+re-bind), #125 (codex readiness-vs-`work.ack` guard); **RFC 0096 V2** security
+#135/#70/#87; **RFC 0100 P2** #126/#128; **RFC 0097** #115/#138; **RFC 0099/0102**
+#92/#112; the **agy cluster** #139/#76/#85/#95; and the reopened #131/#133→done/#134
+window-closure family (RFC 0095).
+
 ## Next Actions
 
 1. **RFC 0097 self-hosting capstone — DONE (proven live 2026-06-01, `8e9ac86b`).**
