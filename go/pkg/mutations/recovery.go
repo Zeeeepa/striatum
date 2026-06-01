@@ -1177,6 +1177,35 @@ func requeueJobSameAttempt(ctx context.Context, tx db.TxRunner, repositoryID str
 			currentMessageLive = !terminalMessageStates[currentMessageState]
 		}
 	}
+	// RFC 0101 Phase 5: the live foreground claim path (HandleClaimNext) binds the
+	// work message to a lease but does NOT stamp jobs.current_message_id, so a
+	// genuinely live-claimed job that then dies arrives here with
+	// current_message_id NULL while its work message is still in a non-terminal
+	// (claimed/acked) state. Minting a fresh pending message in that case would
+	// trip the uq_active_work_message_per_job partial unique index (one
+	// non-terminal work message per job). Resolve the job's still-live work
+	// message directly so we REUSE it rather than duplicate it. This is keyed on
+	// the same (pending/claimed/acked) set the unique index covers, so it finds
+	// exactly the message the index would collide with. (Surfaced by the
+	// fault-injection chaos suite, which drives the REAL claim path rather than a
+	// hand-seeded current_message_id.)
+	if messageID == nil {
+		row, err := oneRow(ctx, tx, `
+			SELECT message_id, state FROM striatumd.queue_messages
+			 WHERE repository_id = $1 AND job_id = $2 AND kind = 'work'
+			   AND state IN ('pending','claimed','acked')
+			 ORDER BY created_at DESC, message_id DESC
+			 LIMIT 1`, repositoryID, jobID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			messageID = nil
+		} else if err != nil {
+			return requeueSameAttemptResult{}, err
+		} else {
+			messageID = row["message_id"]
+			currentMessageState = fmt.Sprint(row["state"])
+			currentMessageLive = !terminalMessageStates[currentMessageState]
+		}
+	}
 	leaseID := nullable(job["current_lease_id"])
 
 	// Idempotency: an already-queued job whose live message is already pending is

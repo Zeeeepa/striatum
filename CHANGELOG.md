@@ -2,6 +2,65 @@
 
 ## Unreleased
 
+### RFC 0101 Phase 5 — fault-injection chaos suite
+
+The end-to-end behavioral gate for the recovery→escalation arc. Phases 3/4 have
+unit tests that hand-seed stuck DB state; Phase 5 drives the REAL fake-agent
+lifecycle through the in-process daemon, INJECTS a lane failure, runs the
+production recovery sweep, and asserts the run **self-recovers** (a fresh lane
+completes it on the same attempt, no operator) OR **escalates loudly**
+(`needs_operator` + a `recovery_exhausted` escalation, within budget) — never a
+silent wedge. All fault injection lives in the test layer; no shipped daemon code
+gained a fault hook.
+
+- **Fault-injection seam** (`go/pkg/adapterconformance/chaos_test.go`, test layer
+  only): `injectDeadLane` (close the session + release its lease → a hard dead
+  pane), `injectStalledLane` (the core time-warp primitive: age every session
+  `last_*` column + `registered_at` + the active lease's
+  `acquired_at`/`expires_at`/`last_heartbeat_at` ~2h into the past so
+  `sessionliveness.Classify` reports `stalled` on a still-active session, with NO
+  sleeping — fully deterministic), `runSweep` (drives the production
+  `mutations.SweepRun` and returns the `recovery_actions`/`escalations` summary),
+  and `freshReplacementAgent` (registers a NEW session and runs the REAL
+  `testagent` ModeHappy lifecycle through the production
+  claim/ack/heartbeat/publish/complete handlers to finish the requeued packet).
+  A repo-write fixture (`seedRepoWriteFixture`) seeds a `repo_write` `implement`
+  job in a real git repo so the `work.complete` write-scope-clean gate passes for
+  the replacement lane.
+- **Chaos scenarios** (PG-gated; skip cleanly without `STRIATUM_PG_TEST_URL`):
+  `TestChaosDeadRepoWriteLaneSelfRecovers` (acceptance #2 / the #121 case — dead
+  repo-write lane → sweep requeues on the same attempt, no escalation → fresh
+  agent completes → run completed, no operator),
+  `TestChaosStalledLaneSelfRecovers` (stalled-but-active lane → transfer-requeue +
+  stalled-owner close → fresh agent completes),
+  `TestChaosUnrecoverableLaneEscalatesLoudly` (acceptance #4 — repeated dead lanes
+  past `max_requeues` → `needs_operator` + one pending `recovery_exhausted`
+  `escalation_inbox` row with a structured `striatum.recovery_escalation.v1`
+  payload, within a bounded cycle cap that fails loudly on a silent wedge), and
+  `TestChaosHonestLivenessDuringFault` (acceptance #3 — the classifier reports the
+  TRUE state: a working lane is never `stalled`, a stalled lane reads `stalled`, a
+  dead/closed pane never reads as a `working_*`/`quiet` state).
+- **Recovery hardening surfaced by the chaos suite** (`requeueJobSameAttempt` in
+  `go/pkg/mutations/recovery.go`): the live foreground claim path
+  (`HandleClaimNext`) binds the work message to a lease but does NOT stamp
+  `jobs.current_message_id`, so a genuinely live-claimed job that then died
+  arrived at the autonomous requeue with `current_message_id` NULL while its work
+  message was still non-terminal (`acked`). Minting a fresh pending message in
+  that case tripped the `uq_active_work_message_per_job` partial unique index
+  (a 23505 that wedged the sweep). `requeueJobSameAttempt` now resolves the job's
+  still-live work message directly (keyed on the same `pending/claimed/acked` set
+  the index covers) and REUSES it. The hand-seeded Phase 3 unit tests masked this
+  by pre-setting `current_message_id`; the chaos suite drives the real claim path
+  and caught it. No schema change.
+- **Gating:** PG-gate only (no build tag), consistent with the existing Tier-A
+  conformance tests — they share the same `NewHarness`/pgtest substrate and CI
+  PostgreSQL tier. The hermetic `make -C go test` runs without
+  `STRIATUM_PG_TEST_URL`, so the package's tests skip in ~0.004s and add ZERO
+  cost. Red→green proof: stubbing `recoverStuckJobs`/`escalateExhaustedJobs` to
+  no-ops makes the three self-recover/escalate scenarios FAIL ("job still stuck" /
+  "run never escalated"), confirming they are genuine regression guards against a
+  reintroduced silent wedge.
+
 ### RFC 0101 Phase 4 — loud structured escalation (needs_operator run state)
 
 A run must never silently sit `running`. Phase 3 made the recovery sweep
