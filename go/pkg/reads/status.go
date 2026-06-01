@@ -666,7 +666,13 @@ func statusNextActions(
 	if len(nonAcceptingVerdicts) > 0 {
 		out = append(out, "revise_workflow_cycle", "derive_expected_byline")
 	}
-	if summary, ok := autoFinalize.(map[string]any); ok && statusAutoFinalizeLiveAllowed(summary) && (intFrom(summary, "eligible_count") > 0 || intFrom(summary, "candidate_count") > 0) {
+	// Only recommend recovery_auto_finalize when the dry-run confirms at least
+	// one job/artifact is actually eligible (artifacts present on disk and
+	// ready for finalization). candidate_count alone means jobs are running and
+	// *might* be finalizable; eligible_count means they *are*. Recommending on
+	// candidate_count alone produces a misleading next-action when no artifacts
+	// have landed yet. (#124)
+	if summary, ok := autoFinalize.(map[string]any); ok && statusAutoFinalizeLiveAllowed(summary) && intFrom(summary, "eligible_count") > 0 {
 		out = appendUnique(out, "recovery_auto_finalize")
 	}
 	for _, action := range statusStringList(processHealth["next_actions"]) {

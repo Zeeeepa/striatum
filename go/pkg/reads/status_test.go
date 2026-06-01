@@ -83,14 +83,14 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 					"attach_command": "tmux attach-session -t striatum-run_a-lane_a-sup_a",
 				},
 			},
-			"daemon_supervisor_id":   "dsup_a",
-			"daemon_state":           "attached",
-			"registered_at":          now.Add(-10 * time.Minute),
-			"last_tools_list_at":     now.Add(-9 * time.Minute),
-			"last_await_packet_at":   now.Add(-8 * time.Minute),
-			"last_mcp_request_at":    now.Add(-1 * time.Minute),
-			"liveness_stall_class":   nil,
-			"liveness_stall_since":   nil,
+			"daemon_supervisor_id": "dsup_a",
+			"daemon_state":         "attached",
+			"registered_at":        now.Add(-10 * time.Minute),
+			"last_tools_list_at":   now.Add(-9 * time.Minute),
+			"last_await_packet_at": now.Add(-8 * time.Minute),
+			"last_mcp_request_at":  now.Add(-1 * time.Minute),
+			"liveness_stall_class": nil,
+			"liveness_stall_since": nil,
 		}
 		return dashboardAllRowsFromMaps([]map[string]any{merged}), nil
 	case strings.Contains(sql, "SELECT s.session_id") && strings.Contains(sql, "ps.pid AS pid"):
@@ -253,11 +253,16 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 		"revise_workflow_cycle",
 		"recovery_process_reconcile",
 		"supervisor_stall_investigate",
-		"recovery_auto_finalize",
 	} {
 		if !containsString(actions, expected) {
 			t.Fatalf("next_actions missing %s in %#v", expected, actions)
 		}
+	}
+	// #124: the dashboard summary only populates candidate_count (SQL count of
+	// running jobs); eligible_count (artifacts on disk) is 0 here, so
+	// recovery_auto_finalize must NOT be recommended.
+	if containsString(actions, "recovery_auto_finalize") {
+		t.Fatalf("#124: recovery_auto_finalize must not appear when eligible_count==0: %#v", actions)
 	}
 	if stringCount(actions, "derive_expected_byline") != 1 {
 		t.Fatalf("next_actions should de-duplicate derive_expected_byline: %#v", actions)
@@ -279,8 +284,8 @@ func TestStatusNextActionsRespectAutoFinalizeLivePolicy(t *testing.T) {
 		map[string]any{},
 		map[string]any{},
 		map[string]any{
-			"candidate_count": int64(1),
-			"policy":          map[string]any{"live_allowed": false},
+			"eligible_count": int64(1),
+			"policy":         map[string]any{"live_allowed": false},
 		},
 	)
 	if containsString(optOutActions, "recovery_auto_finalize") {
@@ -297,12 +302,60 @@ func TestStatusNextActionsRespectAutoFinalizeLivePolicy(t *testing.T) {
 		map[string]any{},
 		map[string]any{},
 		map[string]any{
-			"candidate_count": int64(1),
-			"policy":          map[string]any{"live_allowed": true},
+			"eligible_count": int64(1),
+			"policy":         map[string]any{"live_allowed": true},
 		},
 	)
 	if !containsString(liveActions, "recovery_auto_finalize") {
 		t.Fatalf("live actions missing recovery_auto_finalize: %#v", liveActions)
+	}
+}
+
+// TestStatusNextActionsAutoFinalizeRequiresEligibleCount guards #124: a
+// summary with candidates (running jobs that might be finalizable) but no
+// eligible artifacts (eligible_count == 0) must NOT recommend
+// recovery_auto_finalize. Only eligible_count > 0 is actionable.
+func TestStatusNextActionsAutoFinalizeRequiresEligibleCount(t *testing.T) {
+	// candidate_count > 0 but eligible_count == 0 → not recommended.
+	candidatesOnly := statusNextActions(
+		nil, nil, nil, nil, false, false,
+		map[string]any{}, map[string]any{},
+		map[string]any{
+			"candidate_count": int64(3),
+			"eligible_count":  int64(0),
+			"policy":          map[string]any{"live_allowed": true},
+		},
+	)
+	if containsString(candidatesOnly, "recovery_auto_finalize") {
+		t.Fatalf("#124: candidate_count-only must not recommend recovery_auto_finalize: %#v", candidatesOnly)
+	}
+
+	// eligible_count > 0 → recommended.
+	withEligible := statusNextActions(
+		nil, nil, nil, nil, false, false,
+		map[string]any{}, map[string]any{},
+		map[string]any{
+			"candidate_count": int64(3),
+			"eligible_count":  int64(1),
+			"policy":          map[string]any{"live_allowed": true},
+		},
+	)
+	if !containsString(withEligible, "recovery_auto_finalize") {
+		t.Fatalf("#124: eligible_count > 0 must recommend recovery_auto_finalize: %#v", withEligible)
+	}
+
+	// Neither candidate nor eligible → not recommended.
+	noneEligible := statusNextActions(
+		nil, nil, nil, nil, false, false,
+		map[string]any{}, map[string]any{},
+		map[string]any{
+			"candidate_count": int64(0),
+			"eligible_count":  int64(0),
+			"policy":          map[string]any{"live_allowed": true},
+		},
+	)
+	if containsString(noneEligible, "recovery_auto_finalize") {
+		t.Fatalf("#124: zero eligible must not recommend recovery_auto_finalize: %#v", noneEligible)
 	}
 }
 
