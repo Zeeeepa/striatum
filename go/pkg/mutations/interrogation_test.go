@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -1066,5 +1067,109 @@ func TestInterrogationWindowClosesOnRevisionReopen(t *testing.T) {
 	}
 	if fmt.Sprint(st["state"]) != "closed" {
 		t.Fatalf("open interrogation against the superseded target must be closed, got %q", st["state"])
+	}
+}
+
+// TestInterrogationReplacementReviewerAfterWindowClosed is the W4 (#131/#134)
+// regression: after the panel window is retired (the interrogable target closed
+// once every reviewer terminated), a retry/replacement review attempt that the
+// workflow still expects must NOT wedge on a hard `target_unavailable`. Because a
+// retired panel target's lane is genuinely gone (a revision reopen closes it and
+// spawns a fresh lane), the window cannot simply be reopened against the dead
+// session; instead `interrogation.open` returns a structured, non-wedging
+// `interrogation_unavailable` signal so the replacement reviewer proceeds on the
+// published artifact and still reaches a verdict. A genuinely bogus target (one
+// that never entered an interrogation window) still gets the hard error.
+func TestInterrogationReplacementReviewerAfterWindowClosed(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_panel_replacement"
+	runID, target, _, reviewJobs := intgSeedPanelWindow(t, ctx, runner, repoID)
+
+	// Drive the whole panel to terminal so the panel-owned window is retired.
+	for i := 0; i < 3; i++ {
+		intgJobCompleted(t, ctx, runner, repoID, reviewJobs[i])
+		if err := releaseInterrogationTargetForCompletedReview(ctx, runner, repoID, runID, reviewJobs[i]); err != nil {
+			t.Fatalf("release after reviewer %d: %v", i, err)
+		}
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "closed" {
+		t.Fatalf("precondition: panel window must be retired (target closed), got %q", got)
+	}
+
+	// The workflow re-opens a review job for a retry attempt and a fresh
+	// replacement reviewer claims it (same role/lane, still depends on job_synth).
+	replacement := "sess_panel_replacement"
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, replacement, "reviewer", "claude", []string{"interrogate"}, "active", 4)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs SET state='running', completed_at=NULL
+		 WHERE repository_id=$1 AND job_id=$2`, repoID, reviewJobs[0]); err != nil {
+		t.Fatalf("reopen review job for retry: %v", err)
+	}
+
+	// The replacement reviewer attempts the mandatory interrogation against the
+	// retired target. Pre-fix: target_unavailable hard error → the reviewer wedges.
+	res, err := HandleInterrogationOpen(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": replacement, "target_session_id": target,
+		"topic": "retry review after the panel window closed",
+	}))
+	if err != nil {
+		t.Fatalf("replacement interrogation.open must not hard-error after the window closed: %v", err)
+	}
+	if res["status"] != "interrogation_unavailable" {
+		t.Fatalf("expected a structured interrogation_unavailable signal, got %#v", res)
+	}
+	if fmt.Sprint(res["target_session_id"]) != target {
+		t.Fatalf("signal must name the retired target, got %#v", res)
+	}
+	if strings.TrimSpace(fmt.Sprint(res["guidance"])) == "" {
+		t.Fatalf("signal must carry proceed-on-artifact guidance, got %#v", res)
+	}
+	// No interrogation row is created for an unavailable target.
+	hasRow, err := existsRow(ctx, runner, `
+		SELECT 1 FROM striatumd.interrogations
+		 WHERE repository_id=$1 AND interrogator_session_id=$2`, repoID, replacement)
+	if err != nil {
+		t.Fatalf("interrogation existence check: %v", err)
+	}
+	if hasRow {
+		t.Fatalf("no interrogation row should be created when the target is unavailable")
+	}
+
+	// A genuinely bogus target (never an interrogation target) still hard-errors —
+	// checked while the replacement is still active so the target_unavailable path
+	// is exercised (not the interrogator-not-active guard).
+	bogus := "sess_never_a_target"
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, bogus, "implementer", "claude", nil, "closed", 5)
+	if _, err := HandleInterrogationOpen(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": replacement, "target_session_id": bogus, "topic": "bogus",
+	})); err == nil {
+		t.Fatalf("a target that never entered an interrogation window must still hard-error")
+	} else if rerr, ok := err.(*rpc.Error); ok && rerr.Code != "target_unavailable" {
+		t.Fatalf("bogus target error code = %q, want target_unavailable", rerr.Code)
+	}
+
+	// The W4 outcome: having received the non-wedging signal, the replacement
+	// reviewer proceeds to its verdict on the published artifact and REACHES a
+	// verdict (there is no daemon gate requiring a completed interrogation first).
+	leaseID := "lease_panel_replacement"
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7)`,
+		repoID, leaseID, runID, reviewJobs[0], replacement, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert replacement lease: %v", err)
+	}
+	verdictRes, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": replacement, "job_id": reviewJobs[0], "lease_id": leaseID,
+		"verdict": "accept", "rationale": "reviewed the published artifact; interrogation unavailable",
+	}))
+	if err != nil {
+		t.Fatalf("replacement reviewer must reach a verdict after the unavailable signal: %v", err)
+	}
+	if verdictRes["status"] != "completed" {
+		t.Fatalf("replacement verdict status = %v, want completed; %#v", verdictRes["status"], verdictRes)
 	}
 }

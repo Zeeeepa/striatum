@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### RFC 0103 W4 — the interrogation window outlives a single reviewer (RFC 0095)
+
+- **#131 — a retry/replacement reviewer no longer wedges when the panel
+  interrogation window has closed.** After an interrogating panel completes, the
+  panel-owned `awaiting_interrogation` window is retired and the interrogable
+  target session closes. A retry/replacement review attempt that the workflow
+  still expects could then call `interrogation.open` against the now-closed
+  target and receive a hard `target_unavailable` error, wedging the reviewer on a
+  mandatory interrogation it could never satisfy (the target's lane is genuinely
+  gone — a revision reopen closes it and spawns a fresh lane, so the window cannot
+  be reopened against the dead session). `interrogation.open` now returns a
+  structured, non-wedging `interrogation_unavailable` result (`reason:
+  panel_window_closed`, plus proceed-on-the-published-artifact `guidance` and the
+  `interrogable_job_id`) when the target is a legitimately-retired panel target in
+  the interrogator's run. The replacement reviewer proceeds on the published
+  artifact and reaches a verdict (there is no daemon gate requiring a completed
+  interrogation before a verdict). A genuinely bogus target — one that never
+  entered an interrogation window — still receives the hard `target_unavailable`
+  error. Test: a PG-gated regression drives a full panel to terminal (window
+  retired), re-opens a review job for a replacement reviewer, asserts the
+  non-wedging signal, and drives the replacement to an `accept` verdict.
+
 ## v2.9.3 — 2026-06-02
 
 ### RFC 0103 W1 — the supervised lane becomes a real sandbox (RFC 0096 V2)

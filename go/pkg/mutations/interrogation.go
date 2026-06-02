@@ -67,6 +67,21 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 			return nil, rpc.NewError("capability_denied", "interrogator session lacks the 'interrogate' capability", nil)
 		}
 		if err := requireLiveTarget(ctx, tx, repositoryID, targetSessionID); err != nil {
+			// W4 (#131): a retired panel interrogation target — its window closed
+			// once the panel completed, but the workflow still expects a
+			// retry/replacement reviewer's verdict — must NOT hard-wedge the
+			// replacement reviewer. A retired target's lane is genuinely gone (a
+			// revision reopen closes it and spawns a fresh lane), so the window
+			// cannot be reopened against the dead session; instead return a
+			// structured, non-wedging signal so the replacement proceeds on the
+			// published artifact and still reaches a verdict. A genuinely bogus
+			// target (one that never entered an interrogation window) keeps the
+			// hard target_unavailable error.
+			if signal, ok, sigErr := interrogationUnavailableSignal(ctx, tx, repositoryID, interrogator, targetSessionID, err); sigErr != nil {
+				return nil, sigErr
+			} else if ok {
+				return signal, nil
+			}
 			return nil, err
 		}
 		target, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", targetSessionID, false)
@@ -714,6 +729,50 @@ func requireLiveTarget(ctx context.Context, runner any, repositoryID, targetSess
 		return nil
 	}
 	return rpc.NewError("target_unavailable", "target session is not attested and is not in the awaiting_interrogation window; interrogation requires a live, attested session or a live interrogable agent-loop target", nil)
+}
+
+// interrogationUnavailableSignal returns a structured, non-wedging
+// "interrogation_unavailable" result (W4 / #131) when interrogation.open's target
+// is a legitimately-retired panel interrogation target: the target session shares
+// the interrogator's run and previously entered an awaiting_interrogation window
+// (so it WAS a real interrogation target), but its panel-owned window has since
+// closed. A retry/replacement reviewer that the workflow still expects then
+// proceeds on the published artifact instead of failing target_unavailable. ok is
+// false for a target that never entered a window (a genuinely bogus target), or
+// for any non-target_unavailable cause, so the original hard error is preserved.
+func interrogationUnavailableSignal(ctx context.Context, runner any, repositoryID string, interrogator map[string]any, targetSessionID string, cause error) (map[string]any, bool, error) {
+	// Only soften a target_unavailable cause; never mask schema/transition errors.
+	var rpcErr *rpc.Error
+	if !errors.As(cause, &rpcErr) || rpcErr.Code != "target_unavailable" {
+		return nil, false, nil
+	}
+	wasTarget, err := targetInAwaitingInterrogation(ctx, runner, repositoryID, targetSessionID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !wasTarget {
+		return nil, false, nil
+	}
+	// Single-run scope holds for the soft path too: the target must belong to the
+	// interrogator's run. A missing target row means it never existed — keep the
+	// hard error.
+	target, err := rowByID(ctx, runner, repositoryID, "sessions", "session_id", targetSessionID, false)
+	if err != nil {
+		return nil, false, nil
+	}
+	if fmt.Sprint(target["run_id"]) != fmt.Sprint(interrogator["run_id"]) {
+		return nil, false, nil
+	}
+	signal := map[string]any{
+		"status":            "interrogation_unavailable",
+		"reason":            "panel_window_closed",
+		"target_session_id": targetSessionID,
+		"guidance":          "the interrogation target's panel window has closed; proceed on the published artifact and record your verdict",
+	}
+	if jobID, err := interrogableJobForTargetSession(ctx, runner, repositoryID, targetSessionID); err == nil && jobID != "" {
+		signal["interrogable_job_id"] = jobID
+	}
+	return signal, true, nil
 }
 
 // targetInAwaitingInterrogation reports whether the target session has entered
