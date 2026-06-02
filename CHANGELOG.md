@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.9.3 — 2026-06-02
+
 ### RFC 0103 W1 — the supervised lane becomes a real sandbox (RFC 0096 V2)
 
 - **#135 — the lane authenticates with its OWN session-bound token.** A supervised
