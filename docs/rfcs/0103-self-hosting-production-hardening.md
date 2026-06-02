@@ -1,8 +1,40 @@
 # RFC 0103: Self-Hosting Production Hardening — close the residual lane / lifecycle / contract / operator tail between *proven once* and *production-grade* self-hosting
 
-Status: proposed
+Status: accepted
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
+
+## Review reconciliation (2026-06-02 RFC 0103 review dogfood)
+
+Reviewed live **through the runner** by a multi-lane panel
+(`dogfoods/rfc-0103-review/`, run `run_05c653068a094c25ca8ce2da0b190a33`): a
+claude presenter published a review brief; a **codex** (threat_model) and a
+**claude** (devil's-advocate) reviewer each published a finding and submitted a
+verdict — **both `needs_revision`**, through the production handlers. Both
+confirmed the **partition is exact** (W1=3, W2=4, W3–W7=2 each = 17, each issue
+once) and the slice-RFC ownership coherent; both scoped their objection entirely
+to the **acceptance framework**. Reconciled and accepted (the panel pre-authorized
+acceptance "once R1/R2 + the F-notes are addressed"):
+
+- **R1** (acceptance not uniformly regression-gated) → added the **[hermetic
+  gate] / [live-corroborated] / [qualitative]** rigor taxonomy; W1 gains a
+  hermetic **cross-session-token-rejection** test (carrying the token ≠ the daemon
+  refusing the impersonation); W3 splits the **real systemd socket-recreation**
+  gate from the in-process chaos **approximation**; W7's cooperative outcome is
+  relabeled qualitative with an **audited-escape-log** proxy.
+- **R2** (umbrella was itself "proven once") → acceptance is now **two tiers** —
+  the multi-lane single-fault dogfood is the **floor/precondition**, and
+  **production-grade** is earned only by a **fault-class matrix** (W1 isolation /
+  W3 churn / W4 reviewer-replacement) across both seats.
+- **F1** ordering is **priority-by-risk, not dependency**; the umbrella's critical
+  path is W2/W3/W4. **F2** W2 (agy) is the **most deferrable**, not a blocker.
+  **F3** #138 flagged as a **new primitive** that may spin to an RFC 0097/0099
+  follow-up. **F4** added the **selection criterion** for the 17 (and why #101/#65
+  sit outside the count). **F5** the two seats are named as "two instances of the
+  one supported shape."
+
+The review findings are preserved at
+`dogfoods/rfc-0103-review/artifacts/review/{codex,claude}/REVIEW.md`.
 
 ## Context
 
@@ -25,8 +57,16 @@ author: proposer-claude-opus-4-8-001
   daemon restart). The **17 open issues are the gap between that proof and a
   *production-grade* self-host** — a runner that can carry a real **multi-lane,
   multi-turn, review-gated build of its own fixes** without an operator at the
-  keyboard. They cluster into seven workstreams, each extending a slice-RFC, but
-  **no existing RFC owns "production-grade self-hosting" as a property**:
+  keyboard. **Selection criterion (review F4):** the set is exactly the issues that
+  are (a) **open**, (b) **not mechanical** (the tractable mechanical tail was
+  closed in the 2026-06-01/02 burn-down), and (c) **block production-grade
+  self-hosting**. Issues cited inside the workstreams but *outside* this count
+  (e.g. **#101** claude lane-env, **#65** panel-owned interrogation window) are
+  excluded because they already **landed or are owned by their slice-RFC** — they
+  are referenced as context, not open work. This makes the partition's
+  *completeness* checkable, not just its internal cleanliness. They cluster into
+  seven workstreams, each extending a slice-RFC, but **no existing RFC owns
+  "production-grade self-hosting" as a property**:
   - **Lane is not a sandbox.** A supervised lane still uses the shared override
     capability token rather than its session-bound one, writes a bearer token
     into the target worktree, and can reach Postgres directly as the daemon's OS
@@ -61,9 +101,23 @@ author: proposer-claude-opus-4-8-001
 ## Proposal — seven workstreams
 
 Each workstream names its owning slice-RFC, the issues it closes, **what already
-landed**, the **remaining work**, and a **per-workstream acceptance** that is
-regression-gated (a hermetic test or a chaos/conformance assertion) so it can
-ship without a live dogfood once proven.
+landed**, the **remaining work**, and a **per-workstream acceptance**. The
+acceptance rigor is **not uniform** across workstreams (review R1), and the RFC
+must not pretend it is. Each acceptance is tagged with its strongest available
+gate:
+
+- **[hermetic gate]** — a deterministic test (PG-gated or fixture) or
+  chaos/conformance assertion that ships *without* a live dogfood: W1's
+  cross-session-token-rejection test, W4's replacement-reviewer PG test, W5's
+  `artifact describe`/`lint` checks, W6's stale-snapshot + shared-gate tests.
+- **[live-corroborated]** — a hermetic gate proves the mechanism, with a live
+  observation as *corroboration only* (never the primary gate — that is the
+  one-shot evidence this RFC criticizes RFC 0097 for): W1's "lane S cannot act as
+  S′ in a live run", W2's installed-CLI conformance fixture, W3's reconnect.
+- **[qualitative]** — a cooperative/operator outcome that is **not** mechanically
+  gateable and is labeled honestly as best-effort, with the nearest *audited*
+  proxy named: W7 (operator restraint is unobservable; the gateable proxy is
+  "zero out-of-band control-plane escapes recorded in the audit log").
 
 ### W1 — The supervised lane becomes a real sandbox (RFC 0096 V2)
 
@@ -81,10 +135,16 @@ ship without a live dogfood once proven.
   durable provenance. (c) **#87** — deny the lane direct Postgres: a PG-less lane
   OS user / dropped peer-auth path so the lane's only control-plane is the MCP
   surface, not a libpq socket as the daemon's user.
-- **Acceptance:** a lane started with session S cannot act as session S′ (token
-  binding observed live); `git status` in a lane worktree never shows a
-  credentialed settings file; a lane process cannot open the daemon's Postgres.
-  Conformance golden asserts the lane env carries the bound token and no DSN.
+- **Acceptance:**
+  - **[hermetic gate]** a daemon-side test that a request **bearing session S's
+    minted token but presented as session S′ is rejected** on receipt (review R1:
+    carrying the bound token is necessary but not sufficient — the security
+    property is the daemon *refusing* the cross-session use); the conformance
+    golden asserts the lane env carries the bound token and no DSN; a fixture
+    asserts a lane worktree `git status` never shows a credentialed settings file
+    (#70) and a lane process cannot open the daemon's Postgres (#87).
+  - **[live-corroborated]** a lane started with session S cannot act as session S′
+    in a live run — corroboration of the hermetic gate, not the primary gate.
 
 ### W2 — Every declared adapter can hold a multi-turn seat (RFC 0096 / 0088)
 
@@ -110,9 +170,20 @@ ship without a live dogfood once proven.
   the crash is gone before building reconnect). (b) `work.ack` is made
   **non-substitutable** — a `session.report` claiming acknowledgement before
   `work.ack` is flagged, not accepted, so the control plane and the pane agree.
-- **Acceptance:** a **chaos-suite fault** that restarts the in-process daemon
-  mid-run asserts the lane reconnects and the job completes (or escalates) within
-  budget — the #141 regression gate alongside the existing kill/stall faults.
+- **Acceptance** (review R1/codex-R1 — the in-process chaos restart is **not**
+  #141's real surface and must not be the only gate):
+  - **[live-corroborated, primary for #141]** a real **OS-level/systemd restart
+    that recreates the socket** mid-run asserts the daemon **rebinds helpers**,
+    the agent-loop receiver **reconnects**, `work.ack` integrity holds, and the
+    repo-write job **completes through production handlers** — *escalation is not
+    an acceptable outcome for this expected, recoverable fault*.
+  - **[hermetic gate]** the existing in-process chaos restart is kept but labeled
+    a **known approximation** (it does not orphan OS helpers or recreate the
+    socket); escalation-within-budget is the success criterion only for an
+    explicitly **unrecoverable** injected fault class, with a separate assertion
+    that it does not silently wedge the run.
+  - Re-verify the #142 schema-drift crash is gone before building reconnect (so
+    the gate cannot go green while the real systemd-restart orphaning persists).
 
 ### W4 — The interrogation window outlives a single reviewer attempt (RFC 0095)
 
@@ -161,38 +232,69 @@ ship without a live dogfood once proven.
   extract their trajectories to the one operator surface (RFC 0102's "one surface,
   one high-signal view, `(run, workflow_job_id)` identifiers"; the operator
   "headline ask"; +RFC 0075).
-- **Acceptance:** the operator can drive a full run without dropping to
-  tmux/systemctl/psql in the normal loop; a lane trajectory is readable from the
-  one surface.
+- **Acceptance** (review R1 — operator restraint is unobservable/unfalsifiable, so
+  the headline outcome is **[qualitative]**, gated by an audited proxy):
+  - **[hermetic gate]** a full run completes with **zero out-of-band control-plane
+    escapes recorded in the audit log** (the gateable proxy for "stayed on the one
+    surface"); audited escape decisions (RFC 0099) are the only sanctioned exits.
+  - **[qualitative]** the operator can drive the run without dropping to
+    tmux/systemctl/psql in the normal loop — best-effort, corroborated by the
+    audit-log gate above, not independently gateable.
+  - **Trajectory privacy clause:** extracted lane trajectories on the operator
+    surface are **ephemeral operator-local diagnostics** (D028/D151/D154) — never
+    durable transcript capture/export, daemon state, byline, or verdict input.
 
-## Dependency ordering
+## Priority ordering (not a hard dependency)
 
-Roughly W1 → (W2, W3, W4) → (W5, W6) → W7, but the layers are mostly independent
-and each is shippable alone:
+Suggested order W1 → (W2, W3, W4) → (W5, W6) → W7. **This is a priority ordering by
+risk, not a dependency graph** (review F1): each layer is shippable alone, so there
+is no hard "blocks" relation. The distinction matters because the **umbrella
+acceptance's critical path is W2/W3/W4, not W1** — W1 is sequenced first for
+*risk*, not because the headline goal needs it first.
 
-1. **W1 (sandbox)** first — it is the trust substrate RFC 0097 named as a hard
-   prerequisite, and the highest-risk surface (an un-sandboxed lane that carries
-   the operator's own credentials is the worst failure mode to leave open).
-2. **W2/W3/W4** are the **multi-lane viability tier** — they are what a *real*
-   (not minimal-document) self-hosting dogfood needs: every seat holds, lanes
-   survive churn, panels survive reviewer replacement.
-3. **W5/W6** are **legibility/coordination** — they remove the friction that
-   turns good multi-lane work into a failed completion.
+1. **W1 (sandbox)** first **by risk** — an un-sandboxed lane carrying the
+   operator's own credentials is the worst failure mode to leave open (the trust
+   substrate RFC 0097 named). It is *not* on the umbrella's critical path.
+2. **W2/W3/W4** are the **multi-lane viability tier** and the umbrella's actual
+   critical path — every seat holds, lanes survive churn, panels survive reviewer
+   replacement. **Caveat (review F2):** the umbrella needs only *two* seats =
+   claude + codex, both of which already hold; **W2 (agy) is therefore the most
+   deferrable workstream**, not a blocker for the headline goal — it is sequenced
+   here for completeness of the declared adapter set, not necessity.
+3. **W5/W6** are **legibility/coordination** — they remove the friction that turns
+   good multi-lane work into a failed completion. **Scope note (review F3):**
+   #138's "declare + serialize a shared resource" is a *new orchestration
+   primitive*, not pure residual tail; if it grows beyond a bounded gate it should
+   spin out to an RFC 0097/0099 follow-up that owns it (see Non-goals).
 4. **W7** is the **operator-side payoff** — it consumes the honest signals the
    other layers produce.
 
 ## Acceptance (behavioral)
 
 This RFC is accepted in slices (each workstream's per-workstream acceptance is a
-landing gate). The **umbrella acceptance** is the escalation of the RFC 0097
-proof from *proven once* to *production-grade*:
+landing gate). The umbrella acceptance has **two tiers** — review R2 caught that a
+single multi-lane trial with one injected fault is itself *"proven once"* (the very
+weakness this RFC criticizes RFC 0097 for), so it is named honestly as the **new
+floor**, not as "production-grade":
 
-> A **runner-fix is developed by a real multi-lane, review-gated dogfood driven
-> through the runner** — at least two distinct adapter seats, one bounded
-> `needs_revision` cycle with a live interrogation, surviving at least one
-> injected lane/daemon fault — that completes end-to-end through the production
-> handlers, hands-off, and lands the fix. The minimal single-lane document proof
-> (2026-06-01) is the floor; this is the ceiling.
+> **Floor (the new precondition, multi-lane proven once):** a **runner-fix
+> developed by a real multi-lane, review-gated dogfood driven through the runner**
+> — the **two supported seats (claude + codex**; both `process`/`agent_loop` lanes,
+> so "distinct" means two instances of the one supported shape until W2 lands —
+> review F5), one bounded `needs_revision` cycle with a live interrogation,
+> surviving **one** injected lane/daemon fault — that completes end-to-end through
+> the production handlers, hands-off, and lands the fix. *(The 2026-06-02 RFC 0103
+> review dogfood already cleared the multi-lane review-gated half of this floor:
+> claude presenter + codex/claude reviewers, two `needs_revision` verdicts through
+> production handlers.)*
+>
+> **Production-grade (the ceiling — what earns the word):** the floor dogfood is
+> **repeated across a fault-class matrix, not a single fault** — separate coverage
+> for **(a)** W1 lane credential isolation, **(b)** W3 daemon/transport churn
+> (real socket-recreation restart), and **(c)** W4 reviewer replacement /
+> interrogation-window survival — and across **both supported seats**. One pass is
+> the floor; the matrix is the ceiling. The minimal single-lane document proof
+> (2026-06-01) sits *below* the floor.
 
 ## Non-goals
 
