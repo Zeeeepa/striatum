@@ -6,12 +6,18 @@ GO_DAEMON_LDFLAGS := -X main.daemonVersion=$(PACKAGE_VERSION) -X main.buildGitSH
 GO_CLI_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 GO_HELPER_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 
-.PHONY: build build-helper verify test race vet test-helper helper-check lint coverage check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
+.PHONY: build build-helper verify test race vet test-helper helper-check lint lint-tools coverage check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
 
 DAEMON_BIN := bin/striatumd
 CLI_BIN := bin/striatum
 HELPER_BIN := bin/striatum-supervisor-helper
 CORE_COVERAGE_FLOOR ?= 20.0
+# golangci-lint is pinned so the local dev-loop lint matches CI exactly. A
+# missing binary previously let a red CI lint go invisible locally (main sat
+# red over two errcheck findings); `make lint-tools` installs the pin and
+# `lint` refuses with that hint when the binary is absent.
+GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT ?= $(shell command -v golangci-lint 2>/dev/null || echo "$(shell go env GOPATH)/bin/golangci-lint")
 
 build:
 	mkdir -p bin
@@ -43,8 +49,12 @@ helper-check: verify
 	$(MAKE) build-helper
 	$(MAKE) test-helper
 
+lint-tools:
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+
 lint:
-	golangci-lint run --default=none --enable=govet --enable=staticcheck --enable=errcheck --enable=ineffassign ./...
+	@test -x "$(GOLANGCI_LINT)" || { echo "golangci-lint not found at '$(GOLANGCI_LINT)'; run 'make -C go lint-tools' to install the pinned $(GOLANGCI_LINT_VERSION)"; exit 1; }
+	"$(GOLANGCI_LINT)" run --default=none --enable=govet --enable=staticcheck --enable=errcheck --enable=ineffassign ./...
 
 coverage:
 	go test -coverprofile=coverage.out \
