@@ -76,9 +76,7 @@ jobs:
             capture {print}
           ' CHANGELOG.md)"
           if [[ -z "$body" ]]; then
-            body="## $version
-
-No CHANGELOG entry found for this version."
+            body="$(printf '## %s\n\nNo CHANGELOG entry found for this version.' "$version")"
           fi
           {
             echo "body<<EOF_CHANGELOG_SLICE"
