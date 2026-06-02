@@ -1466,6 +1466,15 @@ func markPointerDeliveryDegraded(ctx context.Context, runner db.TxRunner, reposi
 }
 
 func launchSupervisedProcess(ctx context.Context, config supervisionStartConfig, supervisorID, scratch, pipePath, eventPath string) (supervisionLaunchResult, error) {
+	// RFC 0103 W3 (#141): a supervised helper/lane process must OUTLIVE the daemon
+	// so a `systemctl restart striatumd` does not orphan it. exec.CommandContext
+	// SIGKILLs the spawned child when its context is Done, and the handler context
+	// is canceled on daemon shutdown — so a restart would kill the helper even with
+	// the unit's KillMode=process (which only stops systemd's own cgroup kill).
+	// Detach the spawn from daemon-lifetime cancellation so the helper (and its
+	// tmux-backed agent) survive a restart and the daemon re-binds them on startup;
+	// teardown still terminates helpers explicitly by PID (supervise stop / kill).
+	ctx = context.WithoutCancel(ctx)
 	if config.Transport == supervisionTransportPTYHelper {
 		return launchPTYHelper(ctx, config, supervisorID, scratch, pipePath, eventPath)
 	}
@@ -1603,6 +1612,9 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 }
 
 func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, identity gosupervisor.TmuxIdentity, eventPath string) (supervisionLaunchResult, error) {
+	// RFC 0103 W3 (#141): a rebridged helper must also outlive the daemon (see
+	// launchSupervisedProcess) so it is not re-orphaned by the next restart.
+	ctx = context.WithoutCancel(ctx)
 	helper, err := resolveSupervisorHelper()
 	if err != nil {
 		return supervisionLaunchResult{}, err

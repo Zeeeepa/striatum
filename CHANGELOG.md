@@ -4,21 +4,33 @@
 
 ### RFC 0103 W3 — the lane survives transport and daemon churn (RFC 0091 / 0101)
 
-- **#141 — a daemon restart no longer orphans supervised lane helpers.** The
-  systemd unit defaulted to `KillMode=control-group`, so `systemctl restart
-  striatumd` (and an `on-failure` auto-restart) SIGKILLed the entire service
-  cgroup — taking down the `Setsid`-detached supervisor helpers and their
-  tmux-backed agent lanes, even though a restart only means to replace the daemon
-  process. The lane then surfaced `helper_process_gone` and stalled. The unit now
-  sets `KillMode=process`: a restart signals only the main daemon process, so the
-  helpers, tmux sessions, and agent lanes survive. The helper bridges over files
-  (event log + packet FIFO) rather than the daemon socket, and the agent-loop
-  receiver re-dials the recreated socket on its next poll, so delivery resumes
-  with no rebind needed and the in-flight job completes through the production
-  handlers. A hard cgroup kill (`systemctl kill` / OOM) that still takes a helper
-  is recovered by the on-demand `supervise rebridge` verb. Re-run `striatum daemon
-  install` + `systemctl --user daemon-reload` to apply the unit change. Test: the
-  rendered-unit test asserts `KillMode=process`.
+- **#141 — a daemon restart no longer orphans supervised lane helpers.** A
+  `systemctl restart striatumd` (or an `on-failure` auto-restart) killed the
+  `Setsid`-detached supervisor helper, surfacing `helper_process_gone`, even
+  though a restart only means to replace the daemon process. A live mid-run
+  restart test isolated **two** independent killers, both now closed:
+  1. **systemd cgroup kill.** The unit defaulted to `KillMode=control-group`, so a
+     restart SIGKILLed the whole `striatumd.service` cgroup (which the helper is
+     in). The unit now sets `KillMode=process`, signalling only the main daemon
+     process. (The tmux-backed agent lane lives in tmux's own `tmux-spawn-*.scope`
+     and already survived.)
+  2. **the daemon's own `exec.CommandContext` cancellation.** The helper was
+     spawned with the daemon-lifetime context, so `CommandContext` SIGKILLed it
+     when that context cancelled on shutdown — independent of systemd, so
+     `KillMode=process` alone did not save it. The helper (and any non-tmux pipe
+     lane) is now spawned with `context.WithoutCancel`, so it outlives the daemon;
+     teardown still terminates helpers explicitly by PID (`supervise stop`).
+  With both fixes the helper, tmux session, and agent lane survive a restart; the
+  daemon re-binds the surviving helper on startup (`tmux_ok` / `reattachable`, not
+  `helper_process_gone`) and the agent-loop receiver re-dials the recreated socket,
+  so the in-flight repo-write job completes through the production handlers with no
+  escalation. Live-corroborated twice on a real `systemctl restart` mid-run (the
+  run completed end-to-end both before and after the helper-survival fix). A hard
+  cgroup kill (`systemctl kill` / OOM) that still takes a helper is recovered by
+  the on-demand `supervise rebridge` verb. Re-run `striatum daemon install` +
+  `systemctl --user daemon-reload` to apply the unit change. Tests: the
+  rendered-unit test asserts `KillMode=process`; the supervision suite covers the
+  detached-spawn launch path.
 
 - **#125 — `work.ack` is non-substitutable.** A supervised lane (observed with
   codex) could report readiness via `session.report` instead of calling

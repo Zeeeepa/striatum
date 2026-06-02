@@ -22,6 +22,18 @@ package adapterconformance
 // NewHarness calls pgtest.Pool which t.Skip()s cleanly when STRIATUM_PG_TEST_URL
 // is unset, so they ride the existing CI PostgreSQL tier and add ZERO cost to
 // the hermetic `make -C go test` (which runs without the URL and skips them).
+//
+// RFC 0103 W3 (#141) — KNOWN APPROXIMATION. This in-process chaos suite is the
+// hermetic robustness gate, but it is deliberately NOT the primary gate for the
+// daemon-restart class (#141): it time-warps DB timestamps to simulate a
+// dead/stalled lane and never orphans an OS helper process or recreates the
+// daemon socket. The real surface — a `systemctl restart striatumd` that
+// SIGKILLs the helper cgroup / cancels its spawn context and recreates the
+// socket mid-run — is covered by the [live-corroborated] gate
+// (dogfoods/rfc-0103-w3-141-restart). The escalation-within-budget assertions
+// below are the success criterion only for an explicitly UNRECOVERABLE injected
+// fault, with a paired assertion that the run never silently wedges; a
+// recoverable fault (the systemd restart) must COMPLETE, not escalate.
 
 import (
 	"context"
