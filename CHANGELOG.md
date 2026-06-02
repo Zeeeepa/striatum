@@ -19,6 +19,15 @@
   the `mutations` env golden assert the lane carries the bound token and drop the
   shared override and all DSN vars; new PG-gated cross-session-rejection tests for
   `artifact.publish` and `work.claim_next`; an `enforceSessionBinding` contract test.
+- **#70 — agy bearer token never enters git provenance.** The ephemeral agy
+  `.gemini/settings.json` (which carries a rotating bearer) is now added to the work
+  tree's local `.git/info/exclude` for the lane's lifetime, so it never appears in
+  `git status`, never dirties a write-scope baseline, and is never swept into a commit
+  by `git add -A`. The exclusion (and the file) are removed on every teardown path; an
+  operator's pre-existing excludes are preserved. Worktree-aware
+  (`git rev-parse --git-path info/exclude`). Hermetic fixture asserts the credentialed
+  file stays out of `git status`.
+
 ## v2.9.2 — 2026-06-02
 
 ### #142 — `list workflows` queries the real `workflow_snapshots` columns

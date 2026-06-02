@@ -3,10 +3,111 @@ package agentloop
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// gitInit creates a minimal git work tree in dir for the #70 provenance tests.
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "test"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// gitStatusPorcelain returns `git status --porcelain` output for dir.
+func gitStatusPorcelain(t *testing.T, dir string) string {
+	t.Helper()
+	cmd := exec.Command("git", "status", "--porcelain")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git status: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+// TestAgyGeminiSettingsNeverEntersGitProvenance is the #70 / RFC 0096 §3
+// worktree-no-credential fixture: while an agy lane is live, the bearer-bearing
+// .gemini/settings.json must NOT appear in `git status` (so it cannot dirty a
+// write-scope baseline or be swept into a commit), and teardown must remove both
+// the file and the local git exclusion we added.
+func TestAgyGeminiSettingsNeverEntersGitProvenance(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_prov")
+
+	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:9/mcp", "dtok_bearer_not_real")
+	if err != nil {
+		t.Fatalf("write gemini settings: %v", err)
+	}
+
+	// The file exists on disk (agy can read it)...
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); err != nil {
+		t.Fatalf(".gemini/settings.json should exist while the lane is live: %v", err)
+	}
+	// ...but it is invisible to git: no status line mentions it.
+	if status := gitStatusPorcelain(t, repo); strings.Contains(status, ".gemini/settings.json") {
+		t.Fatalf("bearer-bearing .gemini/settings.json appeared in git status:\n%s", status)
+	}
+	// The exclusion was recorded with our marker.
+	excludePath := gitInfoExcludePath(repo)
+	if excludePath == "" {
+		t.Fatalf("could not resolve info/exclude for the test repo")
+	}
+	if b, _ := os.ReadFile(excludePath); !strings.Contains(string(b), geminiExcludeMarker) {
+		t.Fatalf("our marker line was not added to info/exclude:\n%s", b)
+	}
+
+	// Teardown removes the file AND our exclusion line.
+	cleanup()
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("settings file not removed on teardown: %v", err)
+	}
+	if b, _ := os.ReadFile(excludePath); strings.Contains(string(b), geminiExcludeMarker) {
+		t.Fatalf("our exclude marker line was not removed on teardown:\n%s", b)
+	}
+}
+
+// TestAgyGeminiSettingsExcludePreservesOperatorExcludes proves teardown removes
+// ONLY our marker line, never an operator-authored exclude.
+func TestAgyGeminiSettingsExcludePreservesOperatorExcludes(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_prov2")
+
+	excludePath := gitInfoExcludePath(repo)
+	if err := os.WriteFile(excludePath, []byte("# operator excludes\n*.log\nbuild/\n"), 0o644); err != nil {
+		t.Fatalf("seed operator excludes: %v", err)
+	}
+
+	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:9/mcp", "dtok_bearer_not_real")
+	if err != nil {
+		t.Fatalf("write gemini settings: %v", err)
+	}
+	cleanup()
+
+	b, _ := os.ReadFile(excludePath)
+	got := string(b)
+	for _, want := range []string{"# operator excludes", "*.log", "build/"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("teardown dropped operator exclude %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, geminiExcludeMarker) {
+		t.Fatalf("our marker line survived teardown:\n%s", got)
+	}
+}
 
 func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 	repo := t.TempDir()

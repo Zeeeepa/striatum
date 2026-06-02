@@ -4,9 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
+
+// geminiSettingsRelPath is the work-tree-relative path of the agy MCP settings
+// file. It carries a rotating bearer token and must never enter git provenance.
+const geminiSettingsRelPath = ".gemini/settings.json"
+
+// geminiExcludeMarker tags the line we append to the work tree's local git
+// exclude so teardown can remove EXACTLY our line without disturbing any
+// operator-authored excludes (#70 / RFC 0096 §3).
+const geminiExcludeMarker = " # striatum-agy-lane (RFC 0096 #70): ephemeral MCP bearer, never commit"
 
 // injectLaneMCPConfig gives an agent-loop lane CLI a striatum MCP server
 // pointed at the live, env-resolved endpoint + token (RFC 0088 Decision 5).
@@ -140,6 +150,11 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 	if err := os.WriteFile(path, body, 0o600); err != nil {
 		return noop, fmt.Errorf("write .gemini/settings.json: %w", err)
 	}
+	// #70 / RFC 0096 §3: keep the bearer-bearing settings file out of git
+	// provenance for the lane's lifetime — invisible to `git status`, to
+	// work-scope baselines, and to `git add -A` — so a token can never be swept
+	// into a commit. Removed again on every teardown path below.
+	excludeGeminiSettingsFromGit(repoRoot)
 
 	supervisorID := os.Getenv("STRIATUM_SUPERVISOR_ID")
 	var scratchDir string
@@ -154,6 +169,7 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 	}
 
 	cleanup := func() {
+		unexcludeGeminiSettingsFromGit(repoRoot)
 		if supervisorID != "" {
 			_ = os.Remove(filepath.Join(scratchDir, "settings.json.backup"))
 			_ = os.Remove(filepath.Join(scratchDir, "settings.json.created"))
@@ -167,11 +183,95 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 	return cleanup, nil
 }
 
+// gitInfoExcludePath resolves the active info/exclude path for repoRoot,
+// correctly handling linked worktrees (where .git is a file and info/exclude
+// lives in the common git dir). Returns "" when repoRoot is not a git work tree
+// or git is unavailable.
+func gitInfoExcludePath(repoRoot string) string {
+	cmd := exec.Command("git", "rev-parse", "--git-path", "info/exclude")
+	cmd.Dir = repoRoot
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(string(out))
+	if p == "" {
+		return ""
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(repoRoot, p)
+	}
+	return p
+}
+
+// excludeGeminiSettingsFromGit appends .gemini/settings.json to the work tree's
+// local git exclude so the ephemeral bearer file never appears in `git status`,
+// never dirties a write-scope baseline, and is never picked up by `git add -A`
+// (#70 / RFC 0096 §3). Best-effort + idempotent: a non-git target, an existing
+// exclusion, or an unwritable exclude is a no-op (teardown removal is the
+// backstop).
+func excludeGeminiSettingsFromGit(repoRoot string) {
+	path := gitInfoExcludePath(repoRoot)
+	if path == "" {
+		return
+	}
+	if b, err := os.ReadFile(path); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			t := strings.TrimSpace(line)
+			if t == geminiSettingsRelPath || strings.HasPrefix(t, geminiSettingsRelPath+" ") {
+				return // already excluded (ours or the operator's)
+			}
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	_, _ = f.WriteString(geminiSettingsRelPath + geminiExcludeMarker + "\n")
+}
+
+// unexcludeGeminiSettingsFromGit removes ONLY the marker-tagged line that
+// excludeGeminiSettingsFromGit added, restoring the operator's prior exclude
+// exactly. A pre-existing operator exclusion (no marker) is left untouched.
+// Best-effort + idempotent.
+func unexcludeGeminiSettingsFromGit(repoRoot string) {
+	path := gitInfoExcludePath(repoRoot)
+	if path == "" {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	lines := strings.Split(string(b), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, line := range lines {
+		if strings.Contains(line, geminiExcludeMarker) {
+			removed = true
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if !removed {
+		return
+	}
+	_ = os.WriteFile(path, []byte(strings.Join(kept, "\n")), 0o644)
+}
+
 // CleanupGeminiSettings locates the scratch directory and restores the pre-existing settings or deletes the created settings.
 func CleanupGeminiSettings(repoRoot, supervisorID string) {
 	if supervisorID == "" || repoRoot == "" {
 		return
 	}
+	// #70 / RFC 0096 §3: drop the local git exclusion we added at launch (no-op
+	// if absent), regardless of whether the settings file itself is restored or
+	// removed below.
+	unexcludeGeminiSettingsFromGit(repoRoot)
 	scratchDir := filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
 	backupPath := filepath.Join(scratchDir, "settings.json.backup")
 	createdPath := filepath.Join(scratchDir, "settings.json.created")
