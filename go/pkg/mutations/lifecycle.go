@@ -535,17 +535,64 @@ func HandleSessionReport(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionReportActivityColumn(reportKind)); err != nil {
 			return nil, err
 		}
+		// W3 (#125): work.ack is non-substitutable. If the lane reports while it
+		// still holds a claimed-but-unacked work packet, flag the outstanding ack so
+		// the control plane and the pane agree — a session.report does not advance a
+		// claimed packet to running (only work.ack does). Recording the report
+		// preserves liveness; the flag prevents the report from silently masking the
+		// stall a lane causes by reporting ready instead of acking.
+		unacked, err := unackedClaimedPacketForSession(ctx, tx, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if unacked != nil {
+			payload["unacked_packet"] = unacked
+		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.reported", sessionID, nil, nil, nil, nil, payload); err != nil {
 			return nil, err
 		}
-		return map[string]any{
+		result := map[string]any{
 			"status":      "reported",
 			"session_id":  sessionID,
 			"run_id":      runID,
 			"report_kind": reportKind,
 			"phase":       phase,
-		}, nil
+		}
+		if unacked != nil {
+			result["unacked_packet"] = unacked
+		}
+		return result, nil
 	})
+}
+
+// unackedClaimedPacketForSession returns a flag describing a work packet the
+// session has claimed (delivered) but not yet work.ack'd, or nil if none. W3
+// (#125): a session.report must not substitute for work.ack — surfacing the
+// outstanding packet keeps the control plane and the pane in agreement so a lane
+// that reports readiness instead of acking does not stall silently.
+func unackedClaimedPacketForSession(ctx context.Context, runner any, repositoryID, sessionID string) (map[string]any, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT qm.message_id, qm.job_id, l.lease_id
+		  FROM striatumd.queue_messages qm
+		  JOIN striatumd.leases l
+		    ON l.repository_id = qm.repository_id AND l.resource_type = 'job'
+		   AND l.resource_id = qm.job_id AND l.state = 'active'
+		 WHERE qm.repository_id = $1 AND l.owner_session_id = $2
+		   AND qm.kind = 'work' AND qm.state = 'claimed'
+		 ORDER BY qm.created_at ASC, qm.message_id ASC
+		 LIMIT 1`, repositoryID, sessionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"message_id": fmt.Sprint(row["message_id"]),
+		"job_id":     fmt.Sprint(row["job_id"]),
+		"lease_id":   fmt.Sprint(row["lease_id"]),
+		"guidance":   "you hold a claimed work packet that is not yet acknowledged; call work.ack(message_id, lease_id) before reporting ready — session.report does not acknowledge work",
+	}, nil
 }
 
 func sessionReportActivityColumn(reportKind string) string {

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### RFC 0103 W3 — the lane survives transport and daemon churn (RFC 0091 / 0101)
+
+- **#125 — `work.ack` is non-substitutable.** A supervised lane (observed with
+  codex) could report readiness via `session.report` instead of calling
+  `work.ack`, leaving its claimed work packet stuck in `claimed` (the job never
+  advances to `running`) — the lane believes it is progressing while the control
+  plane sees an unacknowledged packet, and the run stalls silently.
+  `session.report` now flags an outstanding claimed-but-unacked packet: the report
+  is still recorded (liveness is preserved), but the response and the
+  `session.reported` event carry an `unacked_packet` block (`message_id`,
+  `job_id`, `lease_id`, and guidance to call `work.ack` before reporting ready) so
+  the control plane and the pane agree. A `session.report` does not advance a
+  claimed packet — only `work.ack` does. Test: a PG-gated regression claims a
+  packet through the production handler, asserts a subsequent `session.report`
+  flags the unacked packet, and asserts the flag clears after a real `work.ack`.
+
 ### RFC 0103 W4 — the interrogation window outlives a single reviewer (RFC 0095)
 
 - **#131 — a retry/replacement reviewer no longer wedges when the panel

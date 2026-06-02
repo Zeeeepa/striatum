@@ -432,3 +432,94 @@ func TestRegisterSessionAllowsParallelWhenWorkRemains(t *testing.T) {
 		t.Fatalf("#100: expected two active sessions with ordinals 1,2, got %#v", rows)
 	}
 }
+
+// TestSessionReportFlagsUnackedPacket is the W3 (#125) regression: a lane that
+// reports readiness via session.report while it holds a claimed-but-unacked work
+// packet must be told it still owes a work.ack — session.report is NOT a
+// substitute for work.ack. Without this, a codex lane that reports ready instead
+// of acking stalls silently (the job stays 'claimed', never 'running'). The report
+// is still recorded (liveness is preserved) but the response flags the outstanding
+// packet so the control plane and the pane agree.
+func TestSessionReportFlagsUnackedPacket(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_session_report_ack"
+	runID := "run_" + repoID
+	sessionID := "sess_codex"
+	role := "implementer"
+	lane := "codex"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Codex"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, lane)
+
+	jobID := "job_impl"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, created_at
+		) VALUES ($1,$2,$3,'impl',1,'queued',$4,'Impl','draft','idem_impl',NOW())`,
+		repoID, jobID, runID, role); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, target_role_id,
+		  target_lane_id, priority, created_at, updated_at
+		) VALUES ($1,'msg_impl',$2,$3,'work','pending',$4,$5,10,NOW(),NOW())`,
+		repoID, runID, jobID, role, lane); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+
+	claim, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if claim["status"] != "claimed" {
+		t.Fatalf("claim status = %v, want claimed", claim["status"])
+	}
+	lease := claim["packet"].(map[string]any)["lease"].(map[string]any)
+	messageID := fmt.Sprint(lease["message_id"])
+	leaseID := fmt.Sprint(lease["lease_id"])
+
+	// The lane reports readiness INSTEAD of acking — pre-fix this silently masks
+	// the stall (the job stays 'claimed'). The report must flag the unacked packet.
+	report, err := HandleSessionReport(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID, "report_kind": "ready", "phase": "await_packet",
+	}))
+	if err != nil {
+		t.Fatalf("session.report: %v", err)
+	}
+	unacked, ok := report["unacked_packet"].(map[string]any)
+	if !ok {
+		t.Fatalf("session.report with a claimed-unacked packet must flag unacked_packet, got %#v", report)
+	}
+	if fmt.Sprint(unacked["message_id"]) != messageID {
+		t.Fatalf("unacked_packet.message_id = %v, want %s", unacked["message_id"], messageID)
+	}
+	if strings.TrimSpace(fmt.Sprint(unacked["guidance"])) == "" {
+		t.Fatalf("unacked_packet must carry work.ack guidance, got %#v", unacked)
+	}
+
+	// After a real work.ack, a subsequent report carries no flag (the pane and the
+	// control plane now agree).
+	if _, err := HandleAckWork(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID, "message_id": messageID, "lease_id": leaseID,
+	})); err != nil {
+		t.Fatalf("work.ack: %v", err)
+	}
+	report2, err := HandleSessionReport(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID, "report_kind": "ready", "phase": "lease_held",
+	}))
+	if err != nil {
+		t.Fatalf("session.report after ack: %v", err)
+	}
+	if _, flagged := report2["unacked_packet"]; flagged {
+		t.Fatalf("session.report after work.ack must NOT flag an unacked packet, got %#v", report2)
+	}
+}
