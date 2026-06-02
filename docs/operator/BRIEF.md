@@ -17,9 +17,22 @@ author: operator-claude-001
 Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
 runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
 are durable provenance; `.striatum/` is operational scratch only. Latest
-release is **v2.9.1 (2026-06-01)** — the full RFC 0101 robust-autonomous-execution
-arc (Phases 1–5) **plus** RFC 0096 V2's first security slice (#135 per-session
-capability-token binding), deployed at **schema 22**.
+release is **v2.9.2 (2026-06-02)** — bug-fix/hardening release (list-workflows
+schema fix #142, register-session recovery-deadlock retry #133, review verdict
+semantics #127/#132/#140 + D158, #101 lane-env), deployed at **schema 22**.
+Prior **v2.9.1** shipped the RFC 0101 robust-autonomous-execution arc (Phases
+1–5) + RFC 0096 V2's first security slice (#135 per-session capability-token
+binding).
+
+**CI/release pipeline unbroken 2026-06-02:** `main` had been silently red — the
+`release.yml` YAML parse error masked that `ci.yml` failed on every commit
+(two `errcheck` violations on `resp.Body.Close` in `adapterconformance`). Fixed
+the errcheck findings, the release.yml YAML + CHANGELOG-slice v-prefix match, and
+dropped release.yml's redundant `make check` (ci.yml is the gate). Both workflows
+green; v2.9.2 published with archives. **Note:** `golangci-lint` is not installed
+locally so `make check`'s lint phase can't run here — `go install
+github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2` to reproduce the
+CI lint before pushing (a red CI lint is otherwise invisible locally).
 
 Since the prior brief (which stopped at RFC 0078) the work has been the
 **live-collaboration → autonomous-execution arc**:
