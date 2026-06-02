@@ -80,7 +80,7 @@ token lives under the daemon runtime directory as `client-token`.
 │         runs · sessions · jobs · leases · verdicts             │
 │         artifacts · blockers · events · audit_log              │
 ├────────────────────────────────────────────────────────────────┤
-│              Postgres striatumd schema (schema v6)             │
+│              Postgres striatumd schema (schema 22)             │
 │    append-only events + artifacts  ·  hash-chained audit rows  │
 │    serialized audit head  ·  per-repo event chain heads        │
 └────────────────────────────────────────────────────────────────┘
@@ -204,7 +204,7 @@ The [day-zero usage guide](docs/tutorials/using-striatum.md) walks new arrivals 
 
 **Reviewer co-blindness.** If the same model both implements and reviews, it will accept work the operator wouldn't. Striatum makes lane assignment first-class (RFC 0018) so a `codex` implementer can be reviewed by `claude` and synthesized by `gemini`, and a verdict reaching `needs_revision` is recorded — not papered over. The dogfood ledger under `docs/dogfood/` shows where this caught real divergence between drafts.
 
-**Audit-quality provenance.** Many workflows lose state when a session crashes, a process exits nonzero, or a serve restarts. Striatum's authoritative live state is the daemon-owned Postgres; every event carries a `previous_hash` / `row_hash` anchor (schema v6, migration 0006); every RPC request lands a row in `striatumd.audit_log` with a chain head locked `FOR UPDATE` so concurrent appenders serialize. `corpus export` produces a verifying manifest with replay-stable SHA-256s.
+**Audit-quality provenance.** Many workflows lose state when a session crashes, a process exits nonzero, or a serve restarts. Striatum's authoritative live state is the daemon-owned Postgres; every event carries a `previous_hash` / `row_hash` anchor (added in migration 0006); every RPC request lands a row in `striatumd.audit_log` with a chain head locked `FOR UPDATE` so concurrent appenders serialize. `corpus export` produces a verifying manifest with replay-stable SHA-256s.
 
 **Provider portability.** The runner has no model dependency. Add a lane to a workflow JSON, install a skill bundle for that provider's harness, and the same daemon MCP method set works. The product boundary in [`docs/SPEC.md`](docs/reference/spec.md) explicitly forbids the runner from importing any vendor SDK.
 
@@ -282,15 +282,15 @@ refused at startup.
 
 | Area | Status |
 |------|--------|
-| Version | v2.3.x — Go-only runtime; RFCs 0078–0082 landed (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.9.x — Go-only runtime; RFCs through 0103 landed/in progress (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |
 | CI | Go tests, frontend checks, archive checks, and Go-only smoke scripts |
 | Daemon substrate | Postgres-native (RFC 0048 complete through all three phases) |
-| Schema | v6 — dedicated `previous_hash`/`row_hash` columns, serialized chain-head writes |
+| Schema | 22 — `previous_hash`/`row_hash` event anchors (migration 0006) through session-bound capability tokens (migration 0022) |
 | Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
-| Active RFCs | RFC 0078 Go-only runtime and Python removal (complete) |
+| Active RFCs | RFC 0103 self-hosting production hardening (W1 landed; W2–W7 in progress); RFC 0104–0107 proposed |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---
