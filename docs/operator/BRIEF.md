@@ -17,12 +17,18 @@ author: operator-claude-001
 Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
 runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
 are durable provenance; `.striatum/` is operational scratch only. Latest
-release is **v2.9.2 (2026-06-02)** — bug-fix/hardening release (list-workflows
-schema fix #142, register-session recovery-deadlock retry #133, review verdict
-semantics #127/#132/#140 + D158, #101 lane-env), deployed at **schema 22**.
-Prior **v2.9.1** shipped the RFC 0101 robust-autonomous-execution arc (Phases
-1–5) + RFC 0096 V2's first security slice (#135 per-session capability-token
-binding).
+release is **v2.9.3 (2026-06-02)** — RFC 0103 **W1 (supervised-lane sandbox)**:
+#135 (lane authenticates with its own session-bound token, injected at
+`supervise start`; the cross-session guard now covers the whole session-scoped
+surface), #70 (agy MCP bearer kept out of git provenance via a worktree-local
+exclude), #87 *partial* (`doctor` `lane_sandbox` block + `lane_pg_reachable`
+warning + `docs/how-to/lane-sandbox.md` adoption runbook; OS-user close stays an
+operator step). Deployed at **schema 22** (no schema change). Prior **v2.9.2**
+was a bug-fix/hardening release (list-workflows schema fix #142,
+register-session recovery-deadlock retry #133, review verdict semantics
+#127/#132/#140 + D158, #101 lane-env); **v2.9.1** shipped the RFC 0101
+robust-autonomous-execution arc (Phases 1–5) + RFC 0096 V2's first security
+slice (#135 per-session capability-token *mechanism*).
 
 **CI/release pipeline unbroken 2026-06-02:** `main` had been silently red — the
 `release.yml` YAML parse error masked that `ci.yml` failed on every commit
@@ -174,8 +180,24 @@ reconciled (rigor taxonomy, hermetic cross-session-token gate for W1, real
 socket-recreation gate for W3, audited-escape proxy for W7, two-tier
 floor/ceiling umbrella). This cleared the **multi-lane review-gated half of RFC
 0103's umbrella floor**; remaining for the floor = a live-interrogation revision
-cycle (W4/#131/#134) + an injected fault (W3). **Next: W1** (lane sandbox
-#135/#70/#87 — the trust substrate, sequenced first by risk).
+cycle (W4/#131/#134) + an injected fault (W3).
+
+**W1 (lane sandbox) LANDED + deployed (v2.9.3, 2026-06-02):** #135 (CLOSED) wired
+the session-bound token into the lane env at `supervise start` and dropped the
+shared-token passthrough, and `enforceSessionBinding` now covers
+claim_next/await/ack/heartbeat/release/complete/block/send_message/artifact.publish
+(not just interrogation.answer); #70 (CLOSED) keeps the agy MCP bearer out of git
+provenance via a worktree-local `.git/info/exclude`; #87 (OPEN, honest proxy)
+added a `doctor` `lane_sandbox` block + `lane_pg_reachable` warning +
+`docs/how-to/lane-sandbox.md` adoption runbook — the OS-user PG-deny remains an
+explicit operator adoption step. Hermetic gates green (conformance C2 golden + env
+golden + PG-gated cross-session-rejection tests for publish/claim +
+enforceSessionBinding contract). Live "lane S can't act as S′ in a live run" is
+folded into the next umbrella-floor dogfood (corroboration, not the gate).
+
+**Next: W2/W3/W4** — the umbrella's critical path (multi-lane viability: agy
+seats / transport-churn survival / interrogation-window liveness; W2/agy is the
+most deferrable). W1 was sequenced first by risk, not on the critical path.
 
 ## Next Actions
 
