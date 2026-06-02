@@ -163,10 +163,19 @@ re-bind), #125 (codex readiness-vs-`work.ack` guard); **RFC 0096 V2** security
 #135/#70/#87; **RFC 0100 P2** #126/#128; **RFC 0097** #115/#138; **RFC 0099/0102**
 #92/#112; the **agy cluster** #139/#76/#85/#95; and the reopened #131/#134
 window-closure family (RFC 0095).
-These 17 are now **consolidated into [RFC 0103 — self-hosting production hardening](../rfcs/0103-self-hosting-production-hardening.md)**
-(seven workstreams W1–W7, each extending a slice-RFC with what-landed /
-what-remains / regression-gated acceptance; all 17 labeled `rfc-0103`), which
-replaces the ephemeral burn-down plan as the dogfoodable spine for the rest.
+These 17 are **consolidated into [RFC 0103 — self-hosting production hardening](../rfcs/0103-self-hosting-production-hardening.md)**
+(seven workstreams W1–W7; all 17 labeled `rfc-0103`) — the dogfoodable spine for
+the rest. **RFC 0103 is ACCEPTED (2026-06-02)**, reviewed **live through the
+runner** by a real multi-lane panel (`dogfoods/rfc-0103-review/`, run
+`run_05c653…`: claude presenter + codex/claude reviewers, both `needs_revision`
+through production handlers). The panel confirmed the partition exact and scoped
+its objection to the acceptance framework; all R1/R2 + F1–F5 findings were
+reconciled (rigor taxonomy, hermetic cross-session-token gate for W1, real
+socket-recreation gate for W3, audited-escape proxy for W7, two-tier
+floor/ceiling umbrella). This cleared the **multi-lane review-gated half of RFC
+0103's umbrella floor**; remaining for the floor = a live-interrogation revision
+cycle (W4/#131/#134) + an injected fault (W3). **Next: W1** (lane sandbox
+#135/#70/#87 — the trust substrate, sequenced first by risk).
 
 ## Next Actions
 
