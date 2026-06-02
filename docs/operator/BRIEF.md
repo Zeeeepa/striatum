@@ -148,8 +148,12 @@ A `max-closed-count-first` burn-down pass (plan `~/.claude/plans/typed-shimmying
 #141 (agent-loop receiver reconnect across daemon socket recreation + supervisor
 re-bind), #125 (codex readiness-vs-`work.ack` guard); **RFC 0096 V2** security
 #135/#70/#87; **RFC 0100 P2** #126/#128; **RFC 0097** #115/#138; **RFC 0099/0102**
-#92/#112; the **agy cluster** #139/#76/#85/#95; and the reopened #131/#133→done/#134
+#92/#112; the **agy cluster** #139/#76/#85/#95; and the reopened #131/#134
 window-closure family (RFC 0095).
+These 17 are now **consolidated into [RFC 0103 — self-hosting production hardening](../rfcs/0103-self-hosting-production-hardening.md)**
+(seven workstreams W1–W7, each extending a slice-RFC with what-landed /
+what-remains / regression-gated acceptance; all 17 labeled `rfc-0103`), which
+replaces the ephemeral burn-down plan as the dogfoodable spine for the rest.
 
 ## Next Actions
 
