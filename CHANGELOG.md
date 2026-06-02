@@ -27,6 +27,14 @@
   operator's pre-existing excludes are preserved. Worktree-aware
   (`git rev-parse --git-path info/exclude`). Hermetic fixture asserts the credentialed
   file stays out of `git status`.
+- **#87 — `doctor` surfaces lane↔PostgreSQL reachability + adoption runbook.** The
+  DSN-leak half already shipped (env allowlist). For the residual same-OS-user
+  peer-auth reachability, `striatum doctor` now reports a `lane_sandbox` block and
+  warns `lane_pg_reachable` until a dedicated PG-less lane OS user is adopted
+  (`STRIATUM_LANE_OS_USER`); the full close is documented in the new
+  `docs/how-to/lane-sandbox.md` adoption runbook (create an unprivileged lane user
+  with no PG role, deny it in `pg_hba.conf`, run lanes as it). Configuration-posture
+  proxy only — no DSN/token value is read.
 
 ## v2.9.2 — 2026-06-02
 

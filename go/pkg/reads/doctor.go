@@ -143,6 +143,12 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	codexBlock, codexWarnings := codexDoctorBlock()
 	warnings := append([]string{}, codexWarnings...)
 
+	// #87 / RFC 0096 §2: surface (warn, never hard-fail) when supervised lanes
+	// are not isolated from the daemon's PostgreSQL by a dedicated PG-less lane
+	// OS user. Configuration-posture proxy only; no DSN/token value is read.
+	laneSandboxBlock, laneSandboxWarnings := laneSandboxDoctorBlock()
+	warnings = append(warnings, laneSandboxWarnings...)
+
 	return map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
@@ -154,6 +160,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"problems":            problems,
 		"warnings":            warnings,
 		"codex":               codexBlock,
+		"lane_sandbox":        laneSandboxBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }

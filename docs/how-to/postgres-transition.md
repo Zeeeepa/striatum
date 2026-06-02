@@ -425,6 +425,9 @@ A ported single-repo RPC verb now flows through:
 
 ## See also
 
+- [LANE_SANDBOX.md](lane-sandbox.md) — isolate supervised lanes from this
+  daemon-owned PostgreSQL with a dedicated PG-less lane OS user (RFC 0096 §2 /
+  #87), so a lane cannot reach the DB via peer auth and bypass the artifact API.
 - [GETTING_STARTED.md](../tutorials/getting-started.md) — the first-15-minutes
   walkthrough; includes the Postgres prerequisite.
 - [HOW_TO_HUMAN.md](how-to-human.md) — the operator's playbook
