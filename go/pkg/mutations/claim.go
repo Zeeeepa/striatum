@@ -29,6 +29,13 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	if sessionID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.claim_next requires session_id", nil)
 	}
+	// RFC 0096 V2 / #135: a session-bound capability token may only claim work as
+	// its own session; an unbound operator/coordinator token may claim for any
+	// session (override). Closes cross-session claim spoofing now that live lanes
+	// carry their bound token.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	leaseSeconds := intParam(envelope, "lease_seconds", 3600)
 	if leaseSeconds <= 0 {
 		leaseSeconds = 3600
@@ -987,6 +994,10 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	sessionID := stringParam(envelope, "session_id")
 	if sessionID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.await_packet requires session_id", nil)
+	}
+	// RFC 0096 V2 / #135: a bound token may only await its own session's work.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
 	}
 	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
 		return nil, err

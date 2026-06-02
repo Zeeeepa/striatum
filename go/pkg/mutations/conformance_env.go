@@ -14,8 +14,11 @@ package mutations
 // golden passes a base that includes banned secret-bearing vars (DATABASE_URL,
 // PG*, *POSTGRES*, *DSN*) and asserts that:
 //
-//   - the required keys survive (PATH, HOME, STRIATUM_MCP_URL, the bearer token
-//     material, and the run/session/supervisor/repo/lane id vars);
+//   - the required keys survive (PATH, HOME, STRIATUM_MCP_URL, and the
+//     run/session/supervisor/repo/lane id vars);
+//   - the lane's bearer token is the injected session-BOUND token (boundToken),
+//     NOT any shared STRIATUM_MCP_TOKEN present in the base env — the shared
+//     override is dropped from the allowlist (RFC 0096 V2 / #135);
 //   - the per-adapter hardening keys survive (e.g. the #101 claude
 //     welcome/update-nag suppression: DISABLE_AUTOUPDATER,
 //     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC); and
@@ -23,10 +26,11 @@ package mutations
 //
 // It is exported solely for hermetic assertion: it composes the production
 // supervisedEnvPassThrough allowlist filter with supervisedEnvEntries via
-// mergeEnvReplacing exactly as supervisedEnv does, but takes the base env and
-// adapter as parameters (instead of reading os.Environ() / config) so the test
-// controls them deterministically. Behavior is unchanged from supervisedEnv.
-func SupervisedLaneEnv(adapter string, base []string, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
+// mergeEnvReplacing exactly as supervisedEnv does, but takes the base env,
+// adapter, and the minted boundToken as parameters (instead of reading
+// os.Environ() / config / minting) so the test controls them deterministically.
+// Behavior is unchanged from supervisedEnv.
+func SupervisedLaneEnv(adapter string, base []string, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken string) []string {
+	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken)
 	return mergeEnvReplacing(supervisedEnvPassThrough(base), entries)
 }

@@ -48,6 +48,15 @@ type supervisionStartConfig struct {
 	Transport          string
 	StdinDelivery      string
 	RequireTmux        bool
+	// CapabilityToken is the session-BOUND MCP capability token minted for this
+	// lane at supervise start (RFC 0096 V2 / #135). It is injected into the lane
+	// env as STRIATUM_MCP_TOKEN so the lane authenticates as its OWN session and
+	// the cross-session impersonation guard (enforceSessionBinding) bites in live
+	// runs. The plaintext lives only in memory → lane env; it is never returned to
+	// any RPC caller. Empty only in dev/test paths that do not mint (the lane then
+	// gets no injected token, which fails loudly rather than silently inheriting
+	// the daemon's shared operator override).
+	CapabilityToken string
 }
 
 // adapterName returns the bare CLI adapter name of the lane (e.g. "claude"),
@@ -172,6 +181,18 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		if err := supersedeStaleSupervisorIfRequested(ctx, tx, repositoryID, sessionID, replace, startedAt); err != nil {
 			return nil, err
 		}
+		// RFC 0096 V2 / #135: mint a session-BOUND capability token and inject it
+		// into the lane env (below) so the lane authenticates as its own session,
+		// not the shared operator override. Done inside the start transaction so the
+		// token is committed atomically with the supervisor rows; the plaintext is
+		// captured into config.CapabilityToken (in-memory → lane env only).
+		boundToken, err := mintSessionBoundToken(ctx, tx, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if token, ok := boundToken["token"].(string); ok {
+			config.CapabilityToken = token
+		}
 		if err := insertStartingsSupervisorRowsWithCleanError(ctx, tx, repositoryID, config, supervisorID, daemonSupervisorID, scratch, pipePath, eventPath, startedAt, sessionID); err != nil {
 			return nil, err
 		}
@@ -188,7 +209,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		if config.Transport == supervisionTransportPTYHelper {
 			payload["helper_events_path"] = eventPath
 		}
-		_, err := appendEvent(ctx, tx, repositoryID, config.RunID, "supervisor.starting", sessionID, nil, nil, nil, nil, payload)
+		_, err = appendEvent(ctx, tx, repositoryID, config.RunID, "supervisor.starting", sessionID, nil, nil, nil, nil, payload)
 		return nil, err
 	}); err != nil {
 		return nil, err
@@ -1460,7 +1481,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	defer func() { _ = stdin.Close() }()
 	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
 	cmd.Dir = config.RepoRoot
-	cmd.Env = supervisedEnv(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID)
+	cmd.Env = supervisedEnv(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -1500,7 +1521,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		SupervisorID:    supervisorID,
 		ScratchDir:      filepath.Dir(scratch),
 		Command:         config.Command,
-		Env:             supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID),
+		Env:             supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken),
 		WorkingDir:      config.RepoRoot,
 		PacketInputPath: pipePath,
 		RequireTmux:     config.RequireTmux,
@@ -2398,12 +2419,12 @@ func currentDaemonInstanceID() string {
 // #101 Claude Code welcome/update-nag suppression. It is the OriginalCommand
 // adapter, not the agent-loop wrapper ("striatumd"), so the keys reach the real
 // child CLI regardless of agent-loop wrapping.
-func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
-	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID)
+func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken string) []string {
+	entries := supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken)
 	return mergeEnvReplacing(supervisedEnvPassThrough(os.Environ()), entries)
 }
 
-func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID string) []string {
+func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken string) []string {
 	entries := []string{
 		"PATH=" + supervisedPath(),
 		"STRIATUM_REPOSITORY_ID=" + repositoryID,
@@ -2412,6 +2433,17 @@ func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, sup
 		"STRIATUM_SUPERVISOR_ID=" + supervisorID,
 		"STRIATUM_REPO=" + repoRoot,
 		"STRIATUM_LANE_ID=" + laneID,
+	}
+	// RFC 0096 V2 / #135: inject the lane's OWN session-bound capability token as
+	// STRIATUM_MCP_TOKEN. It is set as an explicit entry (winning over any
+	// inherited value via mergeEnvReplacing) and is the FIRST source
+	// agentloop.ResolveTokenMaterial consults, so claude (inline --mcp-config),
+	// codex (env), and agy (.gemini/settings.json) all authenticate with it. The
+	// shared-token pass-through has been removed from supervisedEnvAllowlistKeys,
+	// so when no bound token is provided the lane gets none (fails loudly) rather
+	// than silently inheriting the daemon's operator override.
+	if strings.TrimSpace(boundToken) != "" {
+		entries = append(entries, "STRIATUM_MCP_TOKEN="+boundToken)
 	}
 	return append(entries, supervisedAdapterEnvEntries(adapter)...)
 }
@@ -2465,11 +2497,18 @@ func supervisedAdapterEnvEntries(adapter string) []string {
 var supervisedEnvAllowlistKeys = map[string]bool{
 	// Agent-loop MCP bootstrap (go/pkg/agentloop endpoint.go / token.go /
 	// bootstrap.go AgentEnvironment): the `striatumd -agent-loop` subprocess
-	// resolves the live MCP endpoint + bearer from its own environment, so the
-	// daemon must pass these through for a lane to reach the control plane.
+	// resolves the live MCP endpoint from its own environment, so the daemon must
+	// pass the endpoint vars through for a lane to reach the control plane.
+	//
+	// RFC 0096 V2 / #135: STRIATUM_MCP_TOKEN and STRIATUM_MCP_TOKEN_FILE are
+	// DELIBERATELY NOT allowlisted here. The lane must authenticate with its OWN
+	// session-bound token (minted at supervise start and injected explicitly by
+	// supervisedEnvEntries), never the daemon's shared operator-override token.
+	// Allowlisting the shared token would let the per-session impersonation guard
+	// be bypassed in live runs (the spoof would be treated as an honest operator
+	// override). With both removed, the only token a lane can carry is the
+	// injected bound one.
 	"STRIATUM_MCP_URL":                       true,
-	"STRIATUM_MCP_TOKEN":                     true,
-	"STRIATUM_MCP_TOKEN_FILE":                true,
 	"STRIATUM_MCP_ADDR":                      true,
 	"STRIATUM_MCP_PORT":                      true,
 	"STRIATUM_DAEMON_MCP_HTTP_URL":           true,

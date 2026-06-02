@@ -601,6 +601,10 @@ func HandleAckWork(ctx context.Context, runner db.Runner, envelope rpc.Envelope)
 	if sessionID == "" || messageID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.ack requires session_id, message_id, and lease_id", nil)
 	}
+	// RFC 0096 V2 / #135: a bound token may only ack its own session's work.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		message, err := rowByID(ctx, tx, repositoryID, "queue_messages", "message_id", messageID, true)
 		if err != nil {
@@ -653,6 +657,10 @@ func HandleHeartbeat(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	if sessionID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.heartbeat requires session_id and lease_id", nil)
 	}
+	// RFC 0096 V2 / #135: a bound token may only heartbeat its own session's lease.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		lease, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, "")
 		if err != nil {
@@ -703,6 +711,10 @@ func HandleReleaseWork(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	transfer := boolParam(envelope, "transfer")
 	if sessionID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.release requires session_id and lease_id", nil)
+	}
+	// RFC 0096 V2 / #135: a bound token may only release its own session's work.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		var message map[string]any
@@ -793,6 +805,10 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	}
 	request, err := normalizeBlockWork(envelope)
 	if err != nil {
+		return nil, err
+	}
+	// RFC 0096 V2 / #135: a bound token may only block its own session's work.
+	if _, err := enforceSessionBinding(ctx, request.sessionID); err != nil {
 		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
@@ -889,6 +905,10 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	summary := stringParam(envelope, "summary")
 	if sessionID == "" || jobID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.complete requires session_id, job_id, and lease_id", nil)
+	}
+	// RFC 0096 V2 / #135: a bound token may only complete its own session's work.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)

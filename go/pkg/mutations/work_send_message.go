@@ -21,6 +21,10 @@ func HandleSendMessage(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	if sessionID == "" || kind == "" {
 		return nil, rpc.NewError("schema_invalid", "work.send_message requires session_id and kind", nil)
 	}
+	// RFC 0096 V2 / #135: a bound token may only send a message as its own session.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	body, err := sendMessageBody(envelope.Params)
 	if err != nil {
 		return nil, err

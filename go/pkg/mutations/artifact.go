@@ -57,6 +57,14 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 	if sessionID == "" || jobID == "" || leaseID == "" || kind == "" || logicalName == "" || pathText == "" {
 		return nil, rpc.NewError("schema_invalid", "artifact.publish requires session_id, job_id, lease_id, kind, logical_name, and path", nil)
 	}
+	// RFC 0096 V2 / #135: a session-bound capability token may only publish as its
+	// own session; an unbound operator/coordinator token may publish for any
+	// session (override). Closes the cross-session publish spoof — a bound caller
+	// presenting another session's (observable) lease_id is now refused on receipt
+	// before the lease-ownership check.
+	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
+		return nil, err
+	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		return publishArtifact(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText)
 	})

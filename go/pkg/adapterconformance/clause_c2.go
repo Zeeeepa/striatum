@@ -21,6 +21,7 @@ const (
 	c2LaneID        = "lane_conformance"
 	c2MCPURL        = "http://127.0.0.1:65535/mcp"
 	c2MCPToken      = "conformance-bearer-not-a-real-secret"
+	c2BoundToken    = "conformance-session-bound-token-not-a-real-secret"
 	c2HomeValue     = "/home/conformance"
 	c2DatabaseURL   = "postgres://leak@127.0.0.1:5432/striatumd"
 	c2PostgresDB    = "striatumd"
@@ -115,6 +116,7 @@ func assertC2(in AssertInput) ClauseResult {
 		cliAdapter,
 		base,
 		c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID,
+		c2BoundToken,
 	)
 	childKeys := envKeySet(child)
 
@@ -130,6 +132,17 @@ func assertC2(in AssertInput) ClauseResult {
 		return c.contractFail(adapter, EnvSecretLeak,
 			fmt.Sprintf("supervised child env is missing required keys %v (a hardened env must still carry the lane's control-plane wiring)", missing),
 			map[string]string{"missing_keys": strings.Join(missing, ",")})
+	}
+
+	// (1a) the lane's bearer is the injected session-BOUND token, not the daemon's
+	// shared override (RFC 0096 V2 / #135). The base env carries a DIFFERENT shared
+	// STRIATUM_MCP_TOKEN (c2MCPToken); if it survived the allowlist the lane could
+	// impersonate any session under the operator-override path, so a surviving
+	// shared token is an EnvSecretLeak.
+	if got := envValue(child, "STRIATUM_MCP_TOKEN"); got != c2BoundToken {
+		return c.contractFail(adapter, EnvSecretLeak,
+			"supervised lane STRIATUM_MCP_TOKEN is not the injected session-bound token (the shared operator-override token must not pass through; #135)",
+			map[string]string{"want_bound": "true", "got_is_shared": fmt.Sprintf("%t", got == c2MCPToken)})
 	}
 
 	// (1b) per-adapter operational keys present (#101 claude welcome/update-nag
@@ -182,6 +195,18 @@ func c2GoldenBaseEnv() []string {
 		"SOME_CLOUD_SECRET=" + c2GenericSecret,
 		"AWS_SECRET_ACCESS_KEY=" + c2GenericSecret,
 	}
+}
+
+// envValue returns the value of the first entry for key in an env slice, or ""
+// if absent.
+func envValue(env []string, key string) string {
+	for _, entry := range env {
+		k, v, ok := strings.Cut(entry, "=")
+		if ok && k == key {
+			return v
+		}
+	}
+	return ""
 }
 
 // envKeySet returns the set of keys present in an env slice.

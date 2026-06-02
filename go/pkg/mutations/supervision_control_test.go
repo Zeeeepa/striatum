@@ -428,7 +428,7 @@ func TestSupervisedEnvAddsOperatorLocalBinsToPath(t *testing.T) {
 	t.Setenv("PATH", strings.Join([]string{"/usr/local/bin", "/usr/bin"}, string(os.PathListSeparator)))
 	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", "")
 
-	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", "")
 	path := envValue(t, entries, "PATH")
 	want := strings.Join([]string{"/usr/local/bin", "/usr/bin", localBin, npmBin}, string(os.PathListSeparator))
 	if path != want {
@@ -437,7 +437,7 @@ func TestSupervisedEnvAddsOperatorLocalBinsToPath(t *testing.T) {
 	if countEnv(entries, "PATH") != 1 {
 		t.Fatalf("supervisedEnvEntries PATH count = %d, want 1", countEnv(entries, "PATH"))
 	}
-	if countEnv(supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1"), "PATH") != 1 {
+	if countEnv(supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", ""), "PATH") != 1 {
 		t.Fatalf("supervisedEnv should emit exactly one effective PATH")
 	}
 	for _, key := range []string{
@@ -478,7 +478,7 @@ func TestSupervisedEnvPathOverrideAppendsExistingAbsoluteDirs(t *testing.T) {
 		customTwo,
 	}, string(os.PathListSeparator)))
 
-	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	entries := supervisedEnvEntries("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", "")
 	path := envValue(t, entries, "PATH")
 	want := strings.Join([]string{"/usr/bin", customOne, customTwo}, string(os.PathListSeparator))
 	if path != want {
@@ -506,14 +506,17 @@ func TestSupervisedEnvExcludesDaemonSecrets(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	// Plant the bootstrap vars the lane genuinely needs so we can assert they
-	// pass through.
+	// pass through. STRIATUM_MCP_TOKEN here is the daemon's SHARED operator
+	// override; #135 requires it be DROPPED (the lane gets its injected bound
+	// token instead, not this one).
 	t.Setenv("STRIATUM_MCP_URL", "http://127.0.0.1:9999/mcp/sse")
-	t.Setenv("STRIATUM_MCP_TOKEN", "lane-bearer")
+	t.Setenv("STRIATUM_MCP_TOKEN", "shared-override-bearer")
 	t.Setenv("HOME", "/home/lane")
 	t.Setenv("TERM", "xterm-256color")
 	t.Setenv("LC_ALL", "en_US.UTF-8")
 
-	env := supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1")
+	const boundToken = "stok_bound.session-secret-not-real"
+	env := supervisedEnv("claude", "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", boundToken)
 
 	// 0. #101: the claude lane carries the welcome/update-nag suppression keys.
 	for key, want := range map[string]string{
@@ -560,16 +563,26 @@ func TestSupervisedEnvExcludesDaemonSecrets(t *testing.T) {
 		}
 	}
 
-	// 3. Agent-loop MCP bootstrap + OS basics pass through.
+	// 3. Agent-loop MCP endpoint + OS basics pass through.
 	for key, want := range map[string]string{
-		"STRIATUM_MCP_URL":   "http://127.0.0.1:9999/mcp/sse",
-		"STRIATUM_MCP_TOKEN": "lane-bearer",
-		"HOME":               "/home/lane",
-		"TERM":               "xterm-256color",
-		"LC_ALL":             "en_US.UTF-8",
+		"STRIATUM_MCP_URL": "http://127.0.0.1:9999/mcp/sse",
+		"HOME":             "/home/lane",
+		"TERM":             "xterm-256color",
+		"LC_ALL":           "en_US.UTF-8",
 	} {
 		if got := envValue(t, env, key); got != want {
 			t.Fatalf("expected pass-through %s = %q, got %q", key, want, got)
+		}
+	}
+
+	// 3b. #135: the lane's bearer is the injected session-bound token, and the
+	// daemon's SHARED override token is dropped (not passed through).
+	if got := envValue(t, env, "STRIATUM_MCP_TOKEN"); got != boundToken {
+		t.Fatalf("STRIATUM_MCP_TOKEN = %q, want the injected bound token %q (shared override must be dropped)", got, boundToken)
+	}
+	for _, entry := range env {
+		if strings.Contains(entry, "shared-override-bearer") {
+			t.Fatalf("daemon shared override token leaked into supervised lane env: %q", entry)
 		}
 	}
 

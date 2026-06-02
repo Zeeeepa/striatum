@@ -40,6 +40,7 @@ func TestC2ClaudeLaneEnvCarriesWelcomeSuppression(t *testing.T) {
 	child := mutations.SupervisedLaneEnv(
 		"claude", c2GoldenBaseEnv(),
 		c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID,
+		c2BoundToken,
 	)
 	keys := envKeySet(child)
 	for _, key := range []string{"DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"} {
@@ -71,6 +72,7 @@ func TestC2NonClaudeAdaptersDoNotGetClaudeSuppression(t *testing.T) {
 		child := mutations.SupervisedLaneEnv(
 			adapter, c2GoldenBaseEnv(),
 			c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID,
+			c2BoundToken,
 		)
 		keys := envKeySet(child)
 		for _, key := range []string{"DISABLE_AUTOUPDATER", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"} {
@@ -90,6 +92,7 @@ func TestC2RevertDropsWelcomeSuppression(t *testing.T) {
 	child := mutations.SupervisedLaneEnv(
 		"claude", c2GoldenBaseEnv(),
 		c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID,
+		c2BoundToken,
 	)
 	// Reverted env: strip the per-adapter suppression keys.
 	var reverted []string
@@ -120,7 +123,7 @@ func TestC2RevertDropsWelcomeSuppression(t *testing.T) {
 // allowlist), confirming bannedKeysIn flags it.
 func TestC2DetectsLeakIfBuilderForwardedSecret(t *testing.T) {
 	base := c2GoldenBaseEnv()
-	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID)
+	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID, c2BoundToken)
 	// Simulate a regression: a banned var leaks into the child env.
 	leaky := append(append([]string(nil), child...), "DATABASE_URL="+c2DatabaseURL)
 	leaked := bannedKeysIn(envKeySet(leaky))
@@ -142,7 +145,7 @@ func TestC2DetectsLeakIfBuilderForwardedSecret(t *testing.T) {
 // base env full of banned vars, drops all of them.
 func TestC2ProductionBuilderDropsBannedVars(t *testing.T) {
 	base := c2GoldenBaseEnv()
-	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID)
+	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID, c2BoundToken)
 	keys := envKeySet(child)
 	for _, banned := range []string{
 		"DATABASE_URL", "POSTGRES_DB", "PGPASSWORD", "PGHOST",
@@ -159,7 +162,7 @@ func TestC2ProductionBuilderDropsBannedVars(t *testing.T) {
 // survive the allowlist filter.
 func TestC2ProductionBuilderKeepsRequired(t *testing.T) {
 	base := c2GoldenBaseEnv()
-	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID)
+	child := mutations.SupervisedLaneEnv("claude", base, c2RepoRoot, c2RepositoryID, c2RunID, c2SessionID, c2SupervisorID, c2LaneID, c2BoundToken)
 	keys := envKeySet(child)
 	for _, required := range c2RequiredKeys {
 		if !keys[required] {
@@ -167,12 +170,14 @@ func TestC2ProductionBuilderKeepsRequired(t *testing.T) {
 		}
 	}
 	// The id vars must carry the values the builder was given (freshly set, not
-	// inherited), and the bearer + endpoint must come through the pass-through.
+	// inherited); the endpoint comes through the pass-through; and the bearer is
+	// the injected session-BOUND token (#135), NOT the shared c2MCPToken in the
+	// base env (which the allowlist now drops).
 	want := map[string]string{
 		"STRIATUM_RUN_ID":     c2RunID,
 		"STRIATUM_SESSION_ID": c2SessionID,
 		"STRIATUM_REPO":       c2RepoRoot,
-		"STRIATUM_MCP_TOKEN":  c2MCPToken,
+		"STRIATUM_MCP_TOKEN":  c2BoundToken,
 		"STRIATUM_MCP_URL":    c2MCPURL,
 	}
 	for _, entry := range child {

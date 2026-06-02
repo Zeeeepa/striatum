@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### RFC 0103 W1 — the supervised lane becomes a real sandbox (RFC 0096 V2)
+
+- **#135 — the lane authenticates with its OWN session-bound token.** A supervised
+  lane previously inherited the daemon's shared operator-override `STRIATUM_MCP_TOKEN`,
+  so the per-session impersonation guard (shipped as a mechanism in v2.9.1) never
+  bit in live runs. `supervise start` now mints a session-bound capability token and
+  injects it as the lane's `STRIATUM_MCP_TOKEN`, and the supervised-env allowlist no
+  longer passes through `STRIATUM_MCP_TOKEN`/`STRIATUM_MCP_TOKEN_FILE` — the only
+  token a lane can carry is its own bound one (a missing mint fails loudly rather
+  than silently falling back to the override). The cross-session guard
+  (`enforceSessionBinding`) is now applied across the whole session-scoped surface —
+  `work.claim_next`/`await_packet`/`ack`/`heartbeat`/`release`/`complete`/`block`,
+  `work.send_message`, and `artifact.publish` — not just `interrogation.answer`, so a
+  bound token can only ever act as its own session. Tests: the conformance C2 golden +
+  the `mutations` env golden assert the lane carries the bound token and drop the
+  shared override and all DSN vars; new PG-gated cross-session-rejection tests for
+  `artifact.publish` and `work.claim_next`; an `enforceSessionBinding` contract test.
 ## v2.9.2 — 2026-06-02
 
 ### #142 — `list workflows` queries the real `workflow_snapshots` columns
