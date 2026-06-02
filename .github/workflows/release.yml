@@ -69,7 +69,10 @@ jobs:
       - name: Extract CHANGELOG slice for this version
         id: changelog
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          # CHANGELOG headers are "## vX.Y.Z — DATE" (with the v prefix), so match
+          # the full tag name; stripping the v made the awk never match and every
+          # release fell back to "No CHANGELOG entry found".
+          version="${GITHUB_REF_NAME}"
           body="$(awk -v version="$version" '
             $0 ~ "^## " version "([[:space:]]|$)" {capture=1}
             capture && /^## / && $0 !~ "^## " version "([[:space:]]|$)" {exit}
