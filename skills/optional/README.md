@@ -71,6 +71,50 @@ self-contained invariant); the concrete pointers live here in the source repo.
   The two are complementary: install ADHD for quick agent-side ideation; use the
   RFC 0087 shape when you need auditable, multi-lane divergence.
 
+### supabase-postgres-best-practices — Postgres correctness & performance rules
+
+- **What it is:** a reference skill of ~35 Postgres rules across 8 categories
+  (query, connection, security/RLS, schema, concurrency/locking, data access,
+  monitoring, advanced), each with incorrect-vs-correct SQL. Despite the name it
+  is ~85% vanilla Postgres; only the `security-rls-*` references are
+  Supabase-specific. Triggers when writing, reviewing, or optimizing SQL,
+  schema, or DB configuration.
+- **Source:** https://github.com/supabase/agent-skills (skill
+  `skills/supabase-postgres-best-practices`).
+- **License:** MIT, Copyright (c) 2026 Supabase (see
+  [`supabase-postgres-best-practices/LICENSE`](supabase-postgres-best-practices/LICENSE)).
+- **Provider constraint:** none — it is provider-agnostic reference Markdown, not
+  a prompt that drives a specific agent runtime.
+- **Vendored copy (offline):**
+  [`supabase-postgres-best-practices/`](supabase-postgres-best-practices/) is a
+  byte-faithful pinned copy of upstream (skill version `1.1.1`), fetched from
+  `main` (`759fddf`) on 2026-06-02. `SKILL.md` sha256:
+  `ccd6e4596bd51cf344fe76c464867c541ccc16b6d90ae7a9db449fb17588613b`; combined
+  `references/*.md` sha256:
+  `5b917809b25b849b1833fdbc0e241747bfd9a8c4aab966d6756a6e9e348433c1`. Reviewable
+  reference only; **not** auto-installed and **not** part of the Striatum
+  operator bundle.
+- **Install (agent-side, user-confirmed):** copy
+  [`supabase-postgres-best-practices/`](supabase-postgres-best-practices/) into
+  the operator's skill directory (e.g.
+  `.claude/skills/supabase-postgres-best-practices/`), or pull the latest from
+  upstream with `npx skills add supabase/agent-skills`.
+- **Updating the vendored copy:** re-fetch upstream, refresh the date/commit and
+  both sha256 lines above, and re-confirm the license is unchanged.
+- **Relationship to Striatum:** **high relevance for the `striatumd` Postgres
+  layer**, which is ~half the codebase. The `lock-` rules in particular map
+  directly onto the daemon's lease/claim/interrogation concurrency:
+  `lock-deadlock-prevention` (consistent lock ordering) is the design rule behind
+  the `sessions`↔`runs`↔`jobs` lock-order inversion that `go/pkg/mutations`
+  currently *tolerates* with `withTxRetryOnDeadlock` rather than *prevents*;
+  `lock-skip-locked` is the pattern the claim queue already uses
+  (`claim.go` `FOR UPDATE OF qm SKIP LOCKED`); `lock-advisory` is what
+  `lockRunInterrogation` already does (and could generalize). The `security-rls-*`
+  references are **not applicable** — Striatum uses role grants + capability
+  tokens, not RLS. Performance rules (`query-`, `data-`) are low-urgency at
+  single-operator/laptop scale; the value here is concurrency *correctness*, not
+  throughput.
+
 ## Adding an entry
 
 Append a `### <skill-id> — <one-line purpose>` section with: what it is, source,
