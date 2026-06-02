@@ -476,7 +476,7 @@ func (a *Agent) rpc(ctx context.Context, method string, params map[string]any) (
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err

@@ -310,7 +310,7 @@ func (c *mcpClient) rpc(method string, params map[string]any) map[string]any {
 	if err != nil {
 		c.t.Fatalf("%s: do: %v", method, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
 		c.t.Fatalf("%s: read body: %v", method, err)
