@@ -14,6 +14,18 @@ ExecStartPre=/usr/bin/mkdir -p %t/striatum
 ExecStart=%h/.local/bin/striatumd -socket %t/striatum/daemon-go.sock
 Restart=on-failure
 RestartSec=2
+# RFC 0103 W3 (#141): a daemon restart must not orphan supervised lane helpers.
+# The default KillMode=control-group SIGKILLs the whole service cgroup on
+# stop/restart, taking down the Setsid-detached supervisor helpers (and their
+# tmux-backed agent lanes) even though the restart only means to replace the
+# daemon process. KillMode=process signals ONLY the main daemon process, so a
+# restart (and an on-failure auto-restart) leaves the helpers, tmux sessions, and
+# agent lanes running: the helper bridges over files (event log + packet FIFO),
+# not the daemon socket, and the agent-loop receiver re-dials the recreated
+# socket on its next poll, so delivery resumes with no rebind needed. A hard
+# cgroup kill (systemctl kill / OOM) that still takes a helper is recovered by
+# the on-demand `supervise rebridge` verb.
+KillMode=process
 
 [Install]
 WantedBy=default.target

@@ -30,6 +30,11 @@ func TestRenderUnitUsesSpecifiersNotHardcodedHome(t *testing.T) {
 	if home, _ := os.UserHomeDir(); home != "" && strings.Contains(unit, home) {
 		t.Fatalf("unit contains hardcoded home path %q:\n%s", home, unit)
 	}
+	// RFC 0103 W3 (#141): a daemon restart must signal only the main process so
+	// the Setsid-detached supervisor helpers and tmux-backed agent lanes survive.
+	if !strings.Contains(unit, "KillMode=process") {
+		t.Fatalf("unit missing KillMode=process (#141: restart must not cgroup-kill lane helpers):\n%s", unit)
+	}
 }
 
 func TestDaemonInstallPrintUnit(t *testing.T) {

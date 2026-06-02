@@ -4,6 +4,22 @@
 
 ### RFC 0103 W3 — the lane survives transport and daemon churn (RFC 0091 / 0101)
 
+- **#141 — a daemon restart no longer orphans supervised lane helpers.** The
+  systemd unit defaulted to `KillMode=control-group`, so `systemctl restart
+  striatumd` (and an `on-failure` auto-restart) SIGKILLed the entire service
+  cgroup — taking down the `Setsid`-detached supervisor helpers and their
+  tmux-backed agent lanes, even though a restart only means to replace the daemon
+  process. The lane then surfaced `helper_process_gone` and stalled. The unit now
+  sets `KillMode=process`: a restart signals only the main daemon process, so the
+  helpers, tmux sessions, and agent lanes survive. The helper bridges over files
+  (event log + packet FIFO) rather than the daemon socket, and the agent-loop
+  receiver re-dials the recreated socket on its next poll, so delivery resumes
+  with no rebind needed and the in-flight job completes through the production
+  handlers. A hard cgroup kill (`systemctl kill` / OOM) that still takes a helper
+  is recovered by the on-demand `supervise rebridge` verb. Re-run `striatum daemon
+  install` + `systemctl --user daemon-reload` to apply the unit change. Test: the
+  rendered-unit test asserts `KillMode=process`.
+
 - **#125 — `work.ack` is non-substitutable.** A supervised lane (observed with
   codex) could report readiness via `session.report` instead of calling
   `work.ack`, leaving its claimed work packet stuck in `claimed` (the job never
