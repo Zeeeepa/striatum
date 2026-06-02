@@ -31,9 +31,10 @@ jobs:
             exit 1
           }
 
-      - name: Test
-        run: make check
-
+      # Correctness (vet/test/race/lint/coverage with Postgres) is gated by ci.yml
+      # on every main commit; a release tag points to an already-gated commit. The
+      # release job validates the release artifacts themselves (build, checksum,
+      # package smoke) rather than re-running — and duplicating — that full gate.
       - name: Build Go archives and checksums
         run: make release-archives
 
