@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.9.2 — 2026-06-02
+
 ### #142 — `list workflows` queries the real `workflow_snapshots` columns
 
 `HandleListWorkflows` selected `snapshot_sha256` / `captured_at`, but the table
