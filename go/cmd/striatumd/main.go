@@ -193,6 +193,14 @@ func main() {
 		}
 		defer pool.Close()
 		runner = pool.Runner
+		// RFC 0110 §8.2 (C-DEPLOY-CAPABILITY-PARITY): verify the binary and the
+		// live schema agree on authority-bearing capabilities before serving
+		// mutations. Inert in release N (no owner bundle has stamped any
+		// capability); release N+1's owner bundle introduces the markers this
+		// enforces, at which point a binary/schema mismatch fails closed here.
+		if err := db.VerifyCapabilityParity(ctx, runner, nil, nil); err != nil {
+			log.Fatalf("daemon capability parity check failed: %v", err)
+		}
 		tokenPath, err := admin.RuntimeTokenPath()
 		if err != nil {
 			log.Fatalf("resolve daemon runtime token path: %v", err)

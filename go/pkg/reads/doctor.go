@@ -155,6 +155,12 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// never reads or returns token material.
 	principalsBlock := principalsDoctorBlock(ctx, runner)
 
+	// RFC 0110: report the daemon->PostgreSQL write-boundary posture and the
+	// bounded-discard reconnect signal. Posture is "none" in release N (no phase
+	// has closed a surface); never reads or returns any secret.
+	pgWriteBoundaryBlock, pgWriteBoundaryWarnings := pgWriteBoundaryDoctorBlock()
+	warnings = append(warnings, pgWriteBoundaryWarnings...)
+
 	return map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
@@ -168,6 +174,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"codex":               codexBlock,
 		"lane_sandbox":        laneSandboxBlock,
 		"principals":          principalsBlock,
+		"pg_write_boundary":   pgWriteBoundaryBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }
