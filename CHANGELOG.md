@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### RFC 0107 — multi-principal trust model (self-hosted, not SaaS)
+
+- **Multi-user is now a deliberate, bounded design over the existing trust
+  substrate** — not an ad-hoc accretion on the single-operator assumptions. A
+  **principal** (`kind` ∈ `human` | `ai_operator` | `service`) is a named
+  identity that holds capability tokens; it sits above the `clients` /
+  `client_capabilities` tables and owns one or more clients (the principal→client
+  link survives token rotation, which mints new client rows). The `human` kind
+  generalizes RFC 0053's single escalation-only human to several humans.
+- **Isolation reuses the existing substrate unchanged:** per-principal capability
+  + repository scoping via `client_capabilities.repository_id` (RFC 0028) and
+  session-binding (RFC 0096) — a session-bound token acts only as its own session,
+  so principal A's token cannot act for principal B's session
+  (`rpc.AuthContext.MayActAsSession`, the shared predicate). The daemon-global
+  hash-chained audit log attributes every mutation to a principal by resolving
+  `client_id` through `principal_clients`.
+- **Owner-table-trap-safe migration** `0023_principals.sql` (`LatestDaemonDBVersion`
+  22→23): two NEW tables only (`principals`, `principal_clients`) — no `ALTER` of
+  an owner-held table, and `principal_clients.client_id` is a bare column with no
+  FK to `clients` (referential integrity enforced in Go, like `audit_log.client_id`),
+  so the runtime role can apply it. `daemon doctor` gains a `principals` block
+  (kind / client-count / repositories / effective capability scope; never token
+  material). `daemon.token.create`/`rotate` carry an optional principal — no new
+  wire RPC method.
+- **Explicitly not SaaS:** principals are local capability grants on the
+  operator-owned daemon + PostgreSQL — no hosted control plane, tenant
+  provisioning, external IdP/SSO, or telemetry. Cross-principal + cross-repo
+  isolation and per-principal audit attribution are proven by tests
+  (`TestCrossPrincipalSessionIsolation`, `TestCrossRepoIsolationIsEnforcedAndAttributed`,
+  `TestPrincipalLinkResolvesAuditAttribution`, …). (D160. Landed via the parallel
+  Track B branch and integrated serially — the RFC 0108 happy-path proof.)
+
 ### RFC 0106 — workflow-shape support tiers (govern the catalog, don't prune it)
 
 - **The shape catalog now tells the truth about which choreographies survive an

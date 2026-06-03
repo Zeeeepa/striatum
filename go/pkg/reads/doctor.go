@@ -149,6 +149,12 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	laneSandboxBlock, laneSandboxWarnings := laneSandboxDoctorBlock()
 	warnings = append(warnings, laneSandboxWarnings...)
 
+	// RFC 0107: surface the configured principals and each one's capability/repo
+	// scope so the operator can see who can do what, on which repositories, on
+	// this self-hosted daemon. Daemon-global (independent of repository_id);
+	// never reads or returns token material.
+	principalsBlock := principalsDoctorBlock(ctx, runner)
+
 	return map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
@@ -161,6 +167,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"warnings":            warnings,
 		"codex":               codexBlock,
 		"lane_sandbox":        laneSandboxBlock,
+		"principals":          principalsBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }

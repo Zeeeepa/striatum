@@ -221,6 +221,57 @@ func TestMigrationSixteenInterrogationsIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationTwentyThreePrincipalsIsOwnershipSafe is RFC 0107: the
+// multi-principal migration creates NEW tables + grants the runtime role and
+// does NOT ALTER any owner-held table nor declare a foreign key referencing one
+// (regression guard for the RFC 0081 owner-table crash-loop). The only FK it
+// declares is principal_clients -> principals, both NEW tables the runtime role
+// owns; principal_clients.client_id is a bare text column with no FK to the
+// owner-held clients table (audit attribution / referential integrity is
+// enforced in Go, exactly like audit_log.client_id).
+func TestMigrationTwentyThreePrincipalsIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 23 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 23 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.principals",
+		"CREATE TABLE IF NOT EXISTS striatumd.principal_clients",
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.principals TO striatumd_rw",
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.principal_clients TO striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 23 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER of any table, and no foreign key to any
+	// owner-held table. striatumd_rw must be able to apply this migration.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"REFERENCES striatumd.clients",
+		"REFERENCES striatumd.client_capabilities",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.sessions",
+		"REFERENCES striatumd.runs",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 23 must not contain %q (owner-table dependency); attribution is enforced in Go", forbidden)
+		}
+	}
+}
+
 // TestMigrationEighteenWidensArtifactAttemptScope is RFC 0095 §1 / GH #84:
 // migration 18 records the producing attempt on each artifact and widens BOTH
 // artifact unique keys with `attempt`, so a re-opened attempt may republish the
