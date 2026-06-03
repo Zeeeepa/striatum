@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.10.0 — 2026-06-03
+
 ### RFC 0109 — agy lane first-class seat (P2: count the seat as a support tier)
 
 - **The agy seat is now a *counted* tier, not a silent collapse.** RFC 0109 §B
