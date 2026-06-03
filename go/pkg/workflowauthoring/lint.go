@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -42,6 +43,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
 	lintExperimentalShape(workflow, &findings)
+	lintDegradedSeatLane(workflow, &findings)
 	for index := range findings {
 		findings[index]["fingerprint"] = FindingFingerprint(findings[index])
 	}
@@ -340,6 +342,67 @@ func lintExperimentalShape(workflow map[string]any, findings *[]map[string]any) 
 		"message": fmt.Sprintf("workflow shape %q is experimental: it has no unattended-reliability gate (RFC 0105), so a multi-lane / revision run may wedge without recovery — expect to supervise it, or choose a `supported` shape. See RFC 0106.", shape),
 		"shape":   shape,
 	})
+}
+
+// lintDegradedSeatLane warns (RFC 0109 P2) when a workflow declares a lane whose
+// adapter SEAT is `degraded` or `unsupported` — a seat with a known, tracked
+// defect that prevents it holding a reliable supervised multi-turn lane (today:
+// `agy`, #95/#85/#76/#139). Without this, a declared 3-lane panel silently
+// collapses to 2 when the agy seat trust-gates and multi-turn-crashes out (#139):
+// the workflow SAYS three, the run DELIVERS two, and nothing fails. The warning
+// makes that degradation a recorded, surfaced event instead.
+//
+// It does NOT block (yolo may opt in knowingly) and it does NOT warn on
+// `experimental` seats (claude/codex: they hold a seat, just ungated by an
+// installed-CLI fixture) — faithful to RFC 0109's acceptance, which surfaces
+// `degraded`/`unsupported` seats specifically. The seat may only graduate to
+// `supported` once its RFC 0109 P3 installed-CLI conformance fixture is green
+// (#149), enforced by the adapterconformance graduation guard.
+func lintDegradedSeatLane(workflow map[string]any, findings *[]map[string]any) {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		adapter := laneAdapter(lane)
+		if adapter == "" {
+			continue
+		}
+		tier := workflowtemplates.SeatTierForAdapter(adapter)
+		if tier != workflowtemplates.SeatTierDegraded && tier != workflowtemplates.SeatTierUnsupported {
+			continue
+		}
+		message := fmt.Sprintf("lane %q declares the %q adapter whose supervised seat is %s: %s. A workflow that declares this lane may silently deliver one fewer voice than it names (#139) — expect to supervise it, or use a seat that holds. See RFC 0109.",
+			laneID, adapter, tier, workflowtemplates.SeatDegradationReason(adapter))
+		*findings = append(*findings, map[string]any{
+			"rule":      "degraded_seat_lane",
+			"severity":  "warning",
+			"message":   message,
+			"lane_id":   laneID,
+			"adapter":   adapter,
+			"seat_tier": tier,
+		})
+	}
+}
+
+// laneAdapter resolves a lane's bare adapter seat name from its command argv0
+// (basename, drop a .exe suffix), matching agentloop.LaneAdapterName and
+// workflowtemplates.normalizeAdapterName. A lane with no command yields "".
+// Shell-shim one-shot lanes (argv0 = sh/bash) resolve to the interpreter, not the
+// inner CLI — those one-shot agy footguns are already covered by
+// lintAgyOneShotPipeLane; this rule targets the declared agent-loop seat shape
+// (direct argv, e.g. ["agy", "--dangerously-skip-permissions"]).
+func laneAdapter(lane map[string]any) string {
+	command := stringsFromSlice(lane["command"])
+	if len(command) == 0 {
+		return ""
+	}
+	base := filepath.Base(strings.TrimSpace(command[0]))
+	return strings.TrimSuffix(base, ".exe")
 }
 
 func laneDeclaresAgentLoop(lane map[string]any) bool {

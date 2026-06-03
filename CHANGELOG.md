@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+### RFC 0109 — agy lane first-class seat (P2: count the seat as a support tier)
+
+- **The agy seat is now a *counted* tier, not a silent collapse.** RFC 0109 §B
+  names the meta-defect: the agy seat has been "the deferrable one" across RFC
+  0088/0096/0101/0103 because its brokenness never *blocked* anything, so the cost
+  was never counted (#139 is the only issue that names the collapse, and only as a
+  tolerated degradation). P2 makes the degradation a recorded, surfaced event.
+- **Seat support tiers (the seat analog of RFC 0106 shape tiers).**
+  `workflowtemplates.SeatTierForAdapter` classifies each adapter seat
+  (`supported` | `experimental` | `degraded` | `unsupported`): **agy=`degraded`**
+  (#95/#85/#76/#139, with an operator-facing reason); every other adapter
+  =`experimental` (holds a seat in practice but is **ungated by an installed-CLI
+  fixture** — the RFC's own thesis); **no seat is `supported`** until its RFC 0109
+  P3 installed-CLI gate is green.
+- **`workflow.lint` surfaces degraded seats** via the non-blocking
+  `degraded_seat_lane` warning: a workflow declaring an `agy` lane now warns that
+  the run may deliver one fewer voice than it names (closing the silent-collapse
+  half of #139), while working-but-ungated claude/codex stay silent. Faithful to
+  the RFC: surface `degraded`/`unsupported`, not `experimental`.
+- **The seat tier cannot lie.** `adapterconformance.InstalledCLISeatFixtures` (the
+  RFC 0109 P3 backing registry, empty until #149) plus the graduation guard
+  `TestSupportedSeatsHaveInstalledCLIFixture` reconcile the supported-seat set
+  against the fixture registry in both directions — so a seat cannot be marked
+  `supported` without a green installed-CLI fixture, exactly as
+  `TestSupportedShapesHaveReliabilityFixture` backs the RFC 0106 shape tier with
+  RFC 0105. golangci-lint 0 issues; build/vet clean.
+- **Not done yet (scope guard):** this is **P2 only**. RFC 0109's "Definition of
+  done" requires **P3** (the standing installed-CLI conformance gate, #149) landed
+  **alongside P1** (#95 keystone / #76 / #85 / transport). P1-without-P3 — and P2
+  alone — does **not** close RFC 0109.
+
 ### RFC 0107 — multi-principal trust model (self-hosted, not SaaS)
 
 - **Multi-user is now a deliberate, bounded design over the existing trust
