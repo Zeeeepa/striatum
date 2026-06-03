@@ -62,6 +62,10 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 		return nil, rpc.NewError("schema_invalid", "recovery.process_reconcile requires run_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
 		if err != nil {
 			return nil, err
@@ -204,6 +208,10 @@ func HandleRecoveryResume(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, rpc.NewError("invalid_transition", "--complete requires --session-id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first.
+		if err := lockRunForBlocker(ctx, tx, repositoryID, blockerID); err != nil {
+			return nil, err
+		}
 		blocker, err := rowByID(ctx, tx, repositoryID, "blockers", "blocker_id", blockerID, true)
 		if err != nil {
 			return nil, err
@@ -382,6 +390,13 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	}
 	dryRun := boolParam(envelope, "dry_run")
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — the recovery sweep is the third
+		// concurrent party on a run's rows (alongside claim and verdict-completion),
+		// so serializing it on the same per-run lock prevents the {sessions, runs}
+		// cycle. Taken per-run (never one lock spanning all runs).
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
 		if err != nil {
 			return nil, err
@@ -819,6 +834,11 @@ func SweepRun(ctx context.Context, runner db.Runner, repositoryID string, runID 
 		return nil, err
 	}
 	_, err = withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — this records a run-scoped sweep
+		// event concurrently with claim/verdict-completion on the same run.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		_, err := appendEvent(ctx, tx, repositoryID, runID, "daemon.recovery_sweep", nil, nil, nil, nil, nil, map[string]any{
 			"author":        author,
 			"repository_id": repositoryID,
@@ -1024,6 +1044,10 @@ func HandleRecoveryStaleLeases(ctx context.Context, runner db.Runner, envelope r
 		return nil, rpc.NewError("schema_invalid", "recovery.stale_leases requires run_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		if _, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true); err != nil {
 			return nil, err
 		}
@@ -1283,6 +1307,10 @@ func HandleRecoveryRequeueStale(ctx context.Context, runner db.Runner, envelope 
 	recoveryAuthor := stringParam(envelope, "recovery_author")
 
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		if _, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true); err != nil {
 			return nil, err
 		}
@@ -1451,6 +1479,10 @@ func HandleRecoveryCancelJob(ctx context.Context, runner db.Runner, envelope rpc
 		return nil, rpc.NewError("invalid_transition", "cancel reason must not be empty", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		if _, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true); err != nil {
 			return nil, err
 		}

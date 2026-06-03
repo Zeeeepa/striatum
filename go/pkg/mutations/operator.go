@@ -136,6 +136,12 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 		return nil, rpc.NewError("schema_invalid", "checkpoint.resolve override requires decision_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — checkpoint.resolve can re-open a
+		// job (reopenJobForAttempt) and complete the run (maybeCompleteRun), which
+		// inverts against the claim path.
+		if err := lockRunForBlocker(ctx, tx, repositoryID, blockerID); err != nil {
+			return nil, err
+		}
 		blocker, err := rowByID(ctx, tx, repositoryID, "blockers", "blocker_id", blockerID, true)
 		if err != nil {
 			return nil, err

@@ -958,6 +958,12 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — work.complete can complete the run
+		// (maybeCompleteRun -> closeRemainingSessions: runs -> sessions), which
+		// inverts against the claim path; serialize on the per-run lock.
+		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err

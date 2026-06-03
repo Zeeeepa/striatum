@@ -53,7 +53,7 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 		if err != nil {
 			return nil, interrogationSessionError(err, "interrogator session not found")
 		}
-		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
 		interrogator, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
@@ -145,12 +145,12 @@ func HandleInterrogationAsk(ctx context.Context, runner db.Runner, envelope rpc.
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// RFC 0101 Phase 0a (#137): take the per-run interrogation lock first so
 		// this critical section serializes against the target's await/claim on the
-		// same run (see lockRunInterrogation).
+		// same run (see lockRun).
 		runID, err := interrogationRunID(ctx, tx, repositoryID, interrogationID)
 		if err != nil {
 			return nil, err
 		}
-		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
@@ -233,7 +233,7 @@ func HandleInterrogationAnswer(ctx context.Context, runner db.Runner, envelope r
 		if err != nil {
 			return nil, err
 		}
-		if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
@@ -323,7 +323,7 @@ func HandleInterrogationClose(ctx context.Context, runner db.Runner, envelope rp
 		if err != nil {
 			return nil, err
 		}
-		if err := lockRunInterrogation(ctx, tx, repositoryID, lockRunID); err != nil {
+		if err := lockRun(ctx, tx, repositoryID, lockRunID); err != nil {
 			return nil, err
 		}
 		interrogation, err := lockInterrogation(ctx, tx, repositoryID, interrogationID)
@@ -657,7 +657,7 @@ func bumpInterrogationTurn(ctx context.Context, tx db.TxRunner, repositoryID, in
 }
 
 // interrogationRunID resolves the run_id for an interrogation without taking a
-// row lock, so the per-run advisory lock (lockRunInterrogation) can be acquired
+// row lock, so the per-run advisory lock (lockRun) can be acquired
 // as the FIRST statement in the transaction (RFC 0101 Phase 0a). An unknown
 // interrogation_id surfaces the same not_found error lockInterrogation would.
 func interrogationRunID(ctx context.Context, runner any, repositoryID, interrogationID string) (string, error) {

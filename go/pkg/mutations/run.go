@@ -179,6 +179,11 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		reason = "operator_canceled"
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — run.cancel locks runs then jobs
+		// then sessions (closeRemainingSessions), inverting against the claim path.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
 			return nil, err
@@ -234,6 +239,12 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		return nil, rpc.NewError("schema_invalid", "run.retry_job requires run_id and job_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — run.retry_job re-opens a job
+		// (reopenJobForAttempt) and re-blocks downstream, touching runs/jobs/leases/
+		// sessions; serialize on the per-run lock.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
 			return nil, err

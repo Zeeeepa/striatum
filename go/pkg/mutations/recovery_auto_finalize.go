@@ -122,6 +122,11 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		row := asMap(item)
 		jobID := fmt.Sprint(row["job_id"])
 		result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			// RFC 0104: per-run advisory lock first — auto-finalize completes a job
+			// (maybeCompleteRun -> closeRemainingSessions), inverting against claim.
+			if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+				return nil, err
+			}
 			openBreaker, err := openAutoFinalizeCircuitBreakerForJob(ctx, tx, repositoryID, runID, fmt.Sprint(row["workflow_job_id"]))
 			if err != nil {
 				return nil, err

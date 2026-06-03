@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+### RFC 0104 — per-run serialization invariant (retire the lifecycle deadlock class)
+
+- **The multi-lane lifecycle deadlock is fixed structurally, not tolerated.** Two
+  hot per-run write paths locked the same run's rows in opposite order — claim
+  (`work.claim_next`/`work.await_packet`) takes `sessions → runs → jobs`, while
+  verdict-completion (`review.submit`/`review.verdict` → `maybeCompleteRun` →
+  `closeRemainingSessions`) takes `jobs → runs → sessions`, with the 60s recovery
+  sweep a third concurrent party. The `{sessions, runs}` inversion let Postgres
+  abort one transaction with `40P01`; `withTxRetryOnDeadlock` only *tolerated* it
+  (#98/#103/#137) and exhausts under multi-lane/multi-repo load — fatal under
+  yolo/minimal-human-intervention where no operator retries by hand. (It explains
+  why the single-`claude`-lane RFC 0097 self-hosting dogfood completed while
+  multi-lane panels wedged.)
+- **The fix:** generalize RFC 0101 Phase 0a's `lockRunInterrogation` into
+  `lockRun` — a per-`(repository_id, run_id)` transaction-scoped
+  `pg_advisory_xact_lock` — and take it as the **first statement** of every
+  per-run mutation transaction (claim/await, submit-review/verdict/override, the
+  lifecycle-completion paths `work.complete`/`run.cancel`/`run.retry_job`/
+  `checkpoint.resolve`, the interrogation handlers, and the per-run recovery
+  sweep/handlers). Unrelated runs and repositories never serialize against each
+  other; the claim queue's `FOR UPDATE … SKIP LOCKED` is untouched. No schema
+  change. `withTxRetryOnDeadlock` is retained only as defense-in-depth — a
+  surfaced `40P01` is now a should-never-happen signal.
+- **Gate-first + guarded:** a PG-gated regression (`TestRunLockClaimVerdictSweep-`
+  `Deadlock`) reproduced a raw `40P01` at iteration 0 before the fix and runs
+  240 iterations clean after it; a guard test (`TestPerRunHandlersTakeLockRun-`
+  `First`) drives the per-run handlers through a SQL-recording runner and asserts
+  the advisory lock precedes any run-scoped `FOR UPDATE`, so a future handler that
+  forgets `lockRun` fails CI. The `pkg/mutations` suite and the RFC 0101 chaos
+  suite stay green; `golangci-lint` reports `0 issues`. (D159; spec.md Run
+  Lifecycle carries the invariant. Foundation for RFC 0105.)
+
 ### RFC 0103 W3 — the lane survives transport and daemon churn (RFC 0091 / 0101)
 
 - **#141 — a daemon restart no longer orphans supervised lane helpers.** A

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -17,7 +16,6 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
-	"github.com/jackc/pgx/v5"
 )
 
 func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -48,18 +46,14 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	// a transient control-plane error to the lane — matching #98's review.submit
 	// treatment, here for the claim/await path.
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		// RFC 0101 Phase 0a (#137): if this session is a live interrogation target,
-		// take the per-run interrogation advisory lock BEFORE the `sessions`/`runs`
-		// FOR UPDATE rows, matching the interrogation handlers' lock order so the
-		// {sessions, runs} deadlock cycle cannot form. The lock is taken ONLY for
-		// interrogation targets — ordinary parallel claims never touch it, so the
-		// #103 parallel-claim throughput is unchanged (see lockRunInterrogation).
-		if runID, isTarget, err := sessionInterrogationTarget(ctx, tx, repositoryID, sessionID); err != nil {
+		// RFC 0104 per-run serialization invariant: take the per-run advisory lock
+		// as the FIRST statement, before the `sessions`/`runs` FOR UPDATE rows
+		// below, so the claim path shares an identical, earlier serialization point
+		// with the verdict-completion and recovery-sweep paths and the
+		// {sessions, runs} deadlock cycle cannot form. This generalizes the
+		// RFC 0101 Phase 0a interrogation-only lock to every claim.
+		if err := lockRunForSession(ctx, tx, repositoryID, sessionID); err != nil {
 			return nil, err
-		} else if isTarget {
-			if err := lockRunInterrogation(ctx, tx, repositoryID, runID); err != nil {
-				return nil, err
-			}
 		}
 		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
 		if err != nil {
@@ -231,36 +225,6 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		}
 		return claimNextResult(sessionID, packetID, packet, selfDriving), nil
 	})
-}
-
-// sessionInterrogationTarget reports whether sessionID is the target of an
-// interrogation that has not yet been closed, and returns the session's run_id.
-// This is the NARROW gate (RFC 0101 Phase 0a / #137) for taking the per-run
-// interrogation advisory lock on the claim/await hot path: only a session being
-// interrogated can race the interrogation critical section into the
-// {sessions, runs} deadlock, so only such a session pays the serialization cost.
-// The lookup is non-locking and run in the same transaction before any FOR
-// UPDATE so the advisory lock is acquired first when needed.
-func sessionInterrogationTarget(ctx context.Context, runner any, repositoryID, sessionID string) (string, bool, error) {
-	row, err := oneRow(ctx, runner, `
-		SELECT s.run_id AS run_id,
-		       EXISTS (
-		         SELECT 1 FROM striatumd.interrogations i
-		          WHERE i.repository_id = s.repository_id
-		            AND i.target_session_id = s.session_id
-		            AND i.state <> 'closed'
-		       ) AS is_target
-		  FROM striatumd.sessions s
-		 WHERE s.repository_id = $1 AND s.session_id = $2`, repositoryID, sessionID)
-	if err != nil {
-		// A missing session is handled by the FOR UPDATE select below; do not take
-		// the advisory lock and let the normal not-found path surface the error.
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", false, nil
-		}
-		return "", false, err
-	}
-	return fmt.Sprint(row["run_id"]), boolValue(row["is_target"]), nil
 }
 
 func claimNextResult(sessionID, packetID string, packet map[string]any, selfDrivingSupervisor bool) map[string]any {

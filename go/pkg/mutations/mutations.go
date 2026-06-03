@@ -307,31 +307,80 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 	)
 }
 
-// lockRunInterrogation acquires a per-run transaction-scoped advisory lock that
-// serializes the interrogation critical section against an interrogation
-// target's own await/claim transaction (RFC 0101 Phase 0a / #137/#103).
+// lockRun acquires the per-run transaction-scoped advisory lock that serializes
+// every mutation of a single run's aggregate (sessions, runs, jobs, leases,
+// queue_messages, verdicts, blockers, interrogations for that run). Per the
+// RFC 0104 per-run serialization invariant it MUST be taken as the FIRST
+// statement of every per-run mutation transaction, BEFORE any FOR UPDATE on a
+// run-scoped row.
 //
-// The deadlock it breaks: the claim path (work.await_packet -> HandleClaimNext)
-// locks `sessions` FOR UPDATE then `runs` FOR UPDATE, while the interrogation
-// answer path locks the target `sessions` row (via sessionliveness.Record)
-// inside a transaction that — concurrently with a sibling claim on the same run
-// — ends up wanting `runs`, so two transactions acquire {sessions, runs} in
-// opposite order and Postgres aborts one with SQLSTATE 40P01. Taking this
-// advisory lock as the FIRST statement in both transactions gives both an
-// identical, earlier serialization point, so the {sessions, runs} cycle cannot
-// form.
+// The deadlock it retires (RFC 0104): the claim path
+// (work.await_packet -> HandleClaimNext) locks `sessions` then `runs` then
+// `jobs`, while the verdict-completion path
+// (review.submit/verdict -> recordVerdict -> maybeCompleteRun ->
+// closeRemainingSessions) locks `jobs` then `runs` then `sessions`, and the 60s
+// recovery sweep is a third concurrent party on the same rows. The
+// {sessions, runs} pair is acquired in opposite order, so without a shared,
+// earlier serialization point Postgres aborts one transaction with SQLSTATE
+// 40P01 — which under yolo/minimal-human-intervention surfaces to a lane with no
+// operator to retry it by hand. Taking this lock first gives every per-run tx an
+// identical earlier serialization point, so the cycle cannot form;
+// withTxRetryOnDeadlock remains only as a defense-in-depth backstop.
 //
-// The key is per-run (repository_id + run_id), the NARROWEST scope that covers
-// the interrogation<->target interaction without serializing unrelated runs. It
-// is intentionally NOT taken on the ordinary claim hot path: only the
-// interrogation handlers always take it, and the await/claim path takes it ONLY
-// when the awaiting session is a live interrogation target (see
-// sessionInterrogationTarget). Parallel reviewers claiming sibling jobs on a
-// run with no live interrogation never touch it, so the #103 parallel-claim
-// throughput is preserved.
-func lockRunInterrogation(ctx context.Context, runner db.TxRunner, repositoryID, runID string) error {
-	key := "striatum:interrogation:" + repositoryID + ":" + runID
+// The key is per (repository_id, run_id) — the NARROWEST scope that serializes
+// only the (small, lane-bounded) write concurrency WITHIN one run. Unrelated
+// runs and unrelated repositories never serialize against each other, and the
+// claim queue's `FOR UPDATE OF qm SKIP LOCKED` is unaffected. This generalizes
+// the RFC 0101 Phase 0a per-run interrogation lock (formerly
+// lockRunInterrogation) to the whole run aggregate.
+func lockRun(ctx context.Context, runner db.TxRunner, repositoryID, runID string) error {
+	key := "striatum:run:" + repositoryID + ":" + runID
 	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
+}
+
+// lockRunForSession resolves a session's (immutable) run_id with a non-locking
+// read and takes lockRun before any run-scoped FOR UPDATE (RFC 0104). A missing
+// session takes no lock and lets the downstream FOR UPDATE surface the canonical
+// not-found error, preserving prior behavior.
+func lockRunForSession(ctx context.Context, runner db.TxRunner, repositoryID, sessionID string) error {
+	runID, err := sessionRunID(ctx, runner, repositoryID, sessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	return lockRun(ctx, runner, repositoryID, runID)
+}
+
+// lockRunForJob resolves a job's (immutable) run_id with a non-locking read and
+// takes lockRun before any run-scoped FOR UPDATE (RFC 0104). A missing job takes
+// no lock and lets the downstream FOR UPDATE surface the canonical not-found
+// error, preserving prior behavior.
+func lockRunForJob(ctx context.Context, runner db.TxRunner, repositoryID, jobID string) error {
+	row, err := oneRow(ctx, runner, `SELECT run_id FROM striatumd.jobs WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	return lockRun(ctx, runner, repositoryID, fmt.Sprint(row["run_id"]))
+}
+
+// lockRunForBlocker resolves a blocker's (immutable) run_id with a non-locking
+// read and takes lockRun before any run-scoped FOR UPDATE (RFC 0104). A missing
+// blocker takes no lock and lets the downstream FOR UPDATE surface the canonical
+// not-found error.
+func lockRunForBlocker(ctx context.Context, runner db.TxRunner, repositoryID, blockerID string) error {
+	row, err := oneRow(ctx, runner, `SELECT run_id FROM striatumd.blockers WHERE repository_id = $1 AND blocker_id = $2`, repositoryID, blockerID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	return lockRun(ctx, runner, repositoryID, fmt.Sprint(row["run_id"]))
 }
 
 func rowByID(ctx context.Context, runner any, repositoryID, table, column, value string, forUpdate bool) (map[string]any, error) {

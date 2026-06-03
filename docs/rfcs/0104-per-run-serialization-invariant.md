@@ -1,6 +1,6 @@
 # RFC 0104: Per-run serialization invariant — one run lock to retire the lifecycle deadlock class
 
-Status: proposed
+Status: accepted (D159, 2026-06-03)
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0095 (revision-safe lifecycle), RFC 0101 (Phase 0a deadlock root-fix), RFC 0103 (production hardening); skills/optional/supabase-postgres-best-practices `lock-deadlock-prevention`, `lock-advisory`, `lock-skip-locked`; decision-log D-rows on the claim/review/interrogation deadlock retries (#98, #103, #137).

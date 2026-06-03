@@ -466,6 +466,28 @@ Auto-close on a run-terminal transition (RFC 0011) records each
 session's `close_reason` from the same vocabulary: `run_completed`,
 `run_failed`, `run_canceled`, or `explicit`.
 
+### Per-run serialization invariant (RFC 0104)
+
+Every transaction that mutates a single run's aggregate — its rows in
+`sessions`, `runs`, `jobs`, `leases`, `queue_messages`, `verdicts`, `blockers`,
+and `interrogations` — MUST take a per-run, transaction-scoped advisory lock
+(`pg_advisory_xact_lock` keyed on `striatum:run:<repository_id>:<run_id>`, via
+`lockRun`) as its **first statement**, before any `FOR UPDATE` on a run-scoped
+row. This gives the hot per-run write paths an identical, earlier serialization
+point so the historical `{sessions, runs}` deadlock cannot form: the claim path
+(`work.claim_next` / `work.await_packet`) locks sessions→runs→jobs, while the
+verdict-completion path (`review.submit` / `review.verdict` → `maybe_complete_run`
+→ close-remaining-sessions), the lifecycle paths (`work.complete`, `run.cancel`,
+`run.retry_job`, `checkpoint.resolve`), and the per-run recovery sweep lock the
+same rows in the opposite order. The lock is per `(repository_id, run_id)` — the
+narrowest scope that serializes only the small, lane-bounded write concurrency
+*within* one run; unrelated runs and repositories never serialize against each
+other, and the claim queue's `FOR UPDATE … SKIP LOCKED` is exempt (already
+deadlock-safe). The bounded deadlock-retry wrapper is retained only as
+defense-in-depth; a surfaced `40P01` is now a should-never-happen signal. A
+guard test asserts every per-run mutation handler takes `lockRun` before any
+run-scoped `FOR UPDATE`.
+
 ## Sessions
 
 Agents must call `register-session` before claiming work. Database identity is

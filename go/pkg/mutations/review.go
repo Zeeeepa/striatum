@@ -28,6 +28,13 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, rpc.NewError("schema_invalid", "review.verdict requires session_id, job_id, lease_id, and verdict", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: take the per-run advisory lock first so the verdict-completion
+		// path (recordVerdict -> maybeCompleteRun -> closeRemainingSessions) shares
+		// the claim/sweep serialization point and the {sessions, runs} cycle cannot
+		// form.
+		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 		return recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, findingsArtifactID, rationale)
 	})
 }
@@ -61,6 +68,10 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	// Retry the whole transaction a bounded number of times; the body is
 	// idempotent (publishArtifact already no-ops an already-published artifact).
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first, before the jobs FOR UPDATE below.
+		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err
@@ -147,6 +158,10 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 		return nil, rpc.NewError("invalid_transition", "override verdict must be 'accept' or 'accept_with_findings'", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first, before the jobs FOR UPDATE below.
+		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
 			return nil, err
