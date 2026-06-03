@@ -747,3 +747,86 @@ confirmation_status: "operator-confirmed"
 		}
 	}
 }
+
+// TestEnumFieldValuesMatchValidators guards #126 against drift between the
+// enumFieldValues error-message source and each schema's oneOfValue validator:
+// every value listed in enumFieldValues must name a real schema field AND be
+// accepted by that field's Check (a clearly-invalid sentinel must be rejected).
+func TestEnumFieldValuesMatchValidators(t *testing.T) {
+	for kind, fields := range enumFieldValues {
+		schema, ok := Schemas[kind]
+		if !ok {
+			t.Fatalf("enumFieldValues lists kind %q with no schema", kind)
+		}
+		for name, values := range fields {
+			field, ok := schema.Fields[name]
+			if !ok {
+				t.Fatalf("enumFieldValues[%q][%q] names a field absent from the schema", kind, name)
+			}
+			if len(values) == 0 {
+				t.Fatalf("enumFieldValues[%q][%q] is empty", kind, name)
+			}
+			for _, v := range values {
+				if !field.Check(v) {
+					t.Fatalf("enumFieldValues[%q][%q] lists %q but the schema validator rejects it (drift)", kind, name, v)
+				}
+			}
+			if field.Check("__definitely_not_a_valid_enum_value__") {
+				t.Fatalf("schema validator for %q.%q accepts an arbitrary value; not an enum?", kind, name)
+			}
+		}
+	}
+}
+
+// TestFindingSeverityEnumIsNamed guards the #126 headline friction: severity was
+// missing from enumFieldValues, so `severity: blocker` was rejected with a bare
+// "is invalid" that forced the lane to read Go source. The rejection must now name
+// the allowed severity values.
+func TestFindingSeverityEnumIsNamed(t *testing.T) {
+	payload := []byte("---\nschema_version: striatum.finding.v1\nartifact_kind: finding\nverdict_intent: needs_revision\nseverity: blocker\n---\n\nbody")
+	err := ValidateFrontMatter("finding", "FINDING.md", payload)
+	if err == nil {
+		t.Fatal("expected severity: blocker to be rejected")
+	}
+	for _, want := range []string{"allowed values are", "info, low, medium, high, critical"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("severity rejection must name the enum; want %q, got: %v", want, err)
+		}
+	}
+}
+
+// TestSkeletonRoundTripsForFindingKinds guards #126: the generated skeleton for a
+// finding / findings_ledger is itself a valid, copy-pasteable front-matter block
+// (it passes ValidateFrontMatter), so a rejected lane can paste it and fix the
+// artifact in one shot.
+func TestSkeletonRoundTripsForFindingKinds(t *testing.T) {
+	for _, kind := range []string{"finding", "findings_ledger"} {
+		skel, ok := Skeleton(kind)
+		if !ok {
+			t.Fatalf("Skeleton(%q) returned ok=false", kind)
+		}
+		if err := ValidateFrontMatter(kind, "ARTIFACT.md", []byte(skel+"\n\nbody")); err != nil {
+			t.Fatalf("generated %s skeleton is not valid:\n%s\nerror: %v", kind, skel, err)
+		}
+	}
+	if _, ok := Skeleton("not_a_kind"); ok {
+		t.Fatal("Skeleton must return ok=false for a kind with no front-matter schema")
+	}
+}
+
+// TestRejectionIncludesSkeleton guards #126: a front-matter rejection embeds the
+// minimal valid skeleton for the kind, so the lane gets the exact shape (including
+// verdict_intent and the severity enum) instead of repairing by trial and error.
+func TestRejectionIncludesSkeleton(t *testing.T) {
+	// A finding missing the required verdict_intent.
+	payload := []byte("---\nschema_version: striatum.finding.v1\nartifact_kind: finding\n---\n\nbody")
+	err := ValidateFrontMatter("finding", "FINDING.md", payload)
+	if err == nil {
+		t.Fatal("expected a finding missing verdict_intent to be rejected")
+	}
+	for _, want := range []string{"minimal valid finding front matter", "verdict_intent:", "severity:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("rejection must embed the skeleton; want %q, got: %v", want, err)
+		}
+	}
+}

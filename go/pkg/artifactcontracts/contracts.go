@@ -317,12 +317,38 @@ func standardMetadataNames() []string {
 // forces a lane to read Go source. This map is the error-message source; each
 // kind's schema oneOfValue check is the validator — keep the two in sync.
 var enumFieldValues = map[string]map[string][]string{
-	"collaboration_ledger":         {"verdict": {"accept", "accept_with_findings", "needs_revision", "reject"}},
-	"finding":                      {"verdict_intent": {"accept", "accept_with_findings", "needs_revision", "reject"}},
+	"collaboration_ledger": {
+		"verdict": {"accept", "accept_with_findings", "needs_revision", "reject"},
+		"shape":   {"falsification_gate", "cross_examination", "fog_of_war_review", "synaptic_prune", "adjudicated_constraint_extraction"},
+	},
+	// #126: `severity` was missing here, so `severity: blocker` was rejected with a
+	// bare "is invalid" that forced a lane to read Go source for the enum. Keep this
+	// map complete with every schema oneOfValue field (TestEnumFieldValuesCoverSchemaEnums
+	// guards the sync).
+	"finding": {
+		"verdict_intent": {"accept", "accept_with_findings", "needs_revision", "reject"},
+		"severity":       {"info", "low", "medium", "high", "critical"},
+	},
 	"decision":                     {"outcome": {"accepted", "rejected", "accepted_with_follow_up"}},
 	"commit_request":               {"confirmation_status": {"pending", "operator_confirmed", "human_confirmed", "refused"}},
 	"pr_request":                   {"confirmation_status": {"pending", "human_confirmed", "refused"}},
 	"harness_improvement_proposal": {"target": {"prompt", "workflow", "spec", "defaults", "documentation"}},
+	"escalation": {
+		"severity":     {"info", "low", "medium", "high", "critical"},
+		"blocker_kind": {"ambiguous_goal", "missing_authority", "contradicting_decisions", "no_available_reviewer_lane", "committee_stalemate", "override_required"},
+	},
+	"operator_brief": {
+		"retrieval_priority": {"high", "medium", "low"},
+		"status":             {"current", "superseded"},
+	},
+	"work_plan": {
+		"scope_kind":         {"rfc", "phase", "initiative", "bugfix"},
+		"state":              {"open", "planned", "in_progress", "closed"},
+		"retrieval_priority": {"high", "medium", "low"},
+	},
+	"progress_note":               {"retrieval_priority": {"high", "medium", "low"}},
+	"operator_report":             {"retrieval_priority": {"high", "medium", "low"}},
+	"auto_finalize_gate_evidence": {"gate_status": {"pending", "satisfied"}},
 }
 
 // invalidFieldMessage produces an actionable error when a front-matter field
@@ -338,6 +364,114 @@ func invalidFieldMessage(kind, name string) string {
 		return `collaboration_ledger artifact front matter field "entries" is invalid; entries must be a non-empty list of objects { by: <participant>, kind: claim|challenge|rebuttal|..., refs: ["dialogue:<seq>", ...] } — see docs/reference/spec.md#artifact-front-matter-schemas`
 	}
 	return fmt.Sprintf("%s artifact front matter field %q is invalid — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name)
+}
+
+// skeletonShapeHints gives a valid YAML example value (and an optional inline
+// comment) for non-enum front-matter fields, so Skeleton emits a copy-pasteable
+// block. Enum fields are sourced from enumFieldValues; schema_version /
+// artifact_kind from convention. A field with no hint falls back to a placeholder.
+var skeletonShapeHints = map[string]struct{ value, comment string }{
+	"tags":                 {"[]", "list of strings"},
+	"constraint_discharge": {"[]", "list of objects"},
+	"inputs":               {"[]", "list of upstream artifact refs"},
+	"entries":              {"[]", "non-empty list of objects"},
+	"summary_count":        {"0", "non-negative integer"},
+	"claim_count":          {"0", "non-negative integer"},
+	"total_items":          {"0", "non-negative integer"},
+	"revision_round":       {"0", "non-negative integer"},
+	"follow_up_required":   {"false", "boolean"},
+	"created_at":           {"\"2026-01-01T00:00:00Z\"", "RFC3339 timestamp"},
+}
+
+// Skeleton returns a minimal, copy-pasteable valid front-matter block for a
+// front-matter-bearing artifact kind (#126): every required field with a valid
+// example value, then the optional fields (commented), so a rejected lane gets the
+// exact shape instead of repairing by trial and error. Returns ok=false for a kind
+// with no front-matter schema.
+func Skeleton(kind string) (string, bool) {
+	req, opt, ok := SchemaKeyNames(kind)
+	if !ok {
+		return "", false
+	}
+	var b strings.Builder
+	b.WriteString("---\n")
+	for _, name := range orderSkeletonFields(req) {
+		b.WriteString(skeletonLine(kind, name, false))
+	}
+	for _, name := range orderSkeletonFields(opt) {
+		b.WriteString(skeletonLine(kind, name, true))
+	}
+	b.WriteString("---")
+	return b.String(), true
+}
+
+// orderSkeletonFields puts schema_version then artifact_kind first (the
+// conventional header), then the remaining fields in their given (sorted) order.
+func orderSkeletonFields(names []string) []string {
+	rest := make([]string, 0, len(names))
+	var hasVersion, hasKind bool
+	for _, n := range names {
+		switch n {
+		case "schema_version":
+			hasVersion = true
+		case "artifact_kind":
+			hasKind = true
+		default:
+			rest = append(rest, n)
+		}
+	}
+	head := make([]string, 0, 2)
+	if hasVersion {
+		head = append(head, "schema_version")
+	}
+	if hasKind {
+		head = append(head, "artifact_kind")
+	}
+	return append(head, rest...)
+}
+
+func skeletonLine(kind, name string, optional bool) string {
+	value, comment := skeletonValue(kind, name)
+	if optional {
+		if comment == "" {
+			comment = "optional"
+		} else {
+			comment = "optional; " + comment
+		}
+	}
+	line := name + ": " + value
+	if comment != "" {
+		line += "   # " + comment
+	}
+	return line + "\n"
+}
+
+func skeletonValue(kind, name string) (value string, comment string) {
+	switch name {
+	case "schema_version":
+		return "striatum." + kind + ".v1", ""
+	case "artifact_kind":
+		return kind, ""
+	}
+	if fields, ok := enumFieldValues[kind]; ok {
+		if values, ok := fields[name]; ok && len(values) > 0 {
+			return values[0], "one of: " + strings.Join(values, ", ")
+		}
+	}
+	if hint, ok := skeletonShapeHints[name]; ok {
+		return hint.value, hint.comment
+	}
+	return "\"<value>\"", ""
+}
+
+// skeletonHint renders the minimal valid front-matter block for a rejection
+// message (#126), so a lane that hit a front-matter error gets the exact
+// copy-pasteable shape in one shot instead of repairing by trial and error.
+func skeletonHint(kind string) string {
+	if skel, ok := Skeleton(kind); ok {
+		return "\n\nminimal valid " + kind + " front matter:\n" + skel
+	}
+	return ""
 }
 
 func IsAllowedKind(kind string) bool {
@@ -403,12 +537,12 @@ func ValidateFrontMatter(kind string, path string, payload []byte) error {
 		if !exists {
 			if field.Required {
 				req, _, _ := SchemaKeyNames(kind)
-				return fmt.Errorf("%s artifact front matter missing required field %q; %s requires [%s] — see docs/reference/spec.md#artifact-front-matter-schemas", kind, name, kind, strings.Join(req, ", "))
+				return fmt.Errorf("%s artifact front matter missing required field %q; %s requires [%s] — see docs/reference/spec.md#artifact-front-matter-schemas%s", kind, name, kind, strings.Join(req, ", "), skeletonHint(kind))
 			}
 			continue
 		}
 		if !field.Check(value) {
-			return fmt.Errorf("%s", invalidFieldMessage(kind, name))
+			return fmt.Errorf("%s%s", invalidFieldMessage(kind, name), skeletonHint(kind))
 		}
 	}
 	extra := []string{}
@@ -426,8 +560,8 @@ func ValidateFrontMatter(kind string, path string, payload []byte) error {
 	if len(extra) > 0 {
 		sort.Strings(extra)
 		req, opt, _ := SchemaKeyNames(kind)
-		return fmt.Errorf("%s artifact front matter has unknown fields: %s; %s accepts required keys [%s], optional keys [%s], plus standard metadata [%s] — see docs/reference/spec.md#artifact-front-matter-schemas",
-			kind, strings.Join(extra, ", "), kind, strings.Join(req, ", "), strings.Join(opt, ", "), strings.Join(standardMetadataNames(), ", "))
+		return fmt.Errorf("%s artifact front matter has unknown fields: %s; %s accepts required keys [%s], optional keys [%s], plus standard metadata [%s] — see docs/reference/spec.md#artifact-front-matter-schemas%s",
+			kind, strings.Join(extra, ", "), kind, strings.Join(req, ", "), strings.Join(opt, ", "), strings.Join(standardMetadataNames(), ", "), skeletonHint(kind))
 	}
 	if err := validateKindSpecific(kind, path, parsed, payload); err != nil {
 		return err

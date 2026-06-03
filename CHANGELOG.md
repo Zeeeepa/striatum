@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-## v2.12.0 — 2026-06-03
+### RFC 0103 tail (reduce autonomous-lane friction)
+
+- **#126 — front-matter rejections name their enums and embed a copy-pasteable
+  skeleton.** A supervised review lane that wrote a `striatum.finding.v1` artifact
+  needed multiple repair attempts because `severity: blocker` was rejected with a
+  bare "is invalid" (the `severity` enum was missing from the error-message source)
+  and because the rejection never showed the valid shape. `enumFieldValues` is now
+  synced with every schema `oneOfValue` field (severity, blocker_kind,
+  retrieval_priority, status, scope_kind, state, gate_status, shape, …) so every
+  enum rejection names its allowed values, and `ValidateFrontMatter` rejections now
+  embed the minimal valid front-matter block for the kind (via the new
+  `artifactcontracts.Skeleton(kind)`). Guarded by `TestEnumFieldValuesMatchValidators`
+  (drift), `TestSkeletonRoundTripsForFindingKinds`, and the severity/skeleton
+  rejection gates.
 
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
