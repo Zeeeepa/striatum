@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### RFC 0105 — standing unattended-reliability harness (the yolo gate)
+
+- **The full multi-lane revision lifecycle now has a standing hermetic gate.**
+  Where the RFC 0101 chaos suite proved a single-job lane self-recovers-or-
+  escalates under fault, `go/pkg/adapterconformance/lifecycle_revision_test.go`
+  proves the same for the real two-lane, review-gated, `needs_revision`-cycle
+  lifecycle: implement (att1) → review → needs_revision → re-open implement
+  (att2) → re-implement → re-review → accept → `completed`. Both lanes are driven
+  through the production mutation handlers against the in-process daemon + an
+  isolated pgtest database (the real state machine).
+- **Fault matrix, asserting complete-or-escalate-loud (never a silent wedge):**
+  `TestRevisionLifecycleHappyPathCompletes` (baseline),
+  `TestRevisionLifecycleLaneDeathSelfRecovers` (the att2 lane dies mid-revision →
+  the recovery sweep requeues its job on the same attempt → a fresh lane finishes
+  → the re-review accepts → the run completes, with no operator and no
+  escalation), and `TestRevisionLifecycleUnrecoverableEscalatesLoudly` (the att2
+  lane dies repeatedly past the requeue budget → the run flips to needs_operator
+  with exactly one `recovery_exhausted` escalation_inbox row).
+- **A standing gate, not a one-shot:** the fixtures live in the conformance
+  package, so they run under `make -C go check` (`go test ./...`) and the CI
+  PostgreSQL tier on every commit — a regression in the revision lifecycle turns
+  CI red. They build on RFC 0104 (a reverted run lock turns the paired deadlock
+  regression red) and are deterministic (a completed lane closes its session so
+  the recovery decision tree's dead-lane resolution is unambiguous across
+  attempts).
+- **`ReliabilityFixtureShapes`** is the per-shape graduation entry point RFC 0106
+  consumes: a shape may be marked `supported` only if it has a green fixture
+  here. (D161.)
+
 ### RFC 0104 — per-run serialization invariant (retire the lifecycle deadlock class)
 
 - **The multi-lane lifecycle deadlock is fixed structurally, not tolerated.** Two

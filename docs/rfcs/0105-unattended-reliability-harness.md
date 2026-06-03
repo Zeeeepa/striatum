@@ -1,6 +1,6 @@
 # RFC 0105: Standing unattended-reliability harness — the yolo gate
 
-Status: proposed
+Status: accepted (D161, 2026-06-03)
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0101 (robust autonomous execution + the Phase 5 chaos suite), RFC 0103 (production-hardening acceptance / fault-class matrix), RFC 0095 (revision-safe lifecycle), RFC 0097 (full run orchestration); `go/pkg/adapterconformance/chaos_test.go`; `go/Makefile` `CORE_COVERAGE_FLOOR`.
