@@ -286,7 +286,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 	cleanupPipe = false
-	return map[string]any{
+	result := map[string]any{
 		"supervisor_id":        supervisorID,
 		"daemon_supervisor_id": daemonSupervisorID,
 		"session_id":           sessionID,
@@ -303,7 +303,15 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
 		"tmux":                 objectOrNil(launch.Metadata["tmux"]),
-	}, nil
+	}
+	// #115: a prepared/running run uses its FROZEN workflow snapshot, so on-disk
+	// workflow.json edits are inert. Surface a warning when the lane just launched
+	// from a snapshot that diverges from the current file, so the operator does not
+	// burn time on a silent no-op (the fix is to prepare a new run).
+	if w := snapshotDivergenceWarningForRun(ctx, runner, repositoryID, config.RepoRoot, config.WorkflowSnapshotID); w != "" {
+		result["snapshot_divergence_warning"] = w
+	}
+	return result, nil
 }
 
 func HandleSuperviseSend(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

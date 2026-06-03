@@ -4,6 +4,16 @@
 
 ### RFC 0103 tail (reduce autonomous-lane friction)
 
+- **#115 — `supervise start` warns when the run's frozen snapshot diverges from the
+  on-disk workflow.** A prepared/running run uses the workflow snapshot captured at
+  `run prepare`, so editing `workflow.json` afterward is a silent no-op — operators
+  burned time before discovering the run was pinned. `supervise start` now compares
+  the snapshot's `content_sha256` against the canonical sha of the current file at
+  its `source_path` and, on a positive mismatch, returns a
+  `snapshot_divergence_warning` ("…edits will NOT apply — prepare a NEW run…"). The
+  comparison is over the same `json.Marshal` canonical form `run prepare` used, so
+  cosmetic edits (whitespace, key order) do not false-trigger; an unreadable/now-
+  invalid file stays silent. Gate: `TestWorkflowSnapshotDivergence`.
 - **#126 — front-matter rejections name their enums and embed a copy-pasteable
   skeleton.** A supervised review lane that wrote a `striatum.finding.v1` artifact
   needed multiple repair attempts because `severity: blocker` was rejected with a

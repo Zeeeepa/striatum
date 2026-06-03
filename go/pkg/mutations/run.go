@@ -700,6 +700,47 @@ func workflowForRun(ctx context.Context, runner any, repositoryID string, run ma
 	return asMap(snapshot["workflow_json"]), nil
 }
 
+// workflowSnapshotDivergence reports a #115 warning when a run's FROZEN workflow
+// snapshot (captured at run.prepare) differs from the current on-disk workflow
+// file at the snapshot's source_path. A prepared/running run uses the snapshot, so
+// edits to the file are inert; surfacing the divergence stops an operator burning
+// time on a silent no-op (the fix is to prepare a new run). The comparison is over
+// the canonical json.Marshal form — exactly how run.prepare computed the snapshot
+// sha — so cosmetic file changes (whitespace, key order) do not false-trigger.
+// Returns "" when there is no divergence OR it cannot be determined (no
+// source_path/sha, file gone/unreadable): only a positive mismatch warns.
+func workflowSnapshotDivergence(repoRoot, sourcePath, snapshotSha string) string {
+	if snapshotSha == "" || snapshotSha == "<nil>" || sourcePath == "" || sourcePath == "<nil>" {
+		return ""
+	}
+	current, _, err := workflowauthoring.LoadFile(repoRoot, sourcePath)
+	if err != nil {
+		return ""
+	}
+	normalized, err := json.Marshal(current)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(normalized)
+	if hex.EncodeToString(sum[:]) == snapshotSha {
+		return ""
+	}
+	return fmt.Sprintf("on-disk workflow %s diverges from this run's frozen snapshot; the run uses the snapshot, so edits to the file will NOT apply — prepare a NEW run to change lanes/commands (#115)", sourcePath)
+}
+
+// snapshotDivergenceWarningForRun loads a run's snapshot row and returns the #115
+// divergence warning (or "" on any error — best-effort; never fails the caller).
+func snapshotDivergenceWarningForRun(ctx context.Context, runner db.Runner, repositoryID, repoRoot, workflowSnapshotID string) string {
+	if workflowSnapshotID == "" {
+		return ""
+	}
+	snap, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", workflowSnapshotID, false)
+	if err != nil {
+		return ""
+	}
+	return workflowSnapshotDivergence(repoRoot, fmt.Sprint(nullable(snap["source_path"])), fmt.Sprint(nullable(snap["content_sha256"])))
+}
+
 func effectiveFreshSessionRequired(job map[string]any) bool {
 	if job["fresh_session_required"] == true {
 		return true
