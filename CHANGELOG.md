@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Autonomy regression — supervised lanes could not claim
+
+- **Session-bound lane token now carries `read`, so a supervised lane can actually
+  start.** Once #135 wired the session-bound capability token into the supervised
+  lane's env, the token granted only `{claim, write}` — but the agent-loop daemon
+  receiver polls `supervise.status` (a `read` method) as its `work.await_packet`
+  readiness gate, so every supervised lane was denied with "daemon RPC
+  authorization failed" and looped forever without ever claiming its first packet
+  (a silent rescue-forcing wedge, found by the v2.12.0 live floor-dogfood
+  acceptance). `sessionBoundCapabilities` now includes `read`. Guarded by
+  `TestSessionBoundTokenCoversLaneLoopRPCs`, which couples the grant set to the live
+  daemon registry's `RequiredCapability` for the RPCs a lane drives.
+
 ### RFC 0103 tail (reduce autonomous-lane friction)
 
 - **#115 — `supervise start` warns when the run's frozen snapshot diverges from the

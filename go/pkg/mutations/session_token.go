@@ -21,12 +21,20 @@ import (
 const sessionBoundTokenTTL = 24 * time.Hour
 
 // sessionBoundCapabilities are the capabilities a supervised lane needs to
-// drive its own workflow loop: claim for the work.* lifecycle (await/ack/
-// heartbeat/release) and write for artifact.publish + interrogation answers.
-// Both grants are bound to the registering session_id (RFC 0096 V2 / #135), so
+// drive its own workflow loop:
+//   - claim for the work.* lifecycle (await_packet / ack / heartbeat / release / complete);
+//   - write for artifact.publish + interrogation answers;
+//   - read because the agent-loop daemon receiver polls supervise.status (a
+//     CapabilityRead method) as its await_packet readiness gate (loop.go
+//     daemonReceiverReady). Omitting read left the receiver looping forever on
+//     "daemon RPC authorization failed", so a supervised lane could never claim
+//     its first packet — a silent rescue-forcing wedge that surfaced only once
+//     the #135 session-bound token was actually wired into the lane env (before
+//     that, lanes used the shared repo-scoped token, which carries read).
+// All grants are bound to the registering session_id (RFC 0096 V2 / #135), so
 // the resolved AuthContext for this token reports IsSessionBound and the
 // session-scoped handlers refuse any act-as session other than this one.
-var sessionBoundCapabilities = []rpc.Capability{rpc.CapabilityClaim, rpc.CapabilityWrite}
+var sessionBoundCapabilities = []rpc.Capability{rpc.CapabilityClaim, rpc.CapabilityWrite, rpc.CapabilityRead}
 
 // mintSessionBoundToken inserts a client + per-capability grants all bound to
 // sessionID and the registering repository, returning the bearer token string
@@ -35,11 +43,11 @@ var sessionBoundCapabilities = []rpc.Capability{rpc.CapabilityClaim, rpc.Capabil
 // admin.CreateToken / PostgresAuthorizer (HMAC-SHA256 over salt+secret) so the
 // production authorizer validates it without any new code path.
 //
-// RFC 0096 V2 / #135: this is the groundwork that lets a real lane become
-// session-bound. Wiring the supervised lane's env to actually carry this token
-// (so the enforcement fully bites for live lanes) is the remaining follow-up;
-// today lanes still read the shared repo-scoped token, which the enforcement
-// treats as an honest operator override.
+// RFC 0096 V2 / #135: the supervised lane's env now carries this token (wired in
+// HandleSuperviseStart), so the session-binding enforcement bites for live lanes
+// — which is exactly why the grant set above must cover every capability the lane
+// loop exercises (read for the receiver's supervise.status readiness gate, claim
+// for work.*, write for publish).
 func mintSessionBoundToken(ctx context.Context, tx db.TxRunner, repositoryID, sessionID string) (map[string]any, error) {
 	tokenID := "stok_" + randomURLSafe(12)
 	secret := randomURLSafe(32)
