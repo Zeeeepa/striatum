@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.12.0 — 2026-06-03
+
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
 - **#147 Symptom A — `supervise status` exposes distinct liveness signals.** The
