@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Mission acceptance met — 10× unattended, zero-rescue DoD (live).** Added
+  `scripts/dod/driver.py`, the outside-CI live acceptance: it drives N consecutive
+  multi-lane, review-gated, revision-capable runs to `completed` using only normal
+  lane lifecycle verbs (register-session / supervise start / close-completed-lane),
+  never a rescue verb. Result of record (2026-06-03, against the deployed
+  v2.14.0 daemon): **10/10 consecutive clean unattended passes** — every run
+  completed, every review `accept`, zero rescue-type events, zero escalations
+  (independently verified in the daemon). Unblocked by #162 (session-bound token
+  `read`) and #163 (claude workspace auto-trust). This is the standing proof of
+  "no human intervention", complementing the hermetic RFC 0105 harness.
+
 ## v2.15.0 — 2026-06-03
 
 ### RFC 0110 Release N — daemon→PostgreSQL authority plumbing (behavior-neutral)
