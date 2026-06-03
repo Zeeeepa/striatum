@@ -1,12 +1,22 @@
 # Dogfood — RFC 0109 agy-seat (live-corroboration vehicle)
 
-**Status: DRAFT scaffold — DO NOT LAUNCH yet.** This run is the vehicle for the
+**Status: PROVEN (2026-06-03, `run_139c5981`).** This run is the vehicle for the
 two `[live-corroborated]` acceptance legs of
-`docs/rfcs/0109-agy-lane-first-class-seat.md`. It cannot pass until **P1 (#95
-keystone)** lands — today the agy seat collapses after one turn (#95) and gates
-at launch on a folder-trust prompt (#76/#139), so the agy reviewer would wedge on
-the re-review. That wedge **is** the bug this RFC fixes; this dogfood proves the
-fix, it does not work around it.
+`docs/rfcs/0109-agy-lane-first-class-seat.md`, and both passed:
+
+- **Leg A ✓** — the agy reviewer held its seat across the `needs_revision` cycle:
+  it voted `needs_revision` on attempt 1, the presenter revised, and the agy
+  reviewer **re-reviewed + accepted on attempt 2 under a fresh attested session**
+  (the #139/#95 inverse).
+- **Leg B ✓ (panel-level)** — the 3-lane run **survived a mid-run
+  `systemctl restart striatumd`** and finalized: codex (holding the review lease)
+  and the interrogable presenter resumed post-restart. agy had finished its cycle
+  before the restart, so a direct agy-restart-while-leased leg is the one follow-up.
+
+The expected `degraded_seat_lane` warning no longer fires for agy — it graduated
+to `supported` (RFC 0109 P3). The historical premise below ("collapses after one
+turn", "gates on folder-trust") did **not** reproduce against the current agy CLI;
+it is retained as context for why the gate exists (anti-re-rot).
 
 ## What it proves (maps to the RFC's acceptance ledger)
 

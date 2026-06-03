@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## v2.11.0 — 2026-06-03
+
+### RFC 0109 — agy lane first-class seat (P3: the standing installed-CLI gate + graduation; RFC closed)
+
+- **The agy seat is now `supported`, and a standing gate keeps it that way.** RFC
+  0109's scope guard closes only when P3 (the standing installed-CLI conformance
+  gate, #149) lands alongside P1 (the four defects #95/#85/#76/#139). Both landed:
+  the agy seat graduated `degraded` → `supported`.
+- **P3 — installed-CLI conformance gate (`adapterconformance.RunInstalledCLI`).**
+  A new runner drives the **real** agy CLI through the production agent loop over a
+  two-turn `claim → publish → claim` cycle and asserts the **same attested session**
+  drives both turns (#95). The Layer-2 harness gained a unix-socket RPC listener
+  (`rpc.Server.Serve`, the production pair) so the agent-loop receive loop is driven
+  — `RunLive`'s in-process testagent reuses its session by construction and is
+  structurally immune to #95, so this installed-CLI path is the instrument that
+  first makes #95 reproducible. New `agentloop.RunContext` threads a caller context
+  for the test. Gated behind `STRIATUM_P3_INSTALLED_CLI` (a release-blocking
+  scheduled tier; skips cleanly when the CLI or `STRIATUM_PG_TEST_URL` is absent).
+- **Finding: the historical agy defects no longer reproduce against the current
+  CLI.** agy holds the two-turn seat (green ×3), launches past the folder-trust /
+  telemetry prompts (#76/#139), and reaches `work.claim` without a discovery stall
+  (#85). P1's defects are resolved as-of the current CLI; the gate's enduring value
+  is **anti-re-rot** — the day a CLI version bump or config drift breaks the seat,
+  CI goes red instead of a live panel three weeks later.
+- **Graduation.** `adapterconformance.InstalledCLISeatFixtures` and
+  `workflowtemplates.supportedSeats` both carry `agy`, reconciled in both directions
+  by `TestSupportedSeatsHaveInstalledCLIFixture` (the tier cannot lie). `degradedSeats`
+  is now empty; `RegisterDegradedSeatForTest` keeps the `degraded_seat_lane` warning
+  path under test. `codex` stays `experimental` (it does not reach `work.claim`
+  against the in-process httptest harness; it works live — its hermetic MCP path is a
+  follow-up).
+- **Live-corroborated (`run_139c5981`).** A 3-lane (claude + codex + agy)
+  interrogating panel held the agy seat across a `needs_revision` cycle (agy voted
+  `needs_revision` on attempt 1, the presenter revised, agy re-reviewed + accepted on
+  attempt 2 under a fresh attested session — the #139 inverse). The same run then
+  **survived a mid-run `systemctl restart striatumd`** and finalized (codex +
+  interrogable presenter resumed post-restart; `daemon.recovery_sweep` re-bridged the
+  lanes). A direct agy-restart-while-leased leg is the one tracked follow-up.
+
 ## v2.10.0 — 2026-06-03
 
 ### RFC 0109 — agy lane first-class seat (P2: count the seat as a support tier)

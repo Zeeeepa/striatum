@@ -1,6 +1,6 @@
 # RFC 0109: Make the agy lane a first-class supervised seat — and stop deferring it
 
-Status: proposed
+Status: accepted
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0088 (agent-loop PTY launcher + per-adapter submit drivers), RFC 0089 (lane health), RFC 0096 (lane trust boundary), RFC 0101 (robust autonomous execution), RFC 0103 §W2 (production hardening — "every declared adapter holds a multi-turn seat"), RFC 0106 (workflow-shape support tiers); GH #95, #85, #76, #139, #70; the floor-dogfood finding that neither codex nor agy could survive the W3 restart leg.
@@ -157,6 +157,42 @@ P3 is explicitly **not** done: it fixes the lane for now but leaves the seat
 ungated, which is the precondition for the very re-rot this RFC ends. Any
 implementation plan that scopes this down to "just make agy work" and drops the
 gate must be rejected as not satisfying RFC 0109.
+
+## Phase B closeout (2026-06-03, accepted — D163)
+
+P3 landed alongside P1; the scope guard is satisfied.
+
+- **[hermetic gate] ✓** `adapterconformance.RunInstalledCLI` (new
+  `installedcli.go`) drives the REAL agy CLI through a two-turn
+  `claim → publish → claim` and asserts the SAME attested session drives both
+  turns (#95) — green ×3. The harness gained a unix-socket RPC listener
+  (`rpc.Server.Serve`, the production pair) so the agent-loop receive loop is
+  driven, plus the ctx-threaded `agentloop.RunContext` seam. Gated behind
+  `STRIATUM_P3_INSTALLED_CLI` (release-blocking scheduled tier; skips when the CLI
+  or PostgreSQL is absent). **Finding: #95/#139/#85 do NOT reproduce against the
+  current installed agy CLI** — agy launches past the trust/telemetry prompts and
+  reaches `work.claim` without a discovery stall, so P1's defects are
+  resolved-as-of-current-CLI and the gate's enduring role is anti-re-rot.
+- **[hermetic gate] ✓** `degraded_seat_lane` surfaces a degraded/unsupported seat
+  (now exercised via `RegisterDegradedSeatForTest`, since agy graduated and no
+  production seat is degraded). agy graduated `degraded`→`supported`
+  (`InstalledCLISeatFixtures[agy]` + `supportedSeats`, guard-reconciled), so the
+  warning correctly stops firing for agy.
+- **[live-corroborated] ✓** 3-lane interrogating panel `run_139c5981`: the agy
+  reviewer held its seat across a `needs_revision` cycle — voted `needs_revision`
+  on attempt 1, the presenter revised, and the agy reviewer re-reviewed + accepted
+  on attempt 2 under a fresh ATTESTED session (the #139/#95 inverse, proven).
+- **[live-corroborated, restart] ✓ (panel-level)** the same 3-lane run SURVIVED a
+  mid-run `systemctl restart striatumd` and finalized: codex (holding the review
+  lease) and the interrogable presenter resumed post-restart (interrogation
+  round-trip + `accept` verdict + `run.completed` after the restart;
+  `daemon.recovery_sweep` re-bridged the lanes). agy had completed its cycle before
+  the restart, so agy-specific restart-survival is inferred from the shared
+  supervision path — a direct agy-restart-while-leased leg is the one follow-up.
+
+codex remains `experimental`: it does not reach `work.claim` against the
+in-process httptest harness (works live; its hermetic MCP path is a follow-up), so
+it holds no installed-CLI fixture.
 
 ## Non-goals
 
