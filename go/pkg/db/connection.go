@@ -155,6 +155,30 @@ func (t *PgxTxRunner) Exec(ctx context.Context, sql string, args ...any) error {
 	return err
 }
 
+// boundExecArgs prepends the extended-protocol exec mode to a parameter list.
+// Under pgx the leading args may carry a QueryExecMode that overrides the pool
+// default; QueryExecModeExec uses the extended wire protocol (Parse/Bind/
+// Execute), so bound values travel in Bind messages and never interpolate into
+// the SQL text observable via pg_stat_activity.query. This is the sole
+// transport the RFC 0110 authority/attribution prelude is permitted to use
+// (C-EXTENDED-AUTH-PRELUDE); the pool default stays simple protocol so
+// multi-statement migration DDL keeps working.
+func boundExecArgs(args ...any) []any {
+	bound := make([]any, 0, len(args)+1)
+	bound = append(bound, pgx.QueryExecModeExec)
+	bound = append(bound, args...)
+	return bound
+}
+
+// ExecBound executes sql over the extended protocol with bound parameters,
+// regardless of the pool's default exec mode. The RFC 0110 prelude uses only
+// this method so the daemon-authority secret and attribution labels stay out of
+// pg_stat_activity query text.
+func (t *PgxTxRunner) ExecBound(ctx context.Context, sql string, args ...any) error {
+	_, err := t.Tx.Exec(ctx, sql, boundExecArgs(args...)...)
+	return err
+}
+
 func (t *PgxTxRunner) QueryRow(ctx context.Context, sql string, args ...any) Row {
 	return t.Tx.QueryRow(ctx, sql, args...)
 }
