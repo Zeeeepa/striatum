@@ -114,15 +114,25 @@ with an explicit status (`supported` / `degraded` / `unsupported`) that a run
 - The seat's tier is asserted by a **standing CI gate** (P3), so "agy is broken"
   is a red build, not tribal knowledge that resets every umbrella.
 
-### P3 — Acceptance gate that does not evaporate
+### P3 — Acceptance gate that does not evaporate — REQUIRED, not optional
 
-The RFC 0101 Layer-2 adapter-conformance fixture runs an **`agy` lane through a
-two-turn `claim → publish → claim` cycle against the *installed* CLI** in CI (the
-harness today drives an in-process fake agent, not the real CLI — this is a new
-installed-CLI conformance path, shared with the codex seat). A version bump or
+**P3 is a mandatory deliverable of this RFC, not a nice-to-have.** It is the only
+part of the proposal that prevents the *re-rot*: P1 makes agy work *today*, but
+without P3 the next claude/codex CLI version bump, trust-prompt change, or
+config-format shift silently breaks a seat again with nothing to catch it — and
+the deferral cycle this RFC exists to end simply restarts. A build that ships P1
+(the agy bug-fixes) without P3 (the standing gate) does **not** satisfy this RFC;
+it just resets the clock. Treat "fix agy" without the gate as out of scope for
+*closing* this RFC.
+
+The gate: the RFC 0101 Layer-2 adapter-conformance fixture runs an **`agy` lane
+through a two-turn `claim → publish → claim` cycle against the *installed* CLI** in
+CI (the harness today drives an in-process fake agent, not the real CLI — this is a
+new installed-CLI conformance path, shared with the codex seat). A version bump or
 config drift that breaks the agy seat **fails CI**, not a live panel three weeks
 later. The gate is per-seat, so two passing seats can never green-light a third
-broken one.
+broken one. It must run on every CI run (or a scheduled tier that blocks release),
+not as a manual or opt-in check.
 
 ## Acceptance
 
@@ -140,6 +150,13 @@ broken one.
   `systemctl restart striatumd` mid-run (the RFC 0103 W3 fault class) once the
   transport fix lands — otherwise the seat is explicitly tiered non-restart-robust
   and that tier is surfaced, not hidden.
+
+**Definition of done (scope guard):** this RFC is closed only when **P3 is
+landed** — the standing installed-CLI conformance gate — alongside P1. P1 without
+P3 is explicitly **not** done: it fixes the lane for now but leaves the seat
+ungated, which is the precondition for the very re-rot this RFC ends. Any
+implementation plan that scopes this down to "just make agy work" and drops the
+gate must be rejected as not satisfying RFC 0109.
 
 ## Non-goals
 
