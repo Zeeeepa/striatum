@@ -655,8 +655,15 @@ func canonicalBylineForm(line string) string {
 	for strings.HasPrefix(stripped, "#") {
 		stripped = strings.TrimSpace(stripped[1:])
 	}
+	// Neutralize markdown emphasis around the byline. Asterisks never appear in
+	// a valid author label, so deleting them all is safe. Underscores, however,
+	// ARE legitimate inside labels (operator self-declared labels and role ids
+	// like reviewer_ops_tests / findings_ledger), and emphasis only WRAPS the
+	// line — so trim underscore wrappers at the ends rather than stripping
+	// interior ones. Deleting interior underscores made an underscore label
+	// permanently unmatchable against the packet's expected byline (#143).
 	stripped = strings.ReplaceAll(stripped, "*", "")
-	stripped = strings.ReplaceAll(stripped, "_", "")
+	stripped = strings.Trim(stripped, "_")
 	stripped = strings.TrimSpace(stripped)
 	if !strings.HasPrefix(strings.ToLower(stripped), "author:") {
 		return ""
