@@ -4,6 +4,18 @@
 
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
+- **#144 — recovery auto-publish of a review now records its verdict.** When the
+  stale-lease auto-publish pass completed a review/phase_synthesis job from its
+  on-disk finding artifact, it recorded no verdict, so the verdict-gated
+  `--accepted review-->` downstream edge never fired and the run wedged with every
+  job green (and the operator's obvious `override-verdict` via `register-session
+  --replace` knocked the completed job into messageless `queued`). The auto-publish
+  pass now recovers the verdict from the finding's `verdict_intent` front matter and
+  runs the same completion / bounded-cycle / downstream routing `review.verdict`
+  does (the shared core was factored out as `applyVerdict`, which tolerates the
+  stale lease). accept / accept_with_findings / needs_revision are applied; a
+  recovered `reject` (whose interactive self-correction guard would error) falls
+  back to plain completion rather than wedging the sweep.
 - **#145 — recovery no longer false-requeues an actively-working lane.** The
   liveness classifier's lease-heartbeat rung tripped `agent_lease_heartbeat_stall`
   (→ `ProtocolStalled`) without considering PTY/tool output, unlike the adjacent

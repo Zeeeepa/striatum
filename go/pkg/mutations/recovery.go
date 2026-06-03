@@ -504,7 +504,36 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				}
 				artifacts = append(artifacts, artifact)
 			}
-			complete, err := completeAutoRecoveredJob(ctx, tx, repositoryID, jobID, sessionID, leaseID, messageID)
+			var complete map[string]any
+			if isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
+				// #144: a verdict-bearing job (review / phase_synthesis) that stalled
+				// after writing its finding artifact but before recording the verdict
+				// must have that verdict recorded on recovery. Otherwise the job
+				// completes with no verdict row and the verdict-gated --accepted
+				// review--> edge never fires, wedging the run with every job green.
+				// Recover the verdict from the on-disk finding's verdict_intent and run
+				// the same completion / cycle / downstream routing recordVerdict does
+				// (applyVerdict is the shared core; it tolerates the stale lease).
+				verdict, findingArtifactID, found, verr := recoveredReviewVerdict(fmt.Sprint(run["repo_root"]), publishable, artifacts)
+				if verr != nil {
+					return nil, verr
+				}
+				// Route only the verdicts the autonomous path can cleanly apply
+				// (accept / accept_with_findings clear the gate; needs_revision routes
+				// the bounded cycle or opens a checkpoint). A `reject` carries an
+				// interactive self-correction guard that returns an error when the
+				// workflow declares a revision cycle — which here would roll back the
+				// whole sweep — so it falls back to plain completion (pre-#144 behavior)
+				// rather than wedging recovery for the run.
+				if found && autonomouslyApplicableVerdict(verdict) {
+					complete, err = applyVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, job, findingArtifactID,
+						"autonomous recovery: verdict auto-recorded from on-disk finding")
+				} else {
+					complete, err = completeAutoRecoveredJob(ctx, tx, repositoryID, jobID, sessionID, leaseID, messageID)
+				}
+			} else {
+				complete, err = completeAutoRecoveredJob(ctx, tx, repositoryID, jobID, sessionID, leaseID, messageID)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -897,6 +926,59 @@ func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID stri
 		})
 	}
 	return publishable, nil
+}
+
+// recoveredReviewVerdict extracts a verdict-bearing job's verdict from the
+// just-published finding artifact's verdict_intent front matter, pairing it with
+// that finding's published artifact_id (publishable[i] <-> artifacts[i]). #144:
+// the stale-lease auto-publish path uses this to record the review's ACTUAL
+// verdict on recovery (honoring what the reviewer decided on disk), not a blanket
+// accept. Returns found=false when no finding with a verdict_intent is among the
+// published artifacts, so the caller falls back to a plain completion.
+func recoveredReviewVerdict(repoRoot string, publishable, artifacts []map[string]any) (verdict string, findingArtifactID any, found bool, err error) {
+	for i, declared := range publishable {
+		kind := fmt.Sprint(declared["kind"])
+		if _, ok := frontMatterSchemas[kind]; !ok {
+			continue
+		}
+		pathText := fmt.Sprint(declared["path"])
+		path, perr := repoRelativePath(repoRoot, pathText, false)
+		if perr != nil {
+			continue
+		}
+		payload, rerr := os.ReadFile(filepath.Clean(path))
+		if rerr != nil {
+			continue
+		}
+		fm, ferr := autoFinalizeRequiredFrontMatter(kind, path, payload)
+		if ferr != nil {
+			return "", nil, false, ferr
+		}
+		v, ok := fm["verdict_intent"].(string)
+		if !ok || v == "" {
+			continue
+		}
+		if i < len(artifacts) {
+			findingArtifactID = artifacts[i]["artifact_id"]
+		}
+		return v, findingArtifactID, true, nil
+	}
+	return "", nil, false, nil
+}
+
+// autonomouslyApplicableVerdict reports whether the autonomous stale-lease
+// recovery path can cleanly apply a recovered verdict. accept / accept_with_findings
+// complete the gate and needs_revision routes the bounded cycle (or opens a
+// checkpoint) — none of which error. reject is excluded: its revision-cycle
+// self-correction guard returns an error that would roll back the whole sweep, so
+// a recovered reject falls back to plain completion instead.
+func autonomouslyApplicableVerdict(verdict string) bool {
+	switch verdict {
+	case "accept", "accept_with_findings", "needs_revision":
+		return true
+	default:
+		return false
+	}
 }
 
 func publishRecoveredArtifact(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string, leaseID string, repoRoot string, declared map[string]any) (map[string]any, error) {

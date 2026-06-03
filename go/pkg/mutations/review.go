@@ -502,6 +502,20 @@ func recordVerdict(
 			return nil, rpc.NewError("invalid_transition", "findings artifact belongs to a different job", nil)
 		}
 	}
+	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale)
+}
+
+// applyVerdict records the verdict row and runs the completion / cycle / downstream
+// routing for a verdict-bearing job. It is the post-precondition core of
+// recordVerdict, factored out (#144) so the autonomous stale-lease recovery path
+// can record a verdict (and route its cycle / downstream edge) for a review whose
+// lane stalled after writing its finding artifact but before recording the verdict
+// — without re-imposing recordVerdict's active-lease / attestation / running-state
+// preconditions, which by construction do not hold for a stale lane. Every state
+// mutation it performs (completeReviewJob / failReviewJob / routeRevisionCycle) is
+// lease-state-tolerant (unconditional UPDATEs keyed by id), so it is safe on a
+// stale lane.
+func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID, verdict string, job map[string]any, findingsArtifactID, rationale any) (map[string]any, error) {
 	verdictID, err := newID("verdict")
 	if err != nil {
 		return nil, err
