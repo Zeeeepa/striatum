@@ -245,6 +245,32 @@ func TestHandleSuperviseStatusKeepsGonePIDAsReadProjection(t *testing.T) {
 	}
 }
 
+// TestHandleSuperviseStatusExposesDistinctLivenessSignals guards #147 Symptom A:
+// the single `liveness` field conflates the agent-process liveness, the
+// supervisor-bridge state, and the lease freshness, so an operator cannot tell a
+// detached/stopped bridge whose agent child is still alive from a genuinely dead
+// lane. The status projection must expose them as distinct fields. Here the lane
+// is gone (no live PID) so agent_pid_alive is false, but supervisor_state still
+// surfaces the bridge state and lease_fresh is false.
+func TestHandleSuperviseStatusExposesDistinctLivenessSignals(t *testing.T) {
+	runner := &superviseReadFakeRunner{}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	if result["agent_pid_alive"] != false {
+		t.Fatalf("agent_pid_alive = %#v, want false (gone lane)", result["agent_pid_alive"])
+	}
+	if result["supervisor_state"] != "attached" {
+		t.Fatalf("supervisor_state = %#v, want attached (the bridge state, distinct from liveness)", result["supervisor_state"])
+	}
+	if result["lease_fresh"] != false {
+		t.Fatalf("lease_fresh = %#v, want false (no live lease)", result["lease_fresh"])
+	}
+}
+
 func TestHandleSuperviseStatusTreatsStartTokenMismatchAsGone(t *testing.T) {
 	row := superviseBaseRow("sup_mismatch", os.Getpid(), "different-start-token")
 	runner := &superviseReadFakeRunner{statusRow: row}
@@ -291,6 +317,10 @@ func TestHandleSuperviseStatusReportsTmuxLivenessClass(t *testing.T) {
 	}
 	if result["liveness"] != "alive" || result["lane_attestation"] != "attested" {
 		t.Fatalf("status projection = %#v", result)
+	}
+	// #147 Symptom A: a live agent surfaces agent_pid_alive=true distinctly.
+	if result["agent_pid_alive"] != true {
+		t.Fatalf("agent_pid_alive = %#v, want true (probe alive)", result["agent_pid_alive"])
 	}
 	tmux := result["tmux"].(map[string]any)
 	liveness := tmux["liveness"].(map[string]any)

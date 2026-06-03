@@ -4,6 +4,14 @@
 
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
+- **#147 Symptom A — `supervise status` exposes distinct liveness signals.** The
+  single `liveness` field (gone/alive/stalled) was computed off the supervisor
+  bridge and conflated three independent facts, so an operator could not tell a
+  detached/stopped bridge whose agent child is still alive (a false `gone`) from a
+  genuinely dead lane. The status projection now also surfaces `agent_pid_alive`
+  (the probed liveness of the supervised process), `supervisor_state` (the bridge
+  state), and `lease_fresh` (whether the work lease is still live). With Symptom B
+  already fixed (`de30eb11`, masked-dead-agent requeue), this closes #147.
 - **#146 (partial) — supervised lanes report an honest delivery mode.** A lane that
   does not use the agent loop is a stdin-FIFO/push consumer, not a true self-driver
   that calls `work.await_packet`, yet every supervised lane was hardcoded

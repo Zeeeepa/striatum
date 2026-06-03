@@ -122,6 +122,7 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	pid, hasPID := intValueOptional(supervisor["pid"])
 	pointerMetadata := superviseObject(rows[0]["pointer_metadata_json"])
 	liveness := "gone"
+	agentPIDAlive := false
 	var progress map[string]any
 	if hasPID && supervisorActiveStatesRead[state] {
 		live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(supervisor["pid_start_time"]))
@@ -136,6 +137,7 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		}
 		if live.Alive {
 			liveness = "alive"
+			agentPIDAlive = true
 			progress, err = supervisorProgressForSession(ctx, runner, repositoryID, sessionID, defaultSupervisorStallAfterSeconds)
 			if err != nil {
 				return nil, err
@@ -163,9 +165,20 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		supervisor["pid_identity"] = pidIdentityFromReason(alive, reason)
 		if alive {
 			liveness = "alive"
+			agentPIDAlive = true
 		}
 	}
 	supervisor["liveness"] = liveness
+	// #147 Symptom A: the single `liveness` field conflates three independent
+	// signals, so an operator cannot tell a detached/stopped supervisor bridge
+	// whose agent child is still alive (the false-`gone` case) from a genuinely
+	// dead lane. Expose them distinctly: agent_pid_alive is the probed liveness of
+	// the supervised process; supervisor_state is the bridge state (which may have
+	// just been reconciled to `stopped` above); lease_fresh is whether the work
+	// lease is still live.
+	supervisor["agent_pid_alive"] = agentPIDAlive
+	supervisor["supervisor_state"] = superviseString(supervisor["state"])
+	supervisor["lease_fresh"] = progress != nil && progress["lease_id"] != nil && !boolValue(progress["lease_expired"])
 	if progress != nil {
 		supervisor["active_lease_id"] = progress["lease_id"]
 		supervisor["active_lease_expires_at"] = progress["lease_expires_at"]
