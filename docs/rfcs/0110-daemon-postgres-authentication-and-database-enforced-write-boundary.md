@@ -1,9 +1,77 @@
 # RFC 0110: Daemon → PostgreSQL authentication and the database-enforced write boundary
 
-Status: accepted (D164)
+Status: accepted (D164); implementation spec published 2026-06-03 (see below)
 Date: 2026-06-03
 author: proposer-claude-opus-4-8-001
 Context: RFC 0033 (PostgreSQL as sole substrate; §3 append-only audit invariant), RFC 0043 (daemon-required runtime), RFC 0079 §5 (owner-applied migrations), RFC 0096 (supervised-lane trust boundary; session-bound capability tokens), RFC 0107 (multi-principal trust model), GH #87 (lane PG-reachability). Touchpoints: `go/pkg/db/connection.go` (`Connect`/`ConnectAndMigrate`/`ResolveConfig`, pgx v5 + pgxpool, simple protocol), `go/pkg/db/audit.go` (`AuditRecorder`, `V2RowHash`, `VerifyRows`), `go/pkg/reads/doctor_lane_sandbox.go` (the advisory `lane_pg_reachable` warning), `go/pkg/mutations/supervision_control.go` (lane env allowlist), `docs/how-to/postgres-transition.md` (the documented `striatumd_rw` / owner two-role posture), migrations `0001/0005/0006/0013` (existing `REVOKE UPDATE/DELETE` on append-only tables).
+
+## Implementation spec (cycle-2 + revision deltas, accepted)
+
+> **The authoritative implementation spec is**
+> [`docs/operator/artifacts/rfc-0110-pg-auth/spec_publication/synthesis/SPEC_PUBLICATION.md`](../operator/artifacts/rfc-0110-pg-auth/spec_publication/synthesis/SPEC_PUBLICATION.md),
+> produced by the 3-model adjudicated-constraint-extraction design panel
+> (`run_8e14cb48`, accepted via operator decision `dec_b95396ff`). It carries
+> the normative constraint→gate→lands matrix (§14) and the gate-first release
+> sequencing (§15). Where the prose below disagrees with the published spec, the
+> **spec governs.** The narrowing/hardening deltas it introduced over the
+> original proposal:
+
+- **The L1 trust boundary is a non-spoofable daemon-authority gate, not GUC
+  attribution.** Every owner-owned `SECURITY DEFINER` write function begins with
+  `assert_daemon_authority()`, which compares `sha256(presented‖salt)` against a
+  digest held in an **owner-only** `daemon_auth_registry` the runtime role cannot
+  read; the secret is a RAM-only `crypto/rand` value generated per daemon
+  instance. A `striatumd_rw` caller cannot forge it, read the digest, or learn it
+  from the function (closes the cycle-1 critical `C-EXEC-AUTH`).
+- **L3 attribution is corrected to an in-transaction prelude over the extended
+  protocol** — *not* `pgxpool.BeforeAcquire` (a `SET LOCAL` invariant cannot hold
+  there, since `BeforeAcquire` fires before the mutation transaction). A single
+  constructor `BeginAuthorizedMutation` begins the tx and issues
+  `set_config('striatum.daemon_auth', secret, true)` (statement 1) plus the
+  `rpc_id`/`principal_id`/`session_id` labels via a bound-parameter `ExecBound`
+  path (`pgx.QueryExecModeExec`), so neither secret nor labels appear in
+  `pg_stat_activity.query` (closes the cycle-2 critical `C-EXTENDED-AUTH-PRELUDE`;
+  the pool default stays simple protocol for multi-statement migration DDL).
+  **GUCs are labels only, never authority** (`C-GUC-NONAUTH`); RLS row-scoping is
+  defense-in-depth under an already-authorized session.
+- **The in-DB chain hash uses a new v3 length-prefixed `bytea` canonical, not a
+  PL/pgSQL port of Go `encoding/json`.** Escaping-free and key-order-free, so it
+  is byte-identical in Go (`V3RowHash`) and PL/pgSQL by construction; `V2RowHash`
+  is preserved permanently as the reader of pre-cutover rows; `VerifyRows`
+  dispatches on `hash_format_version` (unknown ⇒ verifier failure). The cutover
+  is **one release gate** (`R-V3`) behind an operator flag defaulting to v2.
+- **Audit append becomes fail-closed and mutation-coupled.** For mutating RPCs
+  the audit row is the final write **inside the same transaction** (atomic with
+  the mutation); standalone appends (reads/denials/transport errors) convert an
+  append failure into an `audit_append_failed` error. The today's fail-open
+  `auditErr`-ignored path is removed.
+- **Claims are narrowed and phase-keyed.** G1 (invariant integrity) and G2
+  (daemon issuance) are separated; the "the daemon's durable write paths are
+  DB-enforced" claim is reserved to phase **P2 `full`** under the fixed phase
+  nomenclature **P0 `audit_only` → P1 `audit_artifacts` → P2 `full`**, each keyed
+  to the doctor `pg_write_boundary` posture string. The earlier "a leaked DSN is
+  uninteresting" framing is **retracted** as overbroad: read confidentiality
+  against a *live* runtime credential is not claimed this phase (bounded by L0
+  rotation + L2 isolation); a **read-scope least-privilege successor**
+  (#164) is filed before the first behavior-changing PR merges.
+- **#87 status language is fixed: "mitigated, pending lane-OS-user default."**
+  #87 closes only when all four L2 gates are live — the PG-less lane OS user, the
+  `0700` startup-asserted socket directory, `T-LANE-ISOLATION-NEG` green in CI,
+  and blocking `daemon doctor` for PG-reachable lanes under the secure profile.
+- **Owner DDL ships as versioned atomic owner bundles** (`go/pkg/db/sql/owner/`)
+  applied out-of-band as the owner role, with a startup capability-parity check
+  (both directions) and an N→N+1 two-release sequencing so the old-binary check
+  is real. `pgtest` consumes the **production** owner-bundle SQL (no imperative
+  Go `GRANT`) so the `42501` negative-path gate cannot false-green.
+- **Authority validity is lifetime-of-instance** (no freshness window — the
+  self-wedge mode is structurally absent); a missing/superseded registry row
+  raises a loud `daemon_auth_lost` diagnostic. The concurrent-rotator probe is
+  **role-scoped** (`daemon_auth_registry.role_name`) so per-instance roles on a
+  shared PG don't false-trip.
+
+The four-layer model below (L0–L3), acceptance, non-goals, sequencing, and the
+rejected-alternatives appendix remain the design context; the published spec is
+the binding implementation contract.
 
 ## Problem
 

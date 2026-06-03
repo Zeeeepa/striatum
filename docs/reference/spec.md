@@ -119,6 +119,63 @@ and `daemon migrate` spellings are fully removed. CLI verbs against an unregiste
 reachable daemon refuse with exit code 11 (`daemon_unreachable`). Neither
 refusal opens or creates any local database file.
 
+### Daemon→PostgreSQL authentication and the database-enforced write boundary (RFC 0110)
+
+RFC 0110 (accepted D164; authoritative implementation spec at
+`docs/operator/artifacts/rfc-0110-pg-auth/spec_publication/synthesis/SPEC_PUBLICATION.md`)
+moves the "artifact/RPC API is the sole write path" invariant out of the daemon
+process and into PostgreSQL itself, in phases. This is the binding model; the
+phase nomenclature and claim-keying below are normative.
+
+- **Authority gate (L1).** Protected durable surfaces are written only through
+  owner-owned `SECURITY DEFINER` functions that begin with
+  `assert_daemon_authority()` — a check of a per-instance, RAM-only secret whose
+  digest lives in an **owner-only** registry the runtime role (`striatumd_rw`)
+  cannot read. Direct DML on a protected surface is `REVOKE`d from the runtime
+  role per phase, so a leaked runtime DSN cannot forge artifacts or tamper with
+  the audit chain: it lacks both the table-level privilege and the secret. Two
+  guarantees are separated: **G1** invariant integrity (append-only / hash-chain
+  / attempt-scope cannot be violated) and **G2** daemon issuance (a write
+  succeeds only if the caller presents the daemon-authority secret).
+- **In-transaction attribution prelude (L3).** Every mutating transaction is
+  opened through a single constructor that, as its first statement and over the
+  **extended protocol** (bound parameters, never simple-protocol text), sets the
+  authority secret plus `striatum.rpc_id` / `striatum.principal_id` /
+  `app.session_id` labels so neither secret nor labels appear in
+  `pg_stat_activity`. These GUCs are **attribution labels only, never
+  authority**; RLS row-scoping is defense-in-depth under an already-authorized
+  session, never the trust boundary.
+- **Fail-closed, mutation-coupled audit.** For a mutating RPC the audit row is
+  the final write **inside the same transaction**, so success-without-audit-row
+  is impossible. Standalone audit appends (reads, denials, transport errors)
+  convert an append failure into an `audit_append_failed` error rather than
+  succeeding silently. The audit chain hash moves in-DB through a versioned
+  length-prefixed canonical form (`hash_format_version` 3) that is byte-identical
+  in Go and PL/pgSQL; the prior Go-only v2 hash remains the permanent reader of
+  pre-cutover rows, and the cutover is a single operator-gated release step.
+- **Phased write closure (claim-keyed).** Closure lands in fixed phases, each
+  reported by the `daemon doctor` `pg_write_boundary` posture string, and every
+  operator-facing claim is keyed to it: **P0 `audit_only`** (`audit_log`
+  DB-enforced) → **P1 `audit_artifacts`** (+ `artifacts`) → **P2 `full`**
+  (+ `events`). The claim "the daemon's durable write paths are DB-enforced" is
+  reserved to **P2 `full`** and may not be made before the posture string reads
+  `full`.
+- **Ephemeral runtime credential (L0) and lane isolation (L2).** The runtime
+  password is owner-bootstrapped and RAM-only, re-rotated each daemon restart, so
+  a captured DSN string dies at the next restart; where owner==runtime (the
+  documented live PEER posture) rotation is inert and surfaces as a doctor
+  posture finding. A dedicated PG-less lane OS user plus a `0700` socket
+  directory make PostgreSQL unreachable from lanes as the hardened default.
+  **GH #87 status: "mitigated, pending lane-OS-user default"** — it closes only
+  when the lane OS user, the startup-asserted `0700` socket directory, the
+  negative lane-isolation CI gate, and blocking doctor behavior under the secure
+  profile are all live.
+
+Read confidentiality against a *live* runtime credential is **not** claimed by
+RFC 0110 in these phases (the runtime role retains broad `SELECT`); it is bounded
+by L0 rotation and L2 isolation, and a read-scope least-privilege successor is
+tracked separately (#164). The decision log records each per-phase decision on landing.
+
 ## Workflow Config
 
 Workflow config is JSON only. The validator rejects `.yaml` and `.yml` files
