@@ -8,6 +8,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -189,7 +190,11 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		       s.liveness_stall_class, s.liveness_stall_since,
 		       al.lease_id AS active_lease_id, al.acquired_at AS active_lease_acquired_at,
 		       al.expires_at AS active_lease_expires_at,
-		       al.last_heartbeat_at AS active_lease_last_heartbeat_at
+		       al.last_heartbeat_at AS active_lease_last_heartbeat_at,
+		       sp.pid AS supervisor_pointer_pid,
+		       sp.pid_start_time AS supervisor_pointer_pid_start_time,
+		       sp.state AS supervisor_pointer_state,
+		       sp.metadata_json AS supervisor_pointer_metadata_json
 		  FROM striatumd.jobs j
 		  LEFT JOIN LATERAL (
 		    SELECT lz.lease_id, lz.state, lz.expires_at, lz.owner_session_id
@@ -211,6 +216,14 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		     ORDER BY az.acquired_at DESC, az.lease_id DESC
 		     LIMIT 1
 		  ) al ON true
+		  LEFT JOIN LATERAL (
+		    SELECT pp.pid, pp.pid_start_time, pp.state, pp.metadata_json
+		      FROM striatumd.process_supervisor_pointers pp
+		     WHERE pp.repository_id = s.repository_id
+		       AND pp.session_id = s.session_id
+		     ORDER BY pp.updated_at DESC, pp.supervisor_id DESC
+		     LIMIT 1
+		  ) sp ON true
 		 WHERE j.repository_id = $1
 		   AND j.run_id = $2
 		   AND j.state IN ('claimed','running','stale_lease')
@@ -304,8 +317,25 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			closeStalledOwner = true
 		default:
 			// working_* / quiet (pre-deadline), or a live lease that has not yet
-			// expired: not genuinely stuck. Leave it.
-			continue
+			// expired: not genuinely stuck BY the session/lease liveness signal.
+			// But lease/heartbeat freshness is forgeable by an out-of-band operator
+			// `striatum heartbeat` loop (the documented long-command lease-expiry
+			// mitigation), while an actually-dead agent PROCESS is not. If the
+			// supervised agent is confirmed dead, this is a masked dead lane (#147
+			// Symptom B) that would otherwise sit `running` forever — requeue it on
+			// the same attempt and close the falsely-active owning session. The
+			// probe is positive (a dead PID / dead pane), so a genuinely-working
+			// lane — including one whose supervisor bridge merely detached while the
+			// agent runs (#147 Symptom A) — is never requeued, and an indeterminate
+			// probe leaves the job untouched.
+			if !supervisedAgentConfirmedDead(ctx, row) {
+				continue
+			}
+			action = "requeue_same_attempt"
+			counterColumn = "requeue_count"
+			forceExpire = true
+			closeStalledOwner = true
+			stallClass = "agent_pid_dead"
 		}
 
 		budget, berr := readJobRecoveryBudget(ctx, tx, repositoryID, jobID)
@@ -490,6 +520,36 @@ func closeLeakedInterrogationWindow(ctx context.Context, tx db.TxRunner, reposit
 		return false, nil
 	}
 	return maybeCloseInterrogationTarget(ctx, tx, repositoryID, runID, sessionID)
+}
+
+// supervisedAgentConfirmedDead reports whether the owning session's supervised
+// agent PROCESS is positively dead — the #147 Symptom B signal that, unlike
+// lease/heartbeat freshness, an out-of-band operator `striatum heartbeat` loop
+// cannot forge. It requires a recorded supervisor pointer: a pointer already
+// marked lost/stopped is conclusive; otherwise the recorded agent is probed with
+// the same ProbeLaneLiveness the process reconcile uses (the tmux pane for tmux
+// lanes, the PID + start-token for plain lanes, so a reused PID is not mistaken
+// for the original). An UNAVAILABLE probe (e.g. tmux not reachable) returns
+// false: a lane we cannot positively judge dead is left alone, never requeued.
+func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool {
+	state := fmt.Sprint(nullable(row["supervisor_pointer_state"]))
+	if state == "lost" || state == "stopped" {
+		return true
+	}
+	pid := intFromAny(row["supervisor_pointer_pid"], 0)
+	if pid <= 0 {
+		return false // no recorded agent process to judge
+	}
+	metadata := asMap(row["supervisor_pointer_metadata_json"])
+	expectedStart := fmt.Sprint(nullable(row["supervisor_pointer_pid_start_time"]))
+	if expectedStart == "<nil>" {
+		expectedStart = ""
+	}
+	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, metadata, pid, expectedStart)
+	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
+		return false // cannot determine; do not requeue a possibly-live lane
+	}
+	return !live.Alive
 }
 
 // leaseStaleActive reports whether the job's resolved lease is still 'active'

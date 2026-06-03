@@ -110,6 +110,59 @@ func injectDeadLane(t *testing.T, ctx context.Context, runner db.Runner, reposit
 	}
 }
 
+// injectMaskedDeadAgent simulates #147 Symptom B (the masked-dead-agent silent
+// wedge): the supervised AGENT process died, but an operator heartbeat loop
+// (`striatum heartbeat --session-id --lease-id`, the documented long-command
+// lease-expiry mitigation) keeps the lease and session WARM, so the
+// lease-freshness liveness signal masks the death and the job sits `running`
+// forever, never requeued. Unlike injectDeadLane it does NOT close the session
+// or release the lease — instead it refreshes the lease expiry + heartbeat (the
+// operator keeping it alive) and records the supervised agent as an `attached`
+// pointer whose PID is not alive (a PID above any real Linux pid). State stays
+// `attached` because nothing marked it lost: the background sweep never probes
+// the agent PID — that IS the bug. The recovery sweep must detect the dead agent
+// and requeue despite the warm lease.
+func injectMaskedDeadAgent(t *testing.T, ctx context.Context, runner db.Runner, repositoryID, runID, sessionID, jobID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	const deadPID = 2147483646 // above any real Linux PID -> syscall.Kill(deadPID,0)==ESRCH (dead)
+	// The operator heartbeat keeps the lease warm: future expiry + fresh heartbeat.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET expires_at = $1, last_heartbeat_at = $2
+		 WHERE repository_id = $3 AND resource_id = $4 AND state = 'active'`,
+		now.Add(time.Hour), now, repositoryID, jobID); err != nil {
+		t.Fatalf("inject masked dead agent (warm lease %s): %v", jobID, err)
+	}
+	// Age any prior (released/expired) lease on the job into the past so the
+	// recovery lease resolver unambiguously picks the live att2 lease. In a real
+	// run the prior attempt's lease was released minutes ago; the harness creates
+	// both within the same second, and recoverStuckJobs orders leases by
+	// (acquired_at DESC, lease_id DESC), so a same-second tie would let the random
+	// lease_id resolve the closed-session released lease and mask the test's
+	// intent. (The same-second tie is a latent false-requeue risk in its own
+	// right — tracked separately.)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET acquired_at = $1
+		 WHERE repository_id = $2 AND resource_id = $3 AND state <> 'active'`,
+		now.Add(-10*time.Minute), repositoryID, jobID); err != nil {
+		t.Fatalf("inject masked dead agent (age prior leases %s): %v", jobID, err)
+	}
+	// Record the supervised agent as a (secretly dead) attached pointer.
+	supID := "sup_masked_" + sessionID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.process_supervisor_pointers (
+		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		  pid, pid_start_time, state, updated_at, metadata_json
+		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)
+		ON CONFLICT (repository_id, supervisor_id) DO UPDATE
+		   SET pid = EXCLUDED.pid, state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`,
+		repositoryID, supID, "dsup_masked_"+sessionID, runID, sessionID, deadPID, now); err != nil {
+		t.Fatalf("inject masked dead agent (pointer %s): %v", sessionID, err)
+	}
+}
+
 // injectStalledLane simulates a STALLED lane: the session is still active (the
 // pane never died, it is wedged), but it has produced NO protocol / PTY / tool
 // progress past every liveness deadline. It ages every last_* protocol column,

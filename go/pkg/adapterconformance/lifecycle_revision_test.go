@@ -310,6 +310,58 @@ func TestRevisionLifecycleLaneDeathSelfRecovers(t *testing.T) {
 	}
 }
 
+// TestRevisionLifecycleMaskedDeadAgentRequeues is the #147 Symptom B fault cell:
+// the att2 implementer's supervised AGENT process dies, but an operator heartbeat
+// keeps its lease + session warm, so the lease-freshness signal masks the death.
+// On main the recovery sweep leaves the job `running` forever (the silent wedge:
+// "a dead agent is indistinguishable from a slow one when the only liveness
+// signal is lease freshness"). The fix probes the supervised agent PID, finds it
+// dead, and requeues on the same attempt despite the warm lease — a fresh lane
+// then completes the revision and the re-review accepts, unattended.
+func TestRevisionLifecycleMaskedDeadAgentRequeues(t *testing.T) {
+	repoID := "repo_revlife_masked"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+	lc := seedRevisionLifecycleRun(t, ctx, h, repoID)
+
+	driveImplementer(t, ctx, h, lc, true)
+	driveReviewerVerdict(t, ctx, h, lc, "needs_revision")
+	priorAttempt := chaosJobAttempt(t, ctx, h, lc.fx.JobID)
+
+	// att2 implementer claims + acks the re-opened job (fresh lease), then its
+	// agent process dies while an operator heartbeat keeps the lease + session
+	// warm. The session is NOT closed and the lease is NOT released.
+	deadSession := driveImplementer(t, ctx, h, lc, false)
+	injectMaskedDeadAgent(t, ctx, h.Runner, repoID, lc.fx.RunID, deadSession, lc.fx.JobID)
+	if got := chaosJobState(t, ctx, h, lc.fx.JobID); got != "running" {
+		t.Fatalf("pre-sweep implement state = %q, want running (masked dead agent, warm lease)", got)
+	}
+
+	summary := runSweep(t, ctx, h, lc.fx.RunID)
+	if summary.escalationCount != 0 {
+		t.Fatalf("masked-dead-agent recovery raised %d escalations, want 0 (self-recover); result=%#v", summary.escalationCount, summary.result)
+	}
+	if got := chaosJobState(t, ctx, h, lc.fx.JobID); got != "queued" {
+		t.Fatalf("post-sweep implement state = %q, want queued (dead agent requeued despite warm lease — the #147 Symptom B wedge); sweep acted_count=%d", got, summary.actedCount)
+	}
+	if got := chaosJobAttempt(t, ctx, h, lc.fx.JobID); got != priorAttempt {
+		t.Fatalf("attempt = %d, want %d (masked-dead-agent requeue must not bump attempt)", got, priorAttempt)
+	}
+	if got := chaosRunState(t, ctx, h, lc.fx.RunID); got != "running" {
+		t.Fatalf("run = %q, want running (no operator needed)", got)
+	}
+
+	// A fresh implementer completes the revision; the re-review accepts.
+	driveImplementer(t, ctx, h, lc, true)
+	accepted := driveReviewerVerdict(t, ctx, h, lc, "accept")
+	if got := fmt.Sprint(accepted["status"]); got != "completed" {
+		t.Fatalf("accept status = %q, want completed", got)
+	}
+	if got := chaosRunState(t, ctx, h, lc.fx.RunID); got != "completed" {
+		t.Fatalf("run = %q, want completed (self-recovered from a masked dead agent, no operator)", got)
+	}
+}
+
 // TestRevisionLifecycleUnrecoverableEscalatesLoudly is the fault-matrix
 // escalate-loud cell: the att2 implementer dies repeatedly past the per-job
 // requeue budget. Within a bounded number of sweeps the run must flip to
