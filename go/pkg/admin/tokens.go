@@ -72,10 +72,35 @@ func (s Service) CreateToken(ctx context.Context, envelope rpc.Envelope) (map[st
 	if err != nil {
 		return nil, err
 	}
+	// RFC 0107: optionally attribute the minted client to a principal, in the
+	// SAME transaction that issues the token, so a token always carries the
+	// principal it belongs to (or none, for back-compat).
+	if err := attributeMintedClient(ctx, tx, envelope.Params, result); err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// attributeMintedClient links the just-minted client (whose id is in result)
+// to the principal named in the request params, and reflects the principal id
+// back in the result. A no-op when no principal_id was supplied.
+func attributeMintedClient(ctx context.Context, tx db.TxRunner, params map[string]any, result map[string]any) error {
+	principalID := stringParam(params, "principal_id")
+	if principalID == "" {
+		return nil
+	}
+	clientID, _ := result["client_id"].(string)
+	if clientID == "" {
+		return rpc.NewError("internal_error", "token issuance produced no client_id to attribute", nil)
+	}
+	if err := attributeClientToPrincipal(ctx, tx, params, clientID); err != nil {
+		return err
+	}
+	result["principal_id"] = principalID
+	return nil
 }
 
 func (s Service) RevokeToken(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
@@ -187,13 +212,71 @@ func (s Service) RotateToken(ctx context.Context, envelope rpc.Envelope) (map[st
 	if err != nil {
 		return nil, err
 	}
+	// RFC 0107: carry the rotated-from client's principal onto the replacement
+	// client (in the same transaction), so rotation keeps a stable principal
+	// identity. An explicit principal_id param overrides the carry-over.
+	principalID, err := carryPrincipalAcrossRotation(ctx, tx, envelope.Params, record.ClientID, created)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	created["rotated_from_token_id"] = record.TokenID
 	created["rotated_from_client_id"] = record.ClientID
 	created["revoked_capabilities"] = capsRevoked
+	if principalID != "" {
+		created["principal_id"] = principalID
+	}
 	return created, nil
+}
+
+// carryPrincipalAcrossRotation unlinks the rotated-from client from its
+// principal and links the replacement client to the same principal, so the
+// principal's identity survives token rotation. An explicit principal_id in the
+// rotation params takes precedence (and is attributed via the usual create
+// path). Returns the principal id the replacement client ends up attributed to,
+// or "" when neither the old client nor the params named a principal.
+func carryPrincipalAcrossRotation(ctx context.Context, tx db.TxRunner, params map[string]any, oldClientID string, created map[string]any) (string, error) {
+	newClientID, _ := created["client_id"].(string)
+	if newClientID == "" {
+		return "", rpc.NewError("internal_error", "token rotation produced no client_id to attribute", nil)
+	}
+	explicit := stringParam(params, "principal_id")
+	if explicit != "" {
+		if err := attributeClientToPrincipal(ctx, tx, params, newClientID); err != nil {
+			return "", err
+		}
+		// The old client is being revoked; drop its active attribution too.
+		if err := unlinkClientFromPrincipals(ctx, tx, oldClientID); err != nil {
+			return "", err
+		}
+		return explicit, nil
+	}
+	ref, ok, err := ResolvePrincipalForClient(ctx, tx, oldClientID)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", nil
+	}
+	if err := unlinkClientFromPrincipals(ctx, tx, oldClientID); err != nil {
+		return "", err
+	}
+	if err := LinkClientToPrincipal(ctx, tx, ref.PrincipalID, newClientID); err != nil {
+		return "", err
+	}
+	return ref.PrincipalID, nil
+}
+
+// unlinkClientFromPrincipals marks every active link for a client as unlinked.
+func unlinkClientFromPrincipals(ctx context.Context, tx db.TxRunner, clientID string) error {
+	return tx.Exec(ctx,
+		`UPDATE striatumd.principal_clients
+		    SET unlinked_at = now()
+		  WHERE client_id = $1 AND unlinked_at IS NULL`,
+		clientID,
+	)
 }
 
 func (s Service) now() time.Time {

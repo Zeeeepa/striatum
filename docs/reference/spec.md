@@ -1643,6 +1643,89 @@ wrapper, legacy local-state package, root compatibility facades, direct corpus
 exporter, V1 local-state schema module, deterministic repo-local fixture, and
 all Python CLI/web/source/test surfaces have been completely retired and deleted per RFC 0078.
 
+### Multi-Principal Trust Model
+
+> Design rationale: [RFC 0107](../rfcs/0107-multi-principal-trust-model.md)
+> (multi-principal trust model); builds on [RFC 0028](../rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md)
+> (per-repository scoping), [RFC 0053](../rfcs/0053-human-principal-and-terminology-truing.md)
+> (human principal / operator roles), and [RFC 0096](../rfcs/0096-supervised-lane-trust-boundary.md)
+> (session-bound capability tokens).
+
+Striatum is **self-hosted on a laptop or a server, serves multiple
+repositories, and may serve multiple human users — and is explicitly not a
+hosted, multi-tenant SaaS control plane.** The multi-principal model makes
+multi-user a deliberate, bounded design over the existing trust substrate,
+not an emergent accident.
+
+A **principal** is a named identity that holds capability tokens. A principal
+has a `kind`:
+
+- `human` — a human operator. This generalizes RFC 0053's single
+  escalation-only human principal to several humans, each with their own
+  identity, capability grants, and audit attribution.
+- `ai_operator` — an autonomous operator identity that scaffolds and drives
+  runs.
+- `service` — a non-interactive automation/daemon client.
+
+Principals sit **above** the existing `clients` / `client_capabilities`
+substrate; the model adds no new wire RPC method and reuses the existing
+`daemon.token.*` admin verbs:
+
+- A principal **owns one or more clients**. A `client` (with its
+  per-capability, per-repository, optionally session-bound grants in
+  `client_capabilities`) is the wire credential. Because token rotation mints
+  a **new** client row, the principal→client link is what keeps a principal's
+  identity stable across rotation.
+- The mapping is recorded in two daemon-global tables introduced by the RFC
+  0107 migration: `striatumd.principals` (the identity) and
+  `striatumd.principal_clients` (the active client links). A client is actively
+  linked to at most one principal, so audit attribution is unambiguous.
+  `principal_clients.client_id` is a bare column with no foreign key into the
+  owner-held `clients` table — referential integrity is enforced in the daemon,
+  exactly as `audit_log.client_id` already is — which keeps the migration
+  ownership-safe (it only creates new tables; it never alters an owner table).
+- `daemon.token.create` accepts an optional `principal_id` (with
+  `principal_kind` + `principal_display_name` to create the principal on first
+  use) and attributes the minted client to that principal in the same
+  transaction that issues the token. `daemon.token.rotate` carries the
+  rotated-from client's principal onto the replacement client, so rotation
+  preserves a stable principal identity. `daemon.token.revoke` revokes the
+  client's capabilities but leaves its historical principal link intact so past
+  audit rows remain attributable.
+
+**Capability + repository scoping.** Per-principal scoping reuses RFC 0028's
+`client_capabilities.repository_id` and RFC 0096 session-binding unchanged:
+
+- A principal may hold capabilities on a **subset of repositories**; the
+  authorizer denies a token acting on a repository it was not granted with
+  `capability_scope_mismatch`. No principal can read or mutate another repo's
+  live state without an explicit grant.
+- A session-bound token (minted for a single lane, held by exactly one
+  principal) may act **only as its own session**; principal A's token cannot
+  act for principal B's session. This is the existing `enforceSessionBinding`
+  rule, stated canonically as `AuthContext.MayActAsSession`.
+
+**Audit + attribution.** The daemon-global hash-chained audit log records the
+acting `client_id` on every mutation (RFC 0030/0033); resolving that client to
+its principal via `principal_clients` attributes every mutation to a principal.
+Durable Markdown artifacts continue to carry the lowercase privacy-safe byline
+`author: <role-name>-<model-name>-<ordinal>` (RFC 0026/0090); the principal
+linkage is the control-plane attribution that complements that on-disk
+provenance.
+
+**Inspection.** `daemon doctor` surfaces a `principals` block listing each
+configured principal with its kind, display name, active client count, granted
+repositories, and effective capability scope (per capability, per repository,
+and whether session-bound). The block never reads or returns token material.
+
+**The boundary that keeps it non-SaaS.** Principals are **local trust grants
+on the operator-owned daemon + PostgreSQL**, not cloud accounts. This model
+introduces no hosted control plane, no tenant-provisioning service, no external
+identity-provider or SSO dependency, and no telemetry. Loopback/tailnet access
+(RFC 0085) is the network access model; principal identity is the local
+capability-grant dimension over it. Adding any hosted/tenanted surface remains
+out of scope and would require an explicit, separate product decision.
+
 ### Local Web UI
 
 > Design rationale: [RFC 0013](../rfcs/0013-local-web-ui.md) (V1 surface

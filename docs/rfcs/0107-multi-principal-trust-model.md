@@ -1,6 +1,6 @@
 # RFC 0107: Multi-principal trust model — make multi-user explicit (self-hosted, not SaaS)
 
-Status: proposed
+Status: accepted (D160)
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0028 (multi-repository control plane), RFC 0030 (RPC envelope + version skew), RFC 0053 (human-principal + AI-operator roles), RFC 0096 (supervised-lane trust boundary + session-bound capability tokens), RFC 0090 (workspace security/attestation parity); migrations `0001_baseline.sql` (clients, client_capabilities), `0022_session_bound_capability.sql`; `go/pkg/rpc/auth_pg.go`, `go/pkg/admin`.

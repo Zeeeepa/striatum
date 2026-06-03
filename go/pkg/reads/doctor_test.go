@@ -54,7 +54,10 @@ func TestHandleDoctorReadsSubstrateVersionFromSchemaMetaKey(t *testing.T) {
 	if result["ok"] != true {
 		t.Fatalf("ok = %v, want true; problems=%v", result["ok"], result["problems"])
 	}
-	if len(runner.scalarQueries) != 1 || !strings.Contains(runner.scalarQueries[0], "substrate_version") {
-		t.Fatalf("doctor did not read schema_meta substrate_version: %#v", runner.scalarQueries)
+	// substrate_version must be the FIRST scalar query doctor issues. (RFC 0107
+	// added the daemon-global principals scope query, so the total scalar-query
+	// count is no longer exactly one.)
+	if len(runner.scalarQueries) == 0 || !strings.Contains(runner.scalarQueries[0], "substrate_version") {
+		t.Fatalf("doctor did not read schema_meta substrate_version first: %#v", runner.scalarQueries)
 	}
 }
