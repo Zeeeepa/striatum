@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+## v2.15.0 — 2026-06-03
+
+### RFC 0110 Release N — daemon→PostgreSQL authority plumbing (behavior-neutral)
+
+First implementation release of RFC 0110 (daemon→PostgreSQL authentication +
+DB-enforced write boundary, D164). Release N installs the *plumbing* with **no
+schema authority yet**, so it is behavior-neutral by design (no new client
+denials); the owner-DDL bundle, L0 rotation, and phased write closure follow in
+N+1. Step-0 documentation gate landed first (D164/spec.md/RFC body amended;
+read-scope successor #164 and scheduler-gap #165 filed; #87 reopened with its
+four L2 closure gates).
+
+- **In-transaction authority/attribution prelude over the extended protocol**
+  (`C-EXTENDED-AUTH-PRELUDE`). `TxRunner.ExecBound` forces
+  `pgx.QueryExecModeExec` so the daemon-authority secret and the
+  `rpc_id`/`principal_id`/`session_id` labels travel in Bind messages and never
+  appear in `pg_stat_activity.query`; the pool default stays simple protocol for
+  migration DDL. Gate `G-PRELUDE-MODE`.
+- **`BeginAuthorizedMutation` constructor** (`C-AUTH-TX-WRAPPER`) issues the
+  prelude as the transaction's first statement (`set_config('striatum.daemon_auth',…)`
+  is statement 1, secret empty in N). All mutating handlers route through it at
+  the single `withTx` chokepoint; admin token handlers migrated off raw
+  `BeginTx`. Gates `G-MUTATION-TX` (source-scan + allowlist + doc-presence
+  PX3-005), `T-SQL-ORDER`.
+- **Bounded-discard reset** (`C-ATTR-RESET-FAIL`/OPS-12): transaction-local GUCs
+  vanish at every transaction outcome; a connection released with leftover
+  transaction state is destroyed (counted for the doctor reconnect-storm
+  signal), a clean connection returns to the pool with no DISCARD. Gate
+  `T-ATTR-RESET` (commit/rollback/cancel/timeout/panic).
+- **Fail-closed, mutation-coupled audit append** (`C-AUDIT-AUTH-PRELUDE`): a
+  successful mutation appends its audit row as the final write **inside its own
+  transaction** (atomic); standalone appends (reads/denials/errors) convert an
+  append failure into an `audit_append_failed` error. The fail-open
+  ignore-`auditErr` path is removed. Gate `T-AUDIT-FAILCLOSED`.
+- **Inert deploy capability-parity checker** (`C-DEPLOY-CAPABILITY-PARITY`)
+  wired into startup — a pass-through until N+1 stamps markers, which is what
+  makes the old-binary check real later.
+- **doctor `pg_write_boundary` posture** (`none` in N + `rotation_skipped_single_role`
+  + `conn_reset_destroys`) and the **`daemon_auth_log` redactor**
+  (`C-AUTH-LOG-PRIVACY`, strict key whitelist + DSN/credential redaction; DB
+  insert inert until N+1). Gate `T-AUTHLOG-REDACT`.
+
+Deferred to N+1+: owner-DDL bundle (`daemon_auth_registry` + `assert_daemon_authority`
++ `append_audit_row` SD fn), L0 rotation, pgtest replumb, v3 hash R-V3 cutover,
+phased P0/P1/P2 closure, L2 socket hardening.
+
 ## v2.14.0 — 2026-06-03
 
 - **#163 — supervised claude lanes auto-trust their workspace (no more parking on
