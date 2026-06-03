@@ -55,6 +55,43 @@ func Run(socketPath, repoRoot, runID, sessionID string, command []string) error 
 	return runWithIO(ctx, cfg, os.Stdin, os.Stdout, os.Stderr)
 }
 
+// RunContext is Run with a caller-supplied context and explicit IO, for
+// in-process conformance harnesses (RFC 0109 P3) that drive the real lane CLI
+// against a test endpoint instead of the live daemon. Unlike Run it does not
+// install a SIGINT/SIGTERM handler or read os.Stdin — the caller's ctx is the
+// sole stop signal, so an interactive lane (which never self-exits) is bounded
+// by ctx cancellation (exec.CommandContext kills the child on ctx done). The
+// MCP endpoint, repository_id, and token are resolved from the environment
+// exactly as Run does, so callers set them with t.Setenv before invoking.
+func RunContext(ctx context.Context, socketPath, repoRoot, runID, sessionID string, command []string, stdout, stderr io.Writer) error {
+	if sessionID == "" || runID == "" || repoRoot == "" {
+		return fmt.Errorf("STRIATUM_SESSION_ID, STRIATUM_RUN_ID, and STRIATUM_REPO must be in environment")
+	}
+	if len(command) == 0 {
+		return fmt.Errorf("agent command is required")
+	}
+	endpoint, err := ResolveMCPEndpoint(repoRoot, os.Environ())
+	if err != nil {
+		return err
+	}
+	token, err := ResolveTokenMaterial(repoRoot, os.Environ())
+	if err != nil {
+		return err
+	}
+	cfg := runConfig{
+		SocketPath:   socketPath,
+		RepoRoot:     repoRoot,
+		RepositoryID: os.Getenv(EnvRepositoryID),
+		RunID:        runID,
+		SessionID:    sessionID,
+		Endpoint:     endpoint,
+		Token:        token,
+		Command:      command,
+		Env:          os.Environ(),
+	}
+	return runWithIO(ctx, cfg, nil, stdout, stderr)
+}
+
 type runConfig struct {
 	SocketPath   string
 	RepoRoot     string

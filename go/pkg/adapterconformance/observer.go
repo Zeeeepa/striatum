@@ -149,6 +149,37 @@ func (o DaemonObserver) Artifact(ctx context.Context, repositoryID, jobID, logic
 	return row, nil
 }
 
+// SessionsForRun returns every session row for a run (session_id, state,
+// registered_at), oldest first. The RFC 0109 P3 installed-CLI gate uses the
+// count as the #95 signal: a seat that re-registers a duplicate session on a
+// follow-up turn produces more than the one pre-seeded, attested session.
+func (o DaemonObserver) SessionsForRun(ctx context.Context, repositoryID, runID string) ([]map[string]any, error) {
+	return o.rows(ctx, `
+		SELECT session_id, state, registered_at
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND run_id = $2
+		 ORDER BY registered_at, session_id`, repositoryID, runID)
+}
+
+// JobLeaseOwner returns the owner_session_id of the most recent lease (any
+// state) on a job resource, or "" when no lease ever bound. It identifies which
+// session actually drove a job — the per-turn session the #95 gate compares.
+func (o DaemonObserver) JobLeaseOwner(ctx context.Context, repositoryID, jobID string) (string, error) {
+	row, err := o.oneRow(ctx, `
+		SELECT owner_session_id
+		  FROM striatumd.leases
+		 WHERE repository_id = $1 AND resource_id = $2
+		 ORDER BY acquired_at DESC, lease_id DESC
+		 LIMIT 1`, repositoryID, jobID)
+	if err == errNoObserverRow {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprint(row["owner_session_id"]), nil
+}
+
 // InterrogationAnswered reports whether the interrogation has at least one
 // completed answer turn (the C7 round-trip signal).
 func (o DaemonObserver) InterrogationAnswered(ctx context.Context, repositoryID, interrogationID string) (bool, error) {

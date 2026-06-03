@@ -1,9 +1,12 @@
 package adapterconformance
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -45,6 +48,14 @@ type Harness struct {
 	Token string
 	// RepositoryID is the repo the token is scoped to (set by the fixture).
 	RepositoryID string
+	// SocketPath is a unix-domain socket serving the SAME production rpc.Server
+	// over the newline-framed JSON protocol the daemon uses (rpc.Server.Serve).
+	// The httptest MCP endpoint above serves a lane CLI's tools/call traffic;
+	// this socket serves the agent-loop receive loop (startDaemonReceiverLoop ->
+	// rpcclient.Client over cfg.SocketPath), which is the surface the
+	// installed-CLI conformance runner drives. Empty for harnesses that only need
+	// the in-process testagent (MCP-only).
+	SocketPath string
 
 	authorizer *rpc.MemoryAuthorizer
 }
@@ -104,6 +115,28 @@ func NewHarness(t *testing.T, repositoryID string) *Harness {
 	httpServer := httptest.NewServer(mcpHandler)
 	t.Cleanup(httpServer.Close)
 
+	// Unix-socket surface for the agent-loop receive loop. A short temp dir keeps
+	// the socket path under the OS sun_path limit (~108 bytes on Linux); a long
+	// t.TempDir() subtest path can overflow it. The listener serves the SAME
+	// server over rpc.Server.Serve (the production daemon path); Serve returns
+	// when the listener closes on ctx cancel.
+	sockDir, err := os.MkdirTemp("", "stsock")
+	if err != nil {
+		t.Fatalf("mkdir socket dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sockDir) })
+	socketPath := filepath.Join(sockDir, "d.sock")
+	listener, err := rpc.ListenUnix(socketPath)
+	if err != nil {
+		t.Fatalf("listen unix %s: %v", socketPath, err)
+	}
+	serveCtx, cancelServe := context.WithCancel(context.Background())
+	go func() { _ = server.Serve(serveCtx, listener) }()
+	t.Cleanup(func() {
+		cancelServe()
+		_ = listener.Close()
+	})
+
 	return &Harness{
 		Runner:       runner,
 		Server:       server,
@@ -111,6 +144,7 @@ func NewHarness(t *testing.T, repositoryID string) *Harness {
 		HTTP:         httpServer,
 		Token:        token,
 		RepositoryID: repositoryID,
+		SocketPath:   socketPath,
 		authorizer:   authorizer,
 	}
 }
