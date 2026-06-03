@@ -4,6 +4,17 @@
 
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
+- **#146 (partial) — supervised lanes report an honest delivery mode.** A lane that
+  does not use the agent loop is a stdin-FIFO/push consumer, not a true self-driver
+  that calls `work.await_packet`, yet every supervised lane was hardcoded
+  `agent_loop_mode: self_driving`. That made `claim-next` emit the misleading
+  `self_claim_note` ("the agent self-claims … do not run `supervise send`") for push
+  wrappers — the exact opposite of what they need — sending operators down a dead
+  path. `supervise start` now records `supervised_push` for non-agent-loop lanes, so
+  `sessionHasSelfDrivingSupervisor` (and the claim hint) is accurate: push lanes get
+  the `supervise_send` hint, true agent-loop lanes keep the self-claim note. (The
+  push-lane auto-dispatch half of #146 remains; the supported autonomous path is
+  agent-loop lanes, which already auto-dispatch via `work.await_packet`.)
 - **#144 — recovery auto-publish of a review now records its verdict.** When the
   stale-lease auto-publish pass completed a review/phase_synthesis job from its
   on-disk finding artifact, it recorded no verdict, so the verdict-gated

@@ -301,6 +301,52 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	}
 }
 
+// TestSuperviseStartLabelsNonAgentLoopLaneAsPush guards #146: a lane that does
+// NOT use the agent loop is a stdin-FIFO/push consumer (it reads a delivered
+// packet then runs the agent), not a true self-driver that calls
+// work.await_packet. It must be recorded as supervised_push, NOT self_driving, so
+// claim-next surfaces the supervise_send hint instead of the misleading
+// self_claim_note ("do not run supervise send") that sent operators down a dead
+// path. Before the fix every supervised lane was hardcoded self_driving.
+func TestSuperviseStartLabelsNonAgentLoopLaneAsPush(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	var launchedConfig supervisionStartConfig
+	supervisionLaunch = func(_ context.Context, config supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		launchedConfig = config
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: "start-token"}, nil
+	}
+
+	runner := &superviseControlFakeRunner{
+		repoRoot:     t.TempDir(),
+		workflowLane: map[string]any{}, // a plain lane: no agent_loop capability => push consumer
+		txs:          []*superviseControlFakeTx{{}, {}},
+	}
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_push",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStart: %v", err)
+	}
+	if launchedConfig.AgentLoopMode != agentLoopModePush || result["agent_loop_mode"] != agentLoopModePush {
+		t.Fatalf("non-agent-loop lane must be labeled %q (push), got config=%q result=%#v (the misleading self_claim_note bug)",
+			agentLoopModePush, launchedConfig.AgentLoopMode, result["agent_loop_mode"])
+	}
+}
+
 func TestMergePointerMetadataPreservesExistingTmuxFields(t *testing.T) {
 	tx := &superviseControlFakeTx{
 		metadata: map[string]any{

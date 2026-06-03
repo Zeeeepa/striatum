@@ -33,6 +33,13 @@ const (
 	stdinDeliveryOneShotEOF     = "one_shot_eof"
 
 	agentLoopModeSelfDriving = "self_driving"
+	// agentLoopModePush labels a supervised lane that does NOT use the agent loop:
+	// a stdin-FIFO/push consumer that reads a delivered packet then runs the agent,
+	// rather than a true self-driver that calls work.await_packet. Recording the
+	// honest mode (#146) keeps sessionHasSelfDrivingSupervisor — and therefore the
+	// claim-next hint — accurate: a push lane needs `supervise send`, so it must not
+	// receive the self_driving "do not run supervise send" note.
+	agentLoopModePush = "supervised_push"
 )
 
 type supervisionStartConfig struct {
@@ -773,8 +780,8 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 		return config, err
 	}
 	config.OriginalCommand = append([]string(nil), command...)
-	config.AgentLoopMode = agentLoopModeSelfDriving
 	if laneUsesAgentLoop(lane) {
+		config.AgentLoopMode = agentLoopModeSelfDriving
 		// RFC 0088: wrap the raw lane command in `striatumd -agent-loop -- …`
 		// so the agent-loop executor delivers the bootstrap prompt and submits
 		// it over a PTY (interactive lanes), instead of launching the bare
@@ -783,6 +790,14 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 		if err != nil {
 			return config, err
 		}
+	} else {
+		// #146: a lane that does NOT use the agent loop is a stdin-FIFO/push
+		// consumer (it reads a delivered packet then runs the agent), not a true
+		// self-driver that calls work.await_packet. Record the honest push mode so
+		// sessionHasSelfDrivingSupervisor — and therefore claim-next — surfaces the
+		// supervise_send hint instead of the misleading self_driving self_claim_note
+		// ("do not run supervise send"), which sent operators down a dead path.
+		config.AgentLoopMode = agentLoopModePush
 	}
 	// RFC 0088: resolve argv0 against the augmented supervised PATH so a lane
 	// binary that lives only in ~/.local/bin (codex, claude, agy) launches even
