@@ -1,6 +1,28 @@
 package db
 
-import "context"
+import (
+	"context"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
+)
+
+// AuthorityFromContext builds the authority/attribution context for a mutation
+// transaction from the dispatch-threaded AuthContext and envelope. The secret
+// is empty in release N (no authority registry yet); the labels are best-effort
+// — absent in direct handler unit tests, which the prelude tolerates. Both the
+// mutations withTx chokepoint and the admin token handlers build their
+// AuthorityContext through here so attribution is sourced one way.
+func AuthorityFromContext(ctx context.Context) AuthorityContext {
+	attr := AuthorityContext{}
+	if auth, ok := rpc.AuthFromContext(ctx); ok {
+		attr.PrincipalID = auth.ClientID
+		attr.SessionID = auth.SessionID
+	}
+	if envelope, ok := rpc.EnvelopeFromContext(ctx); ok {
+		attr.RPCID = envelope.RequestID
+	}
+	return attr
+}
 
 // AuthorityContext carries the per-transaction daemon-authority secret and the
 // attribution labels that the RFC 0110 prelude installs into the mutation

@@ -63,7 +63,7 @@ func (s Service) CreateToken(ctx context.Context, envelope rpc.Envelope) (map[st
 	if displayName == "" {
 		displayName = "admin-created"
 	}
-	tx, err := s.Runner.BeginTx(ctx)
+	tx, err := db.BeginAuthorizedMutation(ctx, s.Runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s Service) RevokeToken(ctx context.Context, envelope rpc.Envelope) (map[st
 	if reason == "" {
 		reason = "operator_revoked"
 	}
-	tx, err := s.Runner.BeginTx(ctx)
+	tx, err := db.BeginAuthorizedMutation(ctx, s.Runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (s Service) RotateToken(ctx context.Context, envelope rpc.Envelope) (map[st
 	if reason == "" {
 		reason = "operator_rotated"
 	}
-	tx, err := s.Runner.BeginTx(ctx)
+	tx, err := db.BeginAuthorizedMutation(ctx, s.Runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}

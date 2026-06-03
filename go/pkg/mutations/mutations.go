@@ -239,28 +239,12 @@ func stringSliceParam(envelope rpc.Envelope, keys ...string) []string {
 	return []string{}
 }
 
-// authorityFromContext builds the RFC 0110 authority/attribution context for a
-// mutation transaction from the dispatch-threaded AuthContext and envelope. The
-// secret is empty in release N (no authority registry yet); the labels are
-// best-effort — absent in direct handler unit tests, which the prelude tolerates.
-func authorityFromContext(ctx context.Context) db.AuthorityContext {
-	attr := db.AuthorityContext{}
-	if auth, ok := rpc.AuthFromContext(ctx); ok {
-		attr.PrincipalID = auth.ClientID
-		attr.SessionID = auth.SessionID
-	}
-	if envelope, ok := rpc.EnvelopeFromContext(ctx); ok {
-		attr.RPCID = envelope.RequestID
-	}
-	return attr
-}
-
 // withTx runs fn inside an authorized mutation transaction. Every mutating
 // handler routes through here (or withTxRetryOnDeadlock), so the RFC 0110
 // authority/attribution prelude is installed as the transaction's first
 // statement at a single chokepoint (C-AUTH-TX-WRAPPER) rather than per handler.
 func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
-	tx, err := db.BeginAuthorizedMutation(ctx, runner, authorityFromContext(ctx))
+	tx, err := db.BeginAuthorizedMutation(ctx, runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
