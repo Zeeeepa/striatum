@@ -82,14 +82,16 @@ if a handler returns a code absent from the registry. Mirrors cc-fleet's enumera
 ## Companion work items (recorded, not RFC-gated)
 
 The comparison's other cc-fleet→striatum lessons need *doing*, not *deciding*; recorded here so
-they are not lost, to be tracked as issues:
+they are not lost — both are now tracked as issues:
 
-- **Distribution (comparison §6.2):** a tagged GoReleaser pipeline + one-line installer + npm,
-  modeled on cc-fleet's `.goreleaser.yaml` / `install.sh` / `npm/`. The concrete fix for operator
-  version-staleness and the "`make install` does not restart the running daemon" trap. Chore-sized.
-- **One navigable architecture map (comparison §6.4):** a single `CLAUDE.md`-style map of the
-  daemon / PostgreSQL / RPC / MCP / lane substrate, *alongside* (not replacing) the 110 RFCs, to
-  cut cold-start cost for the agents that drive striatum autonomously. Docs-sized.
+- **Distribution (comparison §6.2) — [#160](https://github.com/halbritt/striatum/issues/160):** a
+  tagged GoReleaser pipeline + one-line installer + npm, modeled on cc-fleet's `.goreleaser.yaml` /
+  `install.sh` / `npm/`. The concrete fix for operator version-staleness and the "`make install`
+  does not restart the running daemon" trap. Chore-sized.
+- **One navigable architecture map (comparison §6.4) — [#161](https://github.com/halbritt/striatum/issues/161):**
+  a single `CLAUDE.md`-style map of the daemon / PostgreSQL / RPC / MCP / lane substrate,
+  *alongside* (not replacing) the 110 RFCs, to cut cold-start cost for the agents that drive
+  striatum autonomously. Docs-sized.
 
 ## Relationship to prior RFCs / source
 
