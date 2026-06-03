@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.13.0 — 2026-06-03
+
 ### Autonomy regression — supervised lanes could not claim
 
 - **Session-bound lane token now carries `read`, so a supervised lane can actually
@@ -39,6 +41,8 @@
   `artifactcontracts.Skeleton(kind)`). Guarded by `TestEnumFieldValuesMatchValidators`
   (drift), `TestSkeletonRoundTripsForFindingKinds`, and the severity/skeleton
   rejection gates.
+
+## v2.12.0 — 2026-06-03
 
 ### Autonomy cluster (recovery/liveness rescue-blockers)
 
