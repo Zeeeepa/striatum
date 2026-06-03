@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.14.0 — 2026-06-03
+
 - **#163 — supervised claude lanes auto-trust their workspace (no more parking on
   the trust dialog).** claude 2.1.x prompts "Is this a project you trust?" the first
   time it runs in a directory and parks an interactive PTY lane there;
