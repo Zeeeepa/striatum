@@ -1,0 +1,1 @@
+Draft the candidate synthesis and stay live for cross-examination. On a revision cycle you receive the prior cycle's constraints[] as binding input; discharge each row explicitly. Do not treat dialogue completion as acceptance.
