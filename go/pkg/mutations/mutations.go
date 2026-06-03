@@ -258,11 +258,48 @@ func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[str
 	if err != nil {
 		return nil, err
 	}
+	// RFC 0110 §4.4: append the success audit row as the final write INSIDE this
+	// transaction so it commits atomically with the mutation; an append failure
+	// fails closed (aborts the whole mutation).
+	auditID, audited, err := appendMutationAudit(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	committed = true
+	if audited {
+		if dispatch, ok := rpc.AuditDispatchFromContext(ctx); ok {
+			dispatch.AuditID = auditID
+			dispatch.Appended = true
+		}
+	}
 	return result, nil
+}
+
+// appendMutationAudit appends the success audit row for the current RPC inside
+// the mutation's own transaction. It returns audited=false (no error) when the
+// context lacks dispatch threading (a direct handler unit test or a recorder-
+// less server), leaving auditing to the standalone dispatch path. An append
+// failure is surfaced as an error so withTx fails the whole mutation closed.
+func appendMutationAudit(ctx context.Context, tx db.TxRunner) (string, bool, error) {
+	meta, ok, err := db.BuildAuditMetaFromContext(ctx, true)
+	if err != nil {
+		return "", false, err
+	}
+	if !ok {
+		return "", false, nil
+	}
+	auditID, err := db.AppendAuditInTx(ctx, tx, meta)
+	if err != nil {
+		return "", false, rpc.NewError(
+			"audit_append_failed",
+			"daemon could not append the mutation audit row; rolling the mutation back",
+			map[string]any{"cause": err.Error()},
+		)
+	}
+	return auditID, true, nil
 }
 
 // deadlockSQLState is the Postgres SQLSTATE for a detected deadlock.

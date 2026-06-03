@@ -79,6 +79,35 @@ func EnvelopeFromContext(ctx context.Context) (Envelope, bool) {
 	return envelope, ok
 }
 
+// AuditDispatch carries the per-request audit wiring (RFC 0110 §4.4): the env
+// the mutation-coupled audit append needs (daemon version, transport) and the
+// outcome a self-auditing handler records back, so the dispatch layer can skip
+// the standalone append for a row already written inside the mutation tx.
+type AuditDispatch struct {
+	DaemonVersion string
+	Transport     string
+	// AuditID/Appended are written by the in-transaction append (the mutation
+	// audited itself); the dispatch layer reads them to avoid a double append.
+	AuditID  string
+	Appended bool
+}
+
+type auditDispatchKey struct{}
+
+// WithAuditDispatch returns a child context carrying the audit dispatch record.
+// The dispatch layer sets it before routing a mutating RPC and inspects it
+// afterwards.
+func WithAuditDispatch(ctx context.Context, dispatch *AuditDispatch) context.Context {
+	return context.WithValue(ctx, auditDispatchKey{}, dispatch)
+}
+
+// AuditDispatchFromContext returns the audit dispatch record threaded onto ctx,
+// and whether one was present (absent in direct handler unit tests).
+func AuditDispatchFromContext(ctx context.Context) (*AuditDispatch, bool) {
+	dispatch, ok := ctx.Value(auditDispatchKey{}).(*AuditDispatch)
+	return dispatch, ok
+}
+
 type Authorizer interface {
 	Authorize(required *Capability, repositoryID string, token string) AuthContext
 }

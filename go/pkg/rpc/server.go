@@ -69,6 +69,15 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 		transport = "mcp"
 	}
 	auth := AuthContext{RepositoryID: repositoryID(envelope.Params), Decision: "allowed"}
+	// RFC 0110 §4.4: a mutating handler appends its audit row inside its own
+	// transaction (atomic with the mutation) and records the result here, so the
+	// dispatch layer can skip the standalone append for a row already written.
+	// The dispatch (and thus in-transaction auditing) exists only when an audit
+	// recorder is configured, so a recorder-less test server audits nothing.
+	var auditDispatch *AuditDispatch
+	if s.AuditRecorder != nil {
+		auditDispatch = &AuditDispatch{DaemonVersion: s.DaemonVersion, Transport: transport}
+	}
 	if duplicate := s.markRequest(envelope.RequestID); duplicate {
 		return ErrorResponse(envelope.RequestID, NewError("duplicate_request", "daemon RPC request_id was already used", nil), "")
 	}
@@ -101,9 +110,14 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 			// context so session-scoped handlers can read the caller's bound
 			// SessionID (if any) and enforce per-session binding without a
 			// signature change. Threaded only after Authorize succeeds.
-			// RFC 0110: also thread the envelope so the authority prelude can
-			// label the mutation transaction with the originating request id.
-			data, err = s.route(WithEnvelope(WithAuthContext(ctx, auth), envelope), envelope)
+			// RFC 0110: also thread the envelope + audit dispatch so the
+			// authority prelude can label the mutation transaction and a
+			// mutating handler can couple its audit row to its own transaction.
+			routeCtx := WithEnvelope(WithAuthContext(ctx, auth), envelope)
+			if auditDispatch != nil {
+				routeCtx = WithAuditDispatch(routeCtx, auditDispatch)
+			}
+			data, err = s.route(routeCtx, envelope)
 		}
 		if err != nil {
 			if rpcErr := (&Error{}); errors.As(err, &rpcErr) {
@@ -118,7 +132,14 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 	} else {
 		response = OKResponse(envelope.RequestID, data, "")
 	}
-	if s.AuditRecorder != nil {
+	// RFC 0110 §4.4: audit append is fail-closed. A mutating handler that wrote
+	// its audit row inside its own transaction records it on the dispatch; honour
+	// that and skip the standalone append. Otherwise (reads, denials, errors, and
+	// mutations whose own transaction rolled back) append standalone and convert
+	// an append failure into an error response — never a response without a row.
+	if auditDispatch != nil && auditDispatch.Appended {
+		response.AuditID = auditDispatch.AuditID
+	} else if s.AuditRecorder != nil {
 		var auditID string
 		var auditErr error
 		if recorder, ok := s.AuditRecorder.(TransportAuditRecorder); ok {
@@ -126,7 +147,14 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 		} else {
 			auditID, auditErr = s.AuditRecorder.RecordRPC(ctx, envelope, auth, response)
 		}
-		if auditErr == nil && auditID != "" {
+		if auditErr != nil {
+			return ErrorResponse(envelope.RequestID, NewError(
+				"audit_append_failed",
+				"daemon could not append the RPC audit row; refusing to answer without provenance",
+				map[string]any{"cause": auditErr.Error()},
+			), "")
+		}
+		if auditID != "" {
 			response.AuditID = auditID
 		}
 	}
