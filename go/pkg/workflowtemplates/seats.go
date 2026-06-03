@@ -40,17 +40,45 @@ const (
 // operator reading a `run prepare` knows exactly which gap they are accepting.
 // Keep entries tied to a tracked issue so "agy is broken" is never tribal
 // knowledge that resets every umbrella (RFC 0109 §B).
-var degradedSeats = map[string]string{
-	"agy": "agy collapses after one supervised turn into an unattested duplicate session (#95), and gates at launch on a folder-trust / telemetry prompt the supervised PTY cannot dismiss (#76/#139); it is not yet a viable multi-turn seat (RFC 0109 P1)",
-}
+//
+// EMPTY as of RFC 0109 Phase B: agy graduated to `supported` once its installed-CLI
+// gate went green (#149) — the historical defects (#95/#85/#76/#139) no longer
+// reproduce against the current CLI. A seat returns here only when a tracked defect
+// prevents a reliable supervised multi-turn seat; the day a CLI bump breaks a seat,
+// the P3 gate fails CI and the seat is re-classified here.
+var degradedSeats = map[string]string{}
 
 // supportedSeats are adapters with a green RFC 0109 P3 installed-CLI conformance
-// fixture. It is intentionally EMPTY until P3 lands (#149): no seat can honestly
-// claim `supported` before an installed-CLI gate proves it. The graduation guard
-// in adapterconformance reconciles this set against InstalledCLISeatFixtures in
-// both directions, so an adapter cannot be added here without its fixture, and a
-// fixture cannot exist without graduating the seat.
-var supportedSeats = map[string]struct{}{}
+// fixture (adapterconformance.InstalledCLISeatFixtures). The graduation guard
+// reconciles this set against that registry in both directions, so an adapter
+// cannot be added here without its fixture, and a fixture cannot exist without
+// graduating the seat — "the tier cannot lie."
+//
+//   - agy: green RFC 0109 P3 installed-CLI fixture (TestInstalledCLISeatAgyTwoTurn:
+//     two-turn claim→publish→claim under one attested session), corroborated live
+//     by the 3-lane needs_revision panel (agy held its seat across the revision
+//     cycle) and the panel surviving a mid-run daemon restart.
+var supportedSeats = map[string]struct{}{
+	"agy": {},
+}
+
+// RegisterDegradedSeatForTest registers a degraded seat + reason for the lifetime
+// of a test and returns a cleanup that restores the prior state. It is the seam
+// that keeps the degraded_seat_lane lint's warning path under test now that the
+// only production-degraded seat (agy) has graduated. Test-only; never call from
+// production code.
+func RegisterDegradedSeatForTest(adapter, reason string) func() {
+	name := normalizeAdapterName(adapter)
+	prev, had := degradedSeats[name]
+	degradedSeats[name] = reason
+	return func() {
+		if had {
+			degradedSeats[name] = prev
+		} else {
+			delete(degradedSeats, name)
+		}
+	}
+}
 
 // normalizeAdapterName maps a (possibly absolute) lane argv0 to its bare adapter
 // name, matching agentloop.LaneAdapterName (basename, drop a .exe suffix) without
