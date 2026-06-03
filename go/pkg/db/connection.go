@@ -9,12 +9,25 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const EnvDaemonDBURL = "STRIATUM_DAEMON_DB_URL"
+
+// connResetDestroyCount counts pooled connections destroyed on release because
+// they carried ambiguous (non-idle) transaction state — the RFC 0110 §4.7
+// bounded-discard signal. doctor reads it via ConnResetDestroyCount to flag a
+// reconnect storm.
+var connResetDestroyCount int64
+
+// ConnResetDestroyCount returns the number of connections destroyed on release
+// for carrying leftover transaction state (RFC 0110 §4.7 / OPS-12).
+func ConnResetDestroyCount() int64 {
+	return atomic.LoadInt64(&connResetDestroyCount)
+}
 
 type Config struct {
 	URL        string
@@ -90,6 +103,16 @@ type TxRunner interface {
 	QueryScalar(ctx context.Context, sql string, args ...any) (string, error)
 	Commit(ctx context.Context) error
 	Rollback(ctx context.Context) error
+}
+
+// boundExecer is the optional extended-protocol exec surface used by the RFC
+// 0110 authority prelude (C-EXTENDED-AUTH-PRELUDE). The production transaction
+// (*PgxTxRunner) implements it; canned test fakes do not, and skip the prelude
+// (they have no real session to label). It is matched structurally, not added
+// to TxRunner, so adding a label-bearing prelude does not force every fake to
+// grow a method.
+type boundExecer interface {
+	ExecBound(ctx context.Context, sql string, args ...any) error
 }
 
 // Pool wraps a pgxpool.Pool with the Runner surface and a Close helper. The
@@ -228,7 +251,26 @@ func Connect(ctx context.Context, postgresURL string, daemonVersion string) (*Po
 	// Simple protocol keeps migration DDL with multiple statements working and
 	// still binds parameters safely via client-side quoting; the daemon's hot
 	// queries are low cardinality and do not need server-side prepared plans.
+	// The RFC 0110 prelude overrides this per-call via ExecBound.
 	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+	// RFC 0110 §4.7 bounded-discard reset (C-ATTR-RESET-FAIL, OPS-12): the
+	// authority/attribution GUCs are transaction-local, so a clean commit or
+	// rollback already discards them and the connection returns to the pool
+	// normally (no DISCARD on the hot path). A connection released with leftover
+	// transaction state (mid-prelude cancel/timeout, handler panic, unknown
+	// outcome) is ambiguous: destroy it rather than reuse it, and count the
+	// destroy so doctor can surface a reconnect storm (a mass-cancel/PG-stress
+	// event) as a posture signal instead of a silent churn.
+	cfg.AfterRelease = func(c *pgx.Conn) bool {
+		if c.IsClosed() {
+			return false
+		}
+		if c.PgConn().TxStatus() != 'I' {
+			atomic.AddInt64(&connResetDestroyCount, 1)
+			return false
+		}
+		return true
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err

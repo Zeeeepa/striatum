@@ -60,6 +60,25 @@ func AuthFromContext(ctx context.Context) (AuthContext, bool) {
 	return auth, ok
 }
 
+// envelopeKey threads the in-flight RPC envelope into mutation handlers so the
+// RFC 0110 authority prelude can label the transaction with the originating
+// request id and the mutation-coupled audit append (release N+1) can record the
+// method/params without a signature change.
+type envelopeKey struct{}
+
+// WithEnvelope returns a child context carrying the in-flight RPC envelope. The
+// dispatch layer sets this alongside the AuthContext, after Authorize succeeds.
+func WithEnvelope(ctx context.Context, envelope Envelope) context.Context {
+	return context.WithValue(ctx, envelopeKey{}, envelope)
+}
+
+// EnvelopeFromContext returns the RPC envelope threaded onto ctx by the dispatch
+// layer and whether one was present (absent in direct handler unit tests).
+func EnvelopeFromContext(ctx context.Context) (Envelope, bool) {
+	envelope, ok := ctx.Value(envelopeKey{}).(Envelope)
+	return envelope, ok
+}
+
 type Authorizer interface {
 	Authorize(required *Capability, repositoryID string, token string) AuthContext
 }

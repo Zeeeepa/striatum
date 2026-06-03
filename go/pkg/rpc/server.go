@@ -101,7 +101,9 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 			// context so session-scoped handlers can read the caller's bound
 			// SessionID (if any) and enforce per-session binding without a
 			// signature change. Threaded only after Authorize succeeds.
-			data, err = s.route(WithAuthContext(ctx, auth), envelope)
+			// RFC 0110: also thread the envelope so the authority prelude can
+			// label the mutation transaction with the originating request id.
+			data, err = s.route(WithEnvelope(WithAuthContext(ctx, auth), envelope), envelope)
 		}
 		if err != nil {
 			if rpcErr := (&Error{}); errors.As(err, &rpcErr) {
