@@ -1,6 +1,6 @@
 # RFC 0111: In-band failure legibility — carry error code, message, and remediation through the MCP boundary so agents self-heal
 
-Status: proposed
+Status: accepted (D165)
 Date: 2026-06-03
 author: proposer-claude-opus-4-8-001
 Context: `STRIATUM_VS_CC_FLEET_CLAUDE_OPUS_4_8_2026-06-03.md` §4.3/§6 (senior peer comparison vs `github.com/ethanhq/cc-fleet`); the recurring opaque-MCP-error friction (state-changers surface a contentless `<error>method</error>`, forcing a CLI re-run to read the real cause); RFC 0030 (daemon RPC envelope), RFC 0020/0029 (autonomous recovery + operator recovery vocabulary), RFC 0103 (the `interrogation_unavailable` non-wedging signal — legibility done right).
