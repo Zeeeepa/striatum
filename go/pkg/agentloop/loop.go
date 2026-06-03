@@ -249,6 +249,19 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	}
 	defer cleanupMCP()
 
+	// #163: a claude lane runs interactively in a PTY with cwd == repo_root, where
+	// claude 2.1.x parks on its workspace-trust dialog the first time it sees the
+	// repo (and --dangerously-skip-permissions does not bypass it). Pre-accept the
+	// trust for this workspace so the lane does not silently wedge before claiming.
+	// Best-effort + idempotent; never fail the launch over it.
+	if len(cfg.Command) > 0 && LaneAdapterName(cfg.Command[0]) == "claude" {
+		if note, terr := ensureClaudeWorkspaceTrusted(cfg.RepoRoot); terr != nil {
+			log.Printf("claude workspace-trust pre-seed (#163) best-effort failed: %v", terr)
+		} else if note != "" {
+			log.Printf("claude workspace-trust (#163): %s", note)
+		}
+	}
+
 	cmd := exec.CommandContext(ctx, laneCommand[0], laneCommand[1:]...)
 	cmd.Dir = cfg.RepoRoot
 	cmd.Env = childEnv

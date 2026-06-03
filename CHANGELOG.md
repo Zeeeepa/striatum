@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **#163 — supervised claude lanes auto-trust their workspace (no more parking on
+  the trust dialog).** claude 2.1.x prompts "Is this a project you trust?" the first
+  time it runs in a directory and parks an interactive PTY lane there;
+  `--dangerously-skip-permissions` does not bypass it, and the dialog is only skipped
+  for already-trusted dirs or `-p` mode — so a claude lane on a fresh target repo
+  silently wedged before it could claim (the #148-class park). The agent-loop
+  executor now pre-accepts the per-folder trust for the lane's `repo_root` in
+  `~/.claude.json` before launching claude (idempotent, once-per-repo, best-effort,
+  preserves the operator's existing config; a corrupt config is left untouched).
+  Guarded by the `seedClaudeWorkspaceTrust` / `ensureClaudeWorkspaceTrusted` tests.
+
 ## v2.13.0 — 2026-06-03
 
 ### Autonomy regression — supervised lanes could not claim
