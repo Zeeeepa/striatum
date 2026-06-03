@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Autonomy cluster (recovery/liveness rescue-blockers)
+
+- **#145 — recovery no longer false-requeues an actively-working lane.** The
+  liveness classifier's lease-heartbeat rung tripped `agent_lease_heartbeat_stall`
+  (→ `ProtocolStalled`) without considering PTY/tool output, unlike the adjacent
+  protocol-idle rung. A lane running a long foreground command (a full test suite,
+  a browser-acceptance profile) emits no work-heartbeat for minutes while its
+  PTY/tool timeline stays fresh — so the recovery decision tree's CASE 2
+  transfer-requeued it mid-work, closing the session and losing the artifact. The
+  rung now resolves to `working_local`/`working_tool` when output is demonstrably
+  fresh (the G2 invariant the rest of the classifier already honors); a lane that
+  goes quiet past the PTY window still trips the stall, preserving dead-lane
+  detection. Also fixed a latent same-second lease-resolution tiebreak in
+  `recoverStuckJobs` (prefer the `active` lease) so a prior attempt's released
+  lease can no longer resolve over the live one and falsely requeue.
+
 ## v2.11.0 — 2026-06-03
 
 ### RFC 0109 — agy lane first-class seat (P3: the standing installed-CLI gate + graduation; RFC closed)

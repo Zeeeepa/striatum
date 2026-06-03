@@ -461,6 +461,83 @@ func TestClassifyDeadAtSpawnIsNotDiscoveryStall(t *testing.T) {
 	}
 }
 
+// TestClassifyFreshOutputSuppressesLeaseHeartbeatStall guards #145: a lease
+// holder whose heartbeat base is past the lease-heartbeat deadline is NOT
+// reported stalled when it is demonstrably still producing output — fresh PTY
+// frames (working_local) or inside an MCP/tool call (working_tool). A long
+// foreground command (a full test suite, a browser-acceptance profile) emits no
+// work-heartbeat for minutes while the PTY/tool timeline stays fresh; before the
+// fix this tripped StallLeaseHeartbeat and the recovery decision tree transferred
+// the actively-working lane mid-work (closing its session and losing the
+// artifact). This is the same G2 invariant the adjacent protocol-idle rung
+// already honors by folding last_pty_activity_at into its base. A lease holder
+// that goes quiet past the PTY window still trips the stall, so dead-lane
+// detection is preserved.
+func TestClassifyFreshOutputSuppressesLeaseHeartbeatStall(t *testing.T) {
+	now := time.Date(2026, 6, 3, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	// A discovered, acked lease holder whose lease-heartbeat base is stale
+	// (>330s) — the rung that would otherwise trip StallLeaseHeartbeat.
+	staleLeaseHolder := func() Activity {
+		return Activity{
+			SessionState:           "active",
+			RegisteredAt:           at(now.Add(-30 * time.Minute)),
+			LastToolsListAt:        at(now.Add(-29 * time.Minute)),
+			LastAwaitPacketAt:      at(now.Add(-28 * time.Minute)),
+			LastPacketDeliveredAt:  at(now.Add(-27 * time.Minute)),
+			LastAckAt:              at(now.Add(-26 * time.Minute)),
+			ActiveLeaseID:          "lease_1",
+			ActiveLeaseAcquiredAt:  at(now.Add(-20 * time.Minute)),
+			ActiveLeaseHeartbeatAt: at(now.Add(-400 * time.Second)), // stale: > 330s deadline
+		}
+	}
+	tests := []struct {
+		name         string
+		mutate       func(Activity) Activity
+		wantProtocol string
+		wantStall    string
+	}{
+		{
+			name: "fresh PTY output suppresses lease-heartbeat stall (working_local)",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(now.Add(-10 * time.Second)) // long foreground command still emitting
+				return a
+			},
+			wantProtocol: ProtocolWorkingLocal,
+			wantStall:    "",
+		},
+		{
+			name: "inside a fresh tool call suppresses lease-heartbeat stall (working_tool)",
+			mutate: func(a Activity) Activity {
+				a.LastToolCallStartedAt = at(now.Add(-20 * time.Second)) // in-flight tool call, no finish
+				return a
+			},
+			wantProtocol: ProtocolWorkingTool,
+			wantStall:    "",
+		},
+		{
+			name: "no fresh output still trips lease-heartbeat stall (dead-lane detection preserved)",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(now.Add(-5 * time.Minute)) // older than PTYFreshSeconds: the lane went quiet
+				return a
+			},
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallLeaseHeartbeat,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.mutate(staleLeaseHolder()), policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+		})
+	}
+}
+
 // TestProjectionExposesNewLivenessColumns asserts the read-layer projection
 // surfaces the new PTY/tool-call timestamps and, for an in-tool lane, the
 // visible tool_call_since / tool_call_deadline (#83).

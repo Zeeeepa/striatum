@@ -201,7 +201,12 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		      FROM striatumd.leases lz
 		     WHERE lz.repository_id = j.repository_id
 		       AND lz.resource_id = j.job_id
-		     ORDER BY lz.acquired_at DESC, lz.lease_id DESC
+		     -- Prefer the ACTIVE lease first (#145): a same-second acquired_at tie
+		     -- between a prior attempt's released lease and the live attempt's active
+		     -- lease must resolve the live one, not let the random lease_id tiebreak
+		     -- pick the released (closed-session) lease and falsely requeue while the
+		     -- live lease still holds the job.
+		     ORDER BY (lz.state = 'active') DESC, lz.acquired_at DESC, lz.lease_id DESC
 		     LIMIT 1
 		  ) l ON true
 		  LEFT JOIN striatumd.sessions s

@@ -351,6 +351,22 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		base := latestTime(activity.LastWorkHeartbeatAt, activity.ActiveLeaseHeartbeatAt, activity.ActiveLeaseAcquiredAt)
 		threshold := policy.LeaseHeartbeatSeconds + policy.LeaseHeartbeatSlack
 		if missed(base, threshold, now) {
+			// #145: a lease holder past its heartbeat deadline is NOT stalled if it
+			// is demonstrably still producing output — fresh PTY frames
+			// (working_local) or inside an MCP/tool call (working_tool). A long
+			// foreground command (a full test suite, a browser-acceptance profile)
+			// emits no work-heartbeat for minutes while the PTY/tool timeline stays
+			// fresh; tripping StallLeaseHeartbeat there falsely transfers an
+			// actively-working lane (the recovery decision tree's CASE 2 closes its
+			// session mid-work and loses the artifact). This mirrors the
+			// protocol-idle rung below, which already folds last_pty_activity_at into
+			// its base, so the same G2 invariant ("never report stalled while
+			// demonstrably producing output") holds for a lease holder too. A lane
+			// that goes quiet past the PTY-fresh window resolves to ProtocolQuiet and
+			// still trips the stall, preserving dead-lane detection.
+			if working := workingResult(activity, policy, now); working.Protocol != ProtocolQuiet {
+				return working
+			}
 			return stallResult(activity, StallLeaseHeartbeat, DeadlineLeaseHeartbeat, threshold, base)
 		}
 		return workingResult(activity, policy, now)

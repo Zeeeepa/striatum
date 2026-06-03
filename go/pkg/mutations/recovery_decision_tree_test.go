@@ -694,3 +694,198 @@ func TestSweepDoesNotRequeueWorkingToolPreDeadline(t *testing.T) {
 		t.Fatalf("transfer_count = %d, want 0 (no action on working_tool job)", transfer)
 	}
 }
+
+// TestSweepDoesNotRequeueWorkingLongLaneWithActiveStaleLease guards #145: a job
+// whose owning session holds an ACTIVE lease (not yet expired) but whose
+// lease-heartbeat base is stale (>330s) — a lane running a long foreground
+// command (a full suite / a browser-acceptance profile) that has emitted no
+// work-heartbeat for minutes — is NOT requeued while it is demonstrably still
+// producing output (fresh PTY). Before the fix the lease-heartbeat rung classified
+// it ProtocolStalled and CASE 2 transfer-requeued the actively-working lane,
+// closing its session mid-work and losing the artifact. The companion
+// expired-lease cases (working_local / working_tool) are covered by the
+// TestSweepDoesNotRequeueWorkingLocal/Tool tests above; this is the
+// active-lease-with-stale-heartbeat path the lease-heartbeat rung used to
+// mishandle.
+func TestSweepDoesNotRequeueWorkingLongLaneWithActiveStaleLease(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_sweep_working_long"
+	runID := "run_" + repoID
+	jobID := "job_impl_" + repoID
+	leaseID := "lease_long_" + repoID
+	msgID := "msg_impl_" + repoID
+	sessionID := "sess_long_" + repoID
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"implementer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{}},
+		"jobs":        []any{map[string]any{"id": "implement", "type": "build", "role_id": "implementer"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "implementer", "claude", []string{"write"}, "active")
+	now := time.Now().UTC()
+	// Discovered + working, but every protocol/heartbeat signal is minutes old (a
+	// long foreground command), while the PTY produced output RIGHT NOW.
+	stale := now.Add(-20 * time.Minute)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET registered_at = $3, last_mcp_request_at = $3, last_work_heartbeat_at = $3,
+		       last_session_heartbeat_at = $3, last_pty_activity_at = $4,
+		       last_tool_call_started_at = NULL, last_tool_call_finished_at = NULL
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID, stale, now); err != nil {
+		t.Fatalf("set working-long activity: %v", err)
+	}
+
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, write_scope_json,
+		  lane_selector_json, current_message_id, current_lease_id, created_at, started_at
+		) VALUES ($1,$2,$3,'implement',1,'running','implementer','Implement','build',
+		          'idem_impl_'||$1,'[]'::jsonb,'{}'::jsonb,'{"lane_id":"claude"}'::jsonb,$4,$5,$6,$6)`,
+		repoID, jobID, runID, msgID, leaseID, now); err != nil {
+		t.Fatalf("insert running job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_role_id, target_lane_id, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,'work','acked',0,'implementer','claude',$5,$5)`,
+		repoID, msgID, runID, jobID, now); err != nil {
+		t.Fatalf("insert work message: %v", err)
+	}
+	// An ACTIVE lease with FUTURE expiry (so the sweep's expireLeases pass leaves it
+	// active) but a STALE heartbeat base (acquired + last_heartbeat 20m ago) — the
+	// exact input the lease-heartbeat rung judges.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at, last_heartbeat_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,NOW() + INTERVAL '10 minutes',$6)`,
+		repoID, leaseID, runID, jobID, sessionID, stale); err != nil {
+		t.Fatalf("insert active stale-heartbeat lease: %v", err)
+	}
+
+	result, err := SweepRun(ctx, runner, repoID, runID, "")
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	summary := recoveryActionsFromSweep(t, result)
+	if intValue(summary["acted_count"]) != 0 {
+		t.Fatalf("acted_count = %v, want 0 (working-long lane with active stale-heartbeat lease must NOT be requeued); %#v", summary["acted_count"], summary)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("job state = %q, want running (untouched)", got)
+	}
+	if got := sessionStateOf(t, ctx, runner, repoID, sessionID); got != "active" {
+		t.Fatalf("working-long session state = %q, want active (not closed mid-work)", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 1 {
+		t.Fatalf("active lease count = %d, want 1 (untouched)", n)
+	}
+	_, transfer, _ := jobRecoveryCounts(t, ctx, runner, repoID, jobID)
+	if transfer != 0 {
+		t.Fatalf("transfer_count = %d, want 0 (no action on working-long lane)", transfer)
+	}
+}
+
+// TestSweepLeaseResolutionPrefersActiveLeaseOnSameSecondTie guards the #145
+// lease-ordering latent bug: recoverStuckJobs resolves a job's owning lease as
+// the latest by (acquired_at DESC, lease_id DESC). When a prior attempt's
+// RELEASED lease (owned by a now-closed session) and the live attempt's ACTIVE
+// lease share a same-second acquired_at, the random lease_id tiebreak could
+// resolve the released lease and falsely requeue_same_attempt (CASE 1) while the
+// live lease holds the job. The resolver must prefer the ACTIVE lease on a tie, so
+// the job is left untouched.
+func TestSweepLeaseResolutionPrefersActiveLeaseOnSameSecondTie(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_sweep_lease_tie"
+	runID := "run_" + repoID
+	jobID := "job_impl_" + repoID
+	msgID := "msg_impl_" + repoID
+	liveSession := "sess_live_" + repoID
+	deadSession := "sess_dead_" + repoID
+	// lease_id is the tiebreak lever: the RELEASED lease gets the HIGHER id so a
+	// naive (acquired_at DESC, lease_id DESC) resolve would wrongly pick it over the
+	// active one on a same-second acquired_at.
+	activeLeaseID := "lease_aaa_active_" + repoID
+	releasedLeaseID := "lease_zzz_released_" + repoID
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"implementer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{}},
+		"jobs":        []any{map[string]any{"id": "implement", "type": "build", "role_id": "implementer"}},
+	})
+	// The live owning session is active + working; the prior attempt's session is
+	// closed (its lease released).
+	intgSeedSession(t, ctx, runner, repoID, runID, liveSession, "implementer", "claude", []string{"write"}, "active")
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, deadSession, "implementer", "claude", []string{"write"}, "closed", 2)
+	now := time.Now().UTC()
+	tie := now.Add(-5 * time.Minute) // both leases acquired in the SAME second
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions SET last_mcp_request_at = $3
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, liveSession, now); err != nil {
+		t.Fatalf("set live session activity: %v", err)
+	}
+
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, write_scope_json,
+		  lane_selector_json, current_message_id, current_lease_id, created_at, started_at
+		) VALUES ($1,$2,$3,'implement',1,'running','implementer','Implement','build',
+		          'idem_impl_'||$1,'[]'::jsonb,'{}'::jsonb,'{"lane_id":"claude"}'::jsonb,$4,$5,$6,$6)`,
+		repoID, jobID, runID, msgID, activeLeaseID, now); err != nil {
+		t.Fatalf("insert running job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_role_id, target_lane_id, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,'work','acked',0,'implementer','claude',$5,$5)`,
+		repoID, msgID, runID, jobID, now); err != nil {
+		t.Fatalf("insert work message: %v", err)
+	}
+	// The prior attempt's RELEASED lease — higher lease_id, same-second acquired_at.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at, released_at, release_reason
+		) VALUES ($1,$2,$3,'job',$4,$5,'released',$6,$6,$6,'superseded')`,
+		repoID, releasedLeaseID, runID, jobID, deadSession, tie); err != nil {
+		t.Fatalf("insert released lease: %v", err)
+	}
+	// The live ACTIVE lease — lower lease_id, same-second acquired_at, fresh heartbeat.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at, last_heartbeat_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,NOW() + INTERVAL '10 minutes',NOW())`,
+		repoID, activeLeaseID, runID, jobID, liveSession, tie); err != nil {
+		t.Fatalf("insert active lease: %v", err)
+	}
+
+	result, err := SweepRun(ctx, runner, repoID, runID, "")
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	summary := recoveryActionsFromSweep(t, result)
+	if intValue(summary["acted_count"]) != 0 {
+		t.Fatalf("acted_count = %v, want 0 (live active lease must resolve over the same-second released lease — no false requeue); %#v", summary["acted_count"], summary)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("job state = %q, want running (live lease holds it)", got)
+	}
+	if got := sessionStateOf(t, ctx, runner, repoID, liveSession); got != "active" {
+		t.Fatalf("live owning session state = %q, want active (not closed by a false requeue)", got)
+	}
+	requeue, _, _ := jobRecoveryCounts(t, ctx, runner, repoID, jobID)
+	if requeue != 0 {
+		t.Fatalf("requeue_count = %d, want 0 (no false requeue)", requeue)
+	}
+}
