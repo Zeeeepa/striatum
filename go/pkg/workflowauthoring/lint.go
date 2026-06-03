@@ -4,9 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/workflowtemplates"
 )
 
 var modelTokenPattern = regexp.MustCompile(`[^a-z0-9]+`)
@@ -38,6 +41,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintWriteScopeRisk(workflow, jobMap, &findings)
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
+	lintExperimentalShape(workflow, &findings)
 	for index := range findings {
 		findings[index]["fingerprint"] = FindingFingerprint(findings[index])
 	}
@@ -315,6 +319,27 @@ func lintAgyOneShotPipeLane(workflow map[string]any, findings *[]map[string]any)
 			"lane_id":  laneID,
 		})
 	}
+}
+
+// lintExperimentalShape warns (RFC 0106) when a workflow declares a generator
+// shape that has no unattended-reliability gate (support_tier=experimental). It
+// does NOT block — yolo may opt in knowingly — but the default run path surfaces
+// the risk. A workflow with no declared `shape` (hand-authored) is not
+// classified and produces no warning.
+func lintExperimentalShape(workflow map[string]any, findings *[]map[string]any) {
+	shape := stringValue(workflow["shape"])
+	if shape == "" {
+		return
+	}
+	if workflowtemplates.SupportTierForShape(shape) != workflowtemplates.SupportTierExperimental {
+		return
+	}
+	*findings = append(*findings, map[string]any{
+		"rule":     "experimental_shape",
+		"severity": "warning",
+		"message": fmt.Sprintf("workflow shape %q is experimental: it has no unattended-reliability gate (RFC 0105), so a multi-lane / revision run may wedge without recovery — expect to supervise it, or choose a `supported` shape. See RFC 0106.", shape),
+		"shape":   shape,
+	})
 }
 
 func laneDeclaresAgentLoop(lane map[string]any) bool {

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### RFC 0106 — workflow-shape support tiers (govern the catalog, don't prune it)
+
+- **The shape catalog now tells the truth about which choreographies survive an
+  unattended run.** Each generator shape carries a `support_tier` of `supported`
+  (it has a green RFC 0105 reliability fixture) or `experimental` (it exists and
+  may be valuable, but is not yet proven unattended). The classification is a
+  single source of truth (`workflowtemplates.supportedShapes` =
+  `{minimal, review, code_change, multi_review_synthesis}`) stamped onto every
+  catalog entry and rendered as a badge in `docs/reference/workflow-catalog.md`.
+- **Honest, non-blocking lint.** `workflow.lint` emits an `experimental_shape`
+  warning when a run declares an experimental shape ("no unattended-reliability
+  gate; expect to supervise it"), and is silent on a `supported` shape or when no
+  shape is declared — yolo can opt in knowingly; the default path surfaces the
+  risk. It does **not** block.
+- **The tier cannot lie.** A graduation guard test
+  (`TestSupportedShapesHaveReliabilityFixture`) reconciles the catalog's
+  `supported` set with the RFC 0105 fixture registry
+  (`adapterconformance.ReliabilityFixtureShapes`) in *both* directions — marking
+  a shape `supported` without a green fixture, or shipping a fixture without
+  graduating the shape, fails CI.
+- **No shape removed; new-shape authoring frozen.** Every choreography stays
+  available (the collaboration / anti-hallucination shapes are the product
+  value); the decision log records a freeze on authoring *new* shapes until the
+  existing catalog graduates, redirecting velocity from breadth to depth. (D162.)
+
 ### RFC 0105 — standing unattended-reliability harness (the yolo gate)
 
 - **The full multi-lane revision lifecycle now has a standing hermetic gate.**

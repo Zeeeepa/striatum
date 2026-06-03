@@ -1,6 +1,6 @@
 # RFC 0106: Workflow-shape support tiers and graduation — govern the catalog, don't prune it
 
-Status: proposed
+Status: accepted (D162, 2026-06-03)
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0034 (workflow generator + template catalog), RFC 0074 (shape/adversary-pack expansion), RFC 0083/0086/0093/0094/0098 (collaboration shapes), RFC 0105 (reliability harness); `go/pkg/workflowgenerate/generate.go`, `go/pkg/workflowtemplates`, `go/pkg/workflowauthoring` (lint), `docs/reference/workflow-catalog.md`.

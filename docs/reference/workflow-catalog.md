@@ -4,6 +4,35 @@ Generated from the bundled Striatum workflow template catalog.
 
 ## Workflow Shapes
 
+### Adjudicated constraint extraction (`adjudicated_constraint_extraction`)
+
+An eight-phase productive-refusal loop: cross-examiners challenge a candidate synthesis, the adjudicator converts load-bearing objections into binding constraints, revision discharges each one, and final review typechecks discharge.
+
+- Recommended for: design and spec authoring; productive refusal; constraint-extracting multi-model panels
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Survey"]
+  n1["Convener synthesis"]
+  n2["Cross-examination"]
+  n3["Adjudication (constraints)"]
+  n4["Revision synthesis"]
+  n5["Discharge review"]
+  n6["Spec publication"]
+  n7["Final review (typecheck)"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+  n4 --> n5
+  n5 --> n6
+  n6 --> n7
+  n3 -.->|needs_revision| n1
+```
+
 ### Code change with bounded revision (`code_change`)
 
 Draft, review, revise at most once if needed, then apply.
@@ -11,6 +40,7 @@ Draft, review, revise at most once if needed, then apply.
 - Recommended for: small code or docs edits that need an explicit review gate
 - Default lane sets: `author_reviewer`, `single_agent`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD
@@ -22,6 +52,45 @@ flowchart TD
   n1 -.->|needs_revision| n0
 ```
 
+### Conversation (`conversation`)
+
+N-turn, M-model alternating speaker conversation over the message bus.
+
+- Recommended for: model-to-model dialogue; agent-operator interviews; multi-turn reasoning loops
+- Default lane sets: `author_reviewer`, `multi_review`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Turn 1"]
+  n1["Turn 2"]
+  n2["Turn N"]
+  n0 --> n1
+  n1 --> n2
+```
+
+### Cross-examination gate (`cross_examination`)
+
+Require falsifying cross-examination and a rebuttal record before a finding or proposal can publish downstream.
+
+- Recommended for: finding readiness checks; proposal publication gates; challenge/rebuttal provenance
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Author draft"]
+  n1["Cross-examiner"]
+  n2["Adjudicator ledger"]
+  n3["Commit"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n2 -.->|needs_revision| n1
+```
+
 ### Custom safe block plan (`custom`)
 
 Compose a workflow from known block kinds without raw workflow JSON.
@@ -29,6 +98,7 @@ Compose a workflow from known block kinds without raw workflow JSON.
 - Recommended for: advanced operators who need a graph not covered by a built-in shape
 - Default lane sets: `custom`
 - Required options: `plan`, `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
 
 No fixed graph preview.
 
@@ -39,6 +109,7 @@ Produce claims with a support ledger and audit review.
 - Recommended for: artifacts whose claims need explicit evidence checking
 - Default lane sets: `author_reviewer`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
 
 ```mermaid
 flowchart TD
@@ -51,6 +122,27 @@ flowchart TD
   n2 --> n3
 ```
 
+### Falsification gate (`falsification_gate`)
+
+Keep a proposal holder live while falsifiers challenge it, then gate downstream work on an adjudicator's collaboration ledger.
+
+- Recommended for: proposal readiness checks; assumption falsification; substance-gated live dialogue
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Holder"]
+  n1["Falsifiers"]
+  n2["Adjudicator ledger"]
+  n3["Commit"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n2 -.->|needs_revision| n1
+```
+
 ### Human checkpoint (`human_checkpoint`)
 
 Require owner judgment before downstream work proceeds.
@@ -58,6 +150,7 @@ Require owner judgment before downstream work proceeds.
 - Recommended for: runs that need an explicit operator decision gate
 - Default lane sets: `author_reviewer`, `single_agent`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
 
 ```mermaid
 flowchart TD
@@ -75,6 +168,7 @@ Compare several implementation approaches with explicit scorecards, arbitration,
 - Recommended for: contested implementation choices; architecture trade-off resolution; high-risk design forks
 - Default lane sets: `multi_review`, `author_reviewer`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
 
 ```mermaid
 flowchart TD
@@ -97,6 +191,50 @@ flowchart TD
   n6 --> n7
 ```
 
+### Iterated interrogating panel (`iterated_interrogating_panel`)
+
+Two chained design+build loops, each fanning out to three independent lanes, synthesizing, then an interrogating panel review with a bounded needs_revision cycle.
+
+- Recommended for: high-stakes design-then-build work; patterns that need preserved-context interrogation; panel review with bounded re-work
+- Default lane sets: `multi_review`, `author_reviewer`
+- Required options: `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+**Example-only** — not a `workflow generate --shape` value. Copy and adapt the example workflow at `examples/iterated-interrogating-panel/workflow.json`.
+
+```mermaid
+flowchart TD
+  n0["Design (codex)"]
+  n1["Design (claude_code)"]
+  n2["Design (gemini)"]
+  n3["Synthesis (interrogable)"]
+  n4["Design review (threat_model)"]
+  n5["Design review (ergonomics_dx)"]
+  n6["Design review (devils_advocate)"]
+  n7["Implement (interrogable)"]
+  n8["Build review (threat_model)"]
+  n9["Build review (ergonomics_dx)"]
+  n10["Build review (devils_advocate)"]
+  n0 --> n3
+  n1 --> n3
+  n2 --> n3
+  n3 --> n4
+  n3 --> n5
+  n3 --> n6
+  n4 --> n7
+  n5 --> n7
+  n6 --> n7
+  n7 --> n8
+  n7 --> n9
+  n7 --> n10
+  n4 -.->|needs_revision| n3
+  n5 -.->|needs_revision| n3
+  n6 -.->|needs_revision| n3
+  n8 -.->|needs_revision| n7
+  n9 -.->|needs_revision| n7
+  n10 -.->|needs_revision| n7
+```
+
 ### Minimal bounded job (`minimal`)
 
 One bounded job for a small report or starter artifact.
@@ -104,6 +242,7 @@ One bounded job for a small report or starter artifact.
 - Recommended for: small reports; narrow inspections; first drafts
 - Default lane sets: `local`, `single_agent`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD
@@ -117,6 +256,7 @@ Run phase-scoped parallel tracks behind explicit synthesis gates.
 - Recommended for: large work split into ordered design, build, review, or release phases
 - Default lane sets: `author_reviewer`, `multi_review`, `single_agent`
 - Required options: `workflow_id`, `artifact_root`, `phases`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
 
 ```mermaid
 flowchart TD
@@ -136,6 +276,7 @@ Collect several independent reviews before a final recommendation.
 - Recommended for: productive disagreement; RFC or proposal review
 - Default lane sets: `multi_review`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD
@@ -155,6 +296,7 @@ Draft, fresh review, then final synthesis.
 - Recommended for: proposal review; bug triage; documentation review
 - Default lane sets: `author_reviewer`, `single_agent`, `local`
 - Required options: `workflow_id`, `artifact_root`
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD

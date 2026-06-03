@@ -114,6 +114,15 @@ func WriteMarkdown(repoRoot string, targetPath string, options MarkdownWriteOpti
 
 func shapeSection(entry map[string]any) ([]string, error) {
 	lines := templateSection(entry, []string{"recommended_for", "default_lane_sets", "required_options"})
+	// RFC 0106: surface the support tier so operators know which shapes are
+	// proven to run unattended (a green RFC 0105 reliability fixture) versus
+	// experimental (valuable but not yet gated — expect to supervise).
+	switch fmt.Sprint(entry["support_tier"]) {
+	case SupportTierSupported:
+		lines = append(lines, "**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.", "")
+	case SupportTierExperimental:
+		lines = append(lines, "**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.", "")
+	}
 	// #111: an example-only shape is advertised for discovery but is NOT a
 	// `workflow generate --shape` value; say so and point at the example fixture
 	// so operators do not select it as a generated shape.

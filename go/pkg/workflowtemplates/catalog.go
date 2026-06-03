@@ -50,12 +50,55 @@ var multiPhaseShapeEntry = map[string]any{
 	},
 }
 
+// RFC 0106 support tiers. A shape is `supported` only if it has a green RFC 0105
+// unattended-reliability fixture (adapterconformance.ReliabilityFixtureShapes);
+// every other shape is `experimental` — it exists and may be valuable, but is
+// not yet proven to run unattended. The classification below is the single
+// source of truth the catalog stamps onto each shape entry, the workflow.lint
+// experimental-shape warning consults (SupportTierForShape), and the RFC 0106
+// graduation guard test reconciles against the fixture registry so the tier
+// cannot lie.
+const (
+	SupportTierSupported    = "supported"
+	SupportTierExperimental = "experimental"
+)
+
+// supportedShapes are the shape template_ids with a green RFC 0105 fixture.
+// Keep in sync with adapterconformance.ReliabilityFixtureShapes (the graduation
+// guard fails if they drift). Per RFC 0106, no shape graduates here without a
+// passing fixture, and no NEW shapes are authored until the catalog graduates.
+var supportedShapes = map[string]struct{}{
+	"minimal":                {},
+	"review":                 {},
+	"code_change":            {},
+	"multi_review_synthesis": {},
+}
+
+// SupportTierForShape returns the RFC 0106 support tier for a shape template_id.
+// Unknown / ungated shapes are `experimental` (the honest default: unproven
+// until a fixture says otherwise).
+func SupportTierForShape(templateID string) string {
+	if _, ok := supportedShapes[templateID]; ok {
+		return SupportTierSupported
+	}
+	return SupportTierExperimental
+}
+
 type Catalog struct {
 	Shapes                  []map[string]any
 	LaneSets                []map[string]any
 	RolePacks               []map[string]any
 	AdversaryPacks          []map[string]any
 	HarnessProfileFragments []map[string]any
+}
+
+// stampSupportTiers sets `support_tier` on every shape entry from the RFC 0106
+// classification, so the API (Get/List), the rendered catalog doc, and any
+// consumer see the tier without it being duplicated across catalog.json.
+func (c *Catalog) stampSupportTiers() {
+	for _, entry := range c.Shapes {
+		entry["support_tier"] = SupportTierForShape(stringValue(entry, "template_id"))
+	}
 }
 
 type Error struct {
@@ -145,6 +188,7 @@ func LoadBytes(body []byte) (*Catalog, error) {
 		HarnessProfileFragments: fragments,
 	}
 	catalog.ensureMultiPhaseShape()
+	catalog.stampSupportTiers()
 	return catalog, nil
 }
 
