@@ -9,9 +9,9 @@ type AuthLogEvent string
 
 const (
 	AuthLogBootstrap            AuthLogEvent = "bootstrap"
-	AuthLogRotated             AuthLogEvent = "rotated"
-	AuthLogRotationSkipped     AuthLogEvent = "rotation_skipped_single_role"
-	AuthLogRotationFailed      AuthLogEvent = "rotation_failed"
+	AuthLogRotated              AuthLogEvent = "rotated"
+	AuthLogRotationSkipped      AuthLogEvent = "rotation_skipped_single_role"
+	AuthLogRotationFailed       AuthLogEvent = "rotation_failed"
 	AuthLogOwnerBootstrapFailed AuthLogEvent = "owner_bootstrap_failed"
 )
 
@@ -27,8 +27,8 @@ var authLogAllowedKeys = map[string]bool{
 }
 
 var (
-	dsnPattern      = regexp.MustCompile(`(?i)postgres(?:ql)?://[^\s"']*`)
-	credKVPattern   = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|sslpassword)\s*=\s*[^\s"';&]+`)
+	dsnPattern    = regexp.MustCompile(`(?i)postgres(?:ql)?://[^\s"']*`)
+	credKVPattern = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|sslpassword)\s*=\s*[^\s"';&]+`)
 )
 
 // RedactAuthLogDetail produces the detail jsonb written to daemon_auth_log: it
