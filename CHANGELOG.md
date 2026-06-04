@@ -17,6 +17,22 @@
   supported interactive commands. (The right answer to "a `--print` lane wedges"
   is not to harden `--print`; it is to not configure one. The silent-death
   *diagnostic* remains as a separate general lane-death legibility item.)
+- **RFC 0111 P2+P3 — in-band remediation + closed error-code catalog.**
+  `rpc.Error` gains a first-class `Suggestion` field (`suggestion,omitempty`).
+  `ErrorResponse` fills it centrally from the new per-code catalog when a call
+  site sets none (explicit call-site suggestions win), threads it through
+  `Response.Data`, and the MCP boundary renders it in-band: a failing
+  `tools/call` content text now reads
+  `<method> failed: <code>: <message> — suggestion: <s>`, and
+  `structuredContent` gains a sibling `suggestion` key (the
+  `error`/`error_message` contract is unchanged). `go/pkg/rpc/error_catalog.go`
+  enumerates all 62 live error codes (code, meaning, default suggestion) as a
+  closed contract; `go/pkg/rpc/error_catalog_test.go` guard-reconciles it in
+  both directions against the source literals (`NewError("…")`, `Code: "…"`,
+  capability `DenialReason` values) and against the new "Error code catalog"
+  section of `docs/reference/command-authority-matrix.md`, whose stale
+  reference to the retired Python authority guardrails now names the live Go
+  guard tests instead.
 - **Mission acceptance met — 10× unattended, zero-rescue DoD (live).** Added
   `scripts/dod/driver.py`, the outside-CI live acceptance: it drives N consecutive
   multi-lane, review-gated, revision-capable runs to `completed` using only normal

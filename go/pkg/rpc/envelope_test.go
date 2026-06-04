@@ -112,3 +112,64 @@ func TestHelloUsesDynamicSealedApplyStatus(t *testing.T) {
 		t.Fatalf("dynamic sealed_apply not used: %#v", sealedApply)
 	}
 }
+
+// RFC 0111 P2: an explicit call-site suggestion rides rpc.Error through
+// ErrorResponse into Response.Data verbatim.
+func TestErrorResponseCarriesExplicitSuggestion(t *testing.T) {
+	err := &Error{Code: "lease_error", Message: "lease is expired", Suggestion: "call-site remediation wins"}
+	response := ErrorResponse("req_1", err, "audit_1")
+	if response.OK {
+		t.Fatalf("error response must not be ok")
+	}
+	if response.Data["suggestion"] != "call-site remediation wins" {
+		t.Fatalf("explicit suggestion lost: %#v", response.Data)
+	}
+}
+
+// RFC 0111 P2: when a call site sets no suggestion, ErrorResponse centrally
+// fills the catalog's per-code default — the design that avoids touching the
+// 165+ NewError call sites.
+func TestErrorResponseFillsDefaultSuggestionFromCatalog(t *testing.T) {
+	response := ErrorResponse("req_1", NewError("lease_error", "lease is expired", nil), "audit_1")
+	suggestion, _ := response.Data["suggestion"].(string)
+	if suggestion == "" || suggestion != DefaultSuggestion("lease_error") {
+		t.Fatalf("default suggestion not filled from catalog: %#v", response.Data)
+	}
+}
+
+// RFC 0111 P2: codes with no sensible remediation carry no suggestion key at
+// all (omitted, not empty).
+func TestErrorResponseOmitsSuggestionWhenNoneKnown(t *testing.T) {
+	response := ErrorResponse("req_1", NewError("git_snapshot_failed", "boom", nil), "audit_1")
+	if _, exists := response.Data["suggestion"]; exists {
+		t.Fatalf("suggestion key must be omitted when the catalog has no default: %#v", response.Data)
+	}
+}
+
+// RFC 0111 P2 acceptance: every high-traffic family code the RFC names (as it
+// exists in this codebase) must carry a non-empty default suggestion through
+// Response.Data.
+func TestHighTrafficCodesCarryNonEmptyDefaultSuggestion(t *testing.T) {
+	codes := []string{
+		// lifecycle
+		"invalid_transition",
+		// lease/session
+		"lease_error",
+		// capability
+		"capability_missing", "capability_denied",
+		"token_invalid", "token_expired", "token_revoked", "token_malformed",
+		// confirmation gates
+		"confirmation_required", "branch_confirmation_required",
+	}
+	for _, code := range codes {
+		if DefaultSuggestion(code) == "" {
+			t.Errorf("catalog default suggestion missing for high-traffic code %s", code)
+			continue
+		}
+		response := ErrorResponse("req_1", NewError(code, "failure", nil), "audit_1")
+		suggestion, _ := response.Data["suggestion"].(string)
+		if suggestion == "" {
+			t.Errorf("ErrorResponse dropped the default suggestion for %s: %#v", code, response.Data)
+		}
+	}
+}

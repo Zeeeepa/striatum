@@ -650,3 +650,86 @@ func contentText(t *testing.T, response jsonrpcResponse) string {
 	}
 	return text
 }
+
+// RFC 0111 P2: a failing tools/call carries the remediation end to end — the
+// content text appends the suggestion and structuredContent gains a sibling
+// suggestion key, while error/error_message semantics stay unchanged. The
+// handler sets no explicit suggestion, so this also proves the central
+// catalog default-fill reaches the MCP boundary.
+func TestHTTPHandlerToolsCallFailureContentCarriesSuggestion(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.RPC.Register("work.complete", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("lease_error", "lease is expired", nil)
+	})
+	body := `{"jsonrpc":"2.0","id":"failure-suggestion","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "write.secret"))
+	if response.Result["isError"] != true {
+		t.Fatalf("isError = %#v", response.Result["isError"])
+	}
+	structured := structuredContent(t, response)
+	if structured["error"] != "lease_error" || structured["error_message"] != "lease is expired" {
+		t.Fatalf("structured error contract changed: %#v", structured)
+	}
+	want := rpc.DefaultSuggestion("lease_error")
+	if want == "" {
+		t.Fatalf("catalog default for lease_error must be non-empty")
+	}
+	if structured["suggestion"] != want {
+		t.Fatalf("structured suggestion = %#v, want %q", structured["suggestion"], want)
+	}
+	data, ok := structured["data"].(map[string]any)
+	if !ok || data["suggestion"] != want {
+		t.Fatalf("RPC Response.Data suggestion missing at the MCP boundary: %#v", structured["data"])
+	}
+	text := contentText(t, response)
+	if !strings.Contains(text, "lease_error") || !strings.Contains(text, "lease is expired") {
+		t.Fatalf("content text must keep carrying code and message: %q", text)
+	}
+	if !strings.Contains(text, "suggestion: "+want) {
+		t.Fatalf("content text must carry the suggestion in-band: %q", text)
+	}
+}
+
+// RFC 0111 P2: an explicit call-site suggestion wins over the catalog default
+// all the way through the MCP boundary.
+func TestHTTPHandlerToolsCallExplicitSuggestionWinsOverDefault(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.RPC.Register("work.complete", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		return nil, &rpc.Error{Code: "lease_error", Message: "lease is expired", Suggestion: "re-claim job job_1 specifically", ExitCode: 10}
+	})
+	body := `{"jsonrpc":"2.0","id":"explicit-suggestion","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "write.secret"))
+	structured := structuredContent(t, response)
+	if structured["suggestion"] != "re-claim job job_1 specifically" {
+		t.Fatalf("explicit suggestion lost at MCP boundary: %#v", structured["suggestion"])
+	}
+	text := contentText(t, response)
+	if !strings.Contains(text, "suggestion: re-claim job job_1 specifically") {
+		t.Fatalf("content text must carry the explicit suggestion: %q", text)
+	}
+	if strings.Contains(text, rpc.DefaultSuggestion("lease_error")) {
+		t.Fatalf("catalog default must not override the explicit suggestion: %q", text)
+	}
+}
+
+// RFC 0111 P2: failures whose code has no catalog default keep the P1 shape —
+// no dangling suggestion separator, no suggestion key.
+func TestHTTPHandlerToolsCallFailureWithoutSuggestionStaysP1Shaped(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.RPC.Register("status", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("git_snapshot_failed", "boom", nil)
+	})
+	body := `{"jsonrpc":"2.0","id":"no-suggestion","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "read.secret"))
+	structured := structuredContent(t, response)
+	if _, exists := structured["suggestion"]; exists {
+		t.Fatalf("suggestion key must be absent when there is no remediation: %#v", structured)
+	}
+	text := contentText(t, response)
+	if strings.Contains(text, "suggestion") {
+		t.Fatalf("content text must not render an empty suggestion: %q", text)
+	}
+}

@@ -33,10 +33,10 @@ func (s Service) ToolsList(ctx context.Context, params map[string]any, token str
 
 func (s Service) ToolsCall(ctx context.Context, name string, arguments map[string]any, token string, requestID string) map[string]any {
 	if isHiddenProductionTool(name) {
-		return toolResult(name, false, "", "tool_hidden", "MCP tools/call does not execute hidden production tools", nil)
+		return toolResult(name, false, "", "tool_hidden", "MCP tools/call does not execute hidden production tools", "", nil)
 	}
 	if s.RPC == nil {
-		return toolResult(name, false, "", "daemon_rpc_missing", "daemon RPC server is not configured", nil)
+		return toolResult(name, false, "", "daemon_rpc_missing", "daemon RPC server is not configured", "", nil)
 	}
 	envelope := rpc.Envelope{
 		SchemaVersion:   rpc.SupportedEnvelopeVersion,
@@ -61,10 +61,11 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 	}()
 	response := s.RPC.HandleWithoutHandshake(ctx, envelope, "mcp")
 	if response.OK {
-		return toolResult(name, true, response.AuditID, "", "", response.Data)
+		return toolResult(name, true, response.AuditID, "", "", "", response.Data)
 	}
 	code := "command_failed"
 	message := ""
+	suggestion := ""
 	if response.Data != nil {
 		if value, ok := response.Data["code"].(string); ok {
 			code = value
@@ -72,8 +73,13 @@ func (s Service) ToolsCall(ctx context.Context, name string, arguments map[strin
 		if value, ok := response.Data["message"].(string); ok {
 			message = value
 		}
+		// RFC 0111 P2: the remediation ErrorResponse attached (explicit or
+		// catalog default) crosses the MCP boundary alongside code/message.
+		if value, ok := response.Data["suggestion"].(string); ok {
+			suggestion = value
+		}
 	}
-	return toolResult(name, false, response.AuditID, code, message, response.Data)
+	return toolResult(name, false, response.AuditID, code, message, suggestion, response.Data)
 }
 
 func (s Service) recordActivity(ctx context.Context, repositoryID string, sessionID string, columns ...string) error {
@@ -83,7 +89,7 @@ func (s Service) recordActivity(ctx context.Context, repositoryID string, sessio
 	return s.ActivityRecorder.RecordSessionActivity(ctx, repositoryID, sessionID, columns...)
 }
 
-func toolResult(name string, ok bool, auditID string, code string, message string, data map[string]any) map[string]any {
+func toolResult(name string, ok bool, auditID string, code string, message string, suggestion string, data map[string]any) map[string]any {
 	var audit any
 	if auditID != "" {
 		audit = auditID
@@ -102,30 +108,39 @@ func toolResult(name string, ok bool, auditID string, code string, message strin
 	if message != "" {
 		structured["error_message"] = message
 	}
+	if suggestion != "" {
+		structured["suggestion"] = suggestion
+	}
 	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": contentSummary(name, ok, code, message)}},
+		"content":           []map[string]string{{"type": "text", "text": contentSummary(name, ok, code, message, suggestion)}},
 		"structuredContent": structured,
 		"isError":           !ok,
 	}
 }
 
 // contentSummary renders the MCP content text block — the channel an LLM
-// agent reads as the tool's result (RFC 0111 P1). On failure it carries the
-// dispatchable error code and message so the agent can self-heal in-band
-// instead of re-running the CLI verb to learn why; on success it stays a
-// terse one-line summary. structuredContent keeps the stable machine contract.
-func contentSummary(name string, ok bool, code string, message string) string {
+// agent reads as the tool's result (RFC 0111 P1+P2). On failure it carries
+// the dispatchable error code and message, plus the remediation suggestion
+// when one exists, so the agent can self-heal in-band instead of re-running
+// the CLI verb to learn why; on success it stays a terse one-line summary.
+// structuredContent keeps the stable machine contract.
+func contentSummary(name string, ok bool, code string, message string, suggestion string) string {
 	if ok {
 		return fmt.Sprintf("%s ok", name)
 	}
+	var summary string
 	switch {
 	case code != "" && message != "":
-		return fmt.Sprintf("%s failed: %s: %s", name, code, message)
+		summary = fmt.Sprintf("%s failed: %s: %s", name, code, message)
 	case code != "":
-		return fmt.Sprintf("%s failed: %s", name, code)
+		summary = fmt.Sprintf("%s failed: %s", name, code)
 	case message != "":
-		return fmt.Sprintf("%s failed: %s", name, message)
+		summary = fmt.Sprintf("%s failed: %s", name, message)
 	default:
-		return fmt.Sprintf("%s failed", name)
+		summary = fmt.Sprintf("%s failed", name)
 	}
+	if suggestion != "" {
+		summary = fmt.Sprintf("%s — suggestion: %s", summary, suggestion)
+	}
+	return summary
 }

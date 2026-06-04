@@ -13,10 +13,14 @@ const (
 )
 
 type Error struct {
-	Code     string         `json:"code"`
-	Message  string         `json:"message"`
-	Details  map[string]any `json:"details"`
-	ExitCode int            `json:"-"`
+	Code    string         `json:"code"`
+	Message string         `json:"message"`
+	Details map[string]any `json:"details"`
+	// Suggestion is the in-band remediation an agent can act on (RFC 0111
+	// P2). Call sites may set it explicitly; when empty, ErrorResponse fills
+	// the catalog's per-code default (error_catalog.go) centrally.
+	Suggestion string `json:"suggestion,omitempty"`
+	ExitCode   int    `json:"-"`
 }
 
 func (e *Error) Error() string {
@@ -125,16 +129,27 @@ func ErrorResponse(requestID string, err error, auditID string) Response {
 	if !errors.As(err, &rpcErr) {
 		rpcErr = NewError("internal_error", err.Error(), nil)
 	}
+	data := map[string]any{
+		"code":    rpcErr.Code,
+		"message": rpcErr.Message,
+		"details": rpcErr.Details,
+	}
+	// RFC 0111 P2: fill the remediation centrally so the 165+ NewError call
+	// sites stay untouched; an explicit call-site Suggestion wins over the
+	// catalog default, and the key is omitted when neither exists.
+	suggestion := rpcErr.Suggestion
+	if suggestion == "" {
+		suggestion = DefaultSuggestion(rpcErr.Code)
+	}
+	if suggestion != "" {
+		data["suggestion"] = suggestion
+	}
 	return Response{
 		SchemaVersion: SupportedEnvelopeVersion,
 		RequestID:     requestID,
 		OK:            false,
-		Data: map[string]any{
-			"code":    rpcErr.Code,
-			"message": rpcErr.Message,
-			"details": rpcErr.Details,
-		},
-		AuditID: auditID,
+		Data:          data,
+		AuditID:       auditID,
 	}
 }
 
