@@ -17,6 +17,7 @@ var commands = []Command{
 	{Command: "daemon", Subcommand: "uninstall", Rationale: "daemon uninstall disables and removes the systemd user unit; it touches no daemon RPC state and leaves config/data intact"},
 	{Command: "daemon", Subcommand: "status", Rationale: "daemon status summarizes the local unit/runtime layout and folds in read-only doctor; it issues no state-changing daemon RPC"},
 	{Command: "daemon", Subcommand: "migrate-db", Rationale: "daemon migrate-db applies pending PostgreSQL migrations via an owner/admin DSN before the daemon serves (RFC 0079 §5); it is a bootstrap helper, not a daemon RPC"},
+	{Command: "daemon", Subcommand: "owner-ddl", Rationale: "daemon owner-ddl apply installs the versioned owner-DDL bundles (RFC 0110 §8.1) via the owner DSN out-of-band; the runtime role cannot perform owner DDL, so it is a bootstrap helper, not a daemon RPC"},
 }
 
 func All() []Command {

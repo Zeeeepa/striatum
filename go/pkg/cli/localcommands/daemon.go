@@ -42,7 +42,7 @@ const daemonTomlScaffold = `# Striatum daemon configuration (scaffolded by ` + "
 // systemd user unit, scaffold daemon.toml, and report runtime layout.
 func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db} [flags]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db|owner-ddl} [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -54,10 +54,77 @@ func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 		return runDaemonStatus(args[1:], stdout, stderr)
 	case "migrate-db":
 		return runDaemonMigrate(args[1:], stdout, stderr, version)
+	case "owner-ddl":
+		return runDaemonOwnerDDL(args[1:], stdout, stderr, version)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown daemon command: %s\n", args[0])
 		return 2
 	}
+}
+
+// runDaemonOwnerDDL applies the versioned owner-DDL bundles (RFC 0110 §8.1) as
+// the database owner — authority registry, SECURITY DEFINER write functions,
+// capability stamps, and the phased DML revokes the runtime role cannot perform.
+// Owner DSN resolution mirrors `daemon migrate-db`: --owner-url (or --admin-url),
+// then STRIATUM_DAEMON_ADMIN_DB_URL, then the normal daemon DSN. Applying is
+// out-of-band and idempotent; re-running a stamped version is a no-op.
+func runDaemonOwnerDDL(args []string, stdout, stderr io.Writer, version string) int {
+	if len(args) == 0 || args[0] != "apply" {
+		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]")
+		return 2
+	}
+	ownerURL := ""
+	jsonOutput := false
+	for i := 1; i < len(args); i++ {
+		key, value, hasValue := strings.Cut(args[i], "=")
+		switch key {
+		case "--owner-url", "--admin-url":
+			if hasValue {
+				ownerURL = value
+			} else if i+1 < len(args) {
+				i++
+				ownerURL = args[i]
+			}
+		case "--json":
+			jsonOutput = true
+		default:
+			_, _ = fmt.Fprintf(stderr, "unknown daemon owner-ddl flag: %s\n", args[i])
+			return 2
+		}
+	}
+	if ownerURL == "" {
+		ownerURL = os.Getenv(EnvDaemonAdminDBURL)
+	}
+	cfg := db.ResolveConfig(ownerURL)
+	if cfg.URL == "" {
+		_, _ = fmt.Fprintln(stderr, "daemon owner-ddl: no Postgres DSN; pass --owner-url, set STRIATUM_DAEMON_ADMIN_DB_URL, or configure daemon.toml")
+		return 1
+	}
+	if version == "" {
+		version = "dev"
+	}
+	pool, err := db.Connect(context.Background(), cfg.URL, version)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon owner-ddl connect failed: %v\n", err)
+		return 1
+	}
+	defer pool.Close()
+	applied, bundleVersion, err := db.ApplyOwnerBundles(context.Background(), pool.Runner, version)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon owner-ddl apply failed: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		return writeDaemonJSON(stdout, stderr, map[string]any{"ok": true, "data": map[string]any{
+			"applied_versions": applied, "owner_bundle_version": bundleVersion, "dsn_source": cfg.Source,
+		}})
+	}
+	if len(applied) == 0 {
+		_, _ = fmt.Fprintf(stdout, "owner-ddl already current; owner_bundle_version=%d (dsn source: %s)\n", bundleVersion, cfg.Source)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "owner-ddl applied versions %v; owner_bundle_version=%d (dsn source: %s)\n", applied, bundleVersion, cfg.Source)
+	}
+	return 0
 }
 
 // runDaemonMigrate applies pending PostgreSQL migrations using an owner/admin
