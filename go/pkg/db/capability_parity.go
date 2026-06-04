@@ -7,6 +7,23 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// SupportedAuthorityCapabilities are the daemon-authority capabilities this
+// binary understands. The owner bundle stamps a subset (RFC 0110 §8.2); startup
+// parity fails closed if the schema stamps a capability this binary cannot
+// support (old-binary / authority-bearing-schema).
+func SupportedAuthorityCapabilities() []string {
+	return []string{"audit_sd_append"}
+}
+
+// RequiredAuthorityCapabilities are capabilities the binary requires the schema
+// to stamp. Empty in release N+1 slice 1: the owner bundle is opt-in and the
+// daemon does not yet depend on the SD write path, so a binary with no bundle
+// applied runs inert — which is exactly what makes the old-binary check real
+// once any binary >= this one meets an authority-bearing schema.
+func RequiredAuthorityCapabilities() []string {
+	return nil
+}
+
 // checkCapabilityParity enforces RFC 0110 §8.2 deploy capability parity in both
 // directions, but only once an authority-bearing schema exists. Until then
 // (release N: no owner bundle has stamped any capability) it is inert and
@@ -61,8 +78,11 @@ func VerifyCapabilityParity(ctx context.Context, runner Runner, required, suppor
 // and whether an authority-bearing schema is present at all. In release N the
 // schema_authority table does not exist, so present is false (inert).
 func readStampedCapabilities(ctx context.Context, runner Runner) ([]string, bool, error) {
+	// The ::text cast forces SQL-side 'true'/'false'; a bare boolean scans to
+	// the Postgres text repr ('t'/'f') under simple protocol, which would make
+	// the present case wrongly read as absent.
 	exists, err := runner.QueryScalar(ctx,
-		"SELECT to_regclass('striatumd.schema_authority') IS NOT NULL")
+		"SELECT (to_regclass('striatumd.schema_authority') IS NOT NULL)::text")
 	if err != nil {
 		return nil, false, err
 	}
