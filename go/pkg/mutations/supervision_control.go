@@ -896,32 +896,6 @@ func lockSuperviseStart(ctx context.Context, runner db.TxRunner, repositoryID, s
 	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
 }
 
-func ensureNoActiveSupervisor(ctx context.Context, runner any, repositoryID, sessionID string) error {
-	rower, ok := runner.(interface {
-		QueryRow(context.Context, string, ...any) db.Row
-	})
-	if !ok {
-		return fmt.Errorf("runner does not support query row")
-	}
-	var supervisorID, state string
-	err := rower.QueryRow(ctx, `
-		SELECT supervisor_id, state
-		  FROM striatumd.process_supervisors
-		 WHERE repository_id = $1 AND session_id = $2
-		   AND state = ANY($3)
-		 ORDER BY started_at DESC, supervisor_id DESC
-		 LIMIT 1`,
-		repositoryID, sessionID, []string{"starting", "attached", "detached"},
-	).Scan(&supervisorID, &state)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return rpc.NewError("invalid_transition", fmt.Sprintf("session already has an active supervisor: %s (state=%s)", supervisorID, state), nil)
-}
-
 // supersedeStaleSupervisorIfRequested is called inside the advisory-locked
 // transaction for supervise.start. When replace=true and a stale active
 // supervisor exists for the session, it is superseded (marked lost) so the

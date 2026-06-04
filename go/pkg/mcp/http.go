@@ -434,25 +434,6 @@ func errorResponse(id any, code int, message string, data any) jsonrpcResponse {
 	}
 }
 
-func writeDirectSSEResponse(w http.ResponseWriter, response jsonrpcResponse) {
-	encoded, err := json.Marshal(response)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	writeDirectSSEPayload(w, encoded)
-}
-
-func writeDirectSSEPayload(w http.ResponseWriter, payload []byte) {
-	writeSSEHeaders(w)
-	if err := writeSSEEvent(w, "message", payload); err != nil {
-		return
-	}
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
-}
-
 func writeJSONResponse(w http.ResponseWriter, response jsonrpcResponse) {
 	writeJSONResponseStatus(w, http.StatusOK, response)
 }

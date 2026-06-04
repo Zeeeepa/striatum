@@ -217,18 +217,6 @@ func (l *Liveness) LastHeartbeat() time.Time {
 	return l.lastBeat
 }
 
-// processAlive returns true if the pid is signalable (signal-0) AND the
-// kernel-reported process start time is consistent with the supervised
-// row's StartedAt. Pairing the signal-0 probe with start-time validation
-// closes the gemini F1 PID-recycling finding from dogfood-049 (a freshly
-// reused PID can pass signal-0 while being an entirely unrelated process).
-//
-// If startedAt is zero (legacy callers without recorded start time) the
-// check falls back to signal-0 only, preserving prior behavior.
-func processAlive(pid int) bool {
-	return processAliveAtStartTime(pid, time.Time{})
-}
-
 // processAliveAtStartTime is the V1.6 form: pass in the recorded
 // PointerRow.StartedAt so the probe can compare the kernel-reported
 // start time and refuse if they diverge by more than the tolerance.

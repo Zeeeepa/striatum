@@ -94,18 +94,6 @@ func stringListFromAny(value any) []string {
 	return out
 }
 
-func gitChangedPaths(ctx context.Context, repoRoot string) ([]string, error) {
-	snapshots, err := gitChangedPathSnapshots(ctx, repoRoot)
-	if err != nil {
-		return nil, err
-	}
-	paths := make([]string, 0, len(snapshots))
-	for _, item := range snapshots {
-		paths = append(paths, item.Path)
-	}
-	return paths, nil
-}
-
 type gitPathSnapshot struct {
 	Path string `json:"path"`
 	Hash string `json:"hash"`

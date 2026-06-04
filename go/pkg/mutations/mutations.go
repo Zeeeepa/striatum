@@ -1162,17 +1162,6 @@ func previousChainHead(ctx context.Context, runner any, repositoryID string) (an
 	return *hash, nil
 }
 
-func previousEvent(ctx context.Context, runner any, repositoryID string) (map[string]any, error) {
-	return oneRow(ctx, runner, `
-		SELECT repository_id, event_id, run_id, event_type, actor_session_id,
-		       job_id, message_id, artifact_id, lease_id, payload_json, created_at
-		  FROM striatumd.events
-		 WHERE repository_id = $1
-		 ORDER BY event_id DESC
-		 LIMIT 1
-		 FOR UPDATE`, repositoryID)
-}
-
 func nextEventID(ctx context.Context, runner any) (int64, error) {
 	rower, ok := runner.(interface {
 		QueryRow(context.Context, string, ...any) db.Row
@@ -1206,18 +1195,6 @@ func canonicalEventHash(row map[string]any, previousHash any) (string, error) {
 	}
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:]), nil
-}
-
-func eventRowHash(row map[string]any) (string, error) {
-	payload := asMap(row["payload_json"])
-	if chain := asMap(payload["_event_chain"]); chain != nil {
-		if hash, ok := chain["row_hash"].(string); ok && hash != "" {
-			return hash, nil
-		}
-		previous := chain["previous_hash"]
-		return canonicalEventHash(row, previous)
-	}
-	return canonicalEventHash(row, nil)
 }
 
 func eventPayload(value any) map[string]any {

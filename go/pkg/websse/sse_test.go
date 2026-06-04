@@ -9,14 +9,6 @@ import (
 	"time"
 )
 
-type staticSource struct{}
-
-func (staticSource) Fetch(ctx context.Context, since int, limit int) (Batch, error) {
-	return Batch{
-		Events: []Event{{ID: since + 1, Type: "striatum.event", Data: map[string]any{"run_id": "run_1"}}},
-	}, nil
-}
-
 type terminalSource struct{}
 
 func (terminalSource) Fetch(ctx context.Context, since int, limit int) (Batch, error) {

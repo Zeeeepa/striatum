@@ -2578,23 +2578,6 @@ func listFrom(value any) []any {
 	}
 }
 
-func stringListFrom(value any) []string {
-	switch typed := value.(type) {
-	case []string:
-		return typed
-	case []any:
-		result := []string{}
-		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				result = append(result, text)
-			}
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
 var titleWordRE = regexp.MustCompile(`\b\w`)
 
 func title(value string) string {
