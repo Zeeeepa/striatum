@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,6 +58,56 @@ func TestWriteDaemonPidfileRefusesLiveForeignStriatumd(t *testing.T) {
 	}
 	if string(data) != "4242\n" {
 		t.Fatalf("pidfile was overwritten: %q", string(data))
+	}
+}
+
+func TestReserveDaemonRuntimeRefusesLiveForeignStriatumd(t *testing.T) {
+	restore := stubInspectPid(processInfo{alive: true, name: "striatumd"})
+	defer restore()
+
+	dir := t.TempDir()
+	socketPath := filepath.Join(dir, "daemon-go.sock")
+	pidPath := daemonPidfilePath(socketPath)
+	if err := os.WriteFile(pidPath, []byte("4242\n"), 0o600); err != nil {
+		t.Fatalf("seed pidfile: %v", err)
+	}
+	cleanup, err := reserveDaemonRuntime(socketPath, 12345)
+	if err == nil {
+		cleanup()
+		t.Fatal("reserveDaemonRuntime() succeeded, want live daemon refusal")
+	}
+	if !strings.Contains(err.Error(), "live striatumd pid 4242") {
+		t.Fatalf("reserveDaemonRuntime() error = %v, want live daemon refusal", err)
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		t.Fatalf("read pidfile: %v", err)
+	}
+	if string(data) != "4242\n" {
+		t.Fatalf("pidfile was overwritten: %q", string(data))
+	}
+}
+
+func TestReserveDaemonRuntimeRefusesLiveSocketWithoutPidfile(t *testing.T) {
+	socketPath := filepath.Join(t.TempDir(), "daemon-go.sock")
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("listen unix socket: %v", err)
+	}
+	defer func() {
+		_ = listener.Close()
+	}()
+
+	cleanup, err := reserveDaemonRuntime(socketPath, 12345)
+	if err == nil {
+		cleanup()
+		t.Fatal("reserveDaemonRuntime() succeeded, want live socket refusal")
+	}
+	if !strings.Contains(err.Error(), "already accepts connections") {
+		t.Fatalf("reserveDaemonRuntime() error = %v, want live socket refusal", err)
+	}
+	if _, err := os.Stat(daemonPidfilePath(socketPath)); !os.IsNotExist(err) {
+		t.Fatalf("pidfile should not be written when live socket exists; stat error: %v", err)
 	}
 }
 

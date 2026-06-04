@@ -3,6 +3,7 @@ package rpcclient
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -61,14 +62,56 @@ func ResolveConfig(env []string, socketPath string, token string, tokenFile stri
 }
 
 func (c Client) Invoke(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
-	token := c.Config.Token
-	if token == "" && c.Config.TokenFile != "" {
-		body, err := os.ReadFile(c.Config.TokenFile)
-		if err != nil {
-			return nil, &Error{Code: "token_unavailable", Message: fmt.Sprintf("read daemon capability token: %v", err), ExitCode: 11}
-		}
-		token = strings.TrimSpace(string(body))
+	tokens, err := c.resolveInvocationTokens()
+	if err != nil {
+		return nil, err
 	}
+	data, err := c.invokeWithToken(ctx, method, params, tokens.primary)
+	if err == nil {
+		return data, nil
+	}
+	if tokens.fallback == "" || tokens.fallback == tokens.primary || !isTokenAuthFailure(err) {
+		return nil, err
+	}
+	data, fallbackErr := c.invokeWithToken(ctx, method, params, tokens.fallback)
+	if fallbackErr != nil {
+		return nil, fallbackErr
+	}
+	if tokens.repairTokenFile != "" {
+		_ = admin.WriteRuntimeToken(tokens.repairTokenFile, tokens.fallback)
+	}
+	return data, nil
+}
+
+type invocationTokens struct {
+	primary         string
+	fallback        string
+	repairTokenFile string
+}
+
+func (c Client) resolveInvocationTokens() (invocationTokens, error) {
+	if c.Config.Token != "" {
+		return invocationTokens{primary: c.Config.Token}, nil
+	}
+	if c.Config.TokenFile == "" {
+		return invocationTokens{}, nil
+	}
+	fallback, _ := runtimeDiscoveryToken(c.Config.TokenFile)
+	body, err := os.ReadFile(c.Config.TokenFile)
+	if err != nil {
+		if fallback != "" {
+			return invocationTokens{primary: fallback, repairTokenFile: c.Config.TokenFile}, nil
+		}
+		return invocationTokens{}, &Error{Code: "token_unavailable", Message: fmt.Sprintf("read daemon capability token: %v", err), ExitCode: 11}
+	}
+	return invocationTokens{
+		primary:         strings.TrimSpace(string(body)),
+		fallback:        fallback,
+		repairTokenFile: c.Config.TokenFile,
+	}, nil
+}
+
+func (c Client) invokeWithToken(ctx context.Context, method string, params map[string]any, token string) (map[string]any, error) {
 	conn, err := net.DialTimeout("unix", c.Config.SocketPath, 5*time.Second)
 	if err != nil {
 		return nil, &Error{Code: "daemon_unreachable", Message: fmt.Sprintf("daemon unreachable at %s: %v", c.Config.SocketPath, err), ExitCode: 11}
@@ -101,6 +144,40 @@ func (c Client) Invoke(ctx context.Context, method string, params map[string]any
 		return nil, err
 	}
 	return response.Data, nil
+}
+
+func runtimeDiscoveryToken(tokenFile string) (string, bool) {
+	if filepath.Base(tokenFile) != "client-token" {
+		return "", false
+	}
+	discoveryPath := filepath.Join(filepath.Dir(tokenFile), "discovery.json")
+	info, err := os.Stat(discoveryPath)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		return "", false
+	}
+	body, err := os.ReadFile(discoveryPath)
+	if err != nil {
+		return "", false
+	}
+	var data map[string]any
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", false
+	}
+	token, _ := data["client_token"].(string)
+	token = strings.TrimSpace(token)
+	return token, token != ""
+}
+
+func isTokenAuthFailure(err error) bool {
+	var clientErr *Error
+	if errors.As(err, &clientErr) {
+		switch clientErr.Code {
+		case "token_missing", "token_malformed", "token_invalid", "token_revoked", "token_expired",
+			"capability_missing", "capability_scope_mismatch", "capability_expired":
+			return true
+		}
+	}
+	return false
 }
 
 func send(ctx context.Context, conn net.Conn, reader *bufio.Reader, envelope rpc.Envelope) (rpc.Response, error) {

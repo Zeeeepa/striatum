@@ -162,6 +162,12 @@ func writeRuntimeToken(path string, token string) error {
 	return os.Rename(tmpName, path)
 }
 
+// WriteRuntimeToken restores the daemon runtime client token from already-issued
+// token material. It does not mint authority; callers supply the token value.
+func WriteRuntimeToken(path string, token string) error {
+	return writeRuntimeToken(path, token)
+}
+
 func absExpandUser(path string) (string, error) {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()

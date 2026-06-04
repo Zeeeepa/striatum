@@ -164,6 +164,17 @@ func main() {
 	ctx, cancel := context.WithCancel(signalCtx)
 	defer cancel()
 
+	globalSocketPath = socketPath
+	releaseDaemonRuntime, err := reserveDaemonRuntime(socketPath, os.Getpid())
+	if err != nil {
+		log.Fatalf("reserve daemon runtime: %v", err)
+	}
+	defer releaseDaemonRuntime()
+	fatalf := func(format string, args ...any) {
+		releaseDaemonRuntime()
+		log.Fatalf(format, args...)
+	}
+
 	substrateSchema := 0
 	var recorder *db.AuditRecorder
 	var runner db.Runner
@@ -178,7 +189,7 @@ func main() {
 	// audit row. Refuse here; AllowAllAuthorizer{} remains available
 	// for unit tests that explicitly construct a server.
 	if config.URL == "" {
-		log.Fatalf("striatumd refuses to start without a Postgres URL; pass --postgres-url or set STRIATUM_DAEMON_DB_URL")
+		fatalf("striatumd refuses to start without a Postgres URL; pass --postgres-url or set STRIATUM_DAEMON_DB_URL")
 	}
 	{
 		// RFC 0110 §9.1 (restart-safe L0 boot order): run the authority bootstrap
@@ -199,7 +210,7 @@ func main() {
 			DaemonVersion: daemonVersion,
 		}, migrate)
 		if err != nil {
-			log.Fatalf("daemon db connect/bootstrap failed: %v", err)
+			fatalf("daemon db connect/bootstrap failed: %v", err)
 		}
 		pool := booted.Pool
 		substrateSchema = booted.SchemaVersion
@@ -214,7 +225,7 @@ func main() {
 		// stamp must fail closed naming it).
 		writeBoundary, err := db.ResolveWriteBoundary(pgWriteBoundary, auditHashFormat)
 		if err != nil {
-			log.Fatalf("daemon write-boundary phase: %v", err)
+			fatalf("daemon write-boundary phase: %v", err)
 		}
 		db.SetActiveWriteBoundary(writeBoundary)
 		// RFC 0110 §8.2 (C-DEPLOY-CAPABILITY-PARITY): verify the binary and the
@@ -230,18 +241,18 @@ func main() {
 		// misconfigured-deploy crash loop — see the per-instance-id follow-up.
 		if err := db.VerifyCapabilityParity(ctx, runner,
 			db.RequiredAuthorityCapabilities(), db.SupportedAuthorityCapabilities()); err != nil {
-			log.Fatalf("daemon capability parity check failed: %v", err)
+			fatalf("daemon capability parity check failed: %v", err)
 		}
 		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat, authResult.Posture, authResult.RotatorCollision)
 		log.Printf("daemon authority: posture=%s audit_hash_format=%s pg_write_boundary=%s registered=%t rotator_collision=%t",
 			authResult.Posture, auditHashFormat, writeBoundary, authResult.Registered, authResult.RotatorCollision)
 		tokenPath, err := admin.RuntimeTokenPath()
 		if err != nil {
-			log.Fatalf("resolve daemon runtime token path: %v", err)
+			fatalf("resolve daemon runtime token path: %v", err)
 		}
 		bootstrap, err := admin.BootstrapRuntimeTokenIfNeeded(ctx, runner, tokenPath)
 		if err != nil {
-			log.Fatalf("bootstrap daemon admin token failed: %v", err)
+			fatalf("bootstrap daemon admin token failed: %v", err)
 		}
 		if bootstrap != nil {
 			log.Printf("bootstrapped daemon admin client %s and wrote runtime token %s", bootstrap["client_id"], tokenPath)
@@ -285,7 +296,7 @@ func main() {
 	}
 	blobClient, err := loadBlobClient()
 	if err != nil {
-		log.Fatalf("blob client setup: %v", err)
+		fatalf("blob client setup: %v", err)
 	}
 	if blobClient != nil {
 		log.Printf("blob storage configured")
@@ -296,29 +307,15 @@ func main() {
 		BlobClient:    blobClient,
 	})
 
-	globalSocketPath = socketPath
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
-		log.Fatalf("create socket directory: %v", err)
-	}
-	pidPath := daemonPidfilePath(socketPath)
-	if err := writeDaemonPidfile(pidPath, os.Getpid()); err != nil {
-		log.Fatalf("write daemon pidfile: %v", err)
-	}
-	defer func() {
-		if err := os.Remove(pidPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-			log.Printf("remove daemon pidfile %s: %v", pidPath, err)
-		}
-	}()
 	listener, err := rpc.ListenUnix(socketPath)
 	if err != nil {
-		log.Fatalf("listen on %s: %v", socketPath, err)
+		fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
 	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken))
 	if err != nil {
 		_ = listener.Close()
-		_ = os.Remove(pidPath)
-		log.Fatalf("start MCP HTTP/SSE server: %v", err)
+		fatalf("start MCP HTTP/SSE server: %v", err)
 	}
 	if stopMCPHTTP != nil {
 		defer stopMCPHTTP()
@@ -327,11 +324,10 @@ func main() {
 		stopWebUI, err := startWebUISocket(ctx, server, resolveWebUIOptions(webServiceToken))
 		if err != nil {
 			_ = listener.Close()
-			_ = os.Remove(pidPath)
 			if stopMCPHTTP != nil {
 				stopMCPHTTP()
 			}
-			log.Fatalf("start tailnet-identity UI socket: %v", err)
+			fatalf("start tailnet-identity UI socket: %v", err)
 		}
 		if stopWebUI != nil {
 			defer stopWebUI()
@@ -347,7 +343,7 @@ func main() {
 		if stopMCPHTTP != nil {
 			stopMCPHTTP()
 		}
-		log.Fatalf("serve: %v", err)
+		fatalf("serve: %v", err)
 	}
 	cancel()
 	if schedulerErr != nil {
@@ -356,7 +352,7 @@ func main() {
 			if stopMCPHTTP != nil {
 				stopMCPHTTP()
 			}
-			log.Fatalf("recovery scheduler: %v", err)
+			fatalf("recovery scheduler: %v", err)
 		}
 	}
 }

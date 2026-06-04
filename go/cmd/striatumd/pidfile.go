@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 type processInfo struct {
@@ -19,6 +21,31 @@ var inspectPid = inspectOSPid
 
 func daemonPidfilePath(socketPath string) string {
 	return filepath.Join(filepath.Dir(socketPath), "striatumd.pid")
+}
+
+func reserveDaemonRuntime(socketPath string, pid int) (func(), error) {
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create socket directory: %w", err)
+	}
+	if socketAcceptsConnections(socketPath) {
+		return nil, fmt.Errorf("daemon socket %s already accepts connections", socketPath)
+	}
+	pidPath := daemonPidfilePath(socketPath)
+	if err := writeDaemonPidfile(pidPath, pid); err != nil {
+		return nil, err
+	}
+	return func() {
+		_ = os.Remove(pidPath)
+	}, nil
+}
+
+func socketAcceptsConnections(socketPath string) bool {
+	conn, err := net.DialTimeout("unix", socketPath, 100*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func writeDaemonPidfile(pidPath string, pid int) error {

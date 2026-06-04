@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -77,4 +78,75 @@ func TestClientInvokeReadsTokenAndUsesEnvelope(t *testing.T) {
 	if data["state"] != "ok" {
 		t.Fatalf("data = %#v", data)
 	}
+}
+
+func TestClientInvokeFallsBackToDiscoveryTokenAndRepairsRuntimeToken(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "daemon.sock")
+	runtimeDir := t.TempDir()
+	tokenFile := filepath.Join(runtimeDir, "client-token")
+	if err := os.WriteFile(tokenFile, []byte("stale.secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "discovery.json"), []byte(`{"client_token":"valid.secret"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	authorizer := &recordingTokenAuthorizer{valid: "valid.secret"}
+	server := rpc.NewServer()
+	server.Authorizer = authorizer
+	server.Register("status", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if envelope.CapabilityToken != "valid.secret" {
+			t.Fatalf("handler saw token %q, want discovery fallback token", envelope.CapabilityToken)
+		}
+		return map[string]any{"state": "ok"}, nil
+	})
+	listener, err := rpc.ListenUnix(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = server.Serve(ctx, listener)
+	}()
+
+	data, err := Client{Config: Config{SocketPath: socket, TokenFile: tokenFile, DeadlineMS: 1000}}.Invoke(context.Background(), "status", map[string]any{"repository_id": "repo_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data["state"] != "ok" {
+		t.Fatalf("data = %#v", data)
+	}
+	if got := authorizer.tokens(); len(got) != 2 || got[0] != "stale.secret" || got[1] != "valid.secret" {
+		t.Fatalf("auth tokens = %v, want stale token then discovery token", got)
+	}
+	body, err := os.ReadFile(tokenFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "valid.secret\n" {
+		t.Fatalf("runtime token file = %q, want repaired discovery token", string(body))
+	}
+}
+
+type recordingTokenAuthorizer struct {
+	mu    sync.Mutex
+	valid string
+	seen  []string
+}
+
+func (a *recordingTokenAuthorizer) Authorize(required *rpc.Capability, repositoryID string, token string) rpc.AuthContext {
+	a.mu.Lock()
+	a.seen = append(a.seen, token)
+	a.mu.Unlock()
+	if token == a.valid {
+		return rpc.AuthContext{RepositoryID: repositoryID, Capability: *required, Decision: "allowed"}
+	}
+	return rpc.AuthContext{RepositoryID: repositoryID, Decision: "denied", DenialReason: "token_invalid"}
+}
+
+func (a *recordingTokenAuthorizer) tokens() []string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]string(nil), a.seen...)
 }
