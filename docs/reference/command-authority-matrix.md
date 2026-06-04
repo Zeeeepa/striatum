@@ -131,11 +131,12 @@ above.
 | `supervise.stop` | `supervise stop` | claim | single_repo | pg | real | no | no | Go terminal supervisor state update; tmux-backed lanes terminate the tmux session via RFC 0089 pane/session metadata |
 | `supervise.status` | `supervise status` | read | single_repo | pg | real | no | no | read-only supervisor and protocol-liveness/stall projection; tmux-backed rows consult RFC 0089 tmux session/pane liveness; no pointer repair or lost-state mutation |
 | `supervise.list` | `supervise list` | read | single_repo | pg | real | no | no | stable |
+| `supervise.trajectory` | `supervise trajectory` | read | single_repo | pg + local scratch file | real | no | no | explicit read of operator-local `.striatum/scratch/<supervisor_id>/pty.log`; returns private diagnostics only and never treats terminal text as durable workflow provenance |
 | `supervise.reattach_status` | supervisor reattach-status DTO | read | single_repo | pg | real | no | no | read-only reattach DTO; classifies tmux-backed rows with RFC 0089 tmux session/pane liveness |
 
 `supervise.status` returns a `tmux` object for tmux-backed lanes, including
 the copyable `attach_command`, `lane_backend`, `delivery_state`,
-`pane_liveness`, and derived `tmux.liveness` record. The class vocabulary is
+`pane_liveness`, `trajectory_log`, and derived `tmux.liveness` record. The class vocabulary is
 `tmux_ok`, `tmux_session_missing`, `tmux_pane_missing`, `tmux_pane_dead`,
 `tmux_pane_pid_mismatch`, and `tmux_unavailable`; the same strings feed
 `lane_attestation_reason` on unhealthy tmux-backed lanes. The liveness record

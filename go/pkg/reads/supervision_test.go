@@ -643,6 +643,96 @@ func TestHandleSuperviseStatusSurfacesLatestEscalationReport(t *testing.T) {
 	}
 }
 
+func TestHandleSuperviseStatusSurfacesTrajectoryLogMetadata(t *testing.T) {
+	repo := t.TempDir()
+	scratch := filepath.Join(repo, ".striatum", "scratch", "sup_log")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(scratch, "pty.log")
+	if err := os.WriteFile(logPath, []byte("provider booted\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	row := superviseBaseRow("sup_log", 0, "stale-start-token")
+	row["scratch_path"] = scratch
+	row["pointer_metadata_json"] = map[string]any{
+		"agent_loop_mode": "self_driving",
+		"tmux": map[string]any{
+			"session_name":   "striatum-run_1-lane_1-sup_log",
+			"attach_command": "tmux attach-session -t striatum-run_1-lane_1-sup_log",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	trajectory := result["trajectory_log"].(map[string]any)
+	if trajectory["status"] != "available" || trajectory["enabled"] != true || trajectory["path"] != logPath {
+		t.Fatalf("trajectory_log = %#v", trajectory)
+	}
+	if trajectory["size_bytes"] != int64(len("provider booted\n")) {
+		t.Fatalf("trajectory size = %#v", trajectory["size_bytes"])
+	}
+	if _, leaked := result["content"]; leaked {
+		t.Fatalf("status must not include trajectory content: %#v", result)
+	}
+}
+
+func TestHandleSuperviseTrajectoryReadsTailFromScratchLog(t *testing.T) {
+	repo := t.TempDir()
+	scratch := filepath.Join(repo, ".striatum", "scratch", "sup_log")
+	if err := os.MkdirAll(scratch, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "one\ntwo\nthree\n"
+	if err := os.WriteFile(filepath.Join(scratch, "pty.log"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	row := superviseBaseRow("sup_log", os.Getpid(), currentStartTokenForTest())
+	row["repo_root"] = repo
+	row["scratch_path"] = scratch
+	row["pointer_metadata_json"] = map[string]any{"agent_loop_mode": "self_driving"}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseTrajectory(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1", "tail_lines": 2},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseTrajectory: %v", err)
+	}
+	if result["content"] != "two\nthree\n" || result["truncated"] != true || result["tail_lines"] != 2 {
+		t.Fatalf("trajectory result = %#v", result)
+	}
+	trajectory := result["trajectory_log"].(map[string]any)
+	if trajectory["status"] != "available" || trajectory["exists"] != true || trajectory["size_bytes"] != len(body) {
+		t.Fatalf("trajectory metadata = %#v", trajectory)
+	}
+}
+
+func TestHandleSuperviseTrajectoryRejectsScratchPathOutsideRepo(t *testing.T) {
+	repo := t.TempDir()
+	outside := t.TempDir()
+	row := superviseBaseRow("sup_escape", os.Getpid(), currentStartTokenForTest())
+	row["repo_root"] = repo
+	row["scratch_path"] = outside
+	row["pointer_metadata_json"] = map[string]any{"agent_loop_mode": "self_driving"}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseTrajectory(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseTrajectory: %v", err)
+	}
+	trajectory := result["trajectory_log"].(map[string]any)
+	if trajectory["status"] != "invalid_path" || result["content"] != "" {
+		t.Fatalf("trajectory result = %#v", result)
+	}
+}
+
 func TestLinuxProcStatZombieDetectsDefunctProcessStateForReads(t *testing.T) {
 	if !linuxProcStatZombie([]byte("1234 (agent command) Z 1 2 3")) {
 		t.Fatal("expected Z process state to be treated as zombie")
@@ -708,6 +798,11 @@ func TestSuperviseReadHandlersValidateParamsBeforeQuery(t *testing.T) {
 		{
 			name:    "list run",
 			handler: HandleSuperviseList,
+			params:  map[string]any{"repository_id": "repo_1"},
+		},
+		{
+			name:    "trajectory session",
+			handler: HandleSuperviseTrajectory,
 			params:  map[string]any{"repository_id": "repo_1"},
 		},
 		{

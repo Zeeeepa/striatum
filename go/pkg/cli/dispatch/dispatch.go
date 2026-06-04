@@ -177,6 +177,22 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	if route.Method == "trajectory.export" && !globals.JSONOutput {
 		return writeJSONL(stdout, data, stderr)
 	}
+	if route.Method == "supervise.trajectory" && !globals.JSONOutput {
+		if content, ok := data["content"].(string); ok {
+			_, err := fmt.Fprint(stdout, content)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err.Error())
+				return 1
+			}
+			if content != "" && !strings.HasSuffix(content, "\n") {
+				_, _ = fmt.Fprintln(stdout)
+			}
+			if content == "" {
+				return writeJSON(stdout, data, stderr)
+			}
+			return 0
+		}
+	}
 	if globals.JSONOutput {
 		return writeJSON(stdout, map[string]any{"ok": true, "data": data}, stderr)
 	}

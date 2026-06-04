@@ -154,6 +154,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("escalation.resolve", makeHandler(runner, HandleEscalationResolve))
 	server.Register("supervise.status", makeHandler(runner, HandleSuperviseStatus))
 	server.Register("supervise.list", makeHandler(runner, HandleSuperviseList))
+	server.Register("supervise.trajectory", makeHandler(runner, HandleSuperviseTrajectory))
 	server.Register("supervise.reattach_status", makeHandler(runner, HandleSuperviseReattachStatus))
 	server.Register("trajectory.export", makeHandler(runner, HandleTrajectoryExport))
 	server.Register("trajectory.watch", makeHandler(runner, HandleTrajectoryWatch))

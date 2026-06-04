@@ -55,6 +55,19 @@ func TestRenderHelpEnumValues(t *testing.T) {
 	}
 }
 
+func TestRenderHelpSuperviseTrajectoryListsTailControls(t *testing.T) {
+	route, _, ok := Lookup([]string{"supervise", "trajectory"})
+	if !ok {
+		t.Fatalf("supervise trajectory route not found")
+	}
+	help := route.RenderHelp()
+	for _, want := range []string{"usage: striatum supervise trajectory", "method: supervise.trajectory", "<session-id>", "--tail", "--tail-lines", ".striatum/scratch"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("supervise trajectory help missing %q:\n%s", want, help)
+		}
+	}
+}
+
 // session close rejects an empty reason server-side ("session close reason
 // must not be empty"), so `--help` must list --reason as REQUIRED instead of
 // sending operators down a failing path with only <session-id> (issue #72).
@@ -135,7 +148,7 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 // `--help` lists its flags instead of surfacing them only as runtime errors.
 func TestUsageCoversIssue63Verbs(t *testing.T) {
 	for _, group := range []string{
-		"supervise_start", "supervise_stop", "supervise_status", "supervise_send",
+		"supervise_start", "supervise_stop", "supervise_status", "supervise_send", "supervise_trajectory",
 		"register_session", "checkpoint_resolve", "repo_add",
 		"claim_next", "ack", "heartbeat", "release", "send", "block",
 		"complete", "publish_artifact", "verdict", "submit_review",

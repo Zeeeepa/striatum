@@ -181,6 +181,14 @@ without turning terminal text into Striatum state. Set
 `STRIATUM_AGENT_LOOP_DEBUG_LOG=off` or `/dev/null` to disable it, or set the
 variable to another path for a one-off diagnosis.
 
+`supervise status` and `doctor` report the log path/status under
+`trajectory_log`. To inspect the file through the daemon read surface:
+
+```bash
+striatum supervise trajectory --session-id <session-id> --tail
+striatum supervise trajectory --session-id <session-id> --tail-lines 500
+```
+
 These logs are not daemon/PostgreSQL state, not trajectory rows, not evidence
 exports, not corpus/archive contents, and not artifacts. They are private
 diagnostics and may contain terminal-visible secrets; do not commit or share

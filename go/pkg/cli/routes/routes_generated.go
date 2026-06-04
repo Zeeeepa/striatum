@@ -67,6 +67,7 @@ var generatedRoutes = []Route{
 	{Command: "supervise", Subcommand: "stop", Method: "supervise.stop", ParamsGroup: "supervise_stop", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "status", Method: "supervise.status", ParamsGroup: "supervise_status", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "list", Method: "supervise.list", ParamsGroup: "supervise_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "supervise", Subcommand: "trajectory", Method: "supervise.trajectory", ParamsGroup: "supervise_trajectory", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "cross-repo", Subcommand: "list", Method: "cross_repo.list", ParamsGroup: "cross_repo", RequiredCapability: "read", RepositoryScopeMode: "cross_repo", Deprecated: false},
 	{Command: "cross-repo", Subcommand: "describe", Method: "cross_repo.describe", ParamsGroup: "cross_repo", RequiredCapability: "read", RepositoryScopeMode: "cross_repo", Deprecated: false},
 	{Command: "cross-repo", Subcommand: "why", Method: "cross_repo.why", ParamsGroup: "cross_repo", RequiredCapability: "read", RepositoryScopeMode: "cross_repo", Deprecated: false},

@@ -26,6 +26,14 @@ func (f *fakeInvoker) Invoke(_ context.Context, method string, params map[string
 	if method == "repo.resolve" {
 		return map[string]any{"repository_id": "repo_resolved"}, nil
 	}
+	if method == "supervise.trajectory" {
+		return map[string]any{
+			"content": "booted\nready\n",
+			"trajectory_log": map[string]any{
+				"status": "available",
+			},
+		}, nil
+	}
 	return map[string]any{"method": method}, nil
 }
 
@@ -105,13 +113,14 @@ func TestDispatchUnknownCommandSuggests(t *testing.T) {
 
 func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 	cases := map[string][]string{
-		"supervise stop":     {"--session-id", "--reason", "required:"},
-		"register-session":   {"--capability", "--fresh", "run-id", "role", "lane"},
-		"checkpoint resolve": {"continue|cancel", "--decision-id", "blocker-id"},
-		"supervise start":    {"--session-id", "supervise.start"},
-		"supervise send":     {"--packet-id", "supervise.send"},
-		"supervise status":   {"--session-id", "supervise.status"},
-		"repo add":           {"--init", "path", "repo.add"},
+		"supervise stop":       {"--session-id", "--reason", "required:"},
+		"register-session":     {"--capability", "--fresh", "run-id", "role", "lane"},
+		"checkpoint resolve":   {"continue|cancel", "--decision-id", "blocker-id"},
+		"supervise start":      {"--session-id", "supervise.start"},
+		"supervise send":       {"--packet-id", "supervise.send"},
+		"supervise status":     {"--session-id", "supervise.status"},
+		"supervise trajectory": {"--session-id", "--tail", "--tail-lines", "supervise.trajectory"},
+		"repo add":             {"--init", "path", "repo.add"},
 	}
 	for cmd, wants := range cases {
 		invoker := &fakeInvoker{}
@@ -130,6 +139,25 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 				t.Fatalf("%s --help output missing %q:\n%s", cmd, want, out)
 			}
 		}
+	}
+}
+
+func TestDispatchSuperviseTrajectoryPrintsContent(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"--repository-id", "repo_1", "supervise", "trajectory", "sess_1", "--tail-lines", "2"}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if stdout.String() != "booted\nready\n" {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "supervise.trajectory" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["session_id"] != "sess_1" || params["tail_lines"] != 2 {
+		t.Fatalf("params = %#v", params)
 	}
 }
 

@@ -176,7 +176,8 @@ delivery are completely retired.
 Provider terminal output may be tee'd to a local
 `.striatum/scratch/<supervisor_id>/pty.log` file for operator diagnostics.
 That file is private operational scratch, not workflow state or durable
-provenance. The supervisor never parses your output for state. Use
+provenance. Operators can inspect it with `striatum supervise trajectory
+--session-id <id> --tail`; the supervisor never parses your output for state. Use
 `supervise.stop` or its CLI fallback to shut the supervisor down. Do not `kill`
 the process directly.
 

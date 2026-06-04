@@ -19,6 +19,8 @@ import (
 )
 
 const defaultSupervisorStallAfterSeconds = 300
+const defaultSupervisorTrajectoryTailLines = 200
+const supervisorTrajectoryLogFilename = "pty.log"
 
 // DrainHelperEventsHook is registered by the mutations package at startup.
 // It allows read-layer projections to lazily drain PTY helper events without
@@ -356,6 +358,91 @@ func HandleSuperviseList(ctx context.Context, runner db.Runner, envelope rpc.Env
 	}, nil
 }
 
+// HandleSuperviseTrajectory returns the operator-local PTY diagnostic log for
+// the latest supervisor attached to a session. This is intentionally an
+// explicit read verb: ordinary status/list projections expose only log metadata
+// and never include terminal bytes.
+func HandleSuperviseTrajectory(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	sessionID, err := requiredTextParam(envelope, "session_id", "supervise.trajectory requires session_id")
+	if err != nil {
+		return nil, err
+	}
+	tail, err := optionalBoolParam(envelope, "tail")
+	if err != nil {
+		return nil, err
+	}
+	tailLines, err := optionalNonNegativeIntParam(envelope, "tail_lines")
+	if err != nil {
+		return nil, err
+	}
+	if tail && tailLines == 0 {
+		tailLines = defaultSupervisorTrajectoryTailLines
+	}
+
+	rows, err := collectRows(ctx, runner,
+		`SELECT ps.*, p.metadata_json AS pointer_metadata_json, repo.repo_root
+		   FROM striatumd.process_supervisors ps
+		   JOIN striatumd.repositories repo
+		     ON repo.repository_id = ps.repository_id
+		   LEFT JOIN striatumd.process_supervisor_pointers p
+		     ON p.repository_id = ps.repository_id
+		    AND p.supervisor_id = ps.supervisor_id
+		  WHERE ps.repository_id = $1 AND ps.session_id = $2
+		  ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+		  LIMIT 1`,
+		repositoryID, sessionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, rpc.NewError("not_found", fmt.Sprintf("no supervisor recorded for session_id=%q", sessionID), nil)
+	}
+
+	row := rows[0]
+	path, pathErr := trajectoryLogPathForRow(row)
+	info := trajectoryLogMetadataForPath(path, superviseString(row["supervisor_id"]), superviseString(superviseObject(row["pointer_metadata_json"])["agent_loop_mode"]))
+	result := map[string]any{
+		"repository_id":  repositoryID,
+		"run_id":         row["run_id"],
+		"session_id":     sessionID,
+		"supervisor_id":  row["supervisor_id"],
+		"trajectory_log": info,
+		"tail_lines":     nullableInt(tailLines),
+		"truncated":      false,
+		"content":        "",
+	}
+	if pathErr != nil {
+		info["status"] = "invalid_path"
+		info["error"] = pathErr.Error()
+		return result, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			info["status"] = "missing"
+			info["exists"] = false
+			return result, nil
+		}
+		info["status"] = "unreadable"
+		info["exists"] = true
+		info["error"] = err.Error()
+		return result, nil
+	}
+	info["status"] = "available"
+	info["exists"] = true
+	info["size_bytes"] = len(data)
+	if tailLines > 0 {
+		data, result["truncated"] = tailBytesByLines(data, tailLines)
+	}
+	result["content"] = string(data)
+	return result, nil
+}
+
 // HandleSuperviseReattachStatus returns the daemon reattach health DTO
 // without repairing pointer rows or writing events.
 func HandleSuperviseReattachStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -573,6 +660,8 @@ func reattachStatusView(ctx context.Context, row map[string]any) map[string]any 
 		"run_id":                 row["run_id"],
 		"session_id":             row["session_id"],
 		"state":                  row["state"],
+		"lane_backend":           laneBackend(pointerMetadata),
+		"trajectory_log":         trajectoryLogMetadataFromRow(row, pointerMetadata),
 		"delivery_liveness":      deliveryLiveness,
 		"pid":                    optionalIntValue(pid, hasPID),
 		"pid_liveness":           pidLiveness(pidAlive),
@@ -913,6 +1002,115 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 		}
 	}
 	view["delivery_state"] = deliveryState(view["delivery_liveness"])
+	view["trajectory_log"] = trajectoryLogMetadataFromRow(view, metadata)
+}
+
+func trajectoryLogMetadataFromRow(row map[string]any, metadata map[string]any) map[string]any {
+	path, err := trajectoryLogPathForRow(row)
+	agentLoopMode := superviseString(metadata["agent_loop_mode"])
+	info := trajectoryLogMetadataForPath(path, superviseString(row["supervisor_id"]), agentLoopMode)
+	if err != nil {
+		info["status"] = "invalid_path"
+		info["error"] = err.Error()
+		return info
+	}
+	return info
+}
+
+func trajectoryLogMetadataForPath(path string, supervisorID string, agentLoopMode string) map[string]any {
+	info := map[string]any{
+		"enabled":         agentLoopMode != "",
+		"expected":        agentLoopMode != "",
+		"supervisor_id":   nullableText(supervisorID),
+		"agent_loop_mode": nullableText(agentLoopMode),
+	}
+	if path == "" {
+		info["status"] = "unconfigured"
+		info["exists"] = false
+		return info
+	}
+	info["path"] = path
+	stat, err := os.Stat(path)
+	if err == nil && !stat.IsDir() {
+		info["status"] = "available"
+		info["exists"] = true
+		info["enabled"] = true
+		info["size_bytes"] = stat.Size()
+		info["updated_at"] = timestampValue(stat.ModTime())
+		return info
+	}
+	if err == nil && stat.IsDir() {
+		info["status"] = "unreadable"
+		info["exists"] = true
+		info["error"] = "path is a directory"
+		return info
+	}
+	if os.IsNotExist(err) {
+		if agentLoopMode != "" {
+			info["status"] = "missing"
+		} else {
+			info["status"] = "not_configured"
+		}
+		info["exists"] = false
+		return info
+	}
+	info["status"] = "unreadable"
+	info["exists"] = true
+	info["error"] = err.Error()
+	return info
+}
+
+func trajectoryLogPathForRow(row map[string]any) (string, error) {
+	return trajectoryLogPath(superviseString(row["repo_root"]), superviseString(row["scratch_path"]), superviseString(row["supervisor_id"]))
+}
+
+func trajectoryLogPath(repoRoot string, scratchPath string, supervisorID string) (string, error) {
+	if scratchPath == "" {
+		if repoRoot == "" || supervisorID == "" {
+			return "", nil
+		}
+		scratchPath = filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
+	}
+	absScratch, err := filepath.Abs(scratchPath)
+	if err != nil {
+		return "", err
+	}
+	if repoRoot != "" {
+		absRepoRoot, err := filepath.Abs(repoRoot)
+		if err != nil {
+			return "", err
+		}
+		scratchRoot := filepath.Join(absRepoRoot, ".striatum", "scratch")
+		if !pathWithin(absScratch, scratchRoot) {
+			return "", fmt.Errorf("trajectory log path escapes repository scratch directory")
+		}
+	}
+	return filepath.Join(absScratch, supervisorTrajectoryLogFilename), nil
+}
+
+func pathWithin(path string, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)) && !filepath.IsAbs(rel))
+}
+
+func tailBytesByLines(data []byte, lines int) ([]byte, bool) {
+	if lines <= 0 {
+		return data, false
+	}
+	newlines := 0
+	for i := len(data) - 1; i >= 0; i-- {
+		if data[i] != '\n' {
+			continue
+		}
+		newlines++
+		if newlines > lines {
+			return data[i+1:], true
+		}
+	}
+	return data, false
 }
 
 func processTerminationMetadata(raw map[string]any) map[string]any {
@@ -1201,6 +1399,35 @@ func optionalTextParam(envelope rpc.Envelope, key string) (string, error) {
 	return text, nil
 }
 
+func optionalBoolParam(envelope rpc.Envelope, key string) (bool, error) {
+	value, ok := envelope.Params[key]
+	if !ok || value == nil {
+		return false, nil
+	}
+	if typed, ok := value.(bool); ok {
+		return typed, nil
+	}
+	if typed, ok := value.(string); ok {
+		parsed, err := strconv.ParseBool(typed)
+		if err == nil {
+			return parsed, nil
+		}
+	}
+	return false, rpc.NewError("schema_invalid", key+" must be a boolean", nil)
+}
+
+func optionalNonNegativeIntParam(envelope rpc.Envelope, key string) (int, error) {
+	value, ok := envelope.Params[key]
+	if !ok || value == nil {
+		return 0, nil
+	}
+	parsed, ok := intValueOptional(value)
+	if !ok || parsed < 0 {
+		return 0, rpc.NewError("schema_invalid", key+" must be a non-negative integer", nil)
+	}
+	return parsed, nil
+}
+
 func pidAlive(pid int) bool {
 	if pid <= 0 {
 		return false
@@ -1237,6 +1464,13 @@ func pidLiveness(alive bool) string {
 
 func nullableText(value string) any {
 	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableInt(value int) any {
+	if value == 0 {
 		return nil
 	}
 	return value

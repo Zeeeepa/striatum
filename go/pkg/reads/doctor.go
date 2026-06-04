@@ -118,11 +118,13 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 				deliveryReason := superviseString(deliveryLiveness["reason"])
 
 				item := map[string]any{
-					"supervisor_id": view["supervisor_id"],
-					"session_id":    view["session_id"],
-					"class":         class,
-					"state":         view["reattach_state"],
-					"reason":        view["reattach_reason"],
+					"supervisor_id":  view["supervisor_id"],
+					"session_id":     view["session_id"],
+					"class":          class,
+					"state":          view["reattach_state"],
+					"reason":         view["reattach_reason"],
+					"lane_backend":   view["lane_backend"],
+					"trajectory_log": view["trajectory_log"],
 				}
 				if deliveryClass == "degraded" {
 					if remediation := deliveryRemediation(deliveryReason, superviseString(view["session_id"])); remediation != "" {

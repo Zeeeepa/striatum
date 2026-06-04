@@ -413,6 +413,9 @@ shape for agy. `workflow lint` emits an
 lane that is missing `adapter_capabilities.agent_loop`. `claude` and `codex`
 one-shot pipe lanes are unaffected — they self-claim on the one-shot path, so
 the check only fires when the command invokes the `agy` binary with `--print`.
+Agent-loop lanes use the PTY helper; when `tmux` is available they are
+tmux-backed and operator-attachable by default, and status/doctor expose the
+local diagnostic log under `trajectory_log`.
 
 For the full harness-profile schema (recognised tool families,
 required fields, accountability rules), see

@@ -65,6 +65,7 @@
     {"command": "supervise", "subcommand": "stop", "method": "supervise.stop", "params": "supervise_stop"},
     {"command": "supervise", "subcommand": "status", "method": "supervise.status", "params": "supervise_status"},
     {"command": "supervise", "subcommand": "list", "method": "supervise.list", "params": "supervise_list"},
+    {"command": "supervise", "subcommand": "trajectory", "method": "supervise.trajectory", "params": "supervise_trajectory"},
     {"command": "cross-repo", "subcommand": "list", "method": "cross_repo.list", "params": "cross_repo"},
     {"command": "cross-repo", "subcommand": "describe", "method": "cross_repo.describe", "params": "cross_repo"},
     {"command": "cross-repo", "subcommand": "why", "method": "cross_repo.why", "params": "cross_repo"},
@@ -725,6 +726,15 @@
     },
     {
       "method": "supervise.list",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.trajectory",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

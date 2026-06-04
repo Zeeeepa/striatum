@@ -217,6 +217,16 @@ var usageByGroup = map[string]Usage{
 			{Name: "session-id", Positional: true, Required: true, Help: "supervised session to report on"},
 		},
 	},
+	"supervise_trajectory": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "supervised session whose operator-local PTY log should be read"},
+			{Name: "tail", Bool: true, Help: "print the last 200 lines instead of the whole log"},
+			{Name: "tail-lines", Help: "print the last N lines instead of the whole log"},
+		},
+		Notes: []string{
+			"Reads .striatum/scratch/<supervisor-id>/pty.log only; this is private operator scratch, not durable workflow provenance.",
+		},
+	},
 	"supervise_list": {
 		Params: []Param{
 			{Name: "run-id", Positional: true, Required: true, Help: "run whose supervisors to list"},

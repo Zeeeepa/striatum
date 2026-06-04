@@ -2138,10 +2138,19 @@ The supervise CLI surface:
   `last_progress_age_seconds`, active lease metadata, and
   `stall_after_seconds`. Status also exposes `lane_backend`
   (`tmux`, `plain_pty_fallback`, or `plain_pty`), `delivery_state`,
-  `pane_liveness`, and failure-class-derived remediation hints. Status itself
-  never starts or kills processes.
+  `pane_liveness`, `trajectory_log`, and failure-class-derived remediation
+  hints. `trajectory_log` reports whether the operator-local PTY diagnostic log
+  is expected, available, missing, or unreadable and gives its path/size when
+  known. Status itself never starts or kills processes and never includes
+  terminal log content.
 - `striatum supervise list --run-id <id> [--state <state>]` lists rows
-  for a run, optionally filtered by state.
+  for a run, optionally filtered by state; each row includes the same
+  `lane_backend` and `trajectory_log` metadata.
+- `striatum supervise trajectory --session-id <id> [--tail | --tail-lines N]`
+  reads the latest supervisor's operator-local PTY diagnostic log from
+  `.striatum/scratch/<supervisor_id>/pty.log`. Without a tail flag it returns
+  the full local file; `--tail` returns the last 200 lines. This is an explicit
+  operator diagnostic read, not a workflow-state projection.
 - Daemon RPC `supervise.reattach_status` returns a read-only
   supervisor health DTO for a run/session/supervisor filter. It compares
   repo supervisor rows, daemon supervisor pointers, daemon supervisor
@@ -2239,6 +2248,11 @@ diagnostic file under `.striatum/scratch/<supervisor_id>/pty.log` (created
 `0600`). The path can be overridden with
 `STRIATUM_AGENT_LOOP_DEBUG_LOG=<path>` or disabled with
 `STRIATUM_AGENT_LOOP_DEBUG_LOG=off` / `/dev/null`.
+
+`striatum supervise status` and `striatum doctor` report the log metadata
+(`trajectory_log.status`, path, size, and whether an agent-loop log is
+expected). `striatum supervise trajectory --session-id <id> [--tail |
+--tail-lines N]` is the first-class read command for the file contents.
 
 These PTY logs are operational scratch, not transcript provenance. They are
 not stored in daemon-owned PostgreSQL, not published through

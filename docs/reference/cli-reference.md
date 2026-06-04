@@ -129,6 +129,7 @@ striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
+striatum supervise trajectory
 ```
 
 ## Dashboard
