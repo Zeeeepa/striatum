@@ -353,6 +353,18 @@ Profiles are referenced at lane level only; job-level overrides are
 reserved for a future RFC. The reference fixture lives at
 `examples/harness-profiles/workflow.json`.
 
+### Implementation Envelope
+
+When a workflow job has reachable downstream jobs with declared
+`write_scope` or `expected_artifacts`, `claim-next` adds
+`context.implementation_envelope` to the work packet. The block lists the
+reachable downstream jobs in graph order with their `workflow_job_id`, type,
+role/lane, write scope, and expected artifacts. Its instruction tells design
+and synthesis lanes to keep recommended implementation layouts inside those
+frozen downstream envelopes, or to call out that the scope must be revised
+instead of assuming it can widen later. Workflows with no downstream envelope
+produce packets without this key.
+
 ### Reviewer Policy
 
 `type: "review"` jobs may declare two optional policy fields (RFC 0002):

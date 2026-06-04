@@ -115,6 +115,72 @@ func TestPacketTaskPromptLeavesRootRelativePath(t *testing.T) {
 	}
 }
 
+func TestDownstreamImplementationEnvelopeForPacketSurfacesReachableWriteScopes(t *testing.T) {
+	workflow := map[string]any{
+		"jobs": []any{
+			map[string]any{"id": "synthesis", "type": "synthesis"},
+			map[string]any{"id": "checkpoint", "type": "human_checkpoint"},
+			map[string]any{
+				"id":      "implement",
+				"type":    "implementation",
+				"title":   "Build the accepted design",
+				"role_id": "builder",
+				"lane_id": "codex",
+				"write_scope": map[string]any{
+					"allowed_paths":   []any{"src/allowed/", "docs/implementation/"},
+					"forbidden_paths": []any{".striatum/"},
+				},
+				"expected_artifacts": []any{
+					map[string]any{"logical_name": "implementation_report", "path": "docs/implementation/REPORT.md"},
+				},
+			},
+			map[string]any{
+				"id":      "review",
+				"type":    "review",
+				"role_id": "reviewer",
+				"write_scope": map[string]any{
+					"allowed_paths": []any{"docs/review/"},
+				},
+			},
+		},
+		"edges": []any{
+			map[string]any{"from": "synthesis", "to": "checkpoint"},
+			map[string]any{"from": "checkpoint", "to": "implement"},
+			map[string]any{"from": "implement", "to": "review"},
+		},
+	}
+
+	got := downstreamImplementationEnvelopeForPacket(workflow, "synthesis")
+	if got == nil {
+		t.Fatal("implementation envelope missing")
+	}
+	if got["scope"] != "reachable_downstream_jobs" {
+		t.Fatalf("scope = %v", got["scope"])
+	}
+	if !strings.Contains(fmt.Sprint(got["instruction"]), "frozen scope") {
+		t.Fatalf("instruction should warn about frozen scope: %#v", got["instruction"])
+	}
+	jobs := asList(got["jobs"])
+	if len(jobs) != 2 {
+		t.Fatalf("jobs = %#v, want implement + review envelopes", jobs)
+	}
+	implement := asMap(jobs[0])
+	if implement["workflow_job_id"] != "implement" || implement["lane_id"] != "codex" {
+		t.Fatalf("implement envelope = %#v", implement)
+	}
+	allowed := asList(asMap(implement["write_scope"])["allowed_paths"])
+	if !reflect.DeepEqual(allowed, []any{"src/allowed/", "docs/implementation/"}) {
+		t.Fatalf("implement allowed_paths = %#v", allowed)
+	}
+	if artifacts := asList(implement["expected_artifacts"]); len(artifacts) != 1 {
+		t.Fatalf("implement expected_artifacts = %#v", artifacts)
+	}
+	review := asMap(jobs[1])
+	if review["workflow_job_id"] != "review" || asMap(review["write_scope"])["allowed_paths"] == nil {
+		t.Fatalf("review envelope = %#v", review)
+	}
+}
+
 func TestAugmentationReferencesInspectLocalCorpusBundle(t *testing.T) {
 	repoRoot := t.TempDir()
 	bundle := filepath.Join(repoRoot, "exports", "corpus")

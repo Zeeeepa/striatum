@@ -100,6 +100,7 @@ Boundary](spec.md) and [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 | session slug | The human-readable runtime label stored with an agent session. V1 uses role, lane, and ordinal for uniqueness and scheduling readability; artifact authorship uses the more descriptive role/model/ordinal author line. |
 | work packet | The task envelope returned to an identified agent session when it claims or receives work. |
 | context doc | A generic workflow- or project-provided document bundle that orients an agent session before or alongside a work packet. Context docs should not be role-specific by default. |
+| implementation envelope | The optional `context.implementation_envelope` block in a work packet. It lists reachable downstream jobs' frozen `write_scope` and `expected_artifacts` so design and synthesis lanes can keep implementation recommendations inside the build/review envelope or explicitly flag that the scope must change. |
 | role definition | A reusable artifact that defines an agent's responsibility, stance, allowed behavior, and non-responsibilities. Task prompts may reference role definitions and add job-specific emphasis. |
 | run | One execution attempt of a workflow against a repository/workspace. |
 | prepared run | A run whose workflow JSON has been validated and snapshotted but whose jobs are not yet claimable because branch confirmation and run start have not both happened. |

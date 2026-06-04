@@ -130,6 +130,10 @@ understand:
 - `context_docs` — required and optional reading. Required ones
   are non-negotiable; you must read them before producing the
   artifact.
+- `context.implementation_envelope` — when present, downstream jobs'
+  frozen write scopes and expected artifacts. Keep design and
+  synthesis recommendations inside that envelope; if the right work
+  needs other paths, say so explicitly.
 - `worktree_required` — when `true` (RFC 0008), call `worktree.create`
   before `artifact.publish`. The packet supplies the exact CLI fallback in
   `commands.worktree_create`.

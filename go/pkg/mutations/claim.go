@@ -338,6 +338,9 @@ func buildPacket(
 		"docs":         asList(workflow["context_docs"]),
 		"content_mode": "references",
 	}
+	if envelope := downstreamImplementationEnvelopeForPacket(workflow, fmt.Sprint(job["workflow_job_id"])); envelope != nil {
+		packetContext["implementation_envelope"] = envelope
+	}
 	if augmentation := augmentationReferences(workflow, fmt.Sprint(job["workflow_job_id"]), fmt.Sprint(run["repo_root"])); augmentation != nil {
 		packetContext["augmentation_references"] = augmentation
 	}
@@ -548,6 +551,89 @@ func laneWorktreeIsolation(workflow map[string]any, laneID string) string {
 		return "per_job"
 	}
 	return "off"
+}
+
+func downstreamImplementationEnvelopeForPacket(workflow map[string]any, workflowJobID string) map[string]any {
+	workflowJobID = strings.TrimSpace(workflowJobID)
+	if workflowJobID == "" {
+		return nil
+	}
+	jobsByID := map[string]map[string]any{}
+	for _, item := range asList(workflow["jobs"]) {
+		job := asMap(item)
+		id := strings.TrimSpace(fmt.Sprint(job["id"]))
+		if id != "" {
+			jobsByID[id] = job
+		}
+	}
+	edgesByFrom := map[string][]string{}
+	for _, item := range asList(workflow["edges"]) {
+		edge := asMap(item)
+		from := strings.TrimSpace(fmt.Sprint(edge["from"]))
+		to := strings.TrimSpace(fmt.Sprint(edge["to"]))
+		if from != "" && to != "" {
+			edgesByFrom[from] = append(edgesByFrom[from], to)
+		}
+	}
+	if len(edgesByFrom[workflowJobID]) == 0 {
+		return nil
+	}
+	queue := append([]string(nil), edgesByFrom[workflowJobID]...)
+	seen := map[string]bool{workflowJobID: true}
+	entries := []any{}
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		if job := jobsByID[id]; len(job) > 0 {
+			if entry := downstreamWorkflowJobEnvelope(job); entry != nil {
+				entries = append(entries, entry)
+			}
+		}
+		queue = append(queue, edgesByFrom[id]...)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return map[string]any{
+		"scope":       "reachable_downstream_jobs",
+		"instruction": "When recommending implementation layout or follow-up work, stay within these downstream write_scope envelopes. If the correct implementation needs paths outside them, call that out explicitly instead of assuming the frozen scope can widen.",
+		"jobs":        entries,
+	}
+}
+
+func downstreamWorkflowJobEnvelope(job map[string]any) map[string]any {
+	writeScope := asMap(job["write_scope"])
+	expectedArtifacts := asList(job["expected_artifacts"])
+	if len(writeScope) == 0 && len(expectedArtifacts) == 0 {
+		return nil
+	}
+	entry := map[string]any{
+		"workflow_job_id": job["id"],
+		"type":            nullable(job["type"]),
+		"title":           nullable(job["title"]),
+		"role_id":         nullable(job["role_id"]),
+		"lane_id":         nullable(downstreamWorkflowJobLaneID(job)),
+		"write_scope":     writeScope,
+	}
+	if len(expectedArtifacts) > 0 {
+		entry["expected_artifacts"] = expectedArtifacts
+	}
+	return entry
+}
+
+func downstreamWorkflowJobLaneID(job map[string]any) string {
+	for _, key := range []string{"lane_id", "lane"} {
+		if laneID, _ := job[key].(string); strings.TrimSpace(laneID) != "" {
+			return laneID
+		}
+	}
+	laneSelector := asMap(job["lane_selector"])
+	laneID, _ := laneSelector["lane_id"].(string)
+	return strings.TrimSpace(laneID)
 }
 
 func expectedArtifactsWithAuthor(expected []any, authorLine string) []any {
