@@ -325,6 +325,12 @@ does not auto-release leases — operators must call `release` separately.
 
 ### Supervised-aware `claim-next` (auto-delivery)
 
+Current implementation note (2026-06-04): this section records the original
+Python/SQLite RFC 0009 design. The current Go/PostgreSQL implementation does
+not make `claim-next` write to a supervisor. Non-agent-loop supervised lanes
+use `supervise start` push auto-dispatch instead; see
+[`docs/reference/spec.md`](../reference/spec.md#process-supervision).
+
 `claim_next` (in `src/striatum/db.py`) closes the lifecycle integration loop
 by routing freshly built work packets through any `attached` supervisor for
 the same session. After inserting the `work_packets` row and the

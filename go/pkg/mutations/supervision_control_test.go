@@ -347,6 +347,78 @@ func TestSuperviseStartLabelsNonAgentLoopLaneAsPush(t *testing.T) {
 	}
 }
 
+func TestSuperviseStartAutoDispatchesPushLane(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	origWrite := supervisionWrite
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+		supervisionWrite = origWrite
+	}()
+	startToken := currentStartTokenForMutationTest(t)
+	var runner *superviseControlFakeRunner
+	supervisionMkfifo = func(path string) error {
+		runner.pipePath = path
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(_ context.Context, config supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		if config.AgentLoopMode != agentLoopModePush {
+			t.Fatalf("plain lane launched with agent_loop_mode=%q, want push", config.AgentLoopMode)
+		}
+		return supervisionLaunchResult{PID: os.Getpid(), PIDStartTime: startToken}, nil
+	}
+	var deliveredPayload []byte
+	supervisionWrite = func(_ context.Context, _ db.TxRunner, _ string, _ string, _ string, payload []byte) (supervisorDeliveryResult, error) {
+		deliveredPayload = append([]byte(nil), payload...)
+		return supervisorDeliveryResult{BytesWritten: len(payload), StdinDelivery: stdinDeliveryPersistentFIFO}, nil
+	}
+
+	repoRoot := t.TempDir()
+	tx1 := &superviseControlFakeTx{repoRoot: repoRoot}
+	tx2 := &superviseControlFakeTx{repoRoot: repoRoot}
+	tx3 := &superviseControlFakeTx{repoRoot: repoRoot, pid: os.Getpid(), pidStart: startToken, claimable: true}
+	runner = &superviseControlFakeRunner{
+		repoRoot:     repoRoot,
+		workflowLane: map[string]any{}, // plain lane: no agent_loop capability => push consumer
+		txs:          []*superviseControlFakeTx{tx1, tx2, tx3},
+	}
+
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_push_auto_dispatch",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStart: %v", err)
+	}
+	auto := asMap(result["auto_dispatch"])
+	if auto["status"] != "delivered" {
+		t.Fatalf("auto_dispatch = %#v, want delivered", auto)
+	}
+	packetID, _ := auto["packet_id"].(string)
+	if !strings.HasPrefix(packetID, "wp_") {
+		t.Fatalf("auto_dispatch packet_id = %q, want generated work packet id", packetID)
+	}
+	delivery := asMap(auto["delivery"])
+	if delivery["packet_id"] != packetID || delivery["delivery_state"] != "delivered_unacknowledged" {
+		t.Fatalf("delivery = %#v", delivery)
+	}
+	if len(deliveredPayload) == 0 || !strings.Contains(string(deliveredPayload), `"packet":"body"`) {
+		t.Fatalf("delivered payload = %q", string(deliveredPayload))
+	}
+	if !tx3.sawExec("INSERT INTO striatumd.leases") || !tx3.sawExec("INSERT INTO striatumd.work_packets") {
+		t.Fatalf("auto-dispatch did not claim work in tx3: %#v", tx3.execs)
+	}
+	if !tx3.sawEventType("queue.claimed") || !tx3.sawEventType("supervisor.packet_delivered") {
+		t.Fatalf("auto-dispatch events missing: %#v", tx3.eventInserts())
+	}
+}
+
 func TestMergePointerMetadataPreservesExistingTmuxFields(t *testing.T) {
 	tx := &superviseControlFakeTx{
 		metadata: map[string]any{
@@ -1620,6 +1692,7 @@ type superviseControlFakeTx struct {
 	pid               int
 	pidStart          string
 	metadata          map[string]any
+	claimable         bool
 	nextEvent         int64
 	execs             []superviseControlExec
 	committed         bool
@@ -1707,6 +1780,97 @@ func (tx *superviseControlFakeTx) QueryScalar(context.Context, string, ...any) (
 }
 
 func (tx *superviseControlFakeTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "SELECT run_id FROM striatumd.sessions") {
+		return runPrepareRowsFromMaps([]map[string]any{{"run_id": "run_1"}}), nil
+	}
+	if strings.Contains(sql, "SELECT * FROM striatumd.sessions") {
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"session_id":        "sess_1",
+			"run_id":            "run_1",
+			"role_id":           "worker",
+			"lane_id":           "lane_1",
+			"slug":              "worker-lane-1",
+			"capabilities_json": []any{"write"},
+			"ordinal":           1,
+			"operator_label":    "codex",
+			"state":             "active",
+		}}), nil
+	}
+	if strings.Contains(sql, "SELECT * FROM striatumd.runs") {
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"run_id":               "run_1",
+			"state":                "running",
+			"paused_at":            nil,
+			"workflow_snapshot_id": "snap_1",
+			"repo_root":            tx.repoRoot,
+			"branch_name":          "main",
+			"branch_confirmed_at":  "2026-01-01T00:00:00Z",
+		}}), nil
+	}
+	if strings.Contains(sql, "SELECT * FROM striatumd.leases") {
+		return runPrepareRowsFromMaps(nil), nil
+	}
+	if strings.Contains(sql, "SELECT qm.*") {
+		if !tx.claimable {
+			return runPrepareRowsFromMaps(nil), nil
+		}
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"message_id":     "msg_1",
+			"run_id":         "run_1",
+			"job_id":         "job_1",
+			"target_role_id": "worker",
+			"target_lane_id": "lane_1",
+			"priority":       10,
+		}}), nil
+	}
+	if strings.Contains(sql, "SELECT j.workflow_job_id AS workflow_job_id") {
+		return runPrepareRowsFromMaps(nil), nil
+	}
+	if strings.Contains(sql, "SELECT * FROM striatumd.jobs") {
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"job_id":                  "job_1",
+			"run_id":                  "run_1",
+			"workflow_job_id":         "draft",
+			"attempt":                 1,
+			"state":                   "queued",
+			"role_id":                 "worker",
+			"title":                   "Draft artifact",
+			"job_type":                "draft",
+			"fresh_session_required":  false,
+			"write_scope_json":        map[string]any{"allowed_paths": []any{"docs/"}, "forbidden_paths": []any{".striatum/"}},
+			"expected_artifacts_json": []any{},
+			"lane_selector_json":      map[string]any{"lane_id": "lane_1"},
+			"capability_requirements_json": map[string]any{
+				"objective":   "draft the artifact",
+				"task_prompt": map[string]any{"inline": "draft"},
+				"inputs":      []any{},
+			},
+		}}), nil
+	}
+	if strings.Contains(sql, "SELECT * FROM striatumd.workflow_snapshots") {
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"workflow_snapshot_id": "snap_1",
+			"source_path":          "workflows/demo/workflow.json",
+			"workflow_json": map[string]any{
+				"workflow_id":  "wf",
+				"context_docs": []any{},
+				"roles": map[string]any{
+					"worker": map[string]any{"definition_path": "roles/worker.md", "summary": "Worker"},
+				},
+				"lanes": map[string]any{
+					"lane_1": map[string]any{"display_model": "Codex"},
+				},
+				"jobs": []any{map[string]any{"id": "draft", "type": "draft"}},
+			},
+		}}), nil
+	}
+	if strings.Contains(sql, "SELECT COALESCE(p.metadata_json") {
+		metadata := tx.metadata
+		if metadata == nil {
+			metadata = map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO, "agent_loop_mode": agentLoopModePush}
+		}
+		return runPrepareRowsFromMaps([]map[string]any{{"metadata_json": metadata}}), nil
+	}
 	if strings.Contains(sql, "LEFT JOIN striatumd.process_supervisors ps") && strings.Contains(sql, "FROM striatumd.sessions s") {
 		var pid any
 		if tx.pid > 0 {
@@ -1800,6 +1964,15 @@ func (tx *superviseControlFakeTx) lastEventInsert() *superviseControlExec {
 		return nil
 	}
 	return &events[len(events)-1]
+}
+
+func (tx *superviseControlFakeTx) sawEventType(eventType string) bool {
+	for _, event := range tx.eventInserts() {
+		if len(event.args) > 3 && fmt.Sprint(event.args[3]) == eventType {
+			return true
+		}
+	}
+	return false
 }
 
 func (tx *superviseControlFakeTx) pointerMetadataUpdate() *superviseControlExec {

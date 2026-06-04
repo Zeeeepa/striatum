@@ -396,11 +396,11 @@ remains the persistent FIFO mode for wrappers that handle multiple packets.
 
 Do **not** configure `agy` as a one-shot pipe lane (`agy … --print` with
 `supervision.stdin_delivery: "one_shot_eof"` or an `IFS= read -r prompt; …`
-stdin shim). On the one-shot pipe path agy gets no auto-MCP config and no
-auto-delivery, so it launches, reads nothing within the stdin window, runs
-`agy --print ""` (empty), and exits without ever claiming a packet (#51,
-#63 F5). The agent-loop submit driver landed in #51/#52 and is the only
-viable autonomous shape for agy. `workflow lint` emits an
+stdin shim). Supervised push lanes now receive one automatic claim/send at
+`supervise start`, but the one-shot pipe path still lacks the agent-loop MCP
+configuration and preserved interactive context that make `agy` autonomous.
+The agent-loop submit driver landed in #51/#52 and is the viable autonomous
+shape for agy. `workflow lint` emits an
 `agy_one_shot_pipe_lane` warning when it detects a one-shot `agy --print`
 lane that is missing `adapter_capabilities.agent_loop`. `claude` and `codex`
 one-shot pipe lanes are unaffected — they self-claim on the one-shot path, so

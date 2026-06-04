@@ -17,11 +17,12 @@ lane (and its `single_shot` turn-driver) is retired in favour of an `agy`
 
 `agy` must run as an agent-loop lane (`adapter_capabilities.agent_loop:
 true`). The historical one-shot pipe shape (`agy … --print` with
-`transport: pipe`, `stdin_delivery: one_shot_eof`) does **not** self-claim:
-the one-shot pipe path gets no auto-MCP config and no auto-delivery, so agy
-launches, reads nothing on stdin, runs `agy --print ""`, and exits without
-claiming (see #51, #63 F5). The agent-loop submit path landed via #51/#52 and
-is the only viable autonomous shape for agy.
+`transport: pipe`, `stdin_delivery: one_shot_eof`) lacks the agent-loop MCP
+configuration and preserved interactive context needed for autonomous agy work.
+Supervised push lanes receive one automatic claim/send at `supervise start`,
+but that does not make the agy one-shot shape autonomous (see #51, #63 F5).
+The agent-loop submit path landed via #51/#52 and is the viable autonomous
+shape for agy.
 
 To inspect a stall, run `conversation.show <conversation_id>` and
 `supervise status <session_id>`.

@@ -46,47 +46,52 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	// a transient control-plane error to the lane — matching #98's review.submit
 	// treatment, here for the claim/await path.
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		// RFC 0104 per-run serialization invariant: take the per-run advisory lock
-		// as the FIRST statement, before the `sessions`/`runs` FOR UPDATE rows
-		// below, so the claim path shares an identical, earlier serialization point
-		// with the verdict-completion and recovery-sweep paths and the
-		// {sessions, runs} deadlock cycle cannot form. This generalizes the
-		// RFC 0101 Phase 0a interrogation-only lock to every claim.
-		if err := lockRunForSession(ctx, tx, repositoryID, sessionID); err != nil {
-			return nil, err
-		}
-		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
-		if err != nil {
-			return nil, err
-		}
-		// RFC 0095 §4 (F-I/#81): a closed/expired/stopped/lost session must never
-		// be granted work. A session closed with close_reason
-		// interrogation_window_closed whose supervised process is still alive used
-		// to reclaim its revision-cycle job here, letting a prior author rewrite
-		// its own challenged work without the fresh context the gate required.
-		// Refuse any non-active session up front.
-		if state := fmt.Sprint(session["state"]); state != "active" {
-			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
-		}
-		runID := fmt.Sprint(session["run_id"])
-		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
-		if err != nil {
-			return nil, err
-		}
-		if _, err := expireLeases(ctx, tx, repositoryID, runID); err != nil {
-			return nil, err
-		}
-		state := fmt.Sprint(run["state"])
-		if state == "needs_branch_confirmation" || state == "ready" {
-			return nil, rpc.NewError("branch_confirmation_required", "branch confirmation and run start are required before claims", nil)
-		}
-		if state != "running" {
-			return map[string]any{"status": "no_work"}, nil
-		}
-		if nullable(run["paused_at"]) != nil {
-			return map[string]any{"status": "no_work", "paused": true}, nil
-		}
-		rows, err := queryRows(ctx, tx, `
+		return claimNextInTx(ctx, tx, repositoryID, sessionID, leaseSeconds)
+	})
+}
+
+func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID string, leaseSeconds int) (map[string]any, error) {
+	// RFC 0104 per-run serialization invariant: take the per-run advisory lock
+	// as the FIRST statement, before the `sessions`/`runs` FOR UPDATE rows
+	// below, so the claim path shares an identical, earlier serialization point
+	// with the verdict-completion and recovery-sweep paths and the
+	// {sessions, runs} deadlock cycle cannot form. This generalizes the
+	// RFC 0101 Phase 0a interrogation-only lock to every claim.
+	if err := lockRunForSession(ctx, tx, repositoryID, sessionID); err != nil {
+		return nil, err
+	}
+	session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
+	if err != nil {
+		return nil, err
+	}
+	// RFC 0095 §4 (F-I/#81): a closed/expired/stopped/lost session must never
+	// be granted work. A session closed with close_reason
+	// interrogation_window_closed whose supervised process is still alive used
+	// to reclaim its revision-cycle job here, letting a prior author rewrite
+	// its own challenged work without the fresh context the gate required.
+	// Refuse any non-active session up front.
+	if state := fmt.Sprint(session["state"]); state != "active" {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
+	}
+	runID := fmt.Sprint(session["run_id"])
+	run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := expireLeases(ctx, tx, repositoryID, runID); err != nil {
+		return nil, err
+	}
+	state := fmt.Sprint(run["state"])
+	if state == "needs_branch_confirmation" || state == "ready" {
+		return nil, rpc.NewError("branch_confirmation_required", "branch confirmation and run start are required before claims", nil)
+	}
+	if state != "running" {
+		return map[string]any{"status": "no_work"}, nil
+	}
+	if nullable(run["paused_at"]) != nil {
+		return map[string]any{"status": "no_work", "paused": true}, nil
+	}
+	rows, err := queryRows(ctx, tx, `
 			SELECT qm.*
 			  FROM striatumd.queue_messages qm
 			  JOIN striatumd.jobs j
@@ -111,120 +116,119 @@ func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			 ORDER BY qm.priority DESC, qm.created_at ASC
 			 LIMIT 1
 			 FOR UPDATE OF qm SKIP LOCKED`,
-			repositoryID,
-			session["role_id"],
-			session["lane_id"],
-			sessionID,
-			runID,
-		)
-		if err != nil {
-			return nil, err
+		repositoryID,
+		session["role_id"],
+		session["lane_id"],
+		sessionID,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		// #107: distinguish "no work at all" from "work exists but this session
+		// is structurally ineligible" — most commonly a fresh_session_required
+		// job for this role that this (already-spent) session can never claim.
+		// Surfacing the reason lets the lane stop polling and the coordinator
+		// register a fresh session instead of inferring the mismatch.
+		if wfJob := freshSessionBlockedWorkflowJob(ctx, tx, repositoryID, fmt.Sprint(session["role_id"]), fmt.Sprint(session["lane_id"]), sessionID, runID); wfJob != "" {
+			return map[string]any{
+				"status":            "no_work",
+				"ineligible_reason": "fresh_session_required",
+				"workflow_job_id":   wfJob,
+				"hint":              "a queued job for this role requires a fresh session; stop this lane and register/start a fresh session to claim it (striatum register-session <run> <role> <lane> --fresh).",
+			}, nil
 		}
-		if len(rows) == 0 {
-			// #107: distinguish "no work at all" from "work exists but this session
-			// is structurally ineligible" — most commonly a fresh_session_required
-			// job for this role that this (already-spent) session can never claim.
-			// Surfacing the reason lets the lane stop polling and the coordinator
-			// register a fresh session instead of inferring the mismatch.
-			if wfJob := freshSessionBlockedWorkflowJob(ctx, tx, repositoryID, fmt.Sprint(session["role_id"]), fmt.Sprint(session["lane_id"]), sessionID, runID); wfJob != "" {
-				return map[string]any{
-					"status":            "no_work",
-					"ineligible_reason": "fresh_session_required",
-					"workflow_job_id":   wfJob,
-					"hint":              "a queued job for this role requires a fresh session; stop this lane and register/start a fresh session to claim it (striatum register-session <run> <role> <lane> --fresh).",
-				}, nil
-			}
-			return map[string]any{"status": "no_work"}, nil
-		}
-		chosen := rows[0]
-		jobID := fmt.Sprint(chosen["job_id"])
-		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
-		if err != nil {
-			return nil, err
-		}
-		now := nowString()
-		leaseID, err := newID("lease")
-		if err != nil {
-			return nil, err
-		}
-		packetID, err := newID("wp")
-		if err != nil {
-			return nil, err
-		}
-		expiresAt := expiresAfter(leaseSeconds)
-		if err := tx.Exec(ctx, `
+		return map[string]any{"status": "no_work"}, nil
+	}
+	chosen := rows[0]
+	jobID := fmt.Sprint(chosen["job_id"])
+	job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+	if err != nil {
+		return nil, err
+	}
+	now := nowString()
+	leaseID, err := newID("lease")
+	if err != nil {
+		return nil, err
+	}
+	packetID, err := newID("wp")
+	if err != nil {
+		return nil, err
+	}
+	expiresAt := expiresAfter(leaseSeconds)
+	if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.leases (
 			  repository_id, lease_id, run_id, resource_type, resource_id,
 			  owner_session_id, state, acquired_at, expires_at, last_heartbeat_at
 			)
 			VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7,$8)`,
-			repositoryID, leaseID, runID, jobID, sessionID, now, expiresAt, now); err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
+		repositoryID, leaseID, runID, jobID, sessionID, now, expiresAt, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Exec(ctx, `
 			UPDATE striatumd.queue_messages
 			   SET state = 'claimed', claimed_at = $1, updated_at = $2,
 			       current_lease_id = $3, claim_count = claim_count + 1
 			 WHERE repository_id = $4 AND message_id = $5`,
-			now, now, leaseID, repositoryID, chosen["message_id"]); err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
+		now, now, leaseID, repositoryID, chosen["message_id"]); err != nil {
+		return nil, err
+	}
+	if err := tx.Exec(ctx, `
 			UPDATE striatumd.jobs
 			   SET state = 'claimed', current_lease_id = $1, started_at = $2
 			 WHERE repository_id = $3 AND job_id = $4`,
-			leaseID, now, repositoryID, jobID); err != nil {
-			return nil, err
-		}
-		packet, err := buildPacket(ctx, tx, repositoryID, run, session, job, fmt.Sprint(chosen["message_id"]), leaseID, expiresAt, packetID)
-		if err != nil {
-			return nil, err
-		}
-		packetJSON, err := json.Marshal(packet)
-		if err != nil {
-			return nil, err
-		}
-		packetSum := sha256.Sum256(packetJSON)
-		packetJSONArg, err := db.JSONBArg(tx, packet)
-		if err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
+		leaseID, now, repositoryID, jobID); err != nil {
+		return nil, err
+	}
+	packet, err := buildPacket(ctx, tx, repositoryID, run, session, job, fmt.Sprint(chosen["message_id"]), leaseID, expiresAt, packetID)
+	if err != nil {
+		return nil, err
+	}
+	packetJSON, err := json.Marshal(packet)
+	if err != nil {
+		return nil, err
+	}
+	packetSum := sha256.Sum256(packetJSON)
+	packetJSONArg, err := db.JSONBArg(tx, packet)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.work_packets (
 			  repository_id, packet_id, run_id, job_id, message_id, lease_id,
 			  session_id, packet_json, packet_sha256, created_at
 			)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)`,
-			repositoryID,
-			packetID,
-			runID,
-			jobID,
-			chosen["message_id"],
-			leaseID,
-			sessionID,
-			packetJSONArg,
-			hex.EncodeToString(packetSum[:]),
-			now,
-		); err != nil {
-			return nil, err
-		}
-		if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastPacketDeliveredAt); err != nil {
-			return nil, err
-		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "queue.claimed", sessionID, jobID, chosen["message_id"], nil, leaseID, nil); err != nil {
-			return nil, err
-		}
-		// #68: when a self-driving supervisor (agent_loop_mode = self_driving) is
-		// attached, the agent itself drives delivery via work.await_packet. An
-		// operator-issued `supervise send` against that session double-claims and
-		// deadlocks, so suppress the supervise_send hint and tell the operator the
-		// agent self-claims instead.
-		selfDriving, err := sessionHasSelfDrivingSupervisor(ctx, tx, repositoryID, sessionID)
-		if err != nil {
-			return nil, err
-		}
-		return claimNextResult(sessionID, packetID, packet, selfDriving), nil
-	})
+		repositoryID,
+		packetID,
+		runID,
+		jobID,
+		chosen["message_id"],
+		leaseID,
+		sessionID,
+		packetJSONArg,
+		hex.EncodeToString(packetSum[:]),
+		now,
+	); err != nil {
+		return nil, err
+	}
+	if err := sessionliveness.Record(ctx, tx, repositoryID, sessionID, sessionliveness.LastPacketDeliveredAt); err != nil {
+		return nil, err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "queue.claimed", sessionID, jobID, chosen["message_id"], nil, leaseID, nil); err != nil {
+		return nil, err
+	}
+	// #68: when a self-driving supervisor (agent_loop_mode = self_driving) is
+	// attached, the agent itself drives delivery via work.await_packet. An
+	// operator-issued `supervise send` against that session double-claims and
+	// deadlocks, so suppress the supervise_send hint and tell the operator the
+	// agent self-claims instead.
+	selfDriving, err := sessionHasSelfDrivingSupervisor(ctx, tx, repositoryID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return claimNextResult(sessionID, packetID, packet, selfDriving), nil
 }
 
 func claimNextResult(sessionID, packetID string, packet map[string]any, selfDrivingSupervisor bool) map[string]any {

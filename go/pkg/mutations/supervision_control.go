@@ -311,7 +311,69 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	if w := snapshotDivergenceWarningForRun(ctx, runner, repositoryID, config.RepoRoot, config.WorkflowSnapshotID); w != "" {
 		result["snapshot_divergence_warning"] = w
 	}
+	if config.AgentLoopMode == agentLoopModePush {
+		result["auto_dispatch"] = autoDispatchPushSupervisor(ctx, runner, repositoryID, sessionID)
+	}
 	return result, nil
+}
+
+func autoDispatchPushSupervisor(ctx context.Context, runner db.Runner, repositoryID, sessionID string) map[string]any {
+	result, err := withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		claim, err := claimNextInTx(ctx, tx, repositoryID, sessionID, 3600)
+		if err != nil {
+			return nil, err
+		}
+		status, _ := claim["status"].(string)
+		if status != "claimed" {
+			out := map[string]any{"status": status}
+			if status == "" {
+				out["status"] = "no_work"
+			}
+			for _, key := range []string{"paused", "ineligible_reason", "workflow_job_id", "hint"} {
+				if value, ok := claim[key]; ok {
+					out[key] = value
+				}
+			}
+			return out, nil
+		}
+		packetID, _ := claim["packet_id"].(string)
+		if packetID == "" {
+			return nil, rpc.NewError("invalid_transition", "claim-next did not return a packet_id for push auto-dispatch", nil)
+		}
+		delivery, err := deliverClaimedPacketToSupervisorInTx(ctx, tx, repositoryID, sessionID, packetID, "supervise.start.auto_dispatch")
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"status":    "delivered",
+			"packet_id": packetID,
+			"delivery":  delivery,
+		}, nil
+	})
+	if err == nil {
+		return result
+	}
+	var noReader *supervisorPipeNoReaderDeliveryError
+	if errors.As(err, &noReader) {
+		if _, markErr := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			return map[string]any{}, markPointerDeliveryDegraded(ctx, tx, repositoryID, noReader.supervisorID, noReader.metadata, noReader.reason)
+		}); markErr != nil {
+			err = markErr
+		}
+	}
+	out := map[string]any{
+		"status": "failed",
+		"error":  err.Error(),
+	}
+	var rpcErr *rpc.Error
+	if errors.As(err, &rpcErr) {
+		out["error_code"] = rpcErr.Code
+		out["error"] = rpcErr.Message
+		if len(rpcErr.Details) > 0 {
+			out["error_details"] = rpcErr.Details
+		}
+	}
+	return out
 }
 
 func HandleSuperviseSend(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -329,82 +391,7 @@ func HandleSuperviseSend(ctx context.Context, runner db.Runner, envelope rpc.Env
 	}
 
 	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		supervisor, err := requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
-		if err != nil {
-			return nil, err
-		}
-		if err := drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 0); err != nil {
-			return nil, err
-		}
-		supervisor, err = requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
-		if err != nil {
-			return nil, err
-		}
-		if supervisor.State != "attached" {
-			message := fmt.Sprintf("supervise send requires an attached supervisor (supervisor_id=%s, state=%s)", supervisor.SupervisorID, supervisor.State)
-			if supervisor.State == "detached" {
-				message = fmt.Sprintf("supervisor is detached; stop this supervisor and restart/reclaim before delivery (supervisor_id=%s)", supervisor.SupervisorID)
-			}
-			return nil, rpc.NewError("invalid_transition", message, nil)
-		}
-		packet, err := loadWorkPacket(ctx, tx, repositoryID, packetID)
-		if err != nil {
-			return nil, err
-		}
-		if packet.SessionID != sessionID {
-			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("work packet does not belong to this session: packet_session=%q, requested_session=%q", packet.SessionID, sessionID), nil)
-		}
-		if packet.RunID != supervisor.RunID {
-			return nil, rpc.NewError("invalid_transition", "work packet run does not match supervisor run", nil)
-		}
-		if err := ensureActivePacketLease(ctx, tx, repositoryID, packet, sessionID); err != nil {
-			return nil, err
-		}
-		if err := reconcileSupervisorForDelivery(ctx, tx, repositoryID, supervisor, "supervise.send"); err != nil {
-			return nil, err
-		}
-		if supervisor.StdinPipePath == "" {
-			return nil, rpc.NewError("invalid_transition", "supervisor stdin pipe is missing: <unset>", nil)
-		}
-		if _, err := os.Stat(supervisor.StdinPipePath); err != nil {
-			return nil, rpc.NewError("invalid_transition", "supervisor stdin pipe is missing: "+supervisor.StdinPipePath, nil)
-		}
-		payload, err := json.Marshal(packet.Packet)
-		if err != nil {
-			return nil, err
-		}
-		payload = append(payload, '\n')
-		delivery, err := supervisionWrite(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.StdinPipePath, payload)
-		if err != nil {
-			return nil, err
-		}
-		deliveredAt := nowString()
-		if err := refreshSupervisorHeartbeat(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.DaemonSupervisorID, deliveredAt); err != nil {
-			return nil, err
-		}
-		if err := drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 250*time.Millisecond); err != nil {
-			return nil, err
-		}
-		_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.packet_delivered", sessionID, nil, nil, nil, nil, map[string]any{
-			"supervisor_id":            supervisor.SupervisorID,
-			"packet_id":                packetID,
-			"bytes_written":            delivery.BytesWritten,
-			"stdin_delivery":           delivery.StdinDelivery,
-			"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
-		})
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{
-			"supervisor_id":            supervisor.SupervisorID,
-			"packet_id":                packetID,
-			"delivered_at":             deliveredAt,
-			"bytes":                    delivery.BytesWritten,
-			"stdin_delivery":           delivery.StdinDelivery,
-			"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
-			"delivery_state":           "delivered_unacknowledged",
-			"control_ack_expected":     true,
-		}, nil
+		return deliverClaimedPacketToSupervisorInTx(ctx, tx, repositoryID, sessionID, packetID, "supervise.send")
 	})
 	if err == nil {
 		return result, nil
@@ -419,6 +406,85 @@ func HandleSuperviseSend(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, markErr
 	}
 	return nil, rpc.NewError("invalid_transition", noReader.Error(), nil)
+}
+
+func deliverClaimedPacketToSupervisorInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, packetID, phase string) (map[string]any, error) {
+	supervisor, err := requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 0); err != nil {
+		return nil, err
+	}
+	supervisor, err = requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
+	if err != nil {
+		return nil, err
+	}
+	if supervisor.State != "attached" {
+		message := fmt.Sprintf("supervise send requires an attached supervisor (supervisor_id=%s, state=%s)", supervisor.SupervisorID, supervisor.State)
+		if supervisor.State == "detached" {
+			message = fmt.Sprintf("supervisor is detached; stop this supervisor and restart/reclaim before delivery (supervisor_id=%s)", supervisor.SupervisorID)
+		}
+		return nil, rpc.NewError("invalid_transition", message, nil)
+	}
+	packet, err := loadWorkPacket(ctx, tx, repositoryID, packetID)
+	if err != nil {
+		return nil, err
+	}
+	if packet.SessionID != sessionID {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("work packet does not belong to this session: packet_session=%q, requested_session=%q", packet.SessionID, sessionID), nil)
+	}
+	if packet.RunID != supervisor.RunID {
+		return nil, rpc.NewError("invalid_transition", "work packet run does not match supervisor run", nil)
+	}
+	if err := ensureActivePacketLease(ctx, tx, repositoryID, packet, sessionID); err != nil {
+		return nil, err
+	}
+	if err := reconcileSupervisorForDelivery(ctx, tx, repositoryID, supervisor, phase); err != nil {
+		return nil, err
+	}
+	if supervisor.StdinPipePath == "" {
+		return nil, rpc.NewError("invalid_transition", "supervisor stdin pipe is missing: <unset>", nil)
+	}
+	if _, err := os.Stat(supervisor.StdinPipePath); err != nil {
+		return nil, rpc.NewError("invalid_transition", "supervisor stdin pipe is missing: "+supervisor.StdinPipePath, nil)
+	}
+	payload, err := json.Marshal(packet.Packet)
+	if err != nil {
+		return nil, err
+	}
+	payload = append(payload, '\n')
+	delivery, err := supervisionWrite(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.StdinPipePath, payload)
+	if err != nil {
+		return nil, err
+	}
+	deliveredAt := nowString()
+	if err := refreshSupervisorHeartbeat(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.DaemonSupervisorID, deliveredAt); err != nil {
+		return nil, err
+	}
+	if err := drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 250*time.Millisecond); err != nil {
+		return nil, err
+	}
+	_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.packet_delivered", sessionID, nil, nil, nil, nil, map[string]any{
+		"supervisor_id":            supervisor.SupervisorID,
+		"packet_id":                packetID,
+		"bytes_written":            delivery.BytesWritten,
+		"stdin_delivery":           delivery.StdinDelivery,
+		"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"supervisor_id":            supervisor.SupervisorID,
+		"packet_id":                packetID,
+		"delivered_at":             deliveredAt,
+		"bytes":                    delivery.BytesWritten,
+		"stdin_delivery":           delivery.StdinDelivery,
+		"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
+		"delivery_state":           "delivered_unacknowledged",
+		"control_ack_expected":     true,
+	}, nil
 }
 
 func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

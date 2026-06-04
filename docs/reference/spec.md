@@ -1988,6 +1988,12 @@ The supervise CLI surface:
   durable artifacts, and transitions the row to `attached` once the child pid
   is alive. A
   `supervisor.starting` and `supervisor.started` event are recorded.
+  Agent-loop lanes record `agent_loop_mode: "self_driving"` and receive work
+  through `work.await_packet`. Non-agent-loop supervised lanes record
+  `agent_loop_mode: "supervised_push"`; after attach, `supervise start`
+  attempts one atomic auto-dispatch that claims the next eligible packet for
+  the session and delivers it to the supervisor FIFO, returning an
+  `auto_dispatch` summary (`delivered`, `no_work`, or `failed`).
 - `striatum supervise send --session-id <id> --packet-id <id>` delivers the
   work packet prompt directly to the daemon-owned interactive PTY master
   (`stdin-submit`) using the per-adapter submit key-sequence (Enter / `\r`),

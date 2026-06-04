@@ -724,8 +724,8 @@ the packet helper to `packet inbox`.
   focused Postgres-backed integration test, and CI runs the target on
   Linux runners with the Postgres service.
 - Existing supervisor paths now perform restart reconciliation before
-  delivery: `supervise.status`, `supervise.send`, and claim-next
-  auto-delivery record `supervisor.reattached` for surviving PID identity,
+  delivery: `supervise.status`, `supervise.send`, and push auto-dispatch
+  record `supervisor.reattached` for surviving PID identity,
   update daemon-instance metadata, fail closed for repair/verification
   states, and mark stale PID identity `lost` before writing to stdin.
 - `tests/test_claude_supervised_wrapper.py` now runs the supervised-wrapper

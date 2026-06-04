@@ -1089,8 +1089,8 @@ review and plan are root-level operator artifacts:
     ingestion across the Python/Go boundary. Follow-up slice promoted that
     check into `make daemon-go-helper-integration` and CI's Linux/Postgres
     matrix. Follow-up slice landed restart reattach/lost-state reconciliation
-    on existing `supervise.status`, `supervise.send`, and claim-next
-    auto-delivery paths: surviving supervisors record `supervisor.reattached`
+    on existing `supervise.status`, `supervise.send`, and push
+    auto-dispatch paths: surviving supervisors record `supervisor.reattached`
     and refresh daemon-instance metadata, while stale PID identity is marked
     `lost` before any packet write. Final slice expanded
     `tests/test_claude_supervised_wrapper.py` into Claude, Codex, and Gemini
