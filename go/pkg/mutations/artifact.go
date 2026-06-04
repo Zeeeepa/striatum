@@ -102,7 +102,11 @@ func publishArtifact(
 	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
 		return nil, rpc.NewError("artifact_error", "artifact path is outside the job write scope", nil)
 	}
-	path, err := repoRelativePath(repoRoot, pathText, false)
+	activeWorktree, err := activeWorktreeForJob(ctx, runner, repositoryID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	path, err := artifactSourcePath(repoRoot, pathText, activeWorktree)
 	if err != nil {
 		return nil, rpc.NewError("artifact_error", err.Error(), nil)
 	}
@@ -323,6 +327,18 @@ func publishArtifact(
 		result["blob_key"] = blobKey
 	}
 	return result, nil
+}
+
+func artifactSourcePath(repoRoot, pathText string, activeWorktree map[string]any) (string, error) {
+	sourceRoot := repoRoot
+	if activeWorktree != nil {
+		target, err := worktreeTarget(repoRoot, fmt.Sprint(activeWorktree["worktree_path"]))
+		if err != nil {
+			return "", err
+		}
+		sourceRoot = target
+	}
+	return repoRelativePath(sourceRoot, pathText, false)
 }
 
 // blobRoutedKinds enumerates the artifact kinds whose body lives in

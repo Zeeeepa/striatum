@@ -141,6 +141,146 @@ func TestPublishArtifactUsesLaneAttestedAuthorLine(t *testing.T) {
 	}
 }
 
+func TestPublishArtifactReadsFromActiveJobWorktree(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", "wt_publish"))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "docs", "out.txt"), []byte("worktree artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, "docs", "out.txt")); !os.IsNotExist(err) {
+		t.Fatalf("root artifact should be absent before publish, stat err=%v", err)
+	}
+
+	now := time.Now().UTC()
+	workflowArg, err := db.JSONBArg(runner, map[string]any{"workflow_id": "wf_worktree"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":          "repo_write",
+		"repo_write":    true,
+		"allowed_paths": []string{"docs/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_artifact_worktree','ident_artifact_worktree',$1,$2,'repo',$3,14,'active')`,
+		repoRoot, filepath.Join(repoRoot, ".striatum"), now,
+	); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ('repo_artifact_worktree','snap_1','wf_worktree','sha',$1::jsonb,$2)`, workflowArg, now); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at
+		) VALUES ('repo_artifact_worktree','run_1','snap_1',$1,'running',$2)`, repoRoot, now); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
+		  state, registered_at
+		) VALUES ('repo_artifact_worktree','sess_1','run_1','implementer','codex','implementer-codex-1',1,'active',$1)`, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  lane_selector_json, state, write_scope_json, idempotency_key, created_at
+		) VALUES ('repo_artifact_worktree','job_1','run_1','build','Build','build','implementer',
+		  $1::jsonb,'running',$2::jsonb,'idem_1',$3)`, laneSelectorArg, writeScopeArg, now); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ('repo_artifact_worktree','lease_1','run_1','job','job_1','sess_1','active',$1,$2)`,
+		now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_worktrees (
+		  repository_id, worktree_id, run_id, job_id, lease_id,
+		  base_branch, worktree_path, state, created_at
+		) VALUES ('repo_artifact_worktree','wt_publish','run_1','job_1','lease_1',
+		  'main',$1,'active',$2)`, worktreeRel, now); err != nil {
+		t.Fatalf("insert job worktree: %v", err)
+	}
+
+	result, err := HandlePublishArtifact(ctx, runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_publish_worktree",
+		Method:        "artifact.publish",
+		Params: map[string]any{
+			"repository_id": "repo_artifact_worktree",
+			"session_id":    "sess_1",
+			"job_id":        "job_1",
+			"lease_id":      "lease_1",
+			"kind":          "handoff",
+			"logical_name":  "out",
+			"path":          "docs/out.txt",
+		},
+	})
+	if err != nil {
+		t.Fatalf("publish artifact from active worktree: %v", err)
+	}
+	if result["status"] != "published" {
+		t.Fatalf("publish result = %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, "docs", "out.txt")); !os.IsNotExist(err) {
+		t.Fatalf("publish should not require or create root artifact, stat err=%v", err)
+	}
+}
+
+func TestArtifactSourcePathPrefersActiveWorktree(t *testing.T) {
+	repoRoot := t.TempDir()
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", "wt_source"))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "docs", "out.txt"), []byte("worktree artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := artifactSourcePath(repoRoot, "docs/out.txt", map[string]any{"worktree_path": worktreeRel})
+	if err != nil {
+		t.Fatalf("artifactSourcePath active worktree: %v", err)
+	}
+	want := filepath.Join(worktreeRoot, "docs", "out.txt")
+	if got != want {
+		t.Fatalf("artifact source path = %q, want %q", got, want)
+	}
+
+	rootPath, err := artifactSourcePath(repoRoot, "docs/out.txt", nil)
+	if err != nil {
+		t.Fatalf("artifactSourcePath root: %v", err)
+	}
+	if rootPath != filepath.Join(repoRoot, "docs", "out.txt") {
+		t.Fatalf("root artifact path = %q", rootPath)
+	}
+}
+
 func TestValidateSandboxJail(t *testing.T) {
 	repoRoot := t.TempDir()
 	outsideDir := t.TempDir()
@@ -199,4 +339,3 @@ func TestValidateSandboxJail(t *testing.T) {
 		t.Fatalf("expected %v, got %v", expected, res)
 	}
 }
-
