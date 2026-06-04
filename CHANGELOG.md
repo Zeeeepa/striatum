@@ -1,5 +1,49 @@
 # Changelog
 
+## v2.17.0 — 2026-06-04
+
+### RFC 0110 Release N+1 (slice 1) — authority schema + v3 hash (additive, opt-in)
+
+The DB-enforced write-boundary schema, proven via pgtest. **Additive and
+opt-in**: a binary with the owner bundle UNapplied behaves exactly like v2.15.0
+(Release N) — the live single-role daemon (it connects as the table owner) is
+unaffected and stays on the v2 Go audit path. Live activation (L0 credential
+rotation, the daemon presenting its secret, the R-V3 hash flip) is deferred to a
+later slice.
+
+- **Owner-DDL bundles** (`C-OWNER-DDL-SPLIT`): new `go/pkg/db/sql/owner/*.sql`
+  embed + `ApplyOwnerBundles` (atomic per version, idempotent, marker stamped
+  last), applied out-of-band as the owner via **`striatum daemon owner-ddl
+  apply`** — the runtime role never DDLs owner objects (RFC 0079 §5).
+- **Authority schema** (owner bundle 0001): `daemon_auth_registry` (owner-only —
+  `T-REGISTRY-ACL`), `daemon_auth_log`, `assert_daemon_authority()` (raises
+  SQLSTATE 28000 unless the presented `striatum.daemon_auth` secret matches a
+  registry digest — the secret is authority), the `append_audit_row` SECURITY
+  DEFINER write path, and Phase-0 (`audit_only`) `REVOKE INSERT ON audit_log`.
+  SD-hardening template throughout (`T-SD-HARDEN`).
+- **v3 audit hash** (`C-AUDIT-FORMAT-CUTOVER` builder): Go `V3RowHash` is
+  byte-identical to the in-database `audit_v3_row_hash` (`T-HASH-PARITY`),
+  timezone-independent (`T-TS`); `VerifyRows` dispatches per
+  `hash_format_version` (2/3/unknown→fail, `T-VERIFY-MIXED`); `V2RowHash` kept
+  permanently. The Go daemon still writes v2 until the deferred R-V3 flip.
+- **Deploy capability parity** (`C-DEPLOY-CAPABILITY-PARITY`): the owner bundle
+  stamps `audit_sd_append`; the binary declares it supported, so an old binary
+  meeting an authority-bearing schema fails closed at startup (`T-DEPLOY-SKEW`).
+  Fixes a latent v2.15.0 bug where `readStampedCapabilities` read a bare boolean
+  (pgx scans `t` not `true` under simple protocol) and would silently skip the
+  old-binary check once a bundle was applied.
+- **Phase-0 enforcement** proven against the production bundle SQL, not
+  imperative Go grants (`C-PGTEST-NO-DML-GRANT` intent): `T-42501-P0`,
+  `T-EXEC-AUTH`, plus `ReassertWriteRevokes` for `T-GRANT-DRIFT`.
+- **Write-authority inventory** (`PX3-006`): every `striatumd.*` table is
+  classified (`sd_gated`/`runtime_dml`/`owner_only`); a guard fails on any
+  unclassified live table.
+
+Deferred to the next slice: L0 rotation + `STRIATUM_OWNER_DB_URL` + fail-closed
+owner dep; the daemon generating/presenting its secret; the R-V3 flag flip
+(default v2) + `T-PRELUDE-OBSERVER`/`T-AUTH-LIVENESS`/`T-ROTATOR-SCOPE`; then P1
+`audit_artifacts` / P2 `full`, then L2 (#87 closure).
+
 ## v2.16.0 — 2026-06-04
 
 - **RFC 0111 accepted (D165) and fully implemented — in-band failure
