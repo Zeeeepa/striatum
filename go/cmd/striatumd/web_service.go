@@ -182,3 +182,11 @@ func envBool(name string) bool {
 	parsed, err := strconv.ParseBool(value)
 	return err == nil && parsed
 }
+
+// envOr returns the trimmed environment value for name, or fallback when unset.
+func envOr(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}

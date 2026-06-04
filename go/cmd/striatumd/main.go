@@ -11,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -106,7 +107,9 @@ func main() {
 	var agentLoop bool
 	var mcpHTTPAddr string
 	var webTailscale bool
+	var auditHashFormat string
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
+	flag.StringVar(&auditHashFormat, "audit-hash-format", envOr("STRIATUM_AUDIT_HASH_FORMAT", "v2"), "RFC 0110 §5.2: audit row hash format (v2|v3); default v2. Flipping to v3 is the forward-only cutover and requires the owner bundle applied + a restart.")
 	flag.BoolVar(&webTailscale, "web-tailscale", envBool("STRIATUM_DAEMON_WEB_TAILSCALE"), "RFC 0085: serve a read-only tailnet-identity UI on a dedicated 0600 unix socket ($STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock) for `tailscale serve`; default off; loopback bind + bearer path unchanged")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.StringVar(&mcpHTTPAddr, "mcp-http-addr", defaultMCPHTTPAddr(), "loopback HTTP/SSE MCP listen address; use 'off' to disable")
@@ -191,7 +194,9 @@ func main() {
 				log.Fatalf("daemon db connect failed: %v", err)
 			}
 		}
-		defer pool.Close()
+		// The runtime pool may be reconnected below if L0 rotates the password,
+		// so the deferred close binds to the variable, not the initial pool.
+		defer func() { pool.Close() }()
 		runner = pool.Runner
 		// RFC 0110 §8.2 (C-DEPLOY-CAPABILITY-PARITY): verify the binary and the
 		// live schema agree on authority-bearing capabilities before serving
@@ -202,6 +207,35 @@ func main() {
 			db.RequiredAuthorityCapabilities(), db.SupportedAuthorityCapabilities()); err != nil {
 			log.Fatalf("daemon capability parity check failed: %v", err)
 		}
+		// RFC 0110 §9 (L0 credential bootstrap): over an owner connection,
+		// generate + register this instance's authority secret and (two-role
+		// only) rotate the runtime password. Inert when the owner bundle is not
+		// applied (authority schema absent) — so a daemon without the bundle is
+		// unaffected. Fail-closed on any owner-connection failure (§9.2).
+		authResult, err := db.BootstrapAuthority(ctx, db.BootstrapConfig{
+			RuntimeURL:    config.URL,
+			OwnerURL:      strings.TrimSpace(os.Getenv("STRIATUM_OWNER_DB_URL")),
+			RuntimeRole:   runtimeRoleFromURL(config.URL),
+			InstanceID:    daemonInstanceID(),
+			DaemonVersion: daemonVersion,
+		})
+		if err != nil {
+			log.Fatalf("daemon authority bootstrap failed: %v", err)
+		}
+		if authResult.NewRuntimeURL != "" {
+			// L0 rotated the runtime password: reconnect the pool with it before
+			// serving (RFC 0110 §9.1). The old pool's open connections are closed.
+			pool.Close()
+			rotatedPool, err := db.Connect(ctx, authResult.NewRuntimeURL, daemonVersion)
+			if err != nil {
+				log.Fatalf("daemon reconnect after credential rotation failed: %v", err)
+			}
+			pool = rotatedPool
+			runner = pool.Runner
+		}
+		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat)
+		log.Printf("daemon authority: posture=%s audit_hash_format=%s registered=%t rotator_collision=%t",
+			authResult.Posture, auditHashFormat, authResult.Registered, authResult.RotatorCollision)
 		tokenPath, err := admin.RuntimeTokenPath()
 		if err != nil {
 			log.Fatalf("resolve daemon runtime token path: %v", err)
@@ -524,6 +558,36 @@ func randomDenyToken() string {
 		return "deny-web-token-rng-unavailable"
 	}
 	return "deny-" + hex.EncodeToString(buf)
+}
+
+// runtimeRoleFromURL extracts the runtime role from the runtime DSN (the role
+// whose password L0 rotates and whose authority secret is registered). Defaults
+// to striatumd_rw when the URL carries no username.
+func runtimeRoleFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.User == nil || parsed.User.Username() == "" {
+		return "striatumd_rw"
+	}
+	return parsed.User.Username()
+}
+
+var daemonInstanceIDOnce struct {
+	once  sync.Once
+	value string
+}
+
+// daemonInstanceID returns this process's stable instance id (RFC 0110 §9.1
+// registry key), generated once per daemon.
+func daemonInstanceID() string {
+	daemonInstanceIDOnce.once.Do(func() {
+		buf := make([]byte, 16)
+		if _, err := rand.Read(buf); err != nil {
+			daemonInstanceIDOnce.value = "inst-unknown"
+			return
+		}
+		daemonInstanceIDOnce.value = "inst-" + hex.EncodeToString(buf)
+	})
+	return daemonInstanceIDOnce.value
 }
 
 func writeOwnerOnlyTextFile(path string, content string) error {
