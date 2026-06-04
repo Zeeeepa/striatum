@@ -103,8 +103,29 @@ func toolResult(name string, ok bool, auditID string, code string, message strin
 		structured["error_message"] = message
 	}
 	return map[string]any{
-		"content":           []map[string]string{{"type": "text", "text": fmt.Sprint(name)}},
+		"content":           []map[string]string{{"type": "text", "text": contentSummary(name, ok, code, message)}},
 		"structuredContent": structured,
 		"isError":           !ok,
+	}
+}
+
+// contentSummary renders the MCP content text block — the channel an LLM
+// agent reads as the tool's result (RFC 0111 P1). On failure it carries the
+// dispatchable error code and message so the agent can self-heal in-band
+// instead of re-running the CLI verb to learn why; on success it stays a
+// terse one-line summary. structuredContent keeps the stable machine contract.
+func contentSummary(name string, ok bool, code string, message string) string {
+	if ok {
+		return fmt.Sprintf("%s ok", name)
+	}
+	switch {
+	case code != "" && message != "":
+		return fmt.Sprintf("%s failed: %s: %s", name, code, message)
+	case code != "":
+		return fmt.Sprintf("%s failed: %s", name, code)
+	case message != "":
+		return fmt.Sprintf("%s failed: %s", name, message)
+	default:
+		return fmt.Sprintf("%s failed", name)
 	}
 }

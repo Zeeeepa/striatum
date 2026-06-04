@@ -572,3 +572,81 @@ func readTestSSEEvent(t *testing.T, reader *bufio.Reader) (string, string) {
 		}
 	}
 }
+
+// RFC 0111 P1: the MCP content text block is the channel an LLM agent reads,
+// so a failed tools/call must render the error code and message there — not
+// the bare method name — while structuredContent keeps the stable contract.
+func TestHTTPHandlerToolsCallFailureContentCarriesCodeAndMessage(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.RPC.Register("work.complete", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("invalid_transition", "job job_1 is not in a completable state", nil)
+	})
+	body := `{"jsonrpc":"2.0","id":"failure-content","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "write.secret"))
+	if response.Result["isError"] != true {
+		t.Fatalf("isError = %#v", response.Result["isError"])
+	}
+	structured := structuredContent(t, response)
+	if structured["error"] != "invalid_transition" || structured["error_message"] != "job job_1 is not in a completable state" {
+		t.Fatalf("structured error contract changed: %#v", structured)
+	}
+	text := contentText(t, response)
+	if text == "work.complete" {
+		t.Fatalf("content text is still the bare method name: %q", text)
+	}
+	if !strings.Contains(text, "invalid_transition") || !strings.Contains(text, "job job_1 is not in a completable state") {
+		t.Fatalf("content text must carry code and message: %q", text)
+	}
+}
+
+// RFC 0111 P1: when the failure has a code but no message, the content text
+// still carries the dispatchable code instead of degrading to the method name.
+func TestHTTPHandlerToolsCallFailureContentFallsBackToCode(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.RPC.Register("status", func(context.Context, rpc.Envelope) (map[string]any, error) {
+		return nil, rpc.NewError("not_found", "", nil)
+	})
+	body := `{"jsonrpc":"2.0","id":"failure-code-only","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "read.secret"))
+	if response.Result["isError"] != true {
+		t.Fatalf("isError = %#v", response.Result["isError"])
+	}
+	text := contentText(t, response)
+	if !strings.Contains(text, "not_found") {
+		t.Fatalf("content text must carry the code when the message is empty: %q", text)
+	}
+}
+
+// RFC 0111 P1: success keeps a terse one-line summary in the content text.
+func TestHTTPHandlerToolsCallSuccessContentStaysTerse(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	body := `{"jsonrpc":"2.0","id":"success-content","method":"tools/call","params":{"name":"status","arguments":{"repository_id":"repo_1"}}}`
+
+	response := decodeTestResponse(t, postJSON(t, handler, EndpointPath, body, "read.secret"))
+	if response.Result["isError"] != false {
+		t.Fatalf("isError = %#v", response.Result["isError"])
+	}
+	text := contentText(t, response)
+	if !strings.Contains(text, "status") || strings.Contains(text, "failed") {
+		t.Fatalf("success content text should be a terse ok summary: %q", text)
+	}
+}
+
+func contentText(t *testing.T, response jsonrpcResponse) string {
+	t.Helper()
+	blocks, ok := response.Result["content"].([]any)
+	if !ok || len(blocks) == 0 {
+		t.Fatalf("content blocks missing: %#v", response.Result)
+	}
+	block, ok := blocks[0].(map[string]any)
+	if !ok || block["type"] != "text" {
+		t.Fatalf("first content block is not text: %#v", blocks[0])
+	}
+	text, ok := block["text"].(string)
+	if !ok {
+		t.Fatalf("content text missing: %#v", block)
+	}
+	return text
+}
