@@ -124,6 +124,25 @@ func ApplyOwnerBundles(ctx context.Context, runner Runner, daemonVersion string)
 	return applied, current, nil
 }
 
+// phase0ProtectedTables are the surfaces whose direct INSERT is revoked from the
+// runtime role in Phase 0 (audit_only). It mirrors the REVOKE in owner bundle
+// 0001; later phases extend it (artifacts, then events).
+var phase0ProtectedTables = []string{"audit_log"}
+
+// ReassertWriteRevokes re-applies the protected-surface DML revokes from the
+// runtime role (RFC 0110 §6, C-GRANT-DRIFT). Any privilege-granting step
+// (migration helper, doctor repair-grants) must call this afterwards so a stray
+// GRANT cannot quietly reopen the Phase-0 hole. Run as the owner.
+func ReassertWriteRevokes(ctx context.Context, runner Runner) error {
+	for _, table := range phase0ProtectedTables {
+		if err := runner.Exec(ctx, fmt.Sprintf(
+			"REVOKE INSERT ON striatumd.%s FROM striatumd_rw", table)); err != nil {
+			return fmt.Errorf("reassert revoke on %s: %w", table, err)
+		}
+	}
+	return nil
+}
+
 func applyOneOwnerBundle(ctx context.Context, runner Runner, bundle OwnerBundle, daemonVersion string) error {
 	tx, err := runner.BeginTx(ctx)
 	if err != nil {
