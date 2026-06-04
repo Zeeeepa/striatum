@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### RFC 0108 Phase 1 — multi-run composition gate (hermetic, no new behavior)
+
+The standing gate proving ≥2 independent runs compose on ONE repository, the
+multi-run extension of the RFC 0105 reliability harness. New
+`go/pkg/adapterconformance/multirun_test.go`:
+
+- **`TestMultiRunConcurrentComposeNoDeadlock`** — drives batches of independent
+  run lifecycles (implement → complete → review → accept → completed)
+  CONCURRENTLY on one repo through the production handlers. Asserts every run
+  reaches `completed`, no driver surfaces a `40P01`/deadlock (RFC 0104 lockRun +
+  the single shared `repo_event_chain_heads` lock cannot form a cross-run
+  cycle), and the per-repo event hash chain stays linear + verifying as it grows
+  under sustained concurrent appends. A serial warmup run establishes the chain
+  genesis first, mirroring production (repo registration + run prepare/start
+  append the first events serially, long before two runs claim at once).
+- **`TestMultiRunPerJobWorktreesComposeIsolated`** — two concurrent repo-write
+  runs each get their OWN confirmed branch + OWN detached worktree (distinct
+  on-disk paths, no shared checkout), with no `40P01` (RFC 0008 substrate).
+- **`TestMultiRunSharedCheckoutTurnsRed`** — the "deliberately-induced shared
+  checkout turns it red" boundary: `worktree_isolation` off makes the substrate
+  refuse an isolated checkout up front (the precondition Phase 2 promotes to
+  isolation-by-default), so the shared-checkout hazard is surfaced, never
+  silently allowed.
+
 ## v2.17.0 — 2026-06-04
 
 ### RFC 0110 Release N+1 (slice 1) — authority schema + v3 hash (additive, opt-in)

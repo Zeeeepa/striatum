@@ -62,6 +62,22 @@ audit chain stays **linear and verifying** (the `daemon doctor` chain check).
 This proves RFC 0104 + `branch.confirm` + worktrees compose before any policy is
 added. Files: `go/pkg/adapterconformance/*` (new multi-run fixture).
 
+**Landed** (`go/pkg/adapterconformance/multirun_test.go`):
+`TestMultiRunConcurrentComposeNoDeadlock` drives batches of independent run
+lifecycles concurrently on one repo and asserts all complete, no `40P01`, and
+the per-repo event chain stays linear + verifying;
+`TestMultiRunPerJobWorktreesComposeIsolated` proves two concurrent repo-write
+runs each get their own confirmed branch + detached worktree;
+`TestMultiRunSharedCheckoutTurnsRed` is the isolation-off red boundary. The gate
+records one substrate property worth keeping in view for Phase 2: the per-repo
+`repo_event_chain_heads` `FOR UPDATE` serializes appenders by locking that
+singleton row, but a `SELECT ... FOR UPDATE` over **zero** rows locks nothing,
+so the chain's *genesis* must be appended serially (it always is in production —
+repo registration + `run prepare`/`start` precede any concurrent claim). The
+fixture models that with a serial warmup run; if Phase 2/3 ever admit
+concurrency against a chain that is still empty, that genesis would need an
+explicit per-repo serialization point.
+
 ### Phase 2 — Isolation by default under concurrency
 
 When more than one run is active on a repo, **require** per-run branch + per-job
