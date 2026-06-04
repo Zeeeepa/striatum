@@ -112,7 +112,11 @@ understand:
   Prefer the equivalent MCP methods (`work.ack`, `work.heartbeat`,
   `artifact.publish`, `work.block`, `review.verdict` / `review.submit`,
   `work.complete`) when you have MCP. If you must use CLI fallback, use these
-  strings verbatim; the runner pre-computes the lease/session/job ids.
+  strings verbatim; the runner pre-computes the lease/session/job ids. For a
+  re-claimed review job whose required finding artifact is already published
+  for this attempt, do not run `submit-review` again just to re-publish the
+  same logical name. Use the packet's `verdict` command/MCP equivalent to
+  record the verdict against the existing artifact.
 - `expected_artifacts` — every artifact you must publish before
   `complete` is accepted. Each entry has a `logical_name`, `kind`,
   required `path`, and a privacy-safe `author_line` like

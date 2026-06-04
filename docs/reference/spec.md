@@ -655,7 +655,12 @@ terminal job transition.
 
 `submit-review` composes the common review path: it publishes the review
 artifact, records the verdict, applies review-gate behavior, and returns the
-artifact, verdict, blocker, run, and downstream state.
+artifact, verdict, blocker, run, and downstream state. It is for the normal
+case where the reviewer is publishing the finding artifact during this call. If
+a re-claimed review job already has its required finding artifact published for
+the current attempt, use `verdict` / `review.verdict` instead; it records the
+verdict against the existing artifact and avoids re-publishing an immutable
+logical name.
 
 `override-verdict` is an explicit operator recovery command for a completed or
 `waiting_human` review job whose latest verdict is non-accepting. It requires a

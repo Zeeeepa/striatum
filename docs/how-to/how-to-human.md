@@ -481,7 +481,10 @@ satisfied.
 
 `--verdict` accepts `accept`, `accept_with_findings`,
 `needs_revision`, or `reject`. For unusual flows, call
-`publish-artifact` and `verdict` separately.
+`publish-artifact` and `verdict` separately. In particular, when a review job
+is re-claimed after its finding artifact was already published for the current
+attempt, do not run `submit-review` again; use `verdict` to record the verdict
+against the existing artifact.
 
 ## Record owner decisions
 

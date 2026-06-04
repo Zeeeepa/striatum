@@ -99,6 +99,11 @@ striatum submit-review
 striatum decision record
 ```
 
+Use `submit-review` for the normal single-call review path: publish the
+finding artifact and record the verdict. Use `verdict` when the required
+review artifact is already published for the current attempt, such as a
+re-claimed review job after lease recovery.
+
 `publish-artifact` validates lease ownership, write scope, path
 safety, artifact kind, front matter, and byline. Model-bylined
 artifacts require lane evidence: a path-specific supervised
