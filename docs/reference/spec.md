@@ -218,8 +218,10 @@ it remains a normal workflow tree and does not use RFC 0052 typed
 committee artifacts. RFC 0093 collaboration shapes
 (`falsification_gate`, `cross_examination`) emit V1.1 phased workflows with a
 `phase_synthesis` adjudicator job, a `collaboration_ledger` artifact, and a
-bounded `needs_revision` cycle back into the dialogue phase. Other built-in
-shapes emit V1.
+bounded `needs_revision` cycle back into the dialogue phase. These two generated
+shapes are static challenge/rebuttal gates over published artifacts; they do not
+keep the author or holder session live and do not imply runtime model-family
+attestation for manually registered sessions. Other built-in shapes emit V1.
 Generator preview envelopes also include the same advisory workflow lint
 payload exposed by `workflow lint`, including warning count and coverage
 summary; lint remains informational and does not change validation

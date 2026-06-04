@@ -280,6 +280,39 @@ func TestCollaborationShapesEmitSubstanceGateV11Graphs(t *testing.T) {
 			if generated.Metadata["shape_family"] != "collaboration" {
 				t.Fatalf("metadata = %#v", generated.Metadata)
 			}
+			for id, job := range jobs {
+				objective, _ := job["objective"].(string)
+				lowerObjective := strings.ToLower(objective)
+				if strings.Contains(lowerObjective, "stay live") || strings.Contains(lowerObjective, "interrogat") {
+					t.Fatalf("job %q objective still promises live interrogation: %q", id, objective)
+				}
+			}
+			switch shape {
+			case "falsification_gate":
+				if jobs["holder"]["interrogable"] != nil {
+					t.Fatalf("holder should be a static artifact producer, got %#v", jobs["holder"])
+				}
+				if objective := fmt.Sprint(jobs["falsifier_1"]["objective"]); !strings.Contains(objective, "published holder proposal") {
+					t.Fatalf("falsifier objective = %q", objective)
+				}
+			case "cross_examination":
+				if jobs["author_draft"]["interrogable"] != nil {
+					t.Fatalf("author_draft should be a static artifact producer, got %#v", jobs["author_draft"])
+				}
+				if objective := fmt.Sprint(jobs["cross_examiner_1"]["objective"]); !strings.Contains(objective, "published draft") {
+					t.Fatalf("cross examiner objective = %q", objective)
+				}
+			}
+			for _, file := range generated.Files {
+				path := fmt.Sprint(mapFrom(file)["path"])
+				if !strings.Contains(path, "/roles/") && !strings.Contains(path, "/prompts/") {
+					continue
+				}
+				content := strings.ToLower(fmt.Sprint(mapFrom(file)["content"]))
+				if strings.Contains(content, "stay live") || strings.Contains(content, "interrogat") {
+					t.Fatalf("generated support file %q still promises live interrogation", path)
+				}
+			}
 		})
 	}
 }

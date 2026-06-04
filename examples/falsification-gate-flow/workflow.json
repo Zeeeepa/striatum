@@ -58,9 +58,8 @@
         }
       ],
       "id": "holder",
-      "interrogable": true,
       "lane_id": "local",
-      "objective": "Produce the leading proposal for proposal-readiness and stay live for falsification.",
+      "objective": "Produce the leading proposal for proposal-readiness as the published claim that falsifiers will challenge.",
       "phase_id": "dialogue",
       "role_id": "holder",
       "task_prompt": {
@@ -90,7 +89,7 @@
       ],
       "id": "falsifier_1",
       "lane_id": "local",
-      "objective": "Use interrogation against the holder to try to falsify the proposal for proposal-readiness.",
+      "objective": "Read the published holder proposal and write a falsifying challenge for proposal-readiness, including the strongest rebuttal or unanswered gap you can justify.",
       "phase_id": "dialogue",
       "role_id": "falsifier",
       "task_prompt": {
@@ -120,7 +119,7 @@
       ],
       "id": "falsifier_2",
       "lane_id": "local",
-      "objective": "Use interrogation against the holder to try to falsify the proposal for proposal-readiness.",
+      "objective": "Read the published holder proposal and write a falsifying challenge for proposal-readiness, including the strongest rebuttal or unanswered gap you can justify.",
       "phase_id": "dialogue",
       "role_id": "falsifier",
       "task_prompt": {

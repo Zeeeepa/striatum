@@ -53,9 +53,8 @@
         }
       ],
       "id": "author_draft",
-      "interrogable": true,
       "lane_id": "local",
-      "objective": "Draft the finding or proposal for finding-readiness and stay live for cross-examination.",
+      "objective": "Draft the finding or proposal for finding-readiness as the published claim that cross-examiners will challenge.",
       "phase_id": "dialogue",
       "role_id": "author",
       "task_prompt": {
@@ -85,7 +84,7 @@
       ],
       "id": "cross_examiner_1",
       "lane_id": "local",
-      "objective": "Ask one falsifying interrogation question about finding-readiness and record the challenge/rebuttal reference.",
+      "objective": "Read the published draft for finding-readiness and write one falsifying cross-examination challenge with the strongest rebuttal or unanswered gap you can justify.",
       "phase_id": "dialogue",
       "role_id": "cross_examiner",
       "task_prompt": {

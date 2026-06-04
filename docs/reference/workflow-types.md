@@ -86,7 +86,7 @@ striatum workflow generate \
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
 | Compare implementation choices before deciding | Implementation panel | `workflow generate --shape implementation_panel` |
 | N-turn, M-model alternating speaker dialogue | Conversation | `workflow generate --shape conversation --option topic=...` |
-| Keep a proposal live until falsifying challenges are answered | Falsification gate | `workflow generate --shape falsification_gate --option topic=...` |
+| Challenge a published proposal with falsifier artifacts before committing | Falsification gate | `workflow generate --shape falsification_gate --option topic=...` |
 | Require challenge/rebuttal provenance before publishing a finding | Cross-examination gate | `workflow generate --shape cross_examination --option topic=...` |
 | Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
 
@@ -441,18 +441,18 @@ striatum interrogation close --session-id <reviewer> --interrogation-id <id>
 
 The same verbs are exposed as `interrogation.*` MCP tools to lane agents.
 
-## Live Collaboration Substance Gates
+## Static Collaboration Substance Gates
 
-Use these when the point is not merely to collect more reviews, but to keep the
-relevant participants live until a material challenge is answered. RFC 0093 V1
-ships two generated shapes:
+Use these when the point is not merely to collect more reviews, but to force a
+published claim through an explicit challenge/rebuttal record before downstream
+publication. RFC 0093 V1 ships two generated shapes:
 
-- `falsification_gate`: a holder produces the leading proposal, falsifiers try
-  to disprove it, and an adjudicator gates downstream work on a
+- `falsification_gate`: a holder publishes the leading proposal, falsifiers try
+  to disprove that artifact, and an adjudicator gates downstream work on a
   `collaboration_ledger`.
-- `cross_examination`: an author drafts a finding or proposal, peers ask
-  falsifying cross-examination questions, and the challenge/rebuttal refs are
-  recorded before publication.
+- `cross_examination`: an author publishes a finding or proposal draft, peers
+  write falsifying cross-examination challenges, and the challenge/rebuttal
+  evidence is recorded before publication.
 
 ```mermaid
 flowchart TD
@@ -467,6 +467,15 @@ and cycle routing, and publish a `striatum.collaboration_ledger.v1` artifact.
 The adjudicator reads the curated RFC 0081 `dialogue` trajectory, not raw PTY
 logs or provider output. A clearing verdict requires at least one referenced
 claim, challenge, and rebuttal.
+
+These two bundled generated shapes are sequential static gates over published
+artifacts. They do not mark the author or holder job `interrogable`, they do not
+keep the author or holder session live, and their prompts do not use the
+`interrogation.*` tools. Use the iterated interrogating panel when the workflow
+needs preserved-context, live interrogation against an attested target session.
+Lane-family independence is a workflow and linting property unless the lane is
+supervised and attested by the daemon; a manually registered or unattested
+session is not runtime proof of the lane's model family.
 
 Starter fixtures live at `examples/falsification-gate-flow/` and
 `examples/cross-examination-flow/`.

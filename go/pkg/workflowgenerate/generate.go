@@ -755,9 +755,8 @@ func compileCollaborationShape(spec Spec) ([]map[string]any, []map[string]any, [
 func compileFalsificationGate(spec Spec, maxCycles int) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
 	base := spec.ArtifactRoot
 	topic := collaborationTopic(spec)
-	holder := job("holder", "build", "Hold leading proposal", "holder", authorLane(spec), base+"/dialogue/holder", "HOLDER.md", "handoff", "holder_handoff", "collaboration_holder", "Produce the leading proposal for "+topic+" and stay live for falsification.")
+	holder := job("holder", "build", "Hold leading proposal", "holder", authorLane(spec), base+"/dialogue/holder", "HOLDER.md", "handoff", "holder_handoff", "collaboration_holder", "Produce the leading proposal for "+topic+" as the published claim that falsifiers will challenge.")
 	holder["phase_id"] = "dialogue"
-	holder["interrogable"] = true
 	jobs := []map[string]any{holder}
 	edges := []map[string]any{}
 	previousID := "holder"
@@ -768,7 +767,7 @@ func compileFalsificationGate(spec Spec, maxCycles int) ([]map[string]any, []map
 	firstDialogueTarget := ""
 	for idx := 1; idx <= falsifiers; idx++ {
 		id := fmt.Sprintf("falsifier_%d", idx)
-		falsifier := job(id, "build", fmt.Sprintf("Falsifier %d", idx), "falsifier", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/falsifier_%d", base, idx), "FALSIFIER.md", "handoff", id, "collaboration_falsifier", "Use interrogation against the holder to try to falsify the proposal for "+topic+".")
+		falsifier := job(id, "build", fmt.Sprintf("Falsifier %d", idx), "falsifier", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/falsifier_%d", base, idx), "FALSIFIER.md", "handoff", id, "collaboration_falsifier", "Read the published holder proposal and write a falsifying challenge for "+topic+", including the strongest rebuttal or unanswered gap you can justify.")
 		falsifier["phase_id"] = "dialogue"
 		jobs = append(jobs, falsifier)
 		edges = append(edges, map[string]any{"from": previousID, "to": id, "on": "completed"})
@@ -809,9 +808,8 @@ func compileFalsificationGate(spec Spec, maxCycles int) ([]map[string]any, []map
 func compileCrossExamination(spec Spec, maxCycles int) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
 	base := spec.ArtifactRoot
 	topic := collaborationTopic(spec)
-	draft := job("author_draft", "build", "Draft finding for cross-examination", "author", authorLane(spec), base+"/dialogue/author", "DRAFT.md", "handoff", "author_draft", "collaboration_author_draft", "Draft the finding or proposal for "+topic+" and stay live for cross-examination.")
+	draft := job("author_draft", "build", "Draft finding for cross-examination", "author", authorLane(spec), base+"/dialogue/author", "DRAFT.md", "handoff", "author_draft", "collaboration_author_draft", "Draft the finding or proposal for "+topic+" as the published claim that cross-examiners will challenge.")
 	draft["phase_id"] = "dialogue"
-	draft["interrogable"] = true
 	jobs := []map[string]any{draft}
 	edges := []map[string]any{}
 	previousID := "author_draft"
@@ -819,7 +817,7 @@ func compileCrossExamination(spec Spec, maxCycles int) ([]map[string]any, []map[
 	firstDialogueTarget := ""
 	for idx := 1; idx <= examiners; idx++ {
 		id := fmt.Sprintf("cross_examiner_%d", idx)
-		examiner := job(id, "build", fmt.Sprintf("Cross-examiner %d", idx), "cross_examiner", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/cross_examiner_%d", base, idx), "CROSS_EXAM.md", "handoff", id, "collaboration_cross_examiner", "Ask one falsifying interrogation question about "+topic+" and record the challenge/rebuttal reference.")
+		examiner := job(id, "build", fmt.Sprintf("Cross-examiner %d", idx), "cross_examiner", collaborationReviewerLane(spec, idx), fmt.Sprintf("%s/dialogue/cross_examiner_%d", base, idx), "CROSS_EXAM.md", "handoff", id, "collaboration_cross_examiner", "Read the published draft for "+topic+" and write one falsifying cross-examination challenge with the strongest rebuttal or unanswered gap you can justify.")
 		examiner["phase_id"] = "dialogue"
 		jobs = append(jobs, examiner)
 		edges = append(edges, map[string]any{"from": previousID, "to": id, "on": "completed"})
@@ -1709,9 +1707,9 @@ func roleStub(role string) string {
 		"arbitrator":        "# Arbitrator Role\n\nYou select or compose the preferred implementation path from the tradeoff ledger and supporting evidence.\n",
 		"dissent_reviewer":  "# Dissent Reviewer Role\n\nYou try to falsify the arbitration before final decision. Publish only the review artifact at the declared path.\n",
 		"principal_decider": "# Principal Decider Role\n\nYou record the final implementation decision and required follow-up work at the declared artifact path.\n",
-		"holder":            "# Holder Role\n\nYou hold the leading proposal in preserved context. Publish the declared holder artifact, remain live for interrogation, and answer falsifying questions from the dialogue participants.\n",
-		"falsifier":         "# Falsifier Role\n\nYou use the existing interrogation tools to challenge the holder's claim. Ask for a concrete gap, record the dialogue turn references, and do not publish the collaboration ledger.\n",
-		"cross_examiner":    "# Cross-Examiner Role\n\nYou ask one falsifying interrogation question before the finding or proposal publishes. Record the challenge and rebuttal turn references in your declared artifact.\n",
+		"holder":            "# Holder Role\n\nYou publish the leading proposal as the claim falsifiers will challenge. Do not wait for live questions; the adjudicator ledger decides whether the static challenge/rebuttal gate clears.\n",
+		"falsifier":         "# Falsifier Role\n\nYou challenge the published holder artifact. Write a concrete falsifying gap, the strongest rebuttal you can justify from the available artifacts, and do not publish the collaboration ledger.\n",
+		"cross_examiner":    "# Cross-Examiner Role\n\nYou challenge the published finding or proposal before downstream publication. Record the challenge, the strongest rebuttal you can justify, and any unanswered gap in your declared artifact.\n",
 		"adjudicator":       "# Adjudicator Role\n\nYou read only the curated dialogue trajectory, never raw terminal output. Publish the collaboration ledger and verdict according to the substance rubric. The `verdict` field MUST be one of: accept, accept_with_findings, needs_revision, reject. A clearing verdict (the one that lets the downstream phase publish) is `accept` or `accept_with_findings` — do not write `clear` or any other value.\n",
 		"scribe":            "# Scribe Role\n\nYou record only the decision trail visible in the dialogue trajectory. Do not hypothesize, infer hidden reasoning, or add claims that are not present in the curated dialogue.\n",
 		"committer":         "# Committer Role\n\nYou publish the downstream proposal or finding only after the collaboration ledger verdict clears the phase gate.\n",
@@ -1738,13 +1736,13 @@ func promptStub(prompt string) string {
 	case "apply.md":
 		return "Apply the accepted review by producing the final synthesis artifact. Replace this stub with concrete apply instructions.\n"
 	case "collaboration_holder.md":
-		return "Produce the leading proposal and stay live for interrogation. Do not treat dialogue completion as acceptance; the adjudicator ledger decides whether the gate clears.\n"
+		return "Produce the leading proposal as the published claim falsifiers will challenge. Do not treat challenge completion as acceptance; the adjudicator ledger decides whether the gate clears.\n"
 	case "collaboration_falsifier.md":
-		return "Use the existing interrogation tools to ask a material falsifying question. Record the challenge and relevant dialogue refs in the declared artifact.\n"
+		return "Read the published holder proposal and write a material falsifying challenge. Record the challenge, the strongest rebuttal you can justify, and any unanswered gap in the declared artifact.\n"
 	case "collaboration_author_draft.md":
-		return "Draft the finding or proposal and stay live for cross-examination. The downstream publication is gated by the adjudicator's collaboration ledger.\n"
+		return "Draft the finding or proposal as the published claim cross-examiners will challenge. The downstream publication is gated by the adjudicator's collaboration ledger.\n"
 	case "collaboration_cross_examiner.md":
-		return "Use the existing interrogation tools to ask one falsifying cross-examination question. Record the challenge and rebuttal refs in the declared artifact.\n"
+		return "Read the published draft and write one falsifying cross-examination challenge. Record the challenge, the strongest rebuttal you can justify, and any unanswered gap in the declared artifact.\n"
 	case "adjudicate_collaboration.md":
 		return "Read only the curated dialogue trajectory. Publish a collaboration_ledger whose verdict reflects whether a material challenge landed and was directly rebutted.\n"
 	case "collaboration_scribe.md":

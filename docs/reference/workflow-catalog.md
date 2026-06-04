@@ -124,9 +124,9 @@ flowchart TD
 
 ### Falsification gate (`falsification_gate`)
 
-Keep a proposal holder live while falsifiers challenge it, then gate downstream work on an adjudicator's collaboration ledger.
+Challenge a published proposal with falsifier artifacts, then gate downstream work on an adjudicator's collaboration ledger.
 
-- Recommended for: proposal readiness checks; assumption falsification; substance-gated live dialogue
+- Recommended for: proposal readiness checks; assumption falsification; substance-gated static challenge/rebuttal
 - Default lane sets: `multi_review`, `author_reviewer`, `local`
 - Required options: `workflow_id`, `artifact_root`, `topic`
 **Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.

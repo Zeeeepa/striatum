@@ -1,1 +1,1 @@
-Draft the finding or proposal and stay live for cross-examination. The downstream publication is gated by the adjudicator's collaboration ledger.
+Draft the finding or proposal as the published claim cross-examiners will challenge. The downstream publication is gated by the adjudicator's collaboration ledger.
