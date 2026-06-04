@@ -1,0 +1,50 @@
+name: Installed CLI Gate
+
+on:
+  schedule:
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  agy-installed-cli:
+    name: Agy two-turn seat
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: striatum
+          POSTGRES_PASSWORD: striatum
+          POSTGRES_DB: striatum_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U striatum -d striatum_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      STRIATUM_PG_TEST_URL: postgres://striatum:striatum@localhost:5432/striatum_test?sslmode=disable
+      STRIATUM_P3_INSTALLED_CLI: "1"
+      STRIATUM_P3_RUN_TIMEOUT: 4m
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Install agy CLI
+        run: |
+          curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --skip-aliases --skip-path
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/agy" --version
+
+      - name: Run installed-CLI conformance gate
+        run: make installed-cli-check

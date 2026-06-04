@@ -9,8 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  installed-cli:
+    name: Installed CLI gate
+    uses: ./.github/workflows/ci-installed-cli.yml
+
   build:
     name: Build Go release archives
+    needs: installed-cli
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

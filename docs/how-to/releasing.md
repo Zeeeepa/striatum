@@ -11,9 +11,11 @@ release workflow.
 ## What a release means
 
 A pushed `v*` tag triggers `.github/workflows/release.yml`. The workflow
-checks that the tag matches the root `VERSION` file, runs Go validation,
-builds Linux/macOS archives for `amd64` and `arm64`, verifies `SHA256SUMS`,
-runs the Go package smoke, and creates a GitHub Release.
+checks that the tag matches the root `VERSION` file, requires the installed
+`agy` CLI two-turn seat gate, builds Linux/macOS archives for `amd64` and
+`arm64`, verifies `SHA256SUMS`, runs the Go package smoke, and creates a
+GitHub Release. The installed-CLI gate is also scheduled nightly by
+`.github/workflows/ci-installed-cli.yml`.
 
 Each archive contains:
 
@@ -43,8 +45,11 @@ Before pushing a `v*` tag:
 
 1. `make release-check` passes locally.
 2. CI on `main` is green.
-3. `CHANGELOG.md` has an adopter-facing block for the target version.
-4. `VERSION` contains the tag without the leading `v`.
+3. The scheduled `Installed CLI Gate` workflow is green, or `make
+   installed-cli-check` passes on a machine with `agy` authenticated and
+   `STRIATUM_PG_TEST_URL` set.
+4. `CHANGELOG.md` has an adopter-facing block for the target version.
+5. `VERSION` contains the tag without the leading `v`.
 
 ## Tag command
 

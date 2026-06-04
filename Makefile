@@ -6,7 +6,7 @@ VERSION := $(shell tr -d '[:space:]' < "$(MAKEFILE_DIR)/VERSION")
 PREFIX ?= $(HOME)/.local
 DIST_DIR ?= $(MAKEFILE_DIR)/dist
 
-.PHONY: install uninstall build lint typecheck test smoke check release-check \
+.PHONY: install uninstall build lint typecheck test smoke check installed-cli-check release-check \
 	go-build go-test go-vet go-release release-archives check-release-archives package-smoke
 
 install: go-build
@@ -41,6 +41,9 @@ smoke:
 	"$(MAKEFILE_DIR)/scripts/go_fresh_clone_smoke.sh"
 
 check: lint test
+
+installed-cli-check:
+	STRIATUM_P3_INSTALLED_CLI=1 $(MAKE) -C "$(GO_DIR)" installed-cli-check
 
 release-check: check release-archives check-release-archives package-smoke smoke
 

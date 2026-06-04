@@ -6,7 +6,7 @@ GO_DAEMON_LDFLAGS := -X main.daemonVersion=$(PACKAGE_VERSION) -X main.buildGitSH
 GO_CLI_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 GO_HELPER_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 
-.PHONY: build build-helper verify test race vet test-helper helper-check lint lint-tools coverage check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
+.PHONY: build build-helper verify test race vet test-helper helper-check lint lint-tools coverage check installed-cli-check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
 
 DAEMON_BIN := bin/striatumd
 CLI_BIN := bin/striatum
@@ -64,6 +64,11 @@ coverage:
 	awk -v got="$$total" -v want="$(CORE_COVERAGE_FLOOR)" 'BEGIN { if (got + 0 < want + 0) { printf "core coverage %.1f%% below floor %.1f%%\n", got, want; exit 1 } printf "core coverage %.1f%% >= %.1f%%\n", got, want }'
 
 check: verify vet test race lint coverage
+
+installed-cli-check:
+	@test -n "$$STRIATUM_PG_TEST_URL" || { echo "STRIATUM_PG_TEST_URL is required for installed-cli-check" >&2; exit 1; }
+	@command -v agy >/dev/null || { echo "agy is required on PATH for installed-cli-check" >&2; exit 1; }
+	STRIATUM_P3_INSTALLED_CLI=1 go test ./pkg/adapterconformance -run '^TestInstalledCLISeatAgyTwoTurn$$' -count=1 -v
 
 clean:
 	rm -rf bin coverage.out
