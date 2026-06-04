@@ -165,11 +165,13 @@ phase nomenclature and claim-keying below are normative.
   a captured DSN string dies at the next restart; where owner==runtime (the
   documented live PEER posture) rotation is inert and surfaces as a doctor
   posture finding. A dedicated PG-less lane OS user plus a `0700` socket
-  directory make PostgreSQL unreachable from lanes as the hardened default.
+  directory make PostgreSQL unreachable from lanes as the hardened default; the
+  daemon asserts the owner-only socket directory at startup and refuses
+  permissive/custom shared socket directories.
   **GH #87 status: "mitigated, pending lane-OS-user default"** — it closes only
-  when the lane OS user, the startup-asserted `0700` socket directory, the
-  negative lane-isolation CI gate, and blocking doctor behavior under the secure
-  profile are all live. The current secure-profile doctor gate is controlled by
+  when the lane OS user, the negative lane-isolation CI gate, and blocking doctor
+  behavior under the secure profile are all live. The current secure-profile
+  doctor gate is controlled by
   `STRIATUM_SECURITY_PG_SOCKET_HARDENED`; when enabled, `lane_pg_reachable` is a
   blocking doctor problem instead of an advisory warning.
 

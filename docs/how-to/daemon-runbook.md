@@ -75,6 +75,10 @@ and `~/Library/Caches/striatum/runtime/` on macOS. Override with
 
 Clients resolve the socket from `${XDG_RUNTIME_DIR}/striatum/daemon-go.sock`
 by default; override with `--daemon-socket` or `STRIATUM_DAEMON_SOCKET`.
+At startup, `striatumd` asserts that the socket directory is owned by the daemon
+user and has mode `0700`. A custom socket path under a shared directory such as
+`/tmp` is refused; create an owner-only directory first and point the socket
+there.
 
 ## Postgres DSN (`daemon.toml`)
 

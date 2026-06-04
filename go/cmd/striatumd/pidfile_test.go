@@ -66,6 +66,9 @@ func TestReserveDaemonRuntimeRefusesLiveForeignStriatumd(t *testing.T) {
 	defer restore()
 
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod socket directory: %v", err)
+	}
 	socketPath := filepath.Join(dir, "daemon-go.sock")
 	pidPath := daemonPidfilePath(socketPath)
 	if err := os.WriteFile(pidPath, []byte("4242\n"), 0o600); err != nil {
@@ -88,8 +91,53 @@ func TestReserveDaemonRuntimeRefusesLiveForeignStriatumd(t *testing.T) {
 	}
 }
 
+func TestReserveDaemonRuntimeCreates0700SocketDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "runtime")
+	socketPath := filepath.Join(dir, "daemon-go.sock")
+
+	cleanup, err := reserveDaemonRuntime(socketPath, 12345)
+	if err != nil {
+		t.Fatalf("reserveDaemonRuntime() error = %v", err)
+	}
+	defer cleanup()
+	info, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat socket directory: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Fatalf("socket directory mode = %o, want 0700", got)
+	}
+}
+
+func TestReserveDaemonRuntimeRefusesPermissiveSocketDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("mkdir socket directory: %v", err)
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		t.Fatalf("chmod socket directory: %v", err)
+	}
+	socketPath := filepath.Join(dir, "daemon-go.sock")
+
+	cleanup, err := reserveDaemonRuntime(socketPath, 12345)
+	if err == nil {
+		cleanup()
+		t.Fatal("reserveDaemonRuntime() succeeded, want permissive directory refusal")
+	}
+	if !strings.Contains(err.Error(), "mode 0755; want 0700") {
+		t.Fatalf("reserveDaemonRuntime() error = %v, want mode refusal", err)
+	}
+	if _, err := os.Stat(daemonPidfilePath(socketPath)); !os.IsNotExist(err) {
+		t.Fatalf("pidfile should not be written when socket directory is permissive; stat error: %v", err)
+	}
+}
+
 func TestReserveDaemonRuntimeRefusesLiveSocketWithoutPidfile(t *testing.T) {
-	socketPath := filepath.Join(t.TempDir(), "daemon-go.sock")
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod socket directory: %v", err)
+	}
+	socketPath := filepath.Join(dir, "daemon-go.sock")
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		t.Fatalf("listen unix socket: %v", err)

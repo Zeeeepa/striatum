@@ -24,8 +24,8 @@ func daemonPidfilePath(socketPath string) string {
 }
 
 func reserveDaemonRuntime(socketPath string, pid int) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
-		return nil, fmt.Errorf("create socket directory: %w", err)
+	if err := assertDaemonSocketDirectory(socketPath); err != nil {
+		return nil, err
 	}
 	if socketAcceptsConnections(socketPath) {
 		return nil, fmt.Errorf("daemon socket %s already accepts connections", socketPath)
@@ -37,6 +37,28 @@ func reserveDaemonRuntime(socketPath string, pid int) (func(), error) {
 	return func() {
 		_ = os.Remove(pidPath)
 	}, nil
+}
+
+func assertDaemonSocketDirectory(socketPath string) error {
+	dir := filepath.Dir(socketPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("create socket directory: %w", err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("stat socket directory: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("daemon socket directory %s is not a directory", dir)
+	}
+	if mode := info.Mode().Perm(); mode != 0o700 {
+		return fmt.Errorf("daemon socket directory %s mode %04o; want 0700", dir, mode)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if ok && int(stat.Uid) != os.Geteuid() {
+		return fmt.Errorf("daemon socket directory %s is owned by uid %d; want current uid %d", dir, stat.Uid, os.Geteuid())
+	}
+	return nil
 }
 
 func socketAcceptsConnections(socketPath string) bool {
