@@ -413,15 +413,21 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 //   - the single-job repo-write lane (chaos_test.go) underwrites `minimal` and
 //     `code_change`;
 //   - the two-lane review-gated needs_revision-cycle lifecycle (this file)
-//     underwrites `review` and `multi_review_synthesis`.
+//     underwrites `review` and `multi_review_synthesis`;
+//   - the fan-out/join panel lifecycle (implementation_panel_test.go) underwrites
+//     `implementation_panel` — the only one of these whose distinctive structure
+//     (3-way fan-out + multi-predecessor join + parallel-branch fault recovery)
+//     none of the other fixtures exercises.
 //
-// The collaboration / interrogation shapes (implementation_panel, conversation,
+// The remaining collaboration / interrogation shapes (conversation,
 // falsification_gate, cross_examination, adjudicated_constraint_extraction,
-// multi_phase, human_checkpoint, evidence_backed, custom) deliberately have NO
-// entry here and therefore stay `experimental` until a fixture proves them.
+// iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
+// deliberately have NO entry here and therefore stay `experimental` until a
+// fixture proves them.
 var ReliabilityFixtureShapes = map[string]bool{
 	"minimal":                true,
 	"review":                 true,
 	"code_change":            true,
 	"multi_review_synthesis": true,
+	"implementation_panel":   true,
 }

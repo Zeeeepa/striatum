@@ -168,7 +168,7 @@ Compare several implementation approaches with explicit scorecards, arbitration,
 - Recommended for: contested implementation choices; architecture trade-off resolution; high-risk design forks
 - Default lane sets: `multi_review`, `author_reviewer`
 - Required options: `workflow_id`, `artifact_root`
-**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD

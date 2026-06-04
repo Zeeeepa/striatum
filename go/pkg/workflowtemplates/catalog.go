@@ -67,11 +67,14 @@ const (
 // Keep in sync with adapterconformance.ReliabilityFixtureShapes (the graduation
 // guard fails if they drift). Per RFC 0106, no shape graduates here without a
 // passing fixture, and no NEW shapes are authored until the catalog graduates.
+// `implementation_panel` graduated on its fan-out/join reliability fixture
+// (adapterconformance/implementation_panel_test.go).
 var supportedShapes = map[string]struct{}{
 	"minimal":                {},
 	"review":                 {},
 	"code_change":            {},
 	"multi_review_synthesis": {},
+	"implementation_panel":   {},
 }
 
 // SupportTierForShape returns the RFC 0106 support tier for a shape template_id.

@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+## v2.24.0 — 2026-06-04
+
+### RFC 0106 — graduate the `implementation_panel` shape to `supported`
+
+The first workflow shape to clear the RFC 0106 graduation gate (D162 → D166):
+`implementation_panel` moves `experimental → supported`, earned with a genuine RFC
+0105 reliability fixture rather than a bare map flip.
+
+- **New fixture** `go/pkg/adapterconformance/implementation_panel_test.go` drives
+  the real fan-out/join graph — `frame → {proposal_a, proposal_b, proposal_c} →
+  scorecards → arbitration → dissent → decision` (no cycle) — through the
+  production `work.claim_next` / `work.ack` / `work.complete` handlers and the real
+  recovery sweep (`mutations.SweepRun`):
+  - the **happy cell** proves the 3-way **fan-out** enqueues every parallel
+    proposal at once and the **multi-predecessor join** at `scorecards` stays
+    blocked until the last proposal completes, then the run reaches `completed`
+    unattended;
+  - the **fault cell** injects a hard dead lane into ONE parallel proposal and
+    proves the sweep requeues it on the same attempt while the join correctly stays
+    blocked (it never loses the recovered branch); a fresh lane finishes it and the
+    run completes unattended with zero escalations — coverage neither the
+    single-job (`minimal` / `code_change`) nor the review-cycle (`review` /
+    `multi_review_synthesis`) fixtures provide.
+- **Graduation** adds `implementation_panel` to `workflowtemplates.supportedShapes`
+  and `adapterconformance.ReliabilityFixtureShapes`; the bidirectional guard
+  `TestSupportedShapesHaveReliabilityFixture` reconciles them so the tier cannot
+  lie. `docs/reference/workflow-catalog.md` now renders it `supported` and
+  `workflow.lint` no longer emits `experimental_shape` on it.
+- The RFC 0106 **new-shape freeze remains in force** — this graduates an existing
+  shape; it does not lift the freeze. The eight remaining collaboration /
+  interrogation shapes stay `experimental` until each earns its own fixture.
+
 ## v2.23.0 — 2026-06-04
 
 ### RFC 0108 Phase 4 — serialized, gated integration
