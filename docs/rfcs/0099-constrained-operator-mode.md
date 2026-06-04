@@ -125,7 +125,10 @@ surfaces absent such a decision remains a Phase 3 extension.
   `capability_requirements.process_execution: true`, uses the supervised-lane
   allowlist environment, and records `process_executions` evidence plus
   `process.started`/`process.completed` events without durable stdout/stderr
-  transcripts.
+  transcripts. If the job lacks process-execution opt-in, `process.run` now
+  refuses execution unless a prior escape decision matches `escape_surface:
+  process.run` / `shell_command` and either the joined command text or
+  `sha256:<command_sha256>`.
 - Every escape is an audited decision record.
 - A regression fixture drives a constrained operator session end-to-end (scoped
   write accepted, out-of-scope write refused pre-apply, escape decision logged).
@@ -139,8 +142,9 @@ surfaces absent such a decision remains a Phase 3 extension.
   The exact-content single-file slice has landed; patch preview/apply remains.
 - **Phase 3:** capability-gated shell + evidence recording + escape-decision
   records; cooperating-harness profile docs (restricted tool sets per adapter).
-  The typed escape-decision record and mediated `process.run` evidence slices
-  have landed; escape enforcement and end-to-end constrained fixtures remain.
+  The typed escape-decision record, mediated `process.run` evidence, and first
+  `process.run` escape-enforcement slices have landed; patch editing and
+  end-to-end constrained fixtures remain.
 
 ## Open Questions
 

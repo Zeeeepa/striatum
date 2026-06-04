@@ -138,10 +138,16 @@ func processRunInsertStarting(ctx context.Context, runner any, repositoryID, ses
 	if currentLease := strings.TrimSpace(fmt.Sprint(job["current_lease_id"])); currentLease != "" && currentLease != leaseID {
 		return processRunStartConfig{}, rpc.NewError("lease_error", "lease is not the job's current lease", nil)
 	}
-	if !processRunAllowed(job) {
-		return processRunStartConfig{}, rpc.NewError("invalid_transition", "process.run requires capability_requirements.process_execution=true on the job", nil)
-	}
 	runID := fmt.Sprint(job["run_id"])
+	if !processRunAllowed(job) {
+		escaped, err := processRunHasEscapeDecision(ctx, runner, repositoryID, runID, command)
+		if err != nil {
+			return processRunStartConfig{}, err
+		}
+		if !escaped {
+			return processRunStartConfig{}, rpc.NewError("invalid_transition", "process.run requires capability_requirements.process_execution=true on the job or a matching escape decision", nil)
+		}
+	}
 	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", runID, false)
 	if err != nil {
 		return processRunStartConfig{}, err
@@ -204,6 +210,30 @@ func processRunInsertStarting(ctx context.Context, runner any, repositoryID, ses
 func processRunAllowed(job map[string]any) bool {
 	requirements := asMap(job["capability_requirements_json"])
 	return requirements["process_execution"] == true || requirements["test_execution"] == true
+}
+
+func processRunHasEscapeDecision(ctx context.Context, runner any, repositoryID, runID string, command []string) (bool, error) {
+	actionText := strings.Join(command, " ")
+	actionHash := "sha256:" + commandHash(command)
+	rows, err := queryRows(ctx, runner, `
+		SELECT 1
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND event_type = 'decision.recorded'
+		   AND payload_json->>'escape_decision' = 'true'
+		   AND payload_json->>'escape_surface' = ANY($3)
+		   AND payload_json->>'escape_action' = ANY($4)
+		 LIMIT 1`,
+		repositoryID,
+		runID,
+		[]string{"process.run", "shell_command"},
+		[]string{actionText, actionHash},
+	)
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
 }
 
 func processRunPacketID(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID string) (string, error) {

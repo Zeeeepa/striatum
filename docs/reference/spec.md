@@ -581,10 +581,12 @@ requires an active repo-write job lease and refuses paths outside the job's
 `write_scope` before it writes, and `process.run`, a command-array execution
 surface that requires an active job lease plus
 `capability_requirements.process_execution: true` and records
-`process_executions` evidence without durable stdout/stderr transcripts. Escape
-decisions can be recorded as typed run-level decisions. Patch-style editing,
-shell escape enforcement, and the end-to-end constrained fixture remain Phase
-2/3 work.
+`process_executions` evidence without durable stdout/stderr transcripts. If the
+job lacks that process-execution opt-in, `process.run` is refused unless a prior
+typed escape decision exists for the same run with `escape_surface` equal to
+`process.run` or `shell_command` and `escape_action` equal to either the joined
+command text or `sha256:<command_sha256>`. Patch-style editing and the
+end-to-end constrained fixture remain Phase 2/3 work.
 
 ## Run Lifecycle
 

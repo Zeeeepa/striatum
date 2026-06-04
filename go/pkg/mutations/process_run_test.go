@@ -19,6 +19,7 @@ import (
 type processRunRunner struct {
 	repoRoot     string
 	requirements map[string]any
+	escape       bool
 	execs        []processRunExec
 	commits      int
 }
@@ -92,6 +93,11 @@ func (tx *processRunTx) Query(_ context.Context, sql string, _ ...any) (pgx.Rows
 			"run_id":    "run_1",
 			"repo_root": tx.runner.repoRoot,
 		}}), nil
+	case strings.Contains(sql, "FROM striatumd.events"):
+		if tx.runner.escape {
+			return runPrepareRowsFromMaps([]map[string]any{{"?column?": 1}}), nil
+		}
+		return runPrepareRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.work_packets"):
 		return runPrepareRowsFromMaps([]map[string]any{{"packet_id": "wp_1"}}), nil
 	case strings.Contains(sql, "FROM striatumd.job_worktrees"):
@@ -164,6 +170,25 @@ func TestProcessRunRequiresExplicitJobCapabilityBeforeExecution(t *testing.T) {
 	}
 	if processRunSawExec(runner, "INSERT INTO striatumd.process_executions") {
 		t.Fatal("process evidence row was inserted for refused execution")
+	}
+}
+
+func TestProcessRunAllowsMatchingEscapeDecision(t *testing.T) {
+	repoRoot := t.TempDir()
+	runner := &processRunRunner{repoRoot: repoRoot, requirements: map[string]any{}, escape: true}
+
+	result, err := HandleProcessRun(context.Background(), runner, processRunEnvelope(map[string]any{
+		"process_id": "proc_escape",
+		"args":       []any{"sh", "-c", "printf escaped"},
+	}))
+	if err != nil {
+		t.Fatalf("process.run with escape failed: %v", err)
+	}
+	if result["status"] != "exited" || result["stdout_bytes"] != 7 {
+		t.Fatalf("result = %#v", result)
+	}
+	if !processRunSawExec(runner, "INSERT INTO striatumd.process_executions") {
+		t.Fatal("process evidence row was not inserted for escaped execution")
 	}
 }
 

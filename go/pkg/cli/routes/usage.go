@@ -138,7 +138,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "process-id", Help: "stable process evidence id; generated when omitted"},
 		},
 		Notes: []string{
-			"process.run requires capability_requirements.process_execution=true on the active job and records process_executions evidence without storing stdout/stderr transcripts.",
+			"process.run requires capability_requirements.process_execution=true on the active job or a matching escape decision; it records process_executions evidence without storing stdout/stderr transcripts.",
 		},
 	},
 	"verdict": {
