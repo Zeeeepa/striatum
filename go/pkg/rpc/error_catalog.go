@@ -132,6 +132,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "",
 	},
 	{
+		Code:       "cross_run_collision",
+		Meaning:    "Starting this run collides with another active run on the repository — they target the same git branch (RFC 0108 Phase 3).",
+		Suggestion: "Give this run a distinct branch (each parallel run integrates on its own branch), or pass --allow-overlap to start anyway and resolve the overlap at integration.",
+	},
+	{
 		Code:       "daemon_auth_lost",
 		Meaning:    "The daemon's authority secret no longer matches the database registry (the row is missing or was superseded by a concurrent rotator), so an authorized write was refused (RFC 0110 §4.5).",
 		Suggestion: "Restart the daemon to re-bootstrap its authority, or check for a concurrent rotator on the same runtime role (use per-instance roles for a shared PostgreSQL).",

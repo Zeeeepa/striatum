@@ -815,10 +815,142 @@ func mrSeedBlockedJob(t *testing.T, ctx context.Context, runner db.Runner, repoI
 // mrStartRun drives the run's ready->running transition through the production
 // HandleRunStart handler (goroutine-safe — returns the error).
 func mrStartRun(ctx context.Context, h *Harness, r *mrRun) error {
-	_, err := mutations.HandleRunStart(ctx, h.Runner, mrEnv(r.repoID, "run.start", map[string]any{
-		"run_id": r.runID,
-	}))
+	_, err := mrStartRunResult(ctx, h, r, false)
 	return err
+}
+
+// mrStartRunResult drives run.start and returns the full result map (for asserting
+// the Phase 3 cross-run warnings), passing allow_overlap when set.
+func mrStartRunResult(ctx context.Context, h *Harness, r *mrRun, allowOverlap bool) (map[string]any, error) {
+	params := map[string]any{"run_id": r.runID}
+	if allowOverlap {
+		params["allow_overlap"] = true
+	}
+	return mutations.HandleRunStart(ctx, h.Runner, mrEnv(r.repoID, "run.start", params))
+}
+
+// mrWarnings extracts the run.start result's Phase 3 cross-run warnings.
+func mrWarnings(res map[string]any) []string {
+	raw, ok := res["warnings"].([]any)
+	if !ok {
+		if s, ok := res["warnings"].([]string); ok {
+			return s
+		}
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, item := range raw {
+		out = append(out, fmt.Sprint(item))
+	}
+	return out
+}
+
+// mrSeedReadyScopedRun seeds a per_job-isolated repo-write run in the READY state
+// with explicit allowed_paths (for the Phase 3 write-scope-overlap gate). per_job
+// isolation keeps the Phase 2 shared-checkout precondition from masking Phase 3.
+func mrSeedReadyScopedRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch string, allowed []any) *mrRun {
+	t.Helper()
+	return mrSeedReadyRun(t, ctx, h, repoID, runID, branch, "per_job",
+		map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": allowed})
+}
+
+// --- Phase 3: cross-run collision detection --------------------------------
+
+// TestMultiRunSameBranchRefusedWhileSiblingActive is the RFC 0108 Phase 3 branch
+// collision gate: two runs may not target the SAME git branch concurrently (they
+// would clobber one branch and collide at integration). The second start is
+// refused with cross_run_collision unless the operator passes allow_overlap; a
+// run on a DISTINCT branch starts freely. Both runs are per_job-isolated so the
+// Phase 2 shared-checkout precondition does not mask the Phase 3 branch check.
+func TestMultiRunSameBranchRefusedWhileSiblingActive(t *testing.T) {
+	repoID := "repo_multirun_p3_branch"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "docs/seed.md", "seed\n")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	runA := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p3b_a", "striatum/shared", "per_job")
+	if err := mrStartRun(ctx, h, runA); err != nil {
+		t.Fatalf("first run on a branch refused with no sibling: %v", err)
+	}
+
+	// A second run targeting the SAME branch while A is active — refused.
+	runB := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p3b_b", "striatum/shared", "per_job")
+	err := mrStartRun(ctx, h, runB)
+	if err == nil {
+		t.Fatal("second run on the same branch started while a sibling on that branch is active (RFC 0108 Phase 3 branch collision)")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "cross_run_collision" {
+		t.Fatalf("refusal = %v, want code cross_run_collision", err)
+	}
+	if got := chaosRunState(t, ctx, h, runB.runID); got != "ready" {
+		t.Fatalf("refused run B state = %q, want ready", got)
+	}
+
+	// allow_overlap lets the operator override the branch collision.
+	if _, err := mrStartRunResult(ctx, h, runB, true); err != nil {
+		t.Fatalf("same-branch start with allow_overlap refused: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runB.runID); got != "running" {
+		t.Fatalf("run B with allow_overlap state = %q, want running", got)
+	}
+
+	// A run on a DISTINCT branch starts freely beside the active runs.
+	runC := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p3b_c", "striatum/distinct", "per_job")
+	if err := mrStartRun(ctx, h, runC); err != nil {
+		t.Fatalf("run on a distinct branch refused: %v", err)
+	}
+}
+
+// TestMultiRunWriteScopeOverlapWarns is the RFC 0108 Phase 3 write-scope-overlap
+// gate: two active runs whose repo-write allowed_paths prefix-overlap can both
+// START (on distinct branches + per_job worktrees they do not collide at write
+// time) but the second start carries a WARNING that names the overlapping run, so
+// the operator knows to expect a merge conflict at integration (P4). A run whose
+// write scope is disjoint starts with no warning.
+func TestMultiRunWriteScopeOverlapWarns(t *testing.T) {
+	repoID := "repo_multirun_p3_scope"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "docs/seed.md", "seed\n")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	runA := mrSeedReadyScopedRun(t, ctx, h, repoID, "run_p3s_a", "striatum/p3s-a", []any{"docs"})
+	if err := mrStartRun(ctx, h, runA); err != nil {
+		t.Fatalf("run A start: %v", err)
+	}
+
+	// run B's allowed_paths (docs/rfcs) is a prefix-overlap of run A's (docs).
+	runB := mrSeedReadyScopedRun(t, ctx, h, repoID, "run_p3s_b", "striatum/p3s-b", []any{"docs/rfcs"})
+	res, err := mrStartRunResult(ctx, h, runB, false)
+	if err != nil {
+		t.Fatalf("run B with an overlapping write scope was refused (Phase 3 overlap warns, not blocks): %v", err)
+	}
+	warnings := mrWarnings(res)
+	if len(warnings) == 0 {
+		t.Fatal("run B started with an overlapping write scope but carried NO warning (RFC 0108 Phase 3)")
+	}
+	if joined := strings.Join(warnings, " "); !strings.Contains(joined, runA.runID) {
+		t.Fatalf("overlap warning %q does not name the colliding run %s", joined, runA.runID)
+	}
+	if got := chaosRunState(t, ctx, h, runB.runID); got != "running" {
+		t.Fatalf("run B state = %q, want running (overlap is a warning, not a refusal)", got)
+	}
+
+	// run C's scope (src) is disjoint from docs — starts with no warning.
+	runC := mrSeedReadyScopedRun(t, ctx, h, repoID, "run_p3s_c", "striatum/p3s-c", []any{"src"})
+	res, err = mrStartRunResult(ctx, h, runC, false)
+	if err != nil {
+		t.Fatalf("run C start: %v", err)
+	}
+	if w := mrWarnings(res); len(w) != 0 {
+		t.Fatalf("run C with a disjoint write scope carried warnings: %v", w)
+	}
 }
 
 // isConcurrencyDeadlock reports whether err is a Postgres serialization/deadlock

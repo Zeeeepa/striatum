@@ -127,6 +127,33 @@ rules, `write_scope_guard.go`) to a **cross-run** check keyed on the set of
 active runs. Files: `run.go`, a new `reads`-side "active runs + their
 branch/write-scope" query, `write_scope_guard.go`.
 
+**Landed** (`go/pkg/mutations/run.go`): `HandleRunStart` runs
+`evaluateCrossRunCollision` right after the Phase 2 isolation check, inside the
+same `lockRepo`-held transaction, so the active-runs snapshot cannot race a
+concurrent start. It draws the line between a **definite** and a **potential**
+collision:
+
+- **Same target branch → REFUSE** with the stable code `cross_run_collision`
+  (RFC 0111 catalog) unless the operator passes `--allow-overlap`. Two runs
+  cannot share one git branch — they would clobber each other and collide at
+  integration — so this is a hard stop. (The CLI flag flows through the generic
+  param parser as `allow_overlap`; no route change was needed.)
+- **Overlapping repo-write `allowed_paths` → WARN, non-blocking.** On distinct
+  branches with per_job worktrees the runs do not collide at write time; their
+  changes only risk a *merge* conflict at integration (the VCS problem Phase 4
+  serializes). So the overlap is surfaced as a `warnings[]` entry on the
+  `run.start` result (the RFC 0102 attention principle) naming the colliding run
+  and path, not a refusal. `--allow-overlap` suppresses the warnings too.
+
+Path overlap reuses the `write_scope_guard.go` normalization
+(`normalizeScopePath`) and is bidirectional prefix containment (`a==b`, `a` under
+`b`, `b` under `a`, or either is the repo root `.`). Gates
+(`go/pkg/adapterconformance/multirun_test.go`):
+`TestMultiRunSameBranchRefusedWhileSiblingActive` (same-branch refused;
+`--allow-overlap` overrides; distinct branch starts free) and
+`TestMultiRunWriteScopeOverlapWarns` (a prefix-overlapping run starts with a
+warning naming the sibling; a disjoint run starts clean).
+
 ### Phase 4 — Serialized, gated integration
 
 Each run lands on its own branch through the existing `git.commit_apply` /

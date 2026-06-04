@@ -15,6 +15,38 @@
   non-superuser owner must hold admin option on the runtime role
   (`GRANT striatumd_rw TO <owner> WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`)
   before adopting two-role boot-time password rotation.
+- **#170 — doctor skips terminal-run supervisor probes and terminal cleanup stops
+  lane helpers.** `doctor` now bounds its supervisor liveness probe and filters
+  out supervisors whose runs are already `completed` / `failed` / `canceled`, so
+  orphaned helper/tmux state from old runs cannot hang the authority-posture
+  check. Terminal run session auto-close now also stops attached supervisors,
+  killing tmux-backed lanes or helper PIDs when safe and recording
+  `supervisor.stopped`.
+
+## v2.20.0 — 2026-06-04
+
+### RFC 0108 Phase 3 — cross-run collision detection at run.start
+
+`run.start` now detects when starting a run would collide with another **active**
+run on the repository, distinguishing a definite collision from a potential one:
+
+- **Same target branch → refused** with the new error code `cross_run_collision`
+  (RFC 0111 catalog) unless the operator passes `--allow-overlap`. Two runs
+  cannot share one git branch (they would clobber each other and collide at
+  integration). The `--allow-overlap` flag flows through the generic CLI param
+  parser as `allow_overlap` — no route change needed.
+- **Overlapping repo-write `allowed_paths` → non-blocking warning** in the
+  `run.start` result `warnings[]`, naming the colliding run and path. On distinct
+  branches with per_job worktrees the runs do not collide at write time; the
+  overlap only risks a *merge* conflict at integration (which Phase 4 serializes),
+  so it is surfaced up front (RFC 0102 attention) rather than blocking. Path
+  overlap reuses `write_scope_guard.go` normalization and is bidirectional prefix
+  containment.
+- Runs inside the same `lockRepo`-held transaction as the Phase 2 check, so the
+  active-runs snapshot cannot race a concurrent start.
+- **Gates** (`go/pkg/adapterconformance/multirun_test.go`):
+  `TestMultiRunSameBranchRefusedWhileSiblingActive` and
+  `TestMultiRunWriteScopeOverlapWarns`.
 
 ## v2.19.0 — 2026-06-04
 

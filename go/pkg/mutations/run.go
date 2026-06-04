@@ -65,6 +65,7 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 		if state != "ready" && state != "running" {
 			return nil, rpc.NewError("invalid_transition", "run cannot be started from its current state", nil)
 		}
+		var warnings []string
 		if state == "ready" {
 			// RFC 0108 Phase 2 — isolation by default under concurrency. Refuse to
 			// start a run that would write the SHARED main checkout while another run
@@ -74,6 +75,14 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 			if err := enforceConcurrentRunIsolation(ctx, tx, repositoryID, runID, workflow); err != nil {
 				return nil, err
 			}
+			// RFC 0108 Phase 3 — cross-run collision detection. A same-branch
+			// collision is refused (cross_run_collision) unless --allow-overlap; an
+			// overlapping write_scope is surfaced as a non-blocking warning.
+			collisionWarnings, err := evaluateCrossRunCollision(ctx, tx, repositoryID, runID, fmt.Sprint(run["branch_name"]), boolParam(envelope, "allow_overlap"))
+			if err != nil {
+				return nil, err
+			}
+			warnings = collisionWarnings
 			now := nowString()
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.runs
@@ -104,7 +113,11 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 				return nil, err
 			}
 		}
-		return map[string]any{"run_id": runID, "state": "running"}, nil
+		result := map[string]any{"run_id": runID, "state": "running"}
+		if len(warnings) > 0 {
+			result["warnings"] = warnings
+		}
+		return result, nil
 	})
 }
 
@@ -181,6 +194,148 @@ func firstUnisolatedRepoWriteJob(ctx context.Context, runner any, repositoryID, 
 		}
 	}
 	return "", nil
+}
+
+// evaluateCrossRunCollision is the RFC 0108 Phase 3 cross-run collision check at
+// run.start. It distinguishes a DEFINITE collision from a POTENTIAL one:
+//
+//   - Same target branch: two runs cannot share one git branch — they would
+//     clobber each other and collide at integration — so the start is REFUSED
+//     with cross_run_collision (unless the operator passes allow_overlap).
+//   - Overlapping repo-write allowed_paths: on distinct branches + per_job
+//     worktrees the two runs do not collide at write time, but their changes will
+//     likely conflict at integration (the VCS merge problem P4 serializes). That
+//     is surfaced as a NON-BLOCKING warning (the RFC 0102 attention principle) so
+//     the operator sees it up front rather than discovering it at merge.
+//
+// allow_overlap suppresses both the refusal and the warnings — the operator has
+// explicitly accepted the overlap. Must run inside the lockRepo-held run.start
+// transaction so the active-runs snapshot cannot race a concurrent start.
+func evaluateCrossRunCollision(ctx context.Context, tx db.TxRunner, repositoryID, runID, branch string, allowOverlap bool) ([]string, error) {
+	if allowOverlap {
+		return nil, nil
+	}
+	if branch != "" && branch != "<nil>" {
+		other, err := otherActiveRunOnBranch(ctx, tx, repositoryID, runID, branch)
+		if err != nil {
+			return nil, err
+		}
+		if other != "" {
+			return nil, rpc.NewError("cross_run_collision", fmt.Sprintf(
+				"run %s is already active on branch %q — two runs cannot target the same branch concurrently (they would collide at integration). Give this run a distinct branch, or pass --allow-overlap to start anyway.",
+				other, branch), nil)
+		}
+	}
+	thisAllowed, err := runRepoWriteAllowedPaths(ctx, tx, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	return crossRunWriteScopeWarnings(ctx, tx, repositoryID, runID, thisAllowed)
+}
+
+// otherActiveRunOnBranch returns the id of one OTHER `running` run on the repo
+// that targets the same branch, or "" when none does.
+func otherActiveRunOnBranch(ctx context.Context, runner any, repositoryID, runID, branch string) (string, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT run_id
+		  FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id <> $2 AND state = 'running' AND branch_name = $3
+		 ORDER BY started_at NULLS LAST, run_id
+		 LIMIT 1`, repositoryID, runID, branch)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	return fmt.Sprint(rows[0]["run_id"]), nil
+}
+
+// runRepoWriteAllowedPaths returns the deduped, normalized union of allowed_paths
+// across a run's repo-write jobs (the paths this run intends to write).
+func runRepoWriteAllowedPaths(ctx context.Context, runner any, repositoryID, runID string) ([]string, error) {
+	jobs, err := queryRows(ctx, runner, `
+		SELECT write_scope_json
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2`, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0)
+	for _, job := range jobs {
+		if !isRepoWrite(job) {
+			continue
+		}
+		for _, p := range stringListFromAny(asMap(job["write_scope_json"])["allowed_paths"]) {
+			if clean, ok := normalizeScopePath(p); ok {
+				paths = append(paths, clean)
+			}
+		}
+	}
+	return dedupeStrings(paths), nil
+}
+
+// crossRunWriteScopeWarnings returns one warning per OTHER active run whose
+// repo-write allowed_paths prefix-overlap this run's. Empty when this run writes
+// nothing or no active sibling's write scope overlaps.
+func crossRunWriteScopeWarnings(ctx context.Context, runner any, repositoryID, runID string, thisAllowed []string) ([]string, error) {
+	if len(thisAllowed) == 0 {
+		return nil, nil
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT r.run_id AS run_id, j.write_scope_json AS write_scope_json
+		  FROM striatumd.runs r
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = r.repository_id AND j.run_id = r.run_id
+		 WHERE r.repository_id = $1 AND r.run_id <> $2 AND r.state = 'running'`,
+		repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	byRun := map[string][]string{}
+	for _, row := range rows {
+		if !isRepoWrite(row) {
+			continue
+		}
+		other := fmt.Sprint(row["run_id"])
+		for _, p := range stringListFromAny(asMap(row["write_scope_json"])["allowed_paths"]) {
+			if clean, ok := normalizeScopePath(p); ok {
+				byRun[other] = append(byRun[other], clean)
+			}
+		}
+	}
+	warnings := make([]string, 0)
+	for other, paths := range byRun {
+		if overlap := firstPathOverlap(thisAllowed, dedupeStrings(paths)); overlap != "" {
+			warnings = append(warnings, fmt.Sprintf(
+				"write_scope overlaps active run %s at path %q — expect a merge conflict at integration; pass --allow-overlap to silence (RFC 0108 Phase 3)",
+				other, overlap))
+		}
+	}
+	return dedupeStrings(warnings), nil
+}
+
+// firstPathOverlap returns the first path in `a` that prefix-overlaps any path in
+// `b` (a is a prefix of b, b is a prefix of a, equal, or either is the repo root
+// "."), or "" when the two scope sets are disjoint.
+func firstPathOverlap(a, b []string) string {
+	for _, pa := range a {
+		for _, pb := range b {
+			if pathPrefixOverlap(pa, pb) {
+				return pa
+			}
+		}
+	}
+	return ""
+}
+
+// pathPrefixOverlap reports whether two normalized scope paths overlap: either is
+// the whole repo ("."), they are equal, or one is a path-prefix of the other.
+func pathPrefixOverlap(a, b string) bool {
+	if a == "." || b == "." {
+		return true
+	}
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 func HandleRunPause(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
