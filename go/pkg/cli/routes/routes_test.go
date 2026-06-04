@@ -149,7 +149,7 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 func TestUsageCoversIssue63Verbs(t *testing.T) {
 	for _, group := range []string{
 		"supervise_start", "supervise_stop", "supervise_status", "supervise_send", "supervise_trajectory",
-		"register_session", "checkpoint_resolve", "repo_add",
+		"register_session", "checkpoint_resolve", "decision_record", "repo_add",
 		"claim_next", "ack", "heartbeat", "release", "send", "block",
 		"complete", "publish_artifact", "repo_write", "verdict", "submit_review",
 		"worktree_create", "worktree_release",

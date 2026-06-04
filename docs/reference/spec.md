@@ -574,12 +574,12 @@ correctness bug.
 Workflows may declare `operator_mode: constrained` as the RFC 0099 Phase 1
 operator assertion. The assertion is surfaced in `status --run-id` and
 `run.summary` so the operator boundary is visible in run reads. In V1 this
-field is advisory: it does not by itself sandbox an AI operator, gate shell
-execution, or create audited escape decisions. The initial RFC 0099 Phase 2
-surface is `repo.write`, an exact-content mutation that requires an active
-repo-write job lease and refuses paths outside the job's `write_scope` before
-it writes. Patch-style editing, shell evidence, and escape-decision enforcement
-remain Phase 2/3 work.
+field is advisory: it does not by itself sandbox an AI operator or gate shell
+execution. The initial RFC 0099 Phase 2 surface is `repo.write`, an
+exact-content mutation that requires an active repo-write job lease and refuses
+paths outside the job's `write_scope` before it writes. Escape decisions can be
+recorded as typed run-level decisions. Patch-style editing, shell evidence, and
+escape-decision enforcement remain Phase 2/3 work.
 
 ## Run Lifecycle
 
@@ -709,7 +709,11 @@ creation timestamp. It records the file as a run-level artifact of kind
 `decision` with no job, session, or active lease requirement, and emits a
 `decision.recorded` event. Outcomes are `accepted`, `rejected`, and
 `accepted_with_follow_up`; the follow-up outcome requires explicit follow-up
-text.
+text. For constrained-operator escape hatches, `decision record` accepts
+`--escape-surface` and `--escape-action`; both are required together and require
+`--rationale`. Escape decisions add `escape_decision: true`, `escape_surface`,
+and `escape_action` to the decision front matter and event payload, turning an
+ambient escape into a durable audited run-level decision.
 
 Durable Markdown artifacts should include the work packet's privacy-safe
 `author:` line in their title block when one is provided. For unattested
@@ -809,7 +813,9 @@ V1 schemas:
 - `striatum.decision.v1` (kind `decision`): required `schema_version`,
   `artifact_kind: decision`, `decision_id`, `run_id`, `owner: human`,
   `outcome` (one of `accepted`, `rejected`, `accepted_with_follow_up`),
-  `follow_up_required` (boolean), `title`, `created_at`.
+  `follow_up_required` (boolean), `title`, `created_at`; optional
+  `escape_decision` (boolean), `escape_surface`, and `escape_action` for
+  constrained-operator escape decisions.
 - `striatum.finding.v1` (kind `finding`): required `schema_version`,
   `artifact_kind: finding`, and `verdict_intent` (one of `accept`,
   `accept_with_findings`, `needs_revision`, `reject`); optional `severity`

@@ -106,6 +106,12 @@ Leaving the constrained surface (a raw write, an undeclared command) requires an
 audited `striatum.decision`-style record naming the reason — turning ambient
 authority into a logged, reviewable exception.
 
+Initial implementation: `decision.record` can mark a run-level decision as a
+constrained-operator escape with `escape_decision: true`, `escape_surface`, and
+`escape_action` in both the decision artifact front matter and
+`decision.recorded` event payload. Enforcement that refuses specific future
+surfaces absent such a decision remains a Phase 3 extension.
+
 ## Acceptance Criteria
 
 - A run can declare `operator_mode: constrained`; it is surfaced in
@@ -128,6 +134,8 @@ authority into a logged, reviewable exception.
   The exact-content single-file slice has landed; patch preview/apply remains.
 - **Phase 3:** capability-gated shell + evidence recording + escape-decision
   records; cooperating-harness profile docs (restricted tool sets per adapter).
+  The typed escape-decision record slice has landed; shell/evidence enforcement
+  remains.
 
 ## Open Questions
 

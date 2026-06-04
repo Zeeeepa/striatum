@@ -57,6 +57,9 @@ var Schemas = map[string]Schema{
 			"follow_up_required": {true, isBoolValue},
 			"title":              {true, isStringValue},
 			"created_at":         {true, isStringValue},
+			"escape_decision":    {false, isBoolValue},
+			"escape_surface":     {false, isNonEmptyStringValue},
+			"escape_action":      {false, isNonEmptyStringValue},
 		},
 	},
 	"finding": {

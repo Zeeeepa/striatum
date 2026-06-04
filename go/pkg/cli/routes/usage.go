@@ -206,6 +206,19 @@ var usageByGroup = map[string]Usage{
 			{Name: "decision-id", Help: "logical name of a run-level decision artifact to attach as the resolution rationale; required for override"},
 		},
 	},
+	"decision_record": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "run the decision applies to"},
+			{Name: "path", Positional: true, Required: true, Help: "repo-relative decision artifact path"},
+			{Name: "outcome", Positional: true, Required: true, Values: []string{"accepted", "rejected", "accepted_with_follow_up"}, Help: "decision outcome"},
+			{Name: "title", Positional: true, Required: true, Help: "human-readable decision title"},
+			{Name: "decision-id", Help: "stable logical decision id; generated when omitted"},
+			{Name: "rationale", Help: "decision rationale; required for escape decisions"},
+			{Name: "follow-up", Help: "required follow-up text for accepted_with_follow_up"},
+			{Name: "escape-surface", Help: "constrained-operator surface being escaped, e.g. shell_command or raw_file_write"},
+			{Name: "escape-action", Help: "specific action authorized outside the constrained surface"},
+		},
+	},
 	"supervise_start": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session whose lane to supervise"},

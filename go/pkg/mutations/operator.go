@@ -30,11 +30,23 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 	decisionID := strings.TrimSpace(stringParam(envelope, "decision_id"))
 	rationale := stringParam(envelope, "rationale")
 	followUp := stringParam(envelope, "follow_up")
+	escapeSurface := strings.TrimSpace(stringParam(envelope, "escape_surface"))
+	escapeAction := strings.TrimSpace(stringParam(envelope, "escape_action"))
 	if runID == "" || pathText == "" || outcome == "" || title == "" {
 		return nil, rpc.NewError("schema_invalid", "decision.record requires run_id, path, outcome, and title", nil)
 	}
 	if outcome == "accepted_with_follow_up" && strings.TrimSpace(followUp) == "" {
 		return nil, rpc.NewError("artifact_error", "accepted_with_follow_up decisions require --follow-up", nil)
+	}
+	escape := escapeDecision{}
+	if escapeSurface != "" || escapeAction != "" {
+		if escapeSurface == "" || escapeAction == "" {
+			return nil, rpc.NewError("schema_invalid", "escape decisions require both --escape-surface and --escape-action", nil)
+		}
+		if strings.TrimSpace(rationale) == "" {
+			return nil, rpc.NewError("schema_invalid", "escape decisions require --rationale", nil)
+		}
+		escape = escapeDecision{Enabled: true, Surface: escapeSurface, Action: escapeAction}
 	}
 	if decisionID == "" {
 		decisionID, err = newID("dec")
@@ -73,7 +85,7 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 			return nil, rpc.NewError("artifact_error", "decision artifact path already exists", nil)
 		}
 		createdAt := nowString()
-		body := renderDecisionMarkdown(decisionID, runID, outcome, title, createdAt, rationale, followUp)
+		body := renderDecisionMarkdown(decisionID, runID, outcome, title, createdAt, rationale, followUp, escape)
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return nil, err
 		}
@@ -101,15 +113,21 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 		}); err != nil {
 			return nil, err
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, map[string]any{
+		payload := map[string]any{
 			"decision_id": decisionID,
 			"outcome":     outcome,
 			"path":        pathText,
 			"sha256":      digest,
-		}); err != nil {
+		}
+		if escape.Enabled {
+			payload["escape_decision"] = true
+			payload["escape_surface"] = escape.Surface
+			payload["escape_action"] = escape.Action
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, payload); err != nil {
 			return nil, err
 		}
-		return map[string]any{
+		result := map[string]any{
 			"status":                   "recorded",
 			"run_id":                   runID,
 			"decision_id":              decisionID,
@@ -119,7 +137,13 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 			"sha256":                   digest,
 			"run_state_transition":     nil,
 			"superseded_verdict_count": 0,
-		}, nil
+		}
+		if escape.Enabled {
+			result["escape_decision"] = true
+			result["escape_surface"] = escape.Surface
+			result["escape_action"] = escape.Action
+		}
+		return result, nil
 	})
 }
 
@@ -454,12 +478,20 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 	})
 }
 
-func renderDecisionMarkdown(decisionID, runID, outcome, title, createdAt, rationale, followUp string) string {
+type escapeDecision struct {
+	Enabled bool
+	Surface string
+	Action  string
+}
+
+func renderDecisionMarkdown(decisionID, runID, outcome, title, createdAt, rationale, followUp string, escape escapeDecision) string {
 	followUpRequired := outcome == "accepted_with_follow_up"
 	decisionJSON, _ := json.Marshal(decisionID)
 	runJSON, _ := json.Marshal(runID)
 	titleJSON, _ := json.Marshal(title)
 	createdJSON, _ := json.Marshal(createdAt)
+	escapeSurfaceJSON, _ := json.Marshal(escape.Surface)
+	escapeActionJSON, _ := json.Marshal(escape.Action)
 	lines := []string{
 		"---",
 		"schema_version: striatum.decision.v1",
@@ -471,14 +503,26 @@ func renderDecisionMarkdown(decisionID, runID, outcome, title, createdAt, ration
 		fmt.Sprintf("follow_up_required: %v", followUpRequired),
 		"title: " + string(titleJSON),
 		"created_at: " + string(createdJSON),
+	}
+	if escape.Enabled {
+		lines = append(lines,
+			"escape_decision: true",
+			"escape_surface: "+string(escapeSurfaceJSON),
+			"escape_action: "+string(escapeActionJSON),
+		)
+	}
+	lines = append(lines,
 		"---",
 		"",
-		"# " + title,
+		"# "+title,
 		"",
-		"Decision ID: `" + decisionID + "`",
-		"Run ID: `" + runID + "`",
-		"Outcome: `" + outcome + "`",
+		"Decision ID: `"+decisionID+"`",
+		"Run ID: `"+runID+"`",
+		"Outcome: `"+outcome+"`",
 		"",
+	)
+	if escape.Enabled {
+		lines = append(lines, "## Escape Decision", "", "Surface: `"+escape.Surface+"`", "Action: `"+escape.Action+"`", "")
 	}
 	if strings.TrimSpace(rationale) != "" {
 		lines = append(lines, "## Rationale", "", strings.TrimSpace(rationale), "")
