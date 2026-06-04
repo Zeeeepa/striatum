@@ -341,6 +341,9 @@ func buildPacket(
 	if envelope := downstreamImplementationEnvelopeForPacket(workflow, fmt.Sprint(job["workflow_job_id"])); envelope != nil {
 		packetContext["implementation_envelope"] = envelope
 	}
+	if resources := sharedResourcesForPacket(workflow, fmt.Sprint(job["workflow_job_id"])); resources != nil {
+		packetContext["shared_resources"] = resources
+	}
 	if augmentation := augmentationReferences(workflow, fmt.Sprint(job["workflow_job_id"]), fmt.Sprint(run["repo_root"])); augmentation != nil {
 		packetContext["augmentation_references"] = augmentation
 	}
@@ -634,6 +637,148 @@ func downstreamWorkflowJobLaneID(job map[string]any) string {
 	laneSelector := asMap(job["lane_selector"])
 	laneID, _ := laneSelector["lane_id"].(string)
 	return strings.TrimSpace(laneID)
+}
+
+func sharedResourcesForPacket(workflow map[string]any, workflowJobID string) map[string]any {
+	workflowJobID = strings.TrimSpace(workflowJobID)
+	if workflowJobID == "" {
+		return nil
+	}
+	var currentJob map[string]any
+	jobs := []map[string]any{}
+	for _, item := range asList(workflow["jobs"]) {
+		job := asMap(item)
+		id := strings.TrimSpace(fmt.Sprint(job["id"]))
+		if id == "" {
+			continue
+		}
+		jobs = append(jobs, job)
+		if id == workflowJobID {
+			currentJob = job
+		}
+	}
+	if len(currentJob) == 0 {
+		return nil
+	}
+	resources := packetSharedResources(currentJob)
+	if len(resources) == 0 {
+		return nil
+	}
+	result := map[string]any{
+		"scope":       "current_workflow_job",
+		"instruction": "This job declares mutable shared resources. Before running validation or commands that mutate them, coordinate serialization for exclusive resources or use the declared per-lane namespace.",
+		"resources":   resources,
+	}
+	parallelGroup := strings.TrimSpace(fmt.Sprint(currentJob["parallel_group"]))
+	if parallelGroup == "" {
+		return result
+	}
+	result["parallel_group"] = parallelGroup
+	related := []any{}
+	for _, job := range jobs {
+		if strings.TrimSpace(fmt.Sprint(job["id"])) == workflowJobID || strings.TrimSpace(fmt.Sprint(job["parallel_group"])) != parallelGroup {
+			continue
+		}
+		for _, overlap := range overlappingSharedResources(resources, packetSharedResources(job)) {
+			related = append(related, map[string]any{
+				"workflow_job_id": job["id"],
+				"type":            nullable(job["type"]),
+				"title":           nullable(job["title"]),
+				"role_id":         nullable(job["role_id"]),
+				"lane_id":         nullable(downstreamWorkflowJobLaneID(job)),
+				"resource_id":     overlap["id"],
+				"mode":            overlap["mode"],
+				"namespace":       nullable(overlap["namespace"]),
+			})
+		}
+	}
+	if len(related) > 0 {
+		result["related_parallel_jobs"] = related
+	}
+	return result
+}
+
+func packetSharedResources(job map[string]any) []map[string]any {
+	resources := []map[string]any{}
+	for _, item := range sharedResourceItems(job["shared_resources"]) {
+		switch resource := item.(type) {
+		case string:
+			id := strings.TrimSpace(resource)
+			if id == "" {
+				continue
+			}
+			resources = append(resources, map[string]any{"id": id, "mode": "exclusive"})
+		case map[string]any:
+			id := strings.TrimSpace(fmt.Sprint(resource["id"]))
+			if id == "" || id == "<nil>" {
+				continue
+			}
+			mode, _ := resource["mode"].(string)
+			if strings.TrimSpace(mode) == "" {
+				mode = "exclusive"
+			}
+			entry := map[string]any{"id": id, "mode": mode}
+			if description, _ := resource["description"].(string); strings.TrimSpace(description) != "" {
+				entry["description"] = strings.TrimSpace(description)
+			}
+			if namespace, _ := resource["namespace"].(string); strings.TrimSpace(namespace) != "" {
+				entry["namespace"] = strings.TrimSpace(namespace)
+			}
+			resources = append(resources, entry)
+		}
+	}
+	return resources
+}
+
+func sharedResourceItems(value any) []any {
+	switch typed := value.(type) {
+	case []any:
+		return typed
+	case []string:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	case []map[string]any:
+		result := make([]any, 0, len(typed))
+		for _, item := range typed {
+			result = append(result, item)
+		}
+		return result
+	}
+	return nil
+}
+
+func overlappingSharedResources(left []map[string]any, right []map[string]any) []map[string]any {
+	overlaps := []map[string]any{}
+	for _, a := range left {
+		for _, b := range right {
+			if a["id"] != b["id"] {
+				continue
+			}
+			aMode := resourceMode(a)
+			bMode := resourceMode(b)
+			aNamespace, _ := a["namespace"].(string)
+			bNamespace, _ := b["namespace"].(string)
+			if aMode == "exclusive" || bMode == "exclusive" || (aNamespace != "" && aNamespace == bNamespace) {
+				overlaps = append(overlaps, map[string]any{
+					"id":        a["id"],
+					"mode":      aMode,
+					"namespace": a["namespace"],
+				})
+			}
+		}
+	}
+	return overlaps
+}
+
+func resourceMode(resource map[string]any) string {
+	mode, _ := resource["mode"].(string)
+	if strings.TrimSpace(mode) == "" {
+		return "exclusive"
+	}
+	return mode
 }
 
 func expectedArtifactsWithAuthor(expected []any, authorLine string) []any {

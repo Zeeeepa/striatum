@@ -28,6 +28,7 @@ var enforcementLevels = map[string]int{"unsupported": 0, "advisory": 1, "advisor
 var worktreeIsolationValues = map[string]bool{"off": true, "per_job": true}
 var reviewerAccessScopes = map[string]bool{"document_only": true, "artifact_augmented": true, "repo_level": true, "cross_repo_artifact_augmented": true}
 var reviewerContextPolicies = map[string]bool{"fresh": true, "cross_round": true}
+var sharedResourceModes = map[string]bool{"exclusive": true, "per_lane_namespace": true}
 var reviewPostures = map[string]bool{
 	"neutral": true, "devils_advocate": true, "security": true, "threat_model": true,
 	"latency_performance": true, "ergonomics_dx": true, "accessibility": true,
@@ -310,6 +311,9 @@ func Validate(workflow map[string]any) error {
 		if err := validateRequiredReviewPostures(jobID, job); err != nil {
 			return err
 		}
+		if err := validateSharedResources(index, jobID, job); err != nil {
+			return err
+		}
 	}
 	if err := validateEdges(workflow, jobMap); err != nil {
 		return err
@@ -529,7 +533,7 @@ func PlannedJob(job map[string]any) map[string]any {
 			})
 		}
 	}
-	return map[string]any{
+	result := map[string]any{
 		"job_id":                 stringValue(job["id"]),
 		"type":                   defaultString(job["type"], "generic"),
 		"role_id":                stringValue(job["role_id"]),
@@ -539,6 +543,10 @@ func PlannedJob(job map[string]any) map[string]any {
 		"write_scope_mode":       writeScopeMode(job),
 		"expected_artifacts":     artifacts,
 	}
+	if resources := plannedSharedResources(job); len(resources) > 0 {
+		result["shared_resources"] = resources
+	}
+	return result
 }
 
 func PlannedEdge(jobs map[string]map[string]any, fromID string, toID string) map[string]any {
@@ -918,6 +926,88 @@ func validateRequiredReviewPostures(jobID string, job map[string]any) error {
 		}
 	}
 	return nil
+}
+
+func validateSharedResources(jobIndex int, jobID string, job map[string]any) error {
+	raw, exists := job["shared_resources"]
+	if !exists {
+		return nil
+	}
+	switch raw.(type) {
+	case []any, []string, []map[string]any:
+	default:
+		return fieldErr(fmt.Sprintf("jobs[%d].shared_resources", jobIndex), "job %q shared_resources must be a list", jobID)
+	}
+	items := anySlice(raw)
+	for resourceIndex, item := range items {
+		path := fmt.Sprintf("jobs[%d].shared_resources[%d]", jobIndex, resourceIndex)
+		switch resource := item.(type) {
+		case string:
+			if strings.TrimSpace(resource) == "" {
+				return fieldErr(path, "job %q shared_resources entries must have a non-empty id", jobID)
+			}
+		case map[string]any:
+			id, ok := resource["id"].(string)
+			if !ok || strings.TrimSpace(id) == "" {
+				return fieldErr(path+".id", "job %q shared_resources entries must have a non-empty id", jobID)
+			}
+			mode := stringValue(resource["mode"])
+			if mode == "" {
+				mode = "exclusive"
+			}
+			if !sharedResourceModes[mode] {
+				return fieldErr(path+".mode", "job %q shared_resources mode must be one of [exclusive per_lane_namespace]", jobID)
+			}
+			if description, exists := resource["description"]; exists {
+				if _, ok := description.(string); !ok {
+					return fieldErr(path+".description", "job %q shared_resources description must be a string", jobID)
+				}
+			}
+			if namespace, exists := resource["namespace"]; exists {
+				if text, ok := namespace.(string); !ok || strings.TrimSpace(text) == "" {
+					return fieldErr(path+".namespace", "job %q shared_resources namespace must be a non-empty string", jobID)
+				}
+			}
+			if mode == "per_lane_namespace" && strings.TrimSpace(stringValue(resource["namespace"])) == "" {
+				return fieldErr(path+".namespace", "job %q shared_resources mode per_lane_namespace requires namespace", jobID)
+			}
+		default:
+			return fieldErr(path, "job %q shared_resources entries must be strings or objects", jobID)
+		}
+	}
+	return nil
+}
+
+func plannedSharedResources(job map[string]any) []map[string]any {
+	resources := []map[string]any{}
+	for _, item := range anySlice(job["shared_resources"]) {
+		switch resource := item.(type) {
+		case string:
+			id := strings.TrimSpace(resource)
+			if id == "" {
+				continue
+			}
+			resources = append(resources, map[string]any{"id": id, "mode": "exclusive"})
+		case map[string]any:
+			id := strings.TrimSpace(stringValue(resource["id"]))
+			if id == "" {
+				continue
+			}
+			mode := stringValue(resource["mode"])
+			if mode == "" {
+				mode = "exclusive"
+			}
+			entry := map[string]any{"id": id, "mode": mode}
+			if description := strings.TrimSpace(stringValue(resource["description"])); description != "" {
+				entry["description"] = description
+			}
+			if namespace := strings.TrimSpace(stringValue(resource["namespace"])); namespace != "" {
+				entry["namespace"] = namespace
+			}
+			resources = append(resources, entry)
+		}
+	}
+	return resources
 }
 
 func validatePostureValue(jobID string, label string, posture string) error {

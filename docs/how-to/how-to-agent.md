@@ -134,6 +134,10 @@ understand:
   frozen write scopes and expected artifacts. Keep design and
   synthesis recommendations inside that envelope; if the right work
   needs other paths, say so explicitly.
+- `context.shared_resources` — when present, mutable external resources
+  declared by this job, such as a test database or fixture. Coordinate
+  or serialize commands that mutate an `exclusive` resource; for
+  `per_lane_namespace` resources, use the declared namespace.
 - `worktree_required` — when `true` (RFC 0008), call `worktree.create`
   before `artifact.publish`. The packet supplies the exact CLI fallback in
   `commands.worktree_create`.

@@ -181,6 +181,77 @@ func TestDownstreamImplementationEnvelopeForPacketSurfacesReachableWriteScopes(t
 	}
 }
 
+func TestSharedResourcesForPacketSurfacesParallelHazards(t *testing.T) {
+	workflow := map[string]any{
+		"jobs": []any{
+			map[string]any{
+				"id":             "privacy_review",
+				"type":           "review",
+				"title":          "Privacy review",
+				"role_id":        "reviewer",
+				"lane_id":        "codex",
+				"parallel_group": "db_reviews",
+				"shared_resources": []any{
+					map[string]any{
+						"id":          "postgres:test-db",
+						"description": "DB-backed validation fixture",
+					},
+				},
+			},
+			map[string]any{
+				"id":             "authority_review",
+				"type":           "review",
+				"title":          "Authority review",
+				"role_id":        "reviewer",
+				"lane_id":        "claude",
+				"parallel_group": "db_reviews",
+				"shared_resources": []any{
+					"postgres:test-db",
+				},
+			},
+			map[string]any{
+				"id":             "isolated_review",
+				"type":           "review",
+				"role_id":        "reviewer",
+				"lane_id":        "agy",
+				"parallel_group": "db_reviews",
+				"shared_resources": []any{map[string]any{
+					"id":        "postgres:test-db",
+					"mode":      "per_lane_namespace",
+					"namespace": "isolated_review",
+				}},
+			},
+		},
+	}
+
+	got := sharedResourcesForPacket(workflow, "privacy_review")
+	if got == nil {
+		t.Fatal("shared_resources packet block missing")
+	}
+	if got["scope"] != "current_workflow_job" || got["parallel_group"] != "db_reviews" {
+		t.Fatalf("shared resource header = %#v", got)
+	}
+	resources := asList(got["resources"])
+	if len(resources) != 1 {
+		t.Fatalf("resources = %#v", resources)
+	}
+	resource := asMap(resources[0])
+	if resource["id"] != "postgres:test-db" || resource["mode"] != "exclusive" {
+		t.Fatalf("resource = %#v", resource)
+	}
+	if !strings.Contains(fmt.Sprint(got["instruction"]), "coordinate") {
+		t.Fatalf("instruction should mention coordination: %v", got["instruction"])
+	}
+	related := asList(got["related_parallel_jobs"])
+	if len(related) != 2 {
+		t.Fatalf("related parallel jobs = %#v, want authority_review + isolated_review because current job is exclusive", related)
+	}
+	first := asMap(related[0])
+	if first["workflow_job_id"] != "authority_review" || first["resource_id"] != "postgres:test-db" {
+		t.Fatalf("related job = %#v", first)
+	}
+}
+
 func TestAugmentationReferencesInspectLocalCorpusBundle(t *testing.T) {
 	repoRoot := t.TempDir()
 	bundle := filepath.Join(repoRoot, "exports", "corpus")

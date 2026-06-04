@@ -215,7 +215,7 @@ most deferrable). W1 was sequenced first by risk, not on the critical path.
    token (fully closes #135 live), #70/#87 lane-PG-deny + PG-less lane OS user →
    **RFC 0100 P2** DX (#126/#128/#132, single-implementer)
    → **RFC 0097** orchestration (#115 frozen-snapshot signal, #138 shared-resource
-   coordination) → **RFC 0099/0102** operator side (#92 constrained operator
+   packet/lint surfacing landed) → **RFC 0099/0102** operator side (#92 constrained operator
    consumes the Phase-4 escalation). Confirm-and-close the deployed Phase-1 issues
    (#80/#83/#117/#136) and the fixed-but-open #120/#123 against live behavior.
 3. **RFC 0102 levers:** narrow the operator loop to one control surface, one

@@ -250,8 +250,9 @@ closed unless `confirm_write: true` is present and a separate operator
 confirmation gesture is recorded by the web UI.
 
 The validator enforces unique job ids, resolved role/lane references, valid
-edges, bounded cycles, repo-relative artifact paths, and declared parallelism
-with disjoint write scopes or review-only unique artifact paths.
+edges, bounded cycles, repo-relative artifact paths, valid shared-resource
+declarations, and declared parallelism with disjoint write scopes or
+review-only unique artifact paths.
 
 Workflows may opt into RFC 0032 cross-repo shape with a top-level
 `repositories` object and required `primary_repository` alias. Each
@@ -364,6 +365,46 @@ and synthesis lanes to keep recommended implementation layouts inside those
 frozen downstream envelopes, or to call out that the scope must be revised
 instead of assuming it can widen later. Workflows with no downstream envelope
 produce packets without this key.
+
+### Shared Resources
+
+Workflow jobs may declare `shared_resources` for mutable resources outside the
+repository tree, such as a test database, hardware device, or external fixture
+that parallel jobs could collide on. Entries may be strings, which are shorthand
+for an exclusive resource, or objects:
+
+```json
+{
+  "shared_resources": [
+    "postgres:test-db",
+    {
+      "id": "postgres:test-db",
+      "mode": "per_lane_namespace",
+      "namespace": "reviewer_a",
+      "description": "DB-backed validation fixture"
+    }
+  ]
+}
+```
+
+Object entries require a non-empty `id`. `mode` defaults to `exclusive` and may
+be `exclusive` or `per_lane_namespace`. Namespace mode requires a non-empty
+`namespace`. The validator rejects malformed declarations. `workflow plan` and
+graph JSON include declared resources on each planned job.
+
+`workflow lint` warns with `parallel_shared_resource_contention` when jobs in
+the same `parallel_group` share an exclusive resource id, or when
+`per_lane_namespace` jobs reuse the same namespace. The warning is
+informational; V1 does not create daemon-owned scheduler locks for external
+resources.
+
+When a claimed job declares shared resources, `claim-next` adds
+`context.shared_resources` to the work packet. The block lists the current
+job's declared resources, includes the `parallel_group` when present, and names
+related parallel jobs with overlapping resource claims. Agents should serialize
+mutating validation against exclusive resources or use the declared namespace
+before running resource-mutating gates. Workflows with no declared shared
+resources produce packets without this key.
 
 ### Reviewer Policy
 

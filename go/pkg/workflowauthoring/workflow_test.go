@@ -167,6 +167,121 @@ func TestValidateUsesSharedArtifactKindsAndLaneConstraints(t *testing.T) {
 	}
 }
 
+func TestSharedResourcesValidatePlanAndLint(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["parallel_group"] = "db_reviews"
+	review["shared_resources"] = []any{map[string]any{
+		"id":          "postgres:test-db",
+		"description": "DB-backed validation fixture",
+	}}
+	jobs = append(jobs, map[string]any{
+		"id":                     "db_review",
+		"type":                   "review",
+		"role_id":                "reviewer",
+		"lane_id":                "codex",
+		"parallel_group":         "db_reviews",
+		"fresh_session_required": true,
+		"shared_resources":       []any{"postgres:test-db"},
+		"write_scope": map[string]any{
+			"mode":            "review_only_artifact",
+			"allowed_paths":   []any{"reviews/db/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": "db_review",
+			"kind":         "finding",
+			"path":         "reviews/db/REVIEW.md",
+			"required":     true,
+		}},
+	})
+	workflow["jobs"] = jobs
+	workflow["edges"] = append(workflow["edges"].([]any), map[string]any{"from": "draft", "to": "db_review", "on": "completed"})
+
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate shared resources workflow: %v", err)
+	}
+	plan, err := Plan(workflow)
+	if err != nil {
+		t.Fatalf("Plan shared resources workflow: %v", err)
+	}
+	foundPlannedResource := false
+	for _, step := range plan["claim_order"].([]map[string]any) {
+		for _, planned := range step["claimable"].([]map[string]any) {
+			if planned["job_id"] != "review" {
+				continue
+			}
+			resources := planned["shared_resources"].([]map[string]any)
+			if len(resources) == 1 && resources[0]["id"] == "postgres:test-db" && resources[0]["mode"] == "exclusive" {
+				foundPlannedResource = true
+			}
+		}
+	}
+	if !foundPlannedResource {
+		t.Fatalf("planned job did not surface shared_resources: %#v", plan["claim_order"])
+	}
+	if !lintRuleSet(t, workflow)["parallel_shared_resource_contention"] {
+		t.Fatalf("expected parallel_shared_resource_contention warning")
+	}
+}
+
+func TestValidateRejectsInvalidSharedResources(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["shared_resources"] = []any{map[string]any{
+		"id":   "postgres:test-db",
+		"mode": "per_lane_namespace",
+	}}
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "requires namespace") {
+		t.Fatalf("Validate per_lane_namespace without namespace error = %v", err)
+	}
+}
+
+func TestLintAllowsDistinctSharedResourceNamespaces(t *testing.T) {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["parallel_group"] = "db_reviews"
+	review["shared_resources"] = []any{map[string]any{
+		"id":        "postgres:test-db",
+		"mode":      "per_lane_namespace",
+		"namespace": "review_a",
+	}}
+	jobs = append(jobs, map[string]any{
+		"id":                     "db_review",
+		"type":                   "review",
+		"role_id":                "reviewer",
+		"lane_id":                "codex",
+		"parallel_group":         "db_reviews",
+		"fresh_session_required": true,
+		"shared_resources": []any{map[string]any{
+			"id":        "postgres:test-db",
+			"mode":      "per_lane_namespace",
+			"namespace": "review_b",
+		}},
+		"write_scope": map[string]any{
+			"mode":            "review_only_artifact",
+			"allowed_paths":   []any{"reviews/db/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": "db_review",
+			"kind":         "finding",
+			"path":         "reviews/db/REVIEW.md",
+			"required":     true,
+		}},
+	})
+	workflow["jobs"] = jobs
+	workflow["edges"] = append(workflow["edges"].([]any), map[string]any{"from": "draft", "to": "db_review", "on": "completed"})
+
+	if lintRuleSet(t, workflow)["parallel_shared_resource_contention"] {
+		t.Fatalf("distinct per-lane shared resource namespaces must not warn")
+	}
+}
+
 func TestLintReportsReviewDiversityFindingsWithFingerprints(t *testing.T) {
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)

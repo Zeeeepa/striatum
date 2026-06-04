@@ -40,6 +40,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintSameModelReviewPairs(workflow, jobMap, &findings)
 	lintReviewFreshness(jobMap, &findings)
 	lintWriteScopeRisk(workflow, jobMap, &findings)
+	lintParallelSharedResources(jobMap, &findings)
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
 	lintDeprecatedClaudePrintLane(workflow, &findings)
@@ -264,6 +265,101 @@ func lintWriteScopeRisk(workflow map[string]any, jobMap map[string]map[string]an
 	}
 }
 
+type sharedResourceClaim struct {
+	jobID     string
+	mode      string
+	namespace string
+}
+
+func lintParallelSharedResources(jobMap map[string]map[string]any, findings *[]map[string]any) {
+	groups := map[string][]map[string]any{}
+	for _, jobID := range sortedJobIDs(jobMap) {
+		job := jobMap[jobID]
+		group := stringValue(job["parallel_group"])
+		if group == "" {
+			continue
+		}
+		groups[group] = append(groups[group], job)
+	}
+	for _, group := range sortedKeys(groups) {
+		claimsByResource := map[string][]sharedResourceClaim{}
+		for _, job := range groups[group] {
+			jobID := stringValue(job["id"])
+			for _, resource := range plannedSharedResources(job) {
+				id := stringValue(resource["id"])
+				if id == "" {
+					continue
+				}
+				claimsByResource[id] = append(claimsByResource[id], sharedResourceClaim{
+					jobID:     jobID,
+					mode:      defaultString(resource["mode"], "exclusive"),
+					namespace: stringValue(resource["namespace"]),
+				})
+			}
+		}
+		for _, resourceID := range sortedKeysFromClaims(claimsByResource) {
+			claims := claimsByResource[resourceID]
+			if len(claims) < 2 {
+				continue
+			}
+			if exclusiveSharedResourceJobs(claims, group, resourceID, findings) {
+				continue
+			}
+			namespaceSharedResourceJobs(claims, group, resourceID, findings)
+		}
+	}
+}
+
+func exclusiveSharedResourceJobs(claims []sharedResourceClaim, group string, resourceID string, findings *[]map[string]any) bool {
+	hasExclusive := false
+	jobIDs := []string{}
+	for _, claim := range claims {
+		if claim.mode == "exclusive" {
+			hasExclusive = true
+		}
+		jobIDs = append(jobIDs, claim.jobID)
+	}
+	if !hasExclusive {
+		return false
+	}
+	sort.Strings(jobIDs)
+	*findings = append(*findings, map[string]any{
+		"rule":           "parallel_shared_resource_contention",
+		"severity":       "warning",
+		"message":        "parallel group '" + group + "' has jobs sharing exclusive resource '" + resourceID + "'; serialize those jobs or declare distinct per-lane namespaces",
+		"parallel_group": group,
+		"resource_id":    resourceID,
+		"job_ids":        jobIDs,
+	})
+	return true
+}
+
+func namespaceSharedResourceJobs(claims []sharedResourceClaim, group string, resourceID string, findings *[]map[string]any) {
+	byNamespace := map[string][]string{}
+	for _, claim := range claims {
+		if claim.mode != "per_lane_namespace" || claim.namespace == "" {
+			continue
+		}
+		byNamespace[claim.namespace] = append(byNamespace[claim.namespace], claim.jobID)
+	}
+	for _, namespace := range sortedKeysFromStringSlices(byNamespace) {
+		jobIDs := byNamespace[namespace]
+		if len(jobIDs) < 2 {
+			continue
+		}
+		sort.Strings(jobIDs)
+		*findings = append(*findings, map[string]any{
+			"rule":           "parallel_shared_resource_contention",
+			"severity":       "warning",
+			"message":        "parallel group '" + group + "' has jobs sharing resource '" + resourceID + "' namespace '" + namespace + "'; use distinct namespaces or serialize the jobs",
+			"parallel_group": group,
+			"resource_id":    resourceID,
+			"namespace":      namespace,
+			"job_ids":        jobIDs,
+		})
+	}
+}
+
 func lintMissingEscalationPath(workflow map[string]any, jobMap map[string]map[string]any, findings *[]map[string]any) {
 	hasReview := false
 	for _, job := range jobMap {
@@ -340,8 +436,8 @@ func lintExperimentalShape(workflow map[string]any, findings *[]map[string]any) 
 	*findings = append(*findings, map[string]any{
 		"rule":     "experimental_shape",
 		"severity": "warning",
-		"message": fmt.Sprintf("workflow shape %q is experimental: it has no unattended-reliability gate (RFC 0105), so a multi-lane / revision run may wedge without recovery — expect to supervise it, or choose a `supported` shape. See RFC 0106.", shape),
-		"shape":   shape,
+		"message":  fmt.Sprintf("workflow shape %q is experimental: it has no unattended-reliability gate (RFC 0105), so a multi-lane / revision run may wedge without recovery — expect to supervise it, or choose a `supported` shape. See RFC 0106.", shape),
+		"shape":    shape,
 	})
 }
 
@@ -632,4 +728,22 @@ func sortedJobIDs(jobMap map[string]map[string]any) []string {
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+func sortedKeysFromClaims(values map[string][]sharedResourceClaim) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedKeysFromStringSlices(values map[string][]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

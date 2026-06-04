@@ -113,7 +113,8 @@ structural edits.
 `task_prompt`, `inputs`, `write_scope` (`allowed_paths`,
 `forbidden_paths`), `expected_artifacts` (`logical_name`, `kind`,
 `path`, `required`), `fresh_session_required`, and
-`parallel_group`.
+`parallel_group`. Jobs that mutate a shared external fixture such as a
+test database may also declare `shared_resources`.
 
 ## Choose lanes deliberately
 
@@ -147,6 +148,13 @@ Common lane sets:
 - **worktree-isolated lane**: a repo-write lane with
   `worktree_isolation: "per_job"` when parallel writes need isolated
   git worktrees.
+- **shared external fixtures**: jobs in a `parallel_group` that use the same
+  mutable database, device, or fixture should declare `shared_resources`. Use
+  string entries for exclusive resources, or object entries with
+  `mode: "per_lane_namespace"` and a distinct `namespace` when the workflow
+  provisions separate fixtures. `workflow lint` warns when parallel jobs share
+  an exclusive resource or reuse a namespace, and work packets surface the
+  hazard under `context.shared_resources`.
 - **constrained lane**: a lane with `constraints` and
   `required_enforcement` when network, transcript, or repo-scope policy
   should be visible and validation-checked.
