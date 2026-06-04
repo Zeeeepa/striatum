@@ -13,6 +13,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // RFC 0109 P3 — the installed-CLI adapter-conformance gate. RunLive (runner.go)
@@ -40,26 +41,42 @@ type InstalledCLIOptions struct {
 	// RunTimeout bounds the whole two-turn cycle. Defaults to 4m (the lane is a
 	// real LLM CLI). Callers may shorten it for fast red iteration.
 	RunTimeout time.Duration
+	// AfterFirstWorkPacket runs once after work.await_packet returns the first
+	// leased packet to the installed CLI. It is intended for harness-only chaos
+	// cells such as restarting daemon-facing surfaces while the seat owns a lease.
+	AfterFirstWorkPacket func(context.Context, InstalledCLIFirstWorkPacket) error
+}
+
+// InstalledCLIFirstWorkPacket is the observation passed to
+// InstalledCLIOptions.AfterFirstWorkPacket.
+type InstalledCLIFirstWorkPacket struct {
+	Harness      *Harness
+	RepositoryID string
+	RunID        string
+	JobID        string
+	SessionID    string
 }
 
 // InstalledCLIReport is the observed outcome of a two-turn installed-CLI seat
 // run. Failures is empty only when both turns completed under the single
 // pre-seeded attested session.
 type InstalledCLIReport struct {
-	Adapter      string
-	Command      []string
-	SeatSession  string
-	SessionCount int
-	SessionIDs   []string
-	Job1State    string
-	Job2State    string
-	Job1Owner    string
-	Job2Owner    string
-	Artifact1    bool
-	Artifact2    bool
-	RunErr       error
-	Output       string
-	Failures     []string
+	Adapter                       string
+	Command                       []string
+	SeatSession                   string
+	SessionCount                  int
+	SessionIDs                    []string
+	Job1State                     string
+	Job2State                     string
+	Job1Owner                     string
+	Job2Owner                     string
+	Artifact1                     bool
+	Artifact2                     bool
+	RunErr                        error
+	Output                        string
+	AfterFirstWorkPacketTriggered bool
+	AfterFirstWorkPacketErr       error
+	Failures                      []string
 }
 
 // Passed reports whether the seat held across both turns (the #95 gate, plus the
@@ -113,6 +130,10 @@ func RunInstalledCLI(t *testing.T, h *Harness, adapter string, opts InstalledCLI
 	t.Setenv(agentloop.EnvDaemonMCPHTTPEndpointFile, "")
 
 	report := InstalledCLIReport{Adapter: adapter, Command: command, SeatSession: fx.SeatSession}
+	var hook *installedCLIHook
+	if opts.AfterFirstWorkPacket != nil {
+		hook = installAfterFirstWorkPacketHook(t, h, fx, opts.AfterFirstWorkPacket)
+	}
 
 	runCtx, cancel := context.WithCancel(bg)
 	defer cancel()
@@ -173,6 +194,15 @@ loop:
 	// Reset Failures and assert the gate from the collected state, so a clean
 	// run that broke the poll loop on completion is judged solely on final state.
 	report.Failures = report.Failures[:0]
+	if hook != nil {
+		report.AfterFirstWorkPacketTriggered, report.AfterFirstWorkPacketErr = hook.result(15 * time.Second)
+		if !report.AfterFirstWorkPacketTriggered {
+			report.Failures = append(report.Failures, "after-first-work-packet hook did not run; the restart-while-leased cell never observed the first leased packet")
+		}
+		if report.AfterFirstWorkPacketErr != nil {
+			report.Failures = append(report.Failures, fmt.Sprintf("after-first-work-packet hook failed: %v", report.AfterFirstWorkPacketErr))
+		}
+	}
 	if report.Job1State != "completed" {
 		report.Failures = append(report.Failures, fmt.Sprintf(
 			"turn 1 job state=%q (want completed): the seat never claimed+published+completed its first packet — trust/feedback prompt (#76/#139) or MCP-discovery stall (#85) likely blocked launch/claim", report.Job1State))
@@ -190,6 +220,72 @@ loop:
 			"turn 2 was driven by session %q, not the pre-seeded attested seat %q (#95)", report.Job2Owner, fx.SeatSession))
 	}
 	return report
+}
+
+type installedCLIHook struct {
+	triggered chan struct{}
+	done      chan error
+}
+
+func installAfterFirstWorkPacketHook(t *testing.T, h *Harness, fx *installedCLISeatFixture, hook func(context.Context, InstalledCLIFirstWorkPacket) error) *installedCLIHook {
+	t.Helper()
+	original, ok := h.Server.Handlers["work.await_packet"]
+	if !ok {
+		t.Fatalf("work.await_packet handler is not registered")
+	}
+	state := &installedCLIHook{
+		triggered: make(chan struct{}, 1),
+		done:      make(chan error, 1),
+	}
+	var once sync.Once
+	h.Server.Register("work.await_packet", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		res, err := original(ctx, envelope)
+		if err == nil && workPacketForJob(res, fx.Job1ID) {
+			once.Do(func() {
+				state.triggered <- struct{}{}
+				go func() {
+					state.done <- hook(context.Background(), InstalledCLIFirstWorkPacket{
+						Harness:      h,
+						RepositoryID: fx.RepositoryID,
+						RunID:        fx.RunID,
+						JobID:        fx.Job1ID,
+						SessionID:    fx.SeatSession,
+					})
+				}()
+			})
+		}
+		return res, err
+	})
+	return state
+}
+
+func workPacketForJob(res map[string]any, jobID string) bool {
+	if fmt.Sprint(res["type"]) != "work_packet" {
+		return false
+	}
+	packet, ok := res["packet"].(map[string]any)
+	if !ok {
+		return false
+	}
+	job, ok := packet["job"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return fmt.Sprint(job["job_id"]) == jobID
+}
+
+func (h *installedCLIHook) result(timeout time.Duration) (bool, error) {
+	select {
+	case <-h.triggered:
+	default:
+		return false, nil
+	}
+	select {
+	case err := <-h.done:
+		return true, err
+	case <-time.After(timeout):
+		return true, fmt.Errorf("hook did not finish within %s", timeout)
+	}
 }
 
 // installedCLISeatFixture is the two-turn, single-attested-session fixture.
