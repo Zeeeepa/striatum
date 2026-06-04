@@ -2,18 +2,61 @@ package db
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
+// AuditHashFormatV2 / V3 are the two audit row hash formats. The active format
+// is an operator-committed flag read once at daemon bootstrap (RFC 0110 §5.2);
+// it defaults to v2 so the v3 cutover is a deliberate, reversible flip.
+const (
+	AuditHashFormatV2 = "v2"
+	AuditHashFormatV3 = "v3"
+)
+
+// authorityRuntimeState is the process-level authority configuration set once at
+// daemon bootstrap (BootstrapAuthority): the per-instance daemon-authority
+// secret the prelude presents, and the active audit hash format.
+type authorityRuntimeState struct {
+	secret     string
+	hashFormat string
+}
+
+var authorityRuntime atomic.Pointer[authorityRuntimeState]
+
+// SetAuthorityRuntime installs the process authority configuration. Called once
+// at bootstrap; an empty secret + v2 format reproduces the pre-activation
+// (slice-1) behavior. A blank hashFormat is normalized to v2.
+func SetAuthorityRuntime(secret, hashFormat string) {
+	if hashFormat == "" {
+		hashFormat = AuditHashFormatV2
+	}
+	authorityRuntime.Store(&authorityRuntimeState{secret: secret, hashFormat: hashFormat})
+}
+
+func currentAuthorityRuntime() authorityRuntimeState {
+	if state := authorityRuntime.Load(); state != nil {
+		return *state
+	}
+	return authorityRuntimeState{hashFormat: AuditHashFormatV2}
+}
+
+// AuditHashFormat returns the active audit hash format ("v2" until an operator
+// flips the cutover and the daemon re-bootstraps).
+func AuditHashFormat() string {
+	return currentAuthorityRuntime().hashFormat
+}
+
 // AuthorityFromContext builds the authority/attribution context for a mutation
-// transaction from the dispatch-threaded AuthContext and envelope. The secret
-// is empty in release N (no authority registry yet); the labels are best-effort
-// — absent in direct handler unit tests, which the prelude tolerates. Both the
-// mutations withTx chokepoint and the admin token handlers build their
-// AuthorityContext through here so attribution is sourced one way.
+// transaction from the dispatch-threaded AuthContext and envelope, plus the
+// process authority secret. The secret is empty until the daemon bootstraps an
+// authority registry (slice 2); the labels are best-effort — absent in direct
+// handler unit tests, which the prelude tolerates. Both the mutations withTx
+// chokepoint and the admin token handlers build their AuthorityContext through
+// here so authority + attribution are sourced one way.
 func AuthorityFromContext(ctx context.Context) AuthorityContext {
-	attr := AuthorityContext{}
+	attr := AuthorityContext{Secret: currentAuthorityRuntime().secret}
 	if auth, ok := rpc.AuthFromContext(ctx); ok {
 		attr.PrincipalID = auth.ClientID
 		attr.SessionID = auth.SessionID

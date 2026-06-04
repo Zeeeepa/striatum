@@ -12,7 +12,13 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// sqlStateInvalidAuthorization is SQLSTATE 28000, raised by
+// assert_daemon_authority when the presented secret is missing or no longer
+// matches a registry digest (RFC 0110 §4.5).
+const sqlStateInvalidAuthorization = "28000"
 
 func CanonicalHash(payload any) (string, error) {
 	body, err := json.Marshal(payload)
@@ -209,7 +215,45 @@ func (a AuditRecorder) RecordRPCTransport(
 // with the mutation it records, so success-without-audit-row is impossible by
 // construction. Callers hold the transaction; this never commits or rolls back.
 func AppendAuditInTx(ctx context.Context, tx TxRunner, meta AuditMeta) (string, error) {
+	if AuditHashFormat() == AuditHashFormatV3 {
+		return appendAuditRowV3(ctx, tx, meta)
+	}
 	return appendAuditRow(ctx, tx, meta)
+}
+
+// appendAuditRowV3 routes the append through the owner-owned SECURITY DEFINER
+// striatumd.append_audit_row, which asserts daemon authority (against the secret
+// the prelude already set in this transaction), computes the v3 hash in-DB, and
+// chains the row — all atomic with the caller's mutation (RFC 0110 §4.4, §5.2).
+// A lost/again-rotated authority surfaces as a structured daemon_auth_lost
+// (§4.5) rather than a bare 28000.
+func appendAuditRowV3(ctx context.Context, tx TxRunner, meta AuditMeta) (string, error) {
+	auditID, err := tx.QueryScalar(
+		ctx,
+		`SELECT striatumd.append_audit_row($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		meta.DaemonVersion,
+		nullString(meta.ClientID),
+		nullString(meta.RepositoryID),
+		meta.Method,
+		meta.Decision,
+		nullString(meta.DenialReason),
+		meta.Transport,
+		meta.RequestID,
+		meta.OK,
+		meta.ParamsSHA256,
+	)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == sqlStateInvalidAuthorization {
+			return "", rpc.NewError(
+				"daemon_auth_lost",
+				"daemon authority is no longer valid (registry row missing/superseded — restart the daemon to re-bootstrap, or check for a concurrent rotator)",
+				map[string]any{"sqlstate": sqlStateInvalidAuthorization},
+			)
+		}
+		return "", fmt.Errorf("append_audit_row (v3): %w", err)
+	}
+	return auditID, nil
 }
 
 // buildAuditMeta assembles an AuditMeta from an RPC envelope/auth and an outcome.
