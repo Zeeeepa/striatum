@@ -26,6 +26,47 @@ multi-run extension of the RFC 0105 reliability harness. New
   isolation-by-default), so the shared-checkout hazard is surfaced, never
   silently allowed.
 
+## v2.18.0 — 2026-06-04
+
+### RFC 0110 Release N+1 (slice 2) — L0 rotation + R-V3 cutover mechanism (default v2)
+
+The live-activation mechanism for the daemon→PostgreSQL write boundary, behind
+an operator-committed flag **defaulting to v2**. Still additive and live-safe:
+the mechanism is **inert unless the owner bundle is applied** (the live daemon
+has no bundle, so it is unchanged), and the v3 flip is a deliberate operator
+step — this release does not flip any running daemon.
+
+- **L0 credential bootstrap** (`db.BootstrapAuthority`, RFC 0110 §9): at startup,
+  over an owner connection, the daemon generates + registers a per-instance
+  `crypto/rand` authority secret (digest in `daemon_auth_registry`) and, in the
+  two-role posture, rotates the runtime password (`ALTER ROLE`) and reconnects
+  with it. Single-role (owner==runtime) skips rotation
+  (`rotation_skipped_single_role`). Fail-closed on any owner-connection failure
+  (`daemon_pg_owner_bootstrap_failed`, §9.2). Role-scoped rotator probe (§9.4).
+- **The daemon presents its secret**: the in-transaction prelude now carries the
+  live secret (`AuthorityFromContext` + the process `AuthorityRuntime`), so
+  authorized mutations satisfy `assert_daemon_authority`.
+- **R-V3 cutover** (`audit.hash_format` flag, `--audit-hash-format` /
+  `STRIATUM_AUDIT_HASH_FORMAT`, **default v2**, §5.2): when set to `v3` the
+  daemon's audit append routes through the SD `append_audit_row` (v3 in-DB hash,
+  authority-asserted, atomic with the mutation); `v2` keeps the Go path. A
+  lost/superseded registry surfaces a structured `daemon_auth_lost` (§4.5).
+- **doctor** surfaces the live authority posture (rotation, `audit_hash_format`,
+  rotator collision); never reads the secret.
+
+**Operator runbook — the v3 flip (forward-only) and rollback:** (1) apply the
+owner bundle (`striatum daemon owner-ddl apply`); (2) restart the daemon (it
+registers its secret; still v2); (3) set `--audit-hash-format=v3` and restart to
+cut over. Rollback before the flip is a two-way door (restart with the flag
+unset/v2 — no v3 row was produced). After the flip, v3 rows exist and the format
+is forward-only; a uniform post-flip `VerifyRows` failure indicates clock/format
+skew (see the spec R-V3 checklist), an isolated failure indicates tamper.
+
+Gates: T-ROLLBACK-POSTURE, T-PRELUDE-OBSERVER, T-AUTH-LIVENESS, T-OWNER-FAILCLOSED,
+T-DOCTOR-SINGLEROLE, T-ROTATOR-SCOPE, two-role rotation+reconnect (TCP). Deferred:
+the operator-driven live v3 flip; P1/P2 surface closure; `#88-dynamic-creds`;
+L2 (#87).
+
 ## v2.17.0 — 2026-06-04
 
 ### RFC 0110 Release N+1 (slice 1) — authority schema + v3 hash (additive, opt-in)
