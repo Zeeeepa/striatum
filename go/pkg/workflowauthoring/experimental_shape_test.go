@@ -8,7 +8,7 @@ import "testing"
 
 func TestLintWarnsOnExperimentalShape(t *testing.T) {
 	wf := validWorkflow()
-	wf["shape"] = "falsification_gate" // experimental: no RFC 0105 fixture
+	wf["shape"] = "cross_examination" // experimental: no RFC 0105 fixture
 	if !lintRuleSet(t, wf)["experimental_shape"] {
 		t.Fatalf("expected experimental_shape warning for an experimental-shape workflow")
 	}

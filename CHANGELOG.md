@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.26.0 — 2026-06-04
+
 ### RFC 0110 §10 — pgtest consumes the production grant surface (C-PGTEST-NO-DML-GRANT)
 
 `pgtest` no longer hand-builds the unprivileged role's DML with imperative
@@ -19,6 +21,34 @@ created before migrate so that provisioning fires on each test database.
 - `TestPrivilegeRevocation` still proves `UPDATE`/`DELETE` on `events`/`artifacts`
   is denied (`42501`) — now via the inherited production revokes, not a hand-built
   one. Test-only change; no product behavior change.
+
+### RFC 0106 Phase 4 — `falsification_gate` graduates `experimental → supported` (D168)
+
+The second workflow shape to clear the RFC 0106 graduation gate (after
+`implementation_panel`, D166/v2.24.0). A new RFC 0105 reliability fixture,
+`go/pkg/adapterconformance/falsification_gate_test.go`, drives the dialogue-chain
+graph (holder → falsifier_1 → falsifier_2 → adjudicator gate → commit → final)
+through the production claim/ack/complete + `review.verdict` handlers and the real
+`mutations.SweepRun`:
+
+- **Happy cell:** a `needs_revision` verdict on the adjudicator gate transitively
+  re-blocks the WHOLE downstream chain — `falsifier_2` (depth 1) AND the gate
+  itself (depth 2), both attempt-bumped — exercising
+  `resetDownstreamForRevision`'s recursive downstream re-block past the depth-1
+  base case the single-job review-cycle fixture (`lifecycle_revision_test.go`)
+  stops at. The chain then re-cascades to a clearing verdict and the run completes
+  unattended.
+- **Fault cell:** a hard dead lane injected into a MIDDLE dialogue node
+  (`falsifier_2`) DURING the revision re-cascade is requeued by the recovery sweep
+  on the same attempt while the gate stays blocked (the re-cascade is not lost); a
+  fresh lane finishes it and the run reaches `completed` with zero escalations.
+
+Both maps flipped (`workflowtemplates.supportedShapes` +
+`adapterconformance.ReliabilityFixtureShapes`, reconciled by the bidirectional
+guard `TestSupportedShapesHaveReliabilityFixture`);
+`docs/reference/workflow-catalog.md` regenerated; the `experimental_shape` lint
+test repointed to `cross_examination`. The RFC 0106 new-shape FREEZE stays in
+force — this graduates an EXISTING shape, it does not lift the freeze.
 
 ## v2.25.0 — 2026-06-04
 

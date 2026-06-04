@@ -417,10 +417,15 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 //   - the fan-out/join panel lifecycle (implementation_panel_test.go) underwrites
 //     `implementation_panel` — the only one of these whose distinctive structure
 //     (3-way fan-out + multi-predecessor join + parallel-branch fault recovery)
-//     none of the other fixtures exercises.
+//     none of the other fixtures exercises;
+//   - the multi-job dialogue-chain revision re-cascade (falsification_gate_test.go)
+//     underwrites `falsification_gate` — its needs_revision cycle re-opens the
+//     whole chain, transitively re-blocking the gate (depth 2) past the depth-1
+//     single-job reopen the review-cycle fixture exercises, and recovers a hard
+//     dead lane in a MIDDLE dialogue node mid-re-cascade.
 //
 // The remaining collaboration / interrogation shapes (conversation,
-// falsification_gate, cross_examination, adjudicated_constraint_extraction,
+// cross_examination, adjudicated_constraint_extraction,
 // iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
 // deliberately have NO entry here and therefore stay `experimental` until a
 // fixture proves them.
@@ -430,4 +435,5 @@ var ReliabilityFixtureShapes = map[string]bool{
 	"code_change":            true,
 	"multi_review_synthesis": true,
 	"implementation_panel":   true,
+	"falsification_gate":     true,
 }
