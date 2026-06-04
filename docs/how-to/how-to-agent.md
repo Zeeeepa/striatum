@@ -152,7 +152,8 @@ for the required-field list per kind.
 The byline rule (D053-related): if your artifact's title block
 includes an `author:` line, it must exactly match the lowercase
 byline supplied in `expected_artifacts[].author_line`. Do not
-derive bylines from job titles.
+derive bylines from job titles. The packet's byline is safe to paste
+directly into YAML front matter as an unquoted `author:` scalar.
 
 ## Long-lived (supervised) sessions
 

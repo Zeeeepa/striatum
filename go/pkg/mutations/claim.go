@@ -912,7 +912,7 @@ func operatorAuthorLine(operatorLabel string) string {
 	if operatorLabel == "" || operatorLabel == "<nil>" {
 		return "author: operator"
 	}
-	return fmt.Sprintf("author: operator [self-declared: %s]", operatorLabel)
+	return fmt.Sprintf("author: operator-self-declared-%s", operatorLabel)
 }
 
 func intValue(value any) int {

@@ -35,6 +35,20 @@ func TestInstallSkillsClaudeCode(t *testing.T) {
 	if strings.Contains(string(body), "{striatum_version}") || strings.Contains(string(body), "{verbs_") {
 		t.Fatalf("rendered skill has unexpanded placeholders")
 	}
+	claimLoopPath := filepath.Join(home, ".claude", "skills", "striatum-claim-loop", "SKILL.md")
+	claimLoop, err := os.ReadFile(claimLoopPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimLoopText := string(claimLoop)
+	for _, want := range []string{"striatum.finding.v1", "verdict_intent:", "striatum.collaboration_ledger.v1", "expected_artifacts[].author_line", "lease.heartbeat_after_seconds"} {
+		if !strings.Contains(claimLoopText, want) {
+			t.Fatalf("rendered claim-loop skill missing %q:\n%s", want, claimLoopText)
+		}
+	}
+	if strings.Contains(claimLoopText, "{front_matter_schema_skeletons}") {
+		t.Fatalf("rendered claim-loop skill has unexpanded schema placeholder")
+	}
 
 	// Manifest carries the version stamp doctor reads.
 	doc := loadManifest(result.ManifestPath, skillsManifestSchema)

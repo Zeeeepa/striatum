@@ -459,10 +459,13 @@ unattested rather than silently upgraded.
 Attestation is not model-token authorship proof and is not source-byte
 provenance. It means only that the runner has a live process binding for
 the declared lane. Unattested sessions publish under `author: operator`
-or, when registered with `--operator-label <label>`, under
-`author: operator [self-declared: <label>]`. Operator labels must match
+or, when registered with `--operator-label <label>`, under the YAML-safe
+form `author: operator-self-declared-<label>`. Operator labels must match
 `^[a-z0-9._-]{1,64}$` and may not be reserved attestation terms, lane
-ids, or role/model/ordinal-shaped bylines.
+ids, or role/model/ordinal-shaped bylines. Older packets may contain the
+historical title-block form `author: operator [self-declared: <label>]`;
+the publisher canonicalizes that legacy form to the current YAML-safe
+line when it appears outside front matter, but new packets do not emit it.
 
 The runner records the **actual** `author:` line read from each published
 Markdown artifact in `artifacts.author_line`; when the file omits the

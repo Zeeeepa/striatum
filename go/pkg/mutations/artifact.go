@@ -663,7 +663,25 @@ func canonicalBylineForm(line string) string {
 	if !strings.HasPrefix(strings.ToLower(stripped), "author:") {
 		return ""
 	}
-	return "author: " + strings.ToLower(strings.TrimSpace(strings.SplitN(stripped, ":", 2)[1]))
+	value := strings.ToLower(strings.TrimSpace(strings.SplitN(stripped, ":", 2)[1]))
+	value = strings.TrimSpace(strings.Trim(value, `"'`))
+	if label, ok := legacyOperatorSelfDeclaredLabel(value); ok {
+		return operatorAuthorLine(label)
+	}
+	return "author: " + value
+}
+
+func legacyOperatorSelfDeclaredLabel(value string) (string, bool) {
+	const prefix = "operator [self-declared:"
+	const suffix = "]"
+	if !strings.HasPrefix(value, prefix) || !strings.HasSuffix(value, suffix) {
+		return "", false
+	}
+	label := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, prefix), suffix))
+	if label == "" {
+		return "", false
+	}
+	return label, true
 }
 
 func errorsIsNoRows(err error) bool {

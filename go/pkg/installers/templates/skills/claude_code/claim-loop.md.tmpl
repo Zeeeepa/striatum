@@ -47,6 +47,11 @@ has `worktree_required: true`, call `worktree.create` before
 for these MCP arguments.
 ```
 
+While working a single packet, call `work.heartbeat` periodically during long
+local work such as source reading, edits, tests, or external review. Honor the
+packet's `lease.heartbeat_after_seconds`; a lease that stops heartbeating can be
+classified as stalled even while you are active locally.
+
 ## Front-matter kinds (V1)
 
 When publishing Markdown artifacts whose kind has a registered
@@ -56,6 +61,11 @@ allowed kinds in this runner version are:
 {front_matter_kinds_list}
 
 The publisher refuses invalid front matter with exit code 6.
+
+Paste `expected_artifacts[].author_line` exactly when you include `author:`
+in front matter. Common schema skeletons:
+
+{front_matter_schema_skeletons}
 
 ## Where to look next
 

@@ -99,12 +99,47 @@ func TestRenderHelpSessionCloseListsRequiredReason(t *testing.T) {
 	}
 }
 
+// Consumer-repo agents should be able to run `striatum <work-loop-verb> --help`
+// without opening the source repo or command-authority matrix (#159).
+func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
+	cases := []struct {
+		args []string
+		want []string
+	}{
+		{[]string{"claim-next"}, []string{"<session-id>", "--lease-seconds"}},
+		{[]string{"publish-artifact"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<kind>", "<logical-name>", "<path>", "--allow-no-process-execution"}},
+		{[]string{"submit-review"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<path>", "accept|accept_with_findings|needs_revision|reject", "--logical-name", "--kind"}},
+		{[]string{"complete"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--summary"}},
+		{[]string{"worktree", "create"}, []string{"<session-id>", "<job-id>", "<lease-id>"}},
+	}
+	for _, tc := range cases {
+		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
+			route, _, ok := Lookup(tc.args)
+			if !ok {
+				t.Fatalf("route not found for %v", tc.args)
+			}
+			help := route.RenderHelp()
+			if strings.Contains(help, "flags are derived from the daemon method") {
+				t.Fatalf("help fell back to generic matrix pointer:\n%s", help)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(help, want) {
+					t.Fatalf("help missing %q:\n%s", want, help)
+				}
+			}
+		})
+	}
+}
+
 // Every operator verb named in issue #63 F9 must have a usage descriptor so
 // `--help` lists its flags instead of surfacing them only as runtime errors.
 func TestUsageCoversIssue63Verbs(t *testing.T) {
 	for _, group := range []string{
 		"supervise_start", "supervise_stop", "supervise_status", "supervise_send",
 		"register_session", "checkpoint_resolve", "repo_add",
+		"claim_next", "ack", "heartbeat", "release", "send", "block",
+		"complete", "publish_artifact", "verdict", "submit_review",
+		"worktree_create", "worktree_release",
 	} {
 		if _, ok := UsageFor(group); !ok {
 			t.Fatalf("missing usage descriptor for %q", group)

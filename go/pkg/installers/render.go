@@ -3,6 +3,8 @@ package installers
 import (
 	"fmt"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 )
 
 // renderContext is the small set of values consumed by template rendering.
@@ -32,6 +34,7 @@ func expandHelpers(raw string) string {
 	out = strings.ReplaceAll(out, "{verbs_recover}", renderVerbs("recover"))
 	out = strings.ReplaceAll(out, "{boundaries_bulletlist}", renderBullets(boundaries))
 	out = strings.ReplaceAll(out, "{front_matter_kinds_list}", renderBullets(frontMatterKinds))
+	out = strings.ReplaceAll(out, "{front_matter_schema_skeletons}", renderFrontMatterSchemaSkeletons())
 	return out
 }
 
@@ -53,6 +56,21 @@ func renderBullets(values []string) string {
 		lines = append(lines, "- "+value)
 	}
 	return strings.Join(lines, "\n")
+}
+
+func renderFrontMatterSchemaSkeletons() string {
+	lines := make([]string, 0, len(frontMatterSkeletonKinds))
+	for _, kind := range frontMatterSkeletonKinds {
+		skeleton, ok := artifactcontracts.Skeleton(kind)
+		if !ok {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("### `%s`\n\n```yaml\n%s\n```", kind, skeleton))
+	}
+	if len(lines) == 0 {
+		return "_No registered front-matter schemas._"
+	}
+	return strings.Join(lines, "\n\n")
 }
 
 // formatMap emulates the subset of Python str.format_map the templates rely on:

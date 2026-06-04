@@ -43,6 +43,116 @@ type Usage struct {
 // Only groups with an entry here render a full `--help`; others fall back to a
 // generic synopsis derived from the route metadata.
 var usageByGroup = map[string]Usage{
+	"claim_next": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "active session that should claim the next eligible work packet"},
+			{Name: "lease-seconds", Help: "lease duration for the claim; defaults to 3600 seconds"},
+		},
+	},
+	"ack": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session that claimed the packet"},
+			{Name: "message-id", Positional: true, Required: true, Help: "claimed work message id from the packet"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease id from the packet"},
+		},
+	},
+	"heartbeat": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session that owns the active lease"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease to extend"},
+			{Name: "extend-seconds", Help: "new lease extension window; defaults to 1800 seconds"},
+		},
+	},
+	"release": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session that owns the active lease"},
+			{Name: "message-id", Positional: true, Help: "claimed work message id; optional when --lease-id is supplied"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease to release"},
+			{Name: "reason", Help: "release reason recorded on the lease; defaults to released"},
+			{Name: "requeue", Bool: true, Help: "return non-repo-write work to the queue on the same attempt"},
+			{Name: "transfer", Bool: true, Help: "operator-inspected repo-write transfer that returns work to the queue on the same attempt"},
+		},
+		Notes: []string{
+			"When omitting message-id, pass --lease-id explicitly; positional release arguments are session-id, message-id, lease-id.",
+		},
+	},
+	"send": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "sending session"},
+			{Name: "kind", Positional: true, Required: true, Help: "message kind to enqueue"},
+			{Name: "body-json", Help: "JSON body for the agent message; defaults to an empty object"},
+		},
+	},
+	"block": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session reporting the blocker"},
+			{Name: "job-id", Positional: true, Required: true, Help: "job being blocked"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "kind", Required: true, Help: "blocker kind matching ^[a-z0-9._-]{1,64}$"},
+			{Name: "severity", Required: true, Values: []string{"blocked", "human_checkpoint"}, Help: "blocked keeps the run autonomous; human_checkpoint waits for the human principal"},
+			{Name: "description", Required: true, Help: "plain-text blocker description, at most 8000 characters"},
+		},
+	},
+	"complete": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session completing the job"},
+			{Name: "job-id", Positional: true, Required: true, Help: "job to complete"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "summary", Help: "short completion summary recorded in the event payload"},
+		},
+	},
+	"publish_artifact": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session publishing the artifact"},
+			{Name: "job-id", Positional: true, Required: true, Help: "job that owns the artifact"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "kind", Positional: true, Required: true, Help: "artifact kind declared in expected_artifacts"},
+			{Name: "logical-name", Positional: true, Required: true, Help: "logical artifact name declared in expected_artifacts"},
+			{Name: "path", Positional: true, Required: true, Help: "repo-relative artifact path inside write_scope.allowed_paths"},
+			{Name: "allow-no-process-execution", Bool: true, Help: "operator override for missing process execution evidence"},
+			{Name: "override-rationale", Help: "required rationale for --allow-no-process-execution"},
+		},
+		Notes: []string{
+			"Markdown artifacts with front matter must satisfy the kind's schema and any author line must exactly match expected_artifacts[].author_line.",
+		},
+	},
+	"verdict": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "review session recording the verdict"},
+			{Name: "job-id", Positional: true, Required: true, Help: "review job"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the review job"},
+			{Name: "verdict", Positional: true, Required: true, Values: []string{"accept", "accept_with_findings", "needs_revision", "reject"}, Help: "review verdict"},
+			{Name: "findings-artifact-id", Help: "already-published findings artifact id to attach to the verdict"},
+			{Name: "rationale", Help: "optional verdict rationale"},
+		},
+		Notes: []string{
+			"Use verdict instead of submit-review when the required finding artifact is already published for the current attempt.",
+		},
+	},
+	"submit_review": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "review session publishing the finding"},
+			{Name: "job-id", Positional: true, Required: true, Help: "review job"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the review job"},
+			{Name: "path", Positional: true, Required: true, Help: "repo-relative finding path"},
+			{Name: "verdict", Positional: true, Required: true, Values: []string{"accept", "accept_with_findings", "needs_revision", "reject"}, Help: "review verdict"},
+			{Name: "logical-name", Help: "artifact logical name; inferred from the sole required expected artifact when possible, otherwise defaults to review"},
+			{Name: "kind", Help: "artifact kind; inferred from the sole required expected artifact when possible, otherwise defaults to finding"},
+			{Name: "rationale", Help: "optional verdict rationale"},
+		},
+	},
+	"worktree_create": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session that owns the job lease"},
+			{Name: "job-id", Positional: true, Required: true, Help: "repo-write job requiring a per-job worktree"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+		},
+	},
+	"worktree_release": {
+		Params: []Param{
+			{Name: "worktree-id", Positional: true, Required: true, Help: "worktree id returned by worktree create"},
+		},
+	},
 	"repo_add": {
 		Params: []Param{
 			{Name: "path", Positional: true, Required: true, Help: "target repository path to register"},

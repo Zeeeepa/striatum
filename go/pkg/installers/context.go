@@ -88,3 +88,19 @@ var frontMatterKinds = []string{
 	"test_report",
 	"work_plan",
 }
+
+// frontMatterSkeletonKinds are the front-matter-bearing artifact kinds most
+// commonly authored inside agent work loops. The full canonical list remains
+// docs/reference/spec.md#artifact-front-matter-schemas; these skeletons keep a
+// consumer-repo agent from having to inspect Striatum source for routine
+// finding/ledger/review artifacts (#159).
+var frontMatterSkeletonKinds = []string{
+	"finding",
+	"findings_ledger",
+	"synthesis",
+	"support_ledger",
+	"action_item_ledger",
+	"collaboration_ledger",
+	"escalation",
+	"harness_improvement_proposal",
+}

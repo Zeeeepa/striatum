@@ -18,9 +18,19 @@ func TestCanonicalBylineFormPreservesLabelUnderscores(t *testing.T) {
 		want string
 	}{
 		{
-			name: "operator self-declared label with underscores (#143 repro)",
+			name: "operator self-declared label with underscores (#143/#159 repro)",
+			in:   "author: operator-self-declared-0058-ops_tests-fin",
+			want: "author: operator-self-declared-0058-ops_tests-fin",
+		},
+		{
+			name: "legacy operator bracket byline canonicalized to YAML-safe form",
 			in:   "author: operator [self-declared: 0058-ops_tests-fin]",
-			want: "author: operator [self-declared: 0058-ops_tests-fin]",
+			want: "author: operator-self-declared-0058-ops_tests-fin",
+		},
+		{
+			name: "quoted legacy operator bracket byline canonicalized to YAML-safe form",
+			in:   `author: "operator [self-declared: ops_tests]"`,
+			want: "author: operator-self-declared-ops_tests",
 		},
 		{
 			name: "role byline with underscores",
@@ -34,8 +44,8 @@ func TestCanonicalBylineFormPreservesLabelUnderscores(t *testing.T) {
 		},
 		{
 			name: "italic-wrapped underscore label: emphasis trimmed, label kept",
-			in:   "_author: operator [self-declared: ops_tests]_",
-			want: "author: operator [self-declared: ops_tests]",
+			in:   "_author: operator-self-declared-ops_tests_",
+			want: "author: operator-self-declared-ops_tests",
 		},
 		{
 			name: "heading prefix + casing canonicalized",
@@ -61,12 +71,23 @@ func TestCanonicalBylineFormPreservesLabelUnderscores(t *testing.T) {
 // stripped underscore.
 func TestCanonicalBylineFormMatchesLowercasedPlainLine(t *testing.T) {
 	for _, plain := range []string{
-		"author: operator [self-declared: 0058-ops_tests-fin]",
+		"author: operator-self-declared-0058-ops_tests-fin",
 		"author: reviewer_ops_tests-claude-007",
 		"author: findings_ledger-codex-002",
 	} {
 		if got, want := canonicalBylineForm(plain), strings.ToLower(plain); got != want {
 			t.Fatalf("canonicalBylineForm(%q) = %q but the packet side (expectedAuthorLine) derives %q — the two sides disagree, which is the #143 publish rejection", plain, got, want)
 		}
+	}
+}
+
+func TestOperatorAuthorLineIsYAMLSafe(t *testing.T) {
+	line := operatorAuthorLine("0058-ops_tests-fin")
+	if want := "author: operator-self-declared-0058-ops_tests-fin"; line != want {
+		t.Fatalf("operatorAuthorLine = %q, want %q", line, want)
+	}
+	payload := []byte("---\nschema_version: striatum.finding.v1\nartifact_kind: finding\nverdict_intent: accept\n" + line + "\n---\n\nbody\n")
+	if err := validateArtifactFrontMatter("finding", "finding.md", payload); err != nil {
+		t.Fatalf("operator-labeled byline should be valid YAML front matter: %v", err)
 	}
 }
