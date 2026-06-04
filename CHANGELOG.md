@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## v2.19.0 — 2026-06-04
+
+### RFC 0108 Phase 2 — isolation by default under concurrency
+
+Once a run is active on a repository, a **second** run that would write the
+**shared main checkout** is now refused at `run.start`, so two concurrent runs
+can never scribble one working tree. This promotes the long-standing
+`repo_write_without_worktree_isolation` lint *warning* to an enforced
+*precondition* — but only under genuine concurrency.
+
+- **`HandleRunStart` precondition** (`go/pkg/mutations/run.go`): when a run
+  transitions `ready -> running` and **another run on the same repo is already
+  `running`**, the start is refused if the run has a repo-write job on a lane
+  without `worktree_isolation: per_job`. The decision reuses the exact isolation
+  logic buildPacket / `HandleWorktreeCreate` already apply
+  (`laneWorktreeIsolation` × `isRepoWrite`), so the gate and runtime never
+  disagree. A per_job-isolated run (its own detached worktree), a document-only
+  run, and the single-run case (no sibling active) all start unaffected.
+- **New error code `concurrent_run_isolation_required`** (RFC 0111 catalog,
+  `go/pkg/rpc/error_catalog.go` + authority-matrix doc): the refusal names the
+  active run and the offending job and suggests the fix — set
+  `worktree_isolation: per_job` on the repo-write lane, or wait for the active
+  run to finish.
+- **Race-free**: `HandleRunStart` takes a per-repository advisory lock
+  (`lockRepo`) first, so concurrent starts serialize and two runs can never both
+  observe "no sibling active" and race onto the shared checkout. `lockRepo` is
+  wider than RFC 0104's per-(repo,run) `lockRun`; no mutation takes both, so they
+  cannot form a lock-ordering cycle.
+- **Gates** (`go/pkg/adapterconformance/multirun_test.go`):
+  `TestMultiRunIsolationRequiredWhenSiblingActive` and
+  `TestMultiRunConcurrentUnisolatedStartsResolveToOne` (N concurrent unisolated
+  starts resolve to exactly one `running` + N−1 refusals, no `40P01`, chain
+  linear).
+
 ## v2.18.2 — 2026-06-04
 
 ### RFC 0110 Release N+1 (slice 2) — fix: owner bundle 0002 runtime parity read grant

@@ -117,6 +117,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Publish the commit_request artifact first, then retry with its request_id.",
 	},
 	{
+		Code:       "concurrent_run_isolation_required",
+		Meaning:    "Another run is already active on the repository and this run has a repo-write job on a lane without worktree_isolation: per_job, so starting it would share the main checkout (RFC 0108 Phase 2).",
+		Suggestion: "Set worktree_isolation: per_job on the run's repo-write lane so each run gets its own detached worktree, then start the run; or wait for the active run to finish.",
+	},
+	{
 		Code:       "confirmation_required",
 		Meaning:    "A mutating verb needs an explicit confirmation that was not supplied or did not match.",
 		Suggestion: "Re-run with the explicit confirmation the message names (for example confirm=true with a matching confirm_request_id).",

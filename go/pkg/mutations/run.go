@@ -39,6 +39,14 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 		return nil, rpc.NewError("schema_invalid", "run.start requires run_id", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0108 Phase 2: take the per-repo advisory lock FIRST (before the
+		// run-scoped FOR UPDATE below) so concurrent run.starts on this repo
+		// serialize. The isolation precondition reads "is a sibling run already
+		// active?" then mutates run state; without this lock two starts could both
+		// see no sibling and race two runs onto the shared main checkout.
+		if err := lockRepo(ctx, tx, repositoryID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
 			return nil, err
@@ -58,6 +66,14 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 			return nil, rpc.NewError("invalid_transition", "run cannot be started from its current state", nil)
 		}
 		if state == "ready" {
+			// RFC 0108 Phase 2 — isolation by default under concurrency. Refuse to
+			// start a run that would write the SHARED main checkout while another run
+			// is already active on this repo. Checked BEFORE the state mutation so a
+			// refused start leaves the run `ready` (the operator fixes isolation, or
+			// waits for the active run, then retries).
+			if err := enforceConcurrentRunIsolation(ctx, tx, repositoryID, runID, workflow); err != nil {
+				return nil, err
+			}
 			now := nowString()
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.runs
@@ -90,6 +106,81 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 		}
 		return map[string]any{"run_id": runID, "state": "running"}, nil
 	})
+}
+
+// enforceConcurrentRunIsolation is the RFC 0108 Phase 2 precondition: once a run
+// is active on a repository, a SECOND run that would write the SHARED main
+// checkout — a repo-write job on a lane without worktree_isolation: per_job — is
+// refused at start, so no two concurrent runs ever scribble one working tree.
+// This promotes the `repo_write_without_worktree_isolation` lint warning to an
+// enforced precondition under concurrency. A run whose repo-write work is
+// per_job-isolated (its own detached worktree) or that does not write the repo
+// starts freely beside the active sibling; the single-run case (no sibling
+// active) is untouched. Must run inside a transaction holding lockRepo so the
+// sibling-active check cannot race two starts onto the shared checkout.
+func enforceConcurrentRunIsolation(ctx context.Context, tx db.TxRunner, repositoryID, runID string, workflow map[string]any) error {
+	sibling, err := otherActiveRunOnRepo(ctx, tx, repositoryID, runID)
+	if err != nil {
+		return err
+	}
+	if sibling == "" {
+		return nil
+	}
+	offender, err := firstUnisolatedRepoWriteJob(ctx, tx, repositoryID, runID, workflow)
+	if err != nil {
+		return err
+	}
+	if offender == "" {
+		return nil
+	}
+	return rpc.NewError("concurrent_run_isolation_required", fmt.Sprintf(
+		"run %s is already active on this repository, and job %q does repo-write work on a lane without worktree_isolation: per_job — starting this run would share the main checkout with the active run. Set worktree_isolation: per_job on the repo-write lane (each run then gets its own detached worktree), or wait for the active run to finish.",
+		sibling, offender), nil)
+}
+
+// otherActiveRunOnRepo returns the id of one OTHER run on the repo that is
+// currently `running` (the state in which jobs are claimed and the working tree
+// is touched), or "" when this is the only active run.
+func otherActiveRunOnRepo(ctx context.Context, runner any, repositoryID, runID string) (string, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT run_id
+		  FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id <> $2 AND state = 'running'
+		 ORDER BY started_at NULLS LAST, run_id
+		 LIMIT 1`, repositoryID, runID)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) == 0 {
+		return "", nil
+	}
+	return fmt.Sprint(rows[0]["run_id"]), nil
+}
+
+// firstUnisolatedRepoWriteJob returns the id of the first job in the run that
+// performs repo-write work on a lane WITHOUT worktree_isolation: per_job — a job
+// that would run in the shared main checkout. "" when every repo-write job is
+// per_job-isolated (or there is none). The isolation decision mirrors buildPacket
+// / HandleWorktreeCreate exactly: laneWorktreeIsolation over the run's frozen
+// workflow snapshot, isRepoWrite over the job's stored write_scope.
+func firstUnisolatedRepoWriteJob(ctx context.Context, runner any, repositoryID, runID string, workflow map[string]any) (string, error) {
+	jobs, err := queryRows(ctx, runner, `
+		SELECT job_id, write_scope_json, lane_selector_json
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2
+		 ORDER BY created_at, job_id`, repositoryID, runID)
+	if err != nil {
+		return "", err
+	}
+	for _, job := range jobs {
+		if !isRepoWrite(job) {
+			continue
+		}
+		if laneWorktreeIsolation(workflow, jobLaneID(job)) != "per_job" {
+			return fmt.Sprint(job["job_id"]), nil
+		}
+	}
+	return "", nil
 }
 
 func HandleRunPause(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

@@ -39,6 +39,7 @@ package adapterconformance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -578,6 +579,246 @@ func assertEventChainLinear(t *testing.T, ctx context.Context, h *Harness, repoI
 	if fmt.Sprint(head[0]["last_event_id"]) != fmt.Sprint(last["event_id"]) {
 		t.Fatalf("chain head last_event_id=%v != tail event_id=%v", head[0]["last_event_id"], last["event_id"])
 	}
+}
+
+// --- Phase 2: isolation by default under concurrency -----------------------
+
+// TestMultiRunIsolationRequiredWhenSiblingActive is the RFC 0108 Phase 2 gate:
+// once a run is active on a repo, a SECOND run that would write the SHARED main
+// checkout (a repo-write job on a lane without worktree_isolation: per_job) is
+// refused at run.start — the repo_write_without_worktree_isolation lint warning
+// promoted to an enforced precondition, so no two concurrent runs ever scribble
+// one working tree. A run whose repo-write work is per_job-isolated (its own
+// worktree) or that does not write the repo starts freely beside the active
+// sibling, and the single-run case is untouched.
+func TestMultiRunIsolationRequiredWhenSiblingActive(t *testing.T) {
+	repoID := "repo_multirun_p2_isolation"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "docs/seed.md", "seed\n")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	// First repo-write run starts ALONE with isolation off: no sibling is active,
+	// so the single-run main checkout is its to use — allowed (the common case is
+	// untouched).
+	runA := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p2_a", "striatum/p2-a", "")
+	if err := mrStartRun(ctx, h, runA); err != nil {
+		t.Fatalf("first unisolated repo-write run refused with no sibling active: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runA.runID); got != "running" {
+		t.Fatalf("run A state = %q, want running", got)
+	}
+
+	// A SECOND unisolated repo-write run, started while A is active, would share
+	// the main checkout — refused with the Phase 2 precondition code.
+	runB := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p2_b", "striatum/p2-b", "")
+	err := mrStartRun(ctx, h, runB)
+	if err == nil {
+		t.Fatal("second unisolated repo-write run started while a sibling run is active — two runs share the main checkout (RFC 0108 Phase 2 boundary)")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "concurrent_run_isolation_required" {
+		t.Fatalf("refusal = %v, want code concurrent_run_isolation_required", err)
+	}
+	if got := chaosRunState(t, ctx, h, runB.runID); got != "ready" {
+		t.Fatalf("refused run B state = %q, want ready (a refused start must not advance the run)", got)
+	}
+
+	// A per-job-isolated repo-write run starts fine beside the active sibling: its
+	// repo-write work lives in its OWN detached worktree, never the shared checkout.
+	runC := mrSeedReadyRepoWriteRun(t, ctx, h, repoID, "run_p2_c", "striatum/p2-c", "per_job")
+	if err := mrStartRun(ctx, h, runC); err != nil {
+		t.Fatalf("per_job-isolated repo-write run refused beside an active sibling: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runC.runID); got != "running" {
+		t.Fatalf("run C state = %q, want running", got)
+	}
+
+	// A document-only run (no repo-write job) also starts fine — the precondition
+	// guards only repo-write work that would touch the shared tree.
+	runD := mrSeedReadyDocumentRun(t, ctx, h, repoID, "run_p2_d", "striatum/p2-d")
+	if err := mrStartRun(ctx, h, runD); err != nil {
+		t.Fatalf("document-only run refused beside an active sibling: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runD.runID); got != "running" {
+		t.Fatalf("run D state = %q, want running", got)
+	}
+}
+
+// TestMultiRunConcurrentUnisolatedStartsResolveToOne proves the Phase 2
+// precondition is race-free: when several unisolated repo-write runs call
+// run.start CONCURRENTLY on one repo, EXACTLY ONE wins the shared main checkout
+// and every other is refused with concurrent_run_isolation_required — never two
+// both reaching `running` (which would share the checkout). The per-repo
+// run.start serialization (lockRepo) closes the check-then-act window; no driver
+// surfaces a 40P01, and the audit chain stays linear under the concurrent starts.
+func TestMultiRunConcurrentUnisolatedStartsResolveToOne(t *testing.T) {
+	const concurrentRuns = 6
+	repoID := "repo_multirun_p2_race"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "docs/seed.md", "seed\n")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	runs := make([]*mrRun, concurrentRuns)
+	for i := range runs {
+		runs[i] = mrSeedReadyRepoWriteRun(t, ctx, h, repoID, fmt.Sprintf("run_p2race_%d", i), fmt.Sprintf("striatum/p2race-%d", i), "")
+	}
+
+	var wg sync.WaitGroup
+	results := make([]error, concurrentRuns)
+	start := make(chan struct{})
+	for i, r := range runs {
+		wg.Add(1)
+		go func(i int, r *mrRun) {
+			defer wg.Done()
+			<-start
+			results[i] = mrStartRun(ctx, h, r)
+		}(i, r)
+	}
+	close(start)
+	wg.Wait()
+
+	started, refused := 0, 0
+	for i, err := range results {
+		if err == nil {
+			started++
+			continue
+		}
+		if isConcurrencyDeadlock(err) {
+			t.Fatalf("run %s start surfaced a deadlock: %v", runs[i].runID, err)
+		}
+		var rpcErr *rpc.Error
+		if !errors.As(err, &rpcErr) || rpcErr.Code != "concurrent_run_isolation_required" {
+			t.Fatalf("run %s refusal = %v, want concurrent_run_isolation_required", runs[i].runID, err)
+		}
+		refused++
+	}
+	if started != 1 {
+		t.Fatalf("%d unisolated repo-write runs reached running concurrently, want exactly 1 (the rest must be refused so no two share the main checkout)", started)
+	}
+	if refused != concurrentRuns-1 {
+		t.Fatalf("refused %d runs, want %d", refused, concurrentRuns-1)
+	}
+
+	runningCount := 0
+	for _, r := range runs {
+		if chaosRunState(t, ctx, h, r.runID) == "running" {
+			runningCount++
+		}
+	}
+	if runningCount != 1 {
+		t.Fatalf("%d runs in running state, want 1", runningCount)
+	}
+	assertEventChainLinear(t, ctx, h, repoID)
+}
+
+// mrSeedReadyRepoWriteRun seeds a repo-write run in the READY state (branch
+// confirmed, not yet started) whose lane carries worktree_isolation per
+// `isolation` ("" leaves it off).
+func mrSeedReadyRepoWriteRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch, isolation string) *mrRun {
+	t.Helper()
+	return mrSeedReadyRun(t, ctx, h, repoID, runID, branch, isolation,
+		map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": []any{"docs"}})
+}
+
+// mrSeedReadyDocumentRun seeds a document_only run in the READY state (no
+// repo-write job, so the Phase 2 isolation precondition never bites it).
+func mrSeedReadyDocumentRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch string) *mrRun {
+	t.Helper()
+	return mrSeedReadyRun(t, ctx, h, repoID, runID, branch, "",
+		map[string]any{"mode": "document_only", "allowed_paths": []any{"docs"}})
+}
+
+// mrSeedReadyRun seeds one run in the READY state (branch confirmed, not yet
+// started) on an already-seeded repository, with one BLOCKED root job mirroring
+// run.prepare's output (no queue message — run.start enqueues it) and an
+// implementer session, so HandleRunStart drives the ready->running transition the
+// Phase 2 precondition guards. No real git is needed: run.start touches only DB
+// state.
+func mrSeedReadyRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch, isolation string, writeScope map[string]any) *mrRun {
+	t.Helper()
+	now := time.Now().UTC()
+	r := &mrRun{repoID: repoID, runID: runID, branch: branch, implJob: "job_" + runID, implSession: "sess_" + runID}
+
+	lane := map[string]any{"display_model": "Claude", "capabilities": []any{"claim", "write"}}
+	if isolation != "" {
+		lane["worktree_isolation"] = isolation
+	}
+	workflow := map[string]any{
+		"workflow_id": fixtureWorkflowID,
+		"roles":       map[string]any{mrImplementerRole: map[string]any{"summary": "implement"}},
+		"lanes":       map[string]any{mrImplementerLane: lane},
+		"jobs":        []any{map[string]any{"id": fixtureWorkflowJob, "interrogable": false}},
+	}
+	mrSeedReadyRunRow(t, ctx, h.Runner, repoID, runID, branch, workflow)
+	mrSeedBlockedJob(t, ctx, h.Runner, repoID, runID, r.implJob, mrImplementerRole, mrImplementerLane, writeScope, now)
+	seedFixtureSession(t, ctx, h.Runner, repoID, runID, r.implSession, mrImplementerRole, mrImplementerLane, []string{"claim", "write"}, 1)
+	return r
+}
+
+// mrSeedReadyRunRow seeds a run row in the READY state with a confirmed branch
+// (the state HandleRunStart drives ready->running) plus its own workflow snapshot.
+func mrSeedReadyRunRow(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, branch string, workflow map[string]any) {
+	t.Helper()
+	now := time.Now().UTC()
+	workflowArg, err := db.JSONBArg(runner, workflow)
+	if err != nil {
+		t.Fatalf("encode workflow: %v", err)
+	}
+	snapID := "snap_" + runID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ($1,$2,$3,$4,$5::jsonb,$6)`,
+		repoID, snapID, fixtureWorkflowID, "sha_"+runID, workflowArg, now); err != nil {
+		t.Fatalf("seed snapshot %s: %v", runID, err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at,
+		  branch_name, branch_confirmed_at, branch_confirmed_by
+		) VALUES ($1,$2,$3,(SELECT repo_root FROM striatumd.repositories WHERE repository_id=$1),'ready',$4,$5,$4,'human')`,
+		repoID, runID, snapID, now, branch); err != nil {
+		t.Fatalf("seed ready run %s: %v", runID, err)
+	}
+}
+
+// mrSeedBlockedJob seeds one BLOCKED root job (no queue message) mirroring
+// run.prepare's output, so HandleRunStart's enqueue path (blocked->queued) runs.
+func mrSeedBlockedJob(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, role, lane string, writeScope map[string]any, now time.Time) {
+	t.Helper()
+	writeScopeArg, err := db.JSONBArg(runner, writeScope)
+	if err != nil {
+		t.Fatalf("encode write_scope: %v", err)
+	}
+	laneSelArg, err := db.JSONBArg(runner, map[string]any{"lane_id": lane})
+	if err != nil {
+		t.Fatalf("encode lane_selector: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, max_attempts, idempotency_key, write_scope_json,
+		  expected_artifacts_json, lane_selector_json, created_at
+		) VALUES ($1,$2,$3,$4,1,'blocked',$5,'P2 job','draft',1,$6,$7::jsonb,'[]'::jsonb,$8::jsonb,$9)`,
+		repoID, jobID, runID, fixtureWorkflowJob, role, "idem_"+jobID,
+		writeScopeArg, laneSelArg, now); err != nil {
+		t.Fatalf("seed blocked job %s: %v", jobID, err)
+	}
+}
+
+// mrStartRun drives the run's ready->running transition through the production
+// HandleRunStart handler (goroutine-safe — returns the error).
+func mrStartRun(ctx context.Context, h *Harness, r *mrRun) error {
+	_, err := mutations.HandleRunStart(ctx, h.Runner, mrEnv(r.repoID, "run.start", map[string]any{
+		"run_id": r.runID,
+	}))
+	return err
 }
 
 // isConcurrencyDeadlock reports whether err is a Postgres serialization/deadlock

@@ -88,6 +88,35 @@ at `run.start`/`run.prepare` when a sibling run is already active (or auto-set
 checkout. Files: `run.go` (HandleRunStart precondition), `claim.go`
 (`laneWorktreeIsolation`), reusing `HandleWorktreeCreate`.
 
+**Landed** (`go/pkg/mutations/run.go`): `HandleRunStart` now enforces the
+precondition. When the run transitions `ready -> running` and **another run on
+the same repo is already `running`**, the start is **refused** if the run has a
+repo-write job on a lane without `worktree_isolation: per_job` — the exact job
+that would scribble the shared main checkout. The refusal carries the stable
+error code **`concurrent_run_isolation_required`** (RFC 0111 catalog) whose
+suggestion names the fix: set `worktree_isolation: per_job` on the repo-write
+lane (each run then gets its own detached worktree), or wait for the active run
+to finish. `enforceConcurrentRunIsolation` reuses the *exact* isolation decision
+buildPacket/`HandleWorktreeCreate` already make (`laneWorktreeIsolation` over the
+frozen snapshot × `isRepoWrite` over the job's stored write_scope), so the gate
+and the runtime never disagree.
+
+The precondition is **race-free**: `HandleRunStart` takes a per-repository
+advisory lock (`lockRepo`) as the first statement of its transaction, so
+concurrent starts serialize and two runs can never both observe "no sibling
+active" and race onto the shared checkout. `lockRepo` is strictly wider than
+RFC 0104's per-(repo,run) `lockRun`, and no mutation takes both, so they cannot
+form a lock-ordering cycle. The single-run case (no sibling active),
+per_job-isolated runs, and document-only runs all start unaffected — the gate
+bites only the genuine shared-checkout hazard. Gates
+(`go/pkg/adapterconformance/multirun_test.go`):
+`TestMultiRunIsolationRequiredWhenSiblingActive` (sequential: first unisolated
+run starts alone; a second is refused while it is active; a per_job run and a
+document-only run start fine beside it) and
+`TestMultiRunConcurrentUnisolatedStartsResolveToOne` (race: N unisolated starts
+fired concurrently resolve to **exactly one** `running` + N−1
+`concurrent_run_isolation_required`, no `40P01`, chain stays linear).
+
 ### Phase 3 — Cross-run collision detection at start
 
 At `run.prepare`/`run.start`, detect overlap with other *active* runs on the

@@ -379,6 +379,21 @@ func lockRun(ctx context.Context, runner db.TxRunner, repositoryID, runID string
 	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
 }
 
+// lockRepo serializes a mutation that must reason about ALL runs on a repository
+// at once — the RFC 0108 Phase 2 run.start isolation precondition, which reads
+// "is a sibling run already active?" then mutates run state, and must not let two
+// concurrent run.starts both observe a stale "no sibling" snapshot and race onto
+// the shared main checkout. The key is per (repository_id) — strictly WIDER than
+// lockRun's per-(repository_id, run_id). No mutation takes BOTH lockRepo and
+// lockRun, so the two advisory locks cannot form a lock-ordering cycle; the only
+// shared resource a lockRepo holder and a lockRun holder both contend on is the
+// per-repo event-chain head row, which every appendEvent takes last, so no cycle
+// forms there either.
+func lockRepo(ctx context.Context, runner db.TxRunner, repositoryID string) error {
+	key := "striatum:repo:" + repositoryID
+	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
+}
+
 // lockRunForSession resolves a session's (immutable) run_id with a non-locking
 // read and takes lockRun before any run-scoped FOR UPDATE (RFC 0104). A missing
 // session takes no lock and lets the downstream FOR UPDATE surface the canonical
