@@ -171,6 +171,53 @@ func TestBootstrapRotatorScope(t *testing.T) {
 	}
 }
 
+// TestBootstrapTwoRoleWithoutOwnerURLActionable: a two-role deployment (runtime
+// role is not the owner) with no STRIATUM_OWNER_DB_URL fails closed when it
+// cannot write the owner-only registry, with an actionable error naming the
+// owner DSN (not a bare permission-denied).
+func TestBootstrapTwoRoleWithoutOwnerURLActionable(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	if _, _, err := db.ApplyOwnerBundles(ctx, pool.Runner, "test"); err != nil {
+		t.Fatalf("apply bundle: %v", err)
+	}
+	dbName := dbNameFromURL(t, pool.URL)
+	role := "norol_" + dbName
+	if len(role) > 63 {
+		role = role[:63]
+	}
+	if err := pool.Runner.Exec(ctx, fmt.Sprintf("DROP ROLE IF EXISTS %s", quoteIdentForTest(role))); err != nil {
+		t.Fatalf("drop role: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, fmt.Sprintf("CREATE ROLE %s LOGIN PASSWORD 'pw'", quoteIdentForTest(role))); err != nil {
+		t.Fatalf("create role: %v", err)
+	}
+	// Grant CONNECT + schema USAGE (so the registry is visible) but not registry
+	// INSERT — the owner-only posture a non-owner runtime role has.
+	for _, stmt := range []string{
+		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", quoteIdentForTest(dbName), quoteIdentForTest(role)),
+		fmt.Sprintf("GRANT USAGE ON SCHEMA striatumd TO %s", quoteIdentForTest(role)),
+	} {
+		if err := pool.Runner.Exec(ctx, stmt); err != nil {
+			t.Fatalf("grant: %v", err)
+		}
+	}
+	t.Cleanup(func() {
+		_ = pool.Runner.Exec(context.Background(), fmt.Sprintf("DROP ROLE IF EXISTS %s", quoteIdentForTest(role)))
+	})
+
+	runtimeURL := fmt.Sprintf("postgres://%s:pw@localhost:5432/%s", role, dbName)
+	_, err := db.BootstrapAuthority(ctx, db.BootstrapConfig{
+		RuntimeURL: runtimeURL, OwnerURL: "", RuntimeRole: role, InstanceID: "i-2role", DaemonVersion: "test",
+	})
+	if err == nil {
+		t.Fatal("two-role bootstrap without owner URL must fail closed")
+	}
+	if !strings.Contains(err.Error(), "STRIATUM_OWNER_DB_URL") {
+		t.Fatalf("error must name STRIATUM_OWNER_DB_URL, got: %v", err)
+	}
+}
+
 func quoteIdentForTest(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }

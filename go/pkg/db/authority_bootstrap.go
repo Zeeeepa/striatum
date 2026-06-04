@@ -6,10 +6,20 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
+
+// isInsufficientPrivilege reports whether err is a PostgreSQL 42501
+// (insufficient_privilege), e.g. the runtime role writing an owner-only table.
+func isInsufficientPrivilege(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42501"
+}
 
 // Bootstrap postures (RFC 0110 §9). Reported by doctor; never the secret.
 const (
@@ -114,6 +124,13 @@ func BootstrapAuthority(ctx context.Context, cfg BootstrapConfig) (BootstrapResu
 		ON CONFLICT (instance_id, role_name)
 		DO UPDATE SET digest = EXCLUDED.digest, salt = EXCLUDED.salt, rotated_at = now()`,
 		cfg.InstanceID, cfg.RuntimeRole, digest, salt); err != nil {
+		// daemon_auth_registry is owner-only. When no owner URL was supplied the
+		// registration ran over the runtime connection, which is correct only in
+		// the single-role posture; in a two-role deployment the runtime role
+		// cannot write the registry. Make that fail-closed case actionable.
+		if singleRole && isInsufficientPrivilege(err) {
+			return BootstrapResult{}, fmt.Errorf("daemon_pg_owner_bootstrap_failed: the runtime role cannot write the owner-only authority registry; set STRIATUM_OWNER_DB_URL to the owner DSN (two-role posture): %w", err)
+		}
 		return BootstrapResult{}, fmt.Errorf("daemon_pg_owner_bootstrap_failed: register authority secret: %w", err)
 	}
 

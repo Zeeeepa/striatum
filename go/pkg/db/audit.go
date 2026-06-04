@@ -199,7 +199,10 @@ func (a AuditRecorder) RecordRPCTransport(
 			_ = tx.Rollback(context.Background())
 		}
 	}()
-	auditID, err := appendAuditRow(ctx, tx, meta)
+	// Honor the R-V3 flag on the standalone path too, so after the cutover all
+	// audit rows (reads/denials/errors as well as mutations) are v3 — the prelude
+	// already set the authority secret on this authorized transaction.
+	auditID, err := AppendAuditInTx(ctx, tx, meta)
 	if err != nil {
 		return "", err
 	}
