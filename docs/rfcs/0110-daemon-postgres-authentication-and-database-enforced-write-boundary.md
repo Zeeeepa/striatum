@@ -190,8 +190,9 @@ into a `0700` directory (`unix_socket_directories`) owned by a daemon identity
 reach the socket even sharing nothing else. `doctor_lane_sandbox.go` escalates
 `lane_pg_reachable` from a warning to a **startup-blocking** error when no
 distinct lane user is configured — gated behind a config flag
-(`security.pg_socket_hardened`, default-false on upgrade, flipping to default-on
-a minor version later) so existing installs are not stranded on upgrade day.
+(`security.pg_socket_hardened`, currently exposed as
+`STRIATUM_SECURITY_PG_SOCKET_HARDENED`, default-false on upgrade, flipping to
+default-on a minor version later) so existing installs are not stranded on upgrade day.
 Also scrub `PGHOST` from the lane env (defense-in-depth against a lane handing a
 guessed socket path to a libpq tool).
 

@@ -150,11 +150,13 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	codexBlock, codexWarnings := codexDoctorBlock()
 	warnings := append([]string{}, codexWarnings...)
 
-	// #87 / RFC 0096 §2: surface (warn, never hard-fail) when supervised lanes
-	// are not isolated from the daemon's PostgreSQL by a dedicated PG-less lane
-	// OS user. Configuration-posture proxy only; no DSN/token value is read.
-	laneSandboxBlock, laneSandboxWarnings := laneSandboxDoctorBlock()
+	// #87 / RFC 0096 §2: surface when supervised lanes are not isolated from the
+	// daemon's PostgreSQL by a dedicated PG-less lane OS user. This is advisory
+	// by default and blocking under the RFC 0110 secure profile. Configuration
+	// posture proxy only; no DSN/token value is read.
+	laneSandboxBlock, laneSandboxWarnings, laneSandboxProblems := laneSandboxDoctorBlock()
 	warnings = append(warnings, laneSandboxWarnings...)
+	problems = append(problems, laneSandboxProblems...)
 
 	// RFC 0107: surface the configured principals and each one's capability/repo
 	// scope so the operator can see who can do what, on which repositories, on

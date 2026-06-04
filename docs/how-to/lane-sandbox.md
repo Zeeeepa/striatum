@@ -93,6 +93,20 @@ STRIATUM_LANE_OS_USER=striatum-lane
 
 `doctor` checks that this user exists and differs from the daemon's user.
 
+### 6. Enable the secure-profile doctor gate
+
+After adopting the lane OS user and protected PostgreSQL socket posture, enable
+the RFC 0110 secure-profile gate:
+
+```sh
+STRIATUM_SECURITY_PG_SOCKET_HARDENED=1
+```
+
+With this flag, `doctor` treats `lane_pg_reachable` as a blocking problem
+instead of an advisory warning. This flag does not create the lane user, alter
+PostgreSQL socket permissions, or edit `pg_hba.conf`; it only makes the daemon
+health check fail closed if the configured posture is still unsafe.
+
 ## Verify
 
 ```sh
@@ -102,6 +116,8 @@ striatum doctor --json | python3 -c "import sys,json; d=json.load(sys.stdin); pr
 Adopted state:
 
 - `lane_sandbox.lane_pg_isolated == true`
+- `lane_sandbox.pg_socket_hardened == true` when the secure-profile gate is
+  enabled
 - no `lane_pg_reachable` warning.
 
 To prove the close end-to-end, from a shell running **as the lane user**, a

@@ -169,7 +169,9 @@ phase nomenclature and claim-keying below are normative.
   **GH #87 status: "mitigated, pending lane-OS-user default"** — it closes only
   when the lane OS user, the startup-asserted `0700` socket directory, the
   negative lane-isolation CI gate, and blocking doctor behavior under the secure
-  profile are all live.
+  profile are all live. The current secure-profile doctor gate is controlled by
+  `STRIATUM_SECURITY_PG_SOCKET_HARDENED`; when enabled, `lane_pg_reachable` is a
+  blocking doctor problem instead of an advisory warning.
 
 Read confidentiality against a *live* runtime credential is **not** claimed by
 RFC 0110 in these phases (the runtime role retains broad `SELECT`); it is bounded
