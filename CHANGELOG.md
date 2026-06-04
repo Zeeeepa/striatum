@@ -1,7 +1,26 @@
 # Changelog
 
-## Unreleased
+## v2.16.0 — 2026-06-04
 
+- **RFC 0111 accepted (D165) and fully implemented — in-band failure
+  legibility.** P1: `toolResult`/`contentSummary` (`go/pkg/mcp/tools.go`) now
+  render the dispatchable error code + message into the MCP `content` text an
+  agent reads — a failed state-changer is no longer a contentless
+  `<error>method</error>`; success stays a terse one-line summary;
+  `structuredContent.error`/`error_message` unchanged. Live-verified against
+  the restarted daemon. P2+P3 below were built through a reviewed
+  implementation dogfood (`dogfoods/rfc-0111-p2p3/`, claude implementer + agy
+  reviewer, verdict accept) and also live-verified end to end.
+- **#160 — one-line installer.** New root `install.sh`: OS/arch detection,
+  SHA256SUMS verification, installs `striatum` + `striatumd` +
+  `striatum-supervisor-helper` from a GitHub Release (latest or `--version`),
+  and surfaces the daemon-restart step (`--restart-daemon` to run it) so a
+  replaced binary is not mistaken for a deployed one. Tested against the real
+  v2.12.0 and v2.15.0 release assets. The existing tag-driven `release.yml`
+  remains the build pipeline (no goreleaser duplication; npm deferred).
+- **#161 — `ARCHITECTURE.md`.** Single navigable map of the substrate
+  (components, state ownership, surfaces, write boundary, run model, failure
+  legibility), linked from `README.md`, `AGENTS.md`, and `docs/index.md`.
 - **#148 / RFC 0088 — `claude --print` lanes are deprecated, not hardened.**
   `claude --print`/`-p` is the retired one-shot mode (RFC 0088 / D148 retired
   `-p`/`--print`/`exec` for all lanes in favor of daemon-owned interactive
