@@ -141,6 +141,8 @@ func positionalNames(group string) []string {
 		return []string{"session_id", "job_id", "lease_id", "kind", "logical_name", "path"}
 	case "repo_write":
 		return []string{"session_id", "job_id", "lease_id", "path"}
+	case "process_run":
+		return []string{"session_id", "job_id", "lease_id"}
 	case "verdict":
 		return []string{"session_id", "job_id", "lease_id", "verdict"}
 	case "submit_review":

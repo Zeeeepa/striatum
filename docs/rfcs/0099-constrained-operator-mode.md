@@ -120,7 +120,12 @@ surfaces absent such a decision remains a Phase 3 extension.
   `work.complete` violation vocabulary, before the write lands (shares code with
   #91).
 - Permitted shell classes execute and record evidence; undeclared ones are
-  refused absent an escape decision.
+  refused absent an escape decision. Initial implementation: `process.run`
+  executes command arrays for active jobs that declare
+  `capability_requirements.process_execution: true`, uses the supervised-lane
+  allowlist environment, and records `process_executions` evidence plus
+  `process.started`/`process.completed` events without durable stdout/stderr
+  transcripts.
 - Every escape is an audited decision record.
 - A regression fixture drives a constrained operator session end-to-end (scoped
   write accepted, out-of-scope write refused pre-apply, escape decision logged).
@@ -134,8 +139,8 @@ surfaces absent such a decision remains a Phase 3 extension.
   The exact-content single-file slice has landed; patch preview/apply remains.
 - **Phase 3:** capability-gated shell + evidence recording + escape-decision
   records; cooperating-harness profile docs (restricted tool sets per adapter).
-  The typed escape-decision record slice has landed; shell/evidence enforcement
-  remains.
+  The typed escape-decision record and mediated `process.run` evidence slices
+  have landed; escape enforcement and end-to-end constrained fixtures remain.
 
 ## Open Questions
 

@@ -128,6 +128,19 @@ var usageByGroup = map[string]Usage{
 			"repo.write refuses review-only scopes and paths outside write_scope.allowed_paths before writing.",
 		},
 	},
+	"process_run": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session performing the mediated command"},
+			{Name: "job-id", Positional: true, Required: true, Help: "job that owns the active lease"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "command-json", Help: "JSON command array; arguments after -- are also accepted as the command array"},
+			{Name: "timeout-seconds", Help: "maximum command runtime; defaults to 300 seconds and caps at 1800 seconds"},
+			{Name: "process-id", Help: "stable process evidence id; generated when omitted"},
+		},
+		Notes: []string{
+			"process.run requires capability_requirements.process_execution=true on the active job and records process_executions evidence without storing stdout/stderr transcripts.",
+		},
+	},
 	"verdict": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "review session recording the verdict"},

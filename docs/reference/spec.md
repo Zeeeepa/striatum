@@ -574,12 +574,16 @@ correctness bug.
 Workflows may declare `operator_mode: constrained` as the RFC 0099 Phase 1
 operator assertion. The assertion is surfaced in `status --run-id` and
 `run.summary` so the operator boundary is visible in run reads. In V1 this
-field is advisory: it does not by itself sandbox an AI operator or gate shell
-execution. The initial RFC 0099 Phase 2 surface is `repo.write`, an
-exact-content mutation that requires an active repo-write job lease and refuses
-paths outside the job's `write_scope` before it writes. Escape decisions can be
-recorded as typed run-level decisions. Patch-style editing, shell evidence, and
-escape-decision enforcement remain Phase 2/3 work.
+field is advisory: it does not by itself sandbox an AI operator. The initial
+RFC 0099 mediated surfaces are `repo.write`, an exact-content mutation that
+requires an active repo-write job lease and refuses paths outside the job's
+`write_scope` before it writes, and `process.run`, a command-array execution
+surface that requires an active job lease plus
+`capability_requirements.process_execution: true` and records
+`process_executions` evidence without durable stdout/stderr transcripts. Escape
+decisions can be recorded as typed run-level decisions. Patch-style editing,
+shell escape enforcement, and the end-to-end constrained fixture remain Phase
+2/3 work.
 
 ## Run Lifecycle
 
@@ -726,9 +730,10 @@ metadata; when they do, the line must exactly match the work packet's lowercase
 author line. The publisher still records artifacts rather than rewriting them.
 Model-bylined artifacts require lane evidence: if the daemon supervisor has
 reported `artifact_observed` events for the session, one must match the
-published repo-relative path; otherwise the legacy clean `process_executions`
-fallback applies for wrappers that have not yet reported path-specific
-observations. The operator-only `--allow-no-process-execution
+published repo-relative path; otherwise clean `process_executions` rows from
+mediated `process.run` or older wrappers can satisfy process evidence for
+wrappers that have not yet reported path-specific observations. The
+operator-only `--allow-no-process-execution
 --override-rationale` path records both a provenance event and the artifact's
 `attestation_override_rationale`.
 

@@ -85,6 +85,7 @@
 | `work.complete` | `write` | `single_repo` | 1 | 1 | no |
 | `artifact.publish` | `write` | `single_repo` | 1 | 1 | no |
 | `repo.write` | `write` | `single_repo` | 1 | 1 | no |
+| `process.run` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.create` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.release` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.init` | `write` | `single_repo` | 1 | 1 | no |
@@ -150,6 +151,7 @@
 | `git commit-apply` | `git.commit_apply` | `apply` | `single_repo` |
 | `repo add` | `repo.add` | `admin` | `daemon_global` |
 | `repo write` | `repo.write` | `write` | `single_repo` |
+| `process run` | `process.run` | `write` | `single_repo` |
 | `repo list` | `repo.list` | `read` | `daemon_global` |
 | `repo remove` | `repo.remove` | `admin` | `daemon_global` |
 | `workflow accepted-risks` | `workflow.accepted_risks.list` | `read` | `single_repo` |

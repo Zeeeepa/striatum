@@ -122,6 +122,7 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 		"supervise trajectory": {"--session-id", "--tail", "--tail-lines", "supervise.trajectory"},
 		"repo add":             {"--init", "path", "repo.add"},
 		"repo write":           {"session-id", "job-id", "lease-id", "--content", "repo.write"},
+		"process run":          {"session-id", "job-id", "lease-id", "--command-json", "process.run"},
 		"decision record":      {"run-id", "outcome", "--escape-surface", "decision.record"},
 	}
 	for cmd, wants := range cases {

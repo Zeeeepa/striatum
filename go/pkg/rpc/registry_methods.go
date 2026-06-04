@@ -82,6 +82,7 @@ var methodEntries = []MethodEntry{
 	{Method: "work.complete", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "artifact.publish", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "repo.write", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "process.run", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "worktree.create", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "worktree.release", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "workflow.init", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
