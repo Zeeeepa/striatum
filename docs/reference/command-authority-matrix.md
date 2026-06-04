@@ -15,10 +15,13 @@ plan. Contract metadata and CLI route reference tables are generated in
 `docs/architecture/DAEMON_METHOD_TABLES.md`; authority classification,
 SQLite-dependency notes, and Go-port status still live here. Every new RPC
 method or handwritten route map must update this file. Per D108, executable
-guardrails in `tests/architecture/test_authority_guardrails.py` keep route
-labels, capabilities, scopes, and CLI fallback cells aligned with the daemon
-contract/runtime while this matrix remains curated for authority and status
-classification. Go daemon handler coverage is also executable in
+guardrails keep this matrix aligned with the daemon contract/runtime while it
+remains curated for authority and status classification; the retired Python
+`tests/architecture/test_authority_guardrails.py` (RFC 0078) is superseded by
+the live Go guards: `go/pkg/rpc/registry_contract_test.go` (registry ↔
+`contracts/daemon_methods.json`), `go/pkg/rpc/registry_rfc0043_test.go`
+(capability/scope invariants), and `go/pkg/rpc/error_catalog_test.go` (the
+error-code catalog below ↔ source literals ↔ this doc). Go daemon handler coverage is also executable in
 `go/cmd/striatumd/handler_coverage_test.go`, which fails if active contract
 methods are missing Go handlers or regress to generic `not_implemented`
 placeholders.
@@ -53,8 +56,10 @@ These Python client/CLI touchpoints may configure or open daemon PostgreSQL
 directly because they run before a daemon is healthy, inspect daemon health, or
 guard local authoring against active runs. This is not a general live-state
 mutation escape hatch: ordinary workflow state changes must route through
-daemon RPC. `tests/architecture/test_authority_guardrails.py` scans for these
-imports and fails on unlisted direct PostgreSQL client helpers.
+daemon RPC. The retired Python guardrail
+(`tests/architecture/test_authority_guardrails.py`) used to scan these imports;
+the live executable guards are the Go contract tests named in the introduction
+above.
 
 | File/function | Allowed surface | Direct PostgreSQL helper imports | Constraint |
 |---|---|---|---|
@@ -304,3 +309,83 @@ remediation phases should either daemon-route, quarantine, or delete.
     path, never a bound-session bypass. The `work.*` family is NOT yet enforced
     (no act-as session distinct from the bound session today); it is the next
     extension.
+
+## Error code catalog (RFC 0111)
+
+Every error code the daemon RPC surface (and its CLI client shim) can return,
+as a closed contract. The authoritative registry is
+`go/pkg/rpc/error_catalog.go`; `go/pkg/rpc/error_catalog_test.go`
+guard-reconciles it in both directions against the error-code literals in the
+Go source (`NewError("…")`, `Code: "…"`, and capability `DenialReason`
+values, which `RequireAllowed` converts verbatim into `rpc.Error` codes) and
+fails when this section is missing a cataloged code. `ErrorResponse` centrally
+fills `suggestion` from this catalog when a call site sets none (explicit
+call-site suggestions win); the MCP boundary renders code, message, and
+suggestion into the `tools/call` content text and `structuredContent`
+(`error` / `error_message` / `suggestion`). A `—` suggestion means no generic
+remediation is sensible for that code.
+
+| Code | Meaning | Default suggestion |
+|---|---|---|
+| `artifact_error` | An artifact operation (publish, read, validation, or flag contract) failed. | Read the message for the failing artifact constraint, fix the artifact (front matter, paths, required flags), and retry the publish. |
+| `audit_append_failed` | The daemon could not append the audit row, so the operation was refused or rolled back (fail-closed provenance). | Retry once; if it persists, check daemon PostgreSQL health with `striatum doctor` and report the audit_id. |
+| `bad_host` | The MCP endpoint rejected a request whose Host header is not loopback. | Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL. |
+| `bad_origin` | The MCP endpoint rejected a browser-style request whose Origin header is not loopback. | Send requests from a loopback origin or drop the Origin header. |
+| `base_head_mismatch` | The current git HEAD does not match the commit_request base_head. | Regenerate the commit_request against the current HEAD, then re-run git.commit_apply. |
+| `blob_apply_required` | The blob bucket does not exist and creation was not authorized. | Re-run adopt with --apply-blob-creation to create the bucket. |
+| `blob_disabled` | The daemon is not configured for blob storage. | — |
+| `blob_head_failed` | The blob backend failed to stat an object. | — |
+| `blob_list_failed` | The blob backend failed to list a bucket. | — |
+| `blob_provision_failed` | The blob backend failed to provision the repository bucket. | — |
+| `blob_publish_failed` | Uploading an artifact body to the blob backend failed (including post-upload sha256 mismatch). | — |
+| `blob_read_failed` | Reading an object from the blob backend failed. | — |
+| `branch_confirmation_required` | The run branch is not confirmed (or the run is not started), so claims are refused. | Confirm the run branch and start the run (`striatum run start --run-id <id> --branch <name>`) before claiming work. |
+| `branch_mismatch` | The current git branch does not match the commit_request branch. | Check out the branch named in the commit_request, then retry. |
+| `capability_denied` | The token is valid but this session may not perform the requested action (for example: not the floor holder, interrogator, or target session). | Verify you are the session the action belongs to and re-issue the call from that session; do not act for other lanes. |
+| `capability_expired` | The granted capability has expired. | Re-register the session (session.register) or ask the operator to mint a fresh capability token, then retry. |
+| `capability_missing` | The token does not carry the capability the method requires. | Use a token that grants the required capability for this repository (re-register the session or ask the operator to mint one). |
+| `capability_scope_mismatch` | The capability is scoped to a different repository than the request targets. | Re-issue the call with the repository_id the token is scoped to, or obtain a token scoped to this repository. |
+| `commit_request_not_found` | The referenced commit_request artifact does not exist or is not readable. | Publish the commit_request artifact first, then retry with its request_id. |
+| `confirmation_required` | A mutating verb needs an explicit confirmation that was not supplied or did not match. | Re-run with the explicit confirmation the message names (for example confirm=true with a matching confirm_request_id). |
+| `conflict` | A uniqueness or attribution conflict (for example a client already attributed to another principal). | — |
+| `daemon_db_missing` | The operation requires daemon PostgreSQL, which is not configured or reachable. | Check daemon PostgreSQL health with `striatum doctor` and restore the database before retrying. |
+| `daemon_unreachable` | The CLI could not reach the daemon RPC socket. | Ensure striatumd is running (`striatum doctor` reports daemon health), then retry. |
+| `dirty_tree_outside_commit_request` | The working tree has changes outside the commit_request included_paths. | Commit or revert the changes outside included_paths, then retry. |
+| `duplicate_request` | The RPC request_id was already used. | Re-issue the call with a fresh request_id. |
+| `file_read_failed` | The daemon could not read a repository file it was asked to operate on. | Verify the path exists and is readable inside the repository, then retry. |
+| `git_commit_apply_failed` | A git step of commit apply failed. | — |
+| `git_snapshot_failed` | Capturing the git snapshot failed. | — |
+| `git_unavailable` | The git executable is not available to the daemon. | Install git and ensure it is on the daemon's PATH. |
+| `internal_error` | An unexpected daemon-side failure that does not map to a stable code. | Retry once; if it persists, report the failure with its audit_id. |
+| `invalid_transition` | The requested state transition is not legal from the current job, run, lease, or session state. | Re-read the live state (job.detail / run.detail, or `striatum status`) and take only the transition the current state allows. |
+| `key_rotation_unavailable` | daemon.key.rotate is not wired in this daemon build; signing keys were not modified. | — |
+| `lease_error` | The supplied lease is missing, expired, inactive, owned by another session, or bound to a different job. | Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet. |
+| `method_unknown` | The method has no registered handler. | Call tools/list and use a method the daemon actually exposes. |
+| `not_found` | A referenced entity (session, job, artifact, interrogation, ...) does not exist. | List the live entities first (list.runs / list.jobs / list.sessions / artifact.list_for_run) and re-issue with an id that exists. |
+| `not_implemented` | The method is registered but not implemented in this daemon build. | — |
+| `path_conflict` | The active repository path is occupied by a different repository identity. | — |
+| `path_outside_scope` | The path escapes the allowed scope (write scope, export directory, or repository root). | Use a path inside your packet's write_scope.allowed_paths (or the allowed output directory) and retry. |
+| `path_traversal` | Path traversal outside the repository was refused. | Use a repository-relative path without `..` segments. |
+| `receipt_missing` | The apply receipt was not found. | — |
+| `repo_blob_conflict` | The repository's blob bucket is owned by a different repository identity. | — |
+| `repo_not_found` | The repository path does not exist on disk. | Verify the repository path and re-run `striatum repo add` with the correct location. |
+| `repo_not_registered` | The repository is not registered with the daemon. | Register the repository first (`striatum repo add`), then retry. |
+| `repo_scratch_missing` | The repository scratch area is not initialized. | Run `striatum init` (or `striatum repo add --init`) in the target repository, then retry. |
+| `run_not_found` | The run_id was not found. | List runs (list.runs) and use an existing run_id. |
+| `schema_invalid` | The request failed schema validation (missing, ill-typed, or malformed parameters or envelope). | Fix the named parameter to match the documented schema and resend the request. |
+| `sha256_mismatch` | A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted). | Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying. |
+| `shutdown_unavailable` | daemon.shutdown is not wired in this daemon process. | Stop the daemon with its service manager or a signal instead. |
+| `signing_key_insecure` | The sealed-apply signing key fails security requirements (for example permissions). | — |
+| `signing_key_invalid` | The sealed-apply signing key is invalid or unusable. | — |
+| `symlink_refused` | A symlinked path was refused (repository registration and scoped writes resolve real paths). | Use the real (non-symlinked) path and retry. |
+| `target_unavailable` | The target session for the requested operation does not exist or is unavailable. | List live sessions (list.sessions) and target one that is active. |
+| `token_expired` | The capability token is expired. | Obtain a fresh capability token (re-register the session or ask the operator), then resend with the new token. |
+| `token_invalid` | The capability token does not exist or its secret does not match. | Resend with a valid capability token exactly as issued; if yours was rotated, obtain a fresh one from the operator or session registration. |
+| `token_malformed` | The capability token is not in the issued token_id.secret form. | Send the capability token exactly as issued (token_id.secret) in the Authorization bearer header. |
+| `token_missing` | No capability token was supplied on a method that requires one. | Send your capability token as an Authorization bearer header (lane environments provide STRIATUM_MCP_TOKEN). |
+| `token_revoked` | The capability token has been revoked. | Obtain a fresh capability token (re-register the session or ask the operator), then resend with the new token. |
+| `token_scope_ambiguous` | The token carries duplicate active capability scopes, so the daemon cannot pick one. | — |
+| `token_unavailable` | The CLI could not load a capability token from its configured token file. | Run inside a workflow lane (which provides the token) or point the CLI at a readable capability-token file. |
+| `version_incompatible` | The client and daemon share no supported envelope version. | Upgrade so client and daemon match (`make install`, then restart striatumd so the running image is the new build). |
+| `workflow_error` | Workflow validation, preparation, or run orchestration failed. | — |
+| `workflow_snapshot_not_found` | The workflow_snapshot_id was not found. | Read the run's workflow_snapshot_id from run.detail and re-issue with it. |

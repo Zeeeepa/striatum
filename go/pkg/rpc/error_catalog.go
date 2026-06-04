@@ -1,0 +1,354 @@
+package rpc
+
+// ErrorCatalogEntry describes one stable error code the daemon (or its CLI
+// client shim) can return: the code itself, a one-line meaning, and the
+// default remediation an agent can act on in-band (RFC 0111 P3). Suggestion
+// may be empty where no generic remediation is sensible.
+type ErrorCatalogEntry struct {
+	Code       string
+	Meaning    string
+	Suggestion string
+}
+
+// ErrorCatalog is the closed contract enumerating every error code in live
+// use. error_catalog_test.go guard-reconciles it in both directions against
+// the Go source under go/: an emitted code missing here fails the guard, and
+// an entry here that no source literal emits fails the guard. The catalog is
+// also rendered as the "Error code catalog" section of
+// docs/reference/command-authority-matrix.md (doc drift is guard-tested too).
+//
+// ErrorResponse uses DefaultSuggestion to centrally fill rpc.Error.Suggestion
+// when a call site did not set one (RFC 0111 P2): explicit call-site
+// suggestions always win over these defaults.
+var ErrorCatalog = []ErrorCatalogEntry{
+	{
+		Code:       "artifact_error",
+		Meaning:    "An artifact operation (publish, read, validation, or flag contract) failed.",
+		Suggestion: "Read the message for the failing artifact constraint, fix the artifact (front matter, paths, required flags), and retry the publish.",
+	},
+	{
+		Code:       "audit_append_failed",
+		Meaning:    "The daemon could not append the audit row, so the operation was refused or rolled back (fail-closed provenance).",
+		Suggestion: "Retry once; if it persists, check daemon PostgreSQL health with `striatum doctor` and report the audit_id.",
+	},
+	{
+		Code:       "bad_host",
+		Meaning:    "The MCP endpoint rejected a request whose Host header is not loopback.",
+		Suggestion: "Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL.",
+	},
+	{
+		Code:       "bad_origin",
+		Meaning:    "The MCP endpoint rejected a browser-style request whose Origin header is not loopback.",
+		Suggestion: "Send requests from a loopback origin or drop the Origin header.",
+	},
+	{
+		Code:       "base_head_mismatch",
+		Meaning:    "The current git HEAD does not match the commit_request base_head.",
+		Suggestion: "Regenerate the commit_request against the current HEAD, then re-run git.commit_apply.",
+	},
+	{
+		Code:       "blob_apply_required",
+		Meaning:    "The blob bucket does not exist and creation was not authorized.",
+		Suggestion: "Re-run adopt with --apply-blob-creation to create the bucket.",
+	},
+	{
+		Code:       "blob_disabled",
+		Meaning:    "The daemon is not configured for blob storage.",
+		Suggestion: "",
+	},
+	{
+		Code:       "blob_head_failed",
+		Meaning:    "The blob backend failed to stat an object.",
+		Suggestion: "",
+	},
+	{
+		Code:       "blob_list_failed",
+		Meaning:    "The blob backend failed to list a bucket.",
+		Suggestion: "",
+	},
+	{
+		Code:       "blob_provision_failed",
+		Meaning:    "The blob backend failed to provision the repository bucket.",
+		Suggestion: "",
+	},
+	{
+		Code:       "blob_publish_failed",
+		Meaning:    "Uploading an artifact body to the blob backend failed (including post-upload sha256 mismatch).",
+		Suggestion: "",
+	},
+	{
+		Code:       "blob_read_failed",
+		Meaning:    "Reading an object from the blob backend failed.",
+		Suggestion: "",
+	},
+	{
+		Code:       "branch_confirmation_required",
+		Meaning:    "The run branch is not confirmed (or the run is not started), so claims are refused.",
+		Suggestion: "Confirm the run branch and start the run (`striatum run start --run-id <id> --branch <name>`) before claiming work.",
+	},
+	{
+		Code:       "branch_mismatch",
+		Meaning:    "The current git branch does not match the commit_request branch.",
+		Suggestion: "Check out the branch named in the commit_request, then retry.",
+	},
+	{
+		Code:       "capability_denied",
+		Meaning:    "The token is valid but this session may not perform the requested action (for example: not the floor holder, interrogator, or target session).",
+		Suggestion: "Verify you are the session the action belongs to and re-issue the call from that session; do not act for other lanes.",
+	},
+	{
+		Code:       "capability_expired",
+		Meaning:    "The granted capability has expired.",
+		Suggestion: "Re-register the session (session.register) or ask the operator to mint a fresh capability token, then retry.",
+	},
+	{
+		Code:       "capability_missing",
+		Meaning:    "The token does not carry the capability the method requires.",
+		Suggestion: "Use a token that grants the required capability for this repository (re-register the session or ask the operator to mint one).",
+	},
+	{
+		Code:       "capability_scope_mismatch",
+		Meaning:    "The capability is scoped to a different repository than the request targets.",
+		Suggestion: "Re-issue the call with the repository_id the token is scoped to, or obtain a token scoped to this repository.",
+	},
+	{
+		Code:       "commit_request_not_found",
+		Meaning:    "The referenced commit_request artifact does not exist or is not readable.",
+		Suggestion: "Publish the commit_request artifact first, then retry with its request_id.",
+	},
+	{
+		Code:       "confirmation_required",
+		Meaning:    "A mutating verb needs an explicit confirmation that was not supplied or did not match.",
+		Suggestion: "Re-run with the explicit confirmation the message names (for example confirm=true with a matching confirm_request_id).",
+	},
+	{
+		Code:       "conflict",
+		Meaning:    "A uniqueness or attribution conflict (for example a client already attributed to another principal).",
+		Suggestion: "",
+	},
+	{
+		Code:       "daemon_db_missing",
+		Meaning:    "The operation requires daemon PostgreSQL, which is not configured or reachable.",
+		Suggestion: "Check daemon PostgreSQL health with `striatum doctor` and restore the database before retrying.",
+	},
+	{
+		Code:       "daemon_unreachable",
+		Meaning:    "The CLI could not reach the daemon RPC socket.",
+		Suggestion: "Ensure striatumd is running (`striatum doctor` reports daemon health), then retry.",
+	},
+	{
+		Code:       "dirty_tree_outside_commit_request",
+		Meaning:    "The working tree has changes outside the commit_request included_paths.",
+		Suggestion: "Commit or revert the changes outside included_paths, then retry.",
+	},
+	{
+		Code:       "duplicate_request",
+		Meaning:    "The RPC request_id was already used.",
+		Suggestion: "Re-issue the call with a fresh request_id.",
+	},
+	{
+		Code:       "file_read_failed",
+		Meaning:    "The daemon could not read a repository file it was asked to operate on.",
+		Suggestion: "Verify the path exists and is readable inside the repository, then retry.",
+	},
+	{
+		Code:       "git_commit_apply_failed",
+		Meaning:    "A git step of commit apply failed.",
+		Suggestion: "",
+	},
+	{
+		Code:       "git_snapshot_failed",
+		Meaning:    "Capturing the git snapshot failed.",
+		Suggestion: "",
+	},
+	{
+		Code:       "git_unavailable",
+		Meaning:    "The git executable is not available to the daemon.",
+		Suggestion: "Install git and ensure it is on the daemon's PATH.",
+	},
+	{
+		Code:       "internal_error",
+		Meaning:    "An unexpected daemon-side failure that does not map to a stable code.",
+		Suggestion: "Retry once; if it persists, report the failure with its audit_id.",
+	},
+	{
+		Code:       "invalid_transition",
+		Meaning:    "The requested state transition is not legal from the current job, run, lease, or session state.",
+		Suggestion: "Re-read the live state (job.detail / run.detail, or `striatum status`) and take only the transition the current state allows.",
+	},
+	{
+		Code:       "key_rotation_unavailable",
+		Meaning:    "daemon.key.rotate is not wired in this daemon build; signing keys were not modified.",
+		Suggestion: "",
+	},
+	{
+		Code:       "lease_error",
+		Meaning:    "The supplied lease is missing, expired, inactive, owned by another session, or bound to a different job.",
+		Suggestion: "Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet.",
+	},
+	{
+		Code:       "method_unknown",
+		Meaning:    "The method has no registered handler.",
+		Suggestion: "Call tools/list and use a method the daemon actually exposes.",
+	},
+	{
+		Code:       "not_found",
+		Meaning:    "A referenced entity (session, job, artifact, interrogation, ...) does not exist.",
+		Suggestion: "List the live entities first (list.runs / list.jobs / list.sessions / artifact.list_for_run) and re-issue with an id that exists.",
+	},
+	{
+		Code:       "not_implemented",
+		Meaning:    "The method is registered but not implemented in this daemon build.",
+		Suggestion: "",
+	},
+	{
+		Code:       "path_conflict",
+		Meaning:    "The active repository path is occupied by a different repository identity.",
+		Suggestion: "",
+	},
+	{
+		Code:       "path_outside_scope",
+		Meaning:    "The path escapes the allowed scope (write scope, export directory, or repository root).",
+		Suggestion: "Use a path inside your packet's write_scope.allowed_paths (or the allowed output directory) and retry.",
+	},
+	{
+		Code:       "path_traversal",
+		Meaning:    "Path traversal outside the repository was refused.",
+		Suggestion: "Use a repository-relative path without `..` segments.",
+	},
+	{
+		Code:       "receipt_missing",
+		Meaning:    "The apply receipt was not found.",
+		Suggestion: "",
+	},
+	{
+		Code:       "repo_blob_conflict",
+		Meaning:    "The repository's blob bucket is owned by a different repository identity.",
+		Suggestion: "",
+	},
+	{
+		Code:       "repo_not_found",
+		Meaning:    "The repository path does not exist on disk.",
+		Suggestion: "Verify the repository path and re-run `striatum repo add` with the correct location.",
+	},
+	{
+		Code:       "repo_not_registered",
+		Meaning:    "The repository is not registered with the daemon.",
+		Suggestion: "Register the repository first (`striatum repo add`), then retry.",
+	},
+	{
+		Code:       "repo_scratch_missing",
+		Meaning:    "The repository scratch area is not initialized.",
+		Suggestion: "Run `striatum init` (or `striatum repo add --init`) in the target repository, then retry.",
+	},
+	{
+		Code:       "run_not_found",
+		Meaning:    "The run_id was not found.",
+		Suggestion: "List runs (list.runs) and use an existing run_id.",
+	},
+	{
+		Code:       "schema_invalid",
+		Meaning:    "The request failed schema validation (missing, ill-typed, or malformed parameters or envelope).",
+		Suggestion: "Fix the named parameter to match the documented schema and resend the request.",
+	},
+	{
+		Code:       "sha256_mismatch",
+		Meaning:    "A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted).",
+		Suggestion: "Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying.",
+	},
+	{
+		Code:       "shutdown_unavailable",
+		Meaning:    "daemon.shutdown is not wired in this daemon process.",
+		Suggestion: "Stop the daemon with its service manager or a signal instead.",
+	},
+	{
+		Code:       "signing_key_insecure",
+		Meaning:    "The sealed-apply signing key fails security requirements (for example permissions).",
+		Suggestion: "",
+	},
+	{
+		Code:       "signing_key_invalid",
+		Meaning:    "The sealed-apply signing key is invalid or unusable.",
+		Suggestion: "",
+	},
+	{
+		Code:       "symlink_refused",
+		Meaning:    "A symlinked path was refused (repository registration and scoped writes resolve real paths).",
+		Suggestion: "Use the real (non-symlinked) path and retry.",
+	},
+	{
+		Code:       "target_unavailable",
+		Meaning:    "The target session for the requested operation does not exist or is unavailable.",
+		Suggestion: "List live sessions (list.sessions) and target one that is active.",
+	},
+	{
+		Code:       "token_expired",
+		Meaning:    "The capability token is expired.",
+		Suggestion: "Obtain a fresh capability token (re-register the session or ask the operator), then resend with the new token.",
+	},
+	{
+		Code:       "token_invalid",
+		Meaning:    "The capability token does not exist or its secret does not match.",
+		Suggestion: "Resend with a valid capability token exactly as issued; if yours was rotated, obtain a fresh one from the operator or session registration.",
+	},
+	{
+		Code:       "token_malformed",
+		Meaning:    "The capability token is not in the issued token_id.secret form.",
+		Suggestion: "Send the capability token exactly as issued (token_id.secret) in the Authorization bearer header.",
+	},
+	{
+		Code:       "token_missing",
+		Meaning:    "No capability token was supplied on a method that requires one.",
+		Suggestion: "Send your capability token as an Authorization bearer header (lane environments provide STRIATUM_MCP_TOKEN).",
+	},
+	{
+		Code:       "token_revoked",
+		Meaning:    "The capability token has been revoked.",
+		Suggestion: "Obtain a fresh capability token (re-register the session or ask the operator), then resend with the new token.",
+	},
+	{
+		Code:       "token_scope_ambiguous",
+		Meaning:    "The token carries duplicate active capability scopes, so the daemon cannot pick one.",
+		Suggestion: "",
+	},
+	{
+		Code:       "token_unavailable",
+		Meaning:    "The CLI could not load a capability token from its configured token file.",
+		Suggestion: "Run inside a workflow lane (which provides the token) or point the CLI at a readable capability-token file.",
+	},
+	{
+		Code:       "version_incompatible",
+		Meaning:    "The client and daemon share no supported envelope version.",
+		Suggestion: "Upgrade so client and daemon match (`make install`, then restart striatumd so the running image is the new build).",
+	},
+	{
+		Code:       "workflow_error",
+		Meaning:    "Workflow validation, preparation, or run orchestration failed.",
+		Suggestion: "",
+	},
+	{
+		Code:       "workflow_snapshot_not_found",
+		Meaning:    "The workflow_snapshot_id was not found.",
+		Suggestion: "Read the run's workflow_snapshot_id from run.detail and re-issue with it.",
+	},
+}
+
+var errorCatalogByCode = func() map[string]ErrorCatalogEntry {
+	byCode := make(map[string]ErrorCatalogEntry, len(ErrorCatalog))
+	for _, entry := range ErrorCatalog {
+		byCode[entry.Code] = entry
+	}
+	return byCode
+}()
+
+// LookupErrorCode returns the catalog entry for code.
+func LookupErrorCode(code string) (ErrorCatalogEntry, bool) {
+	entry, ok := errorCatalogByCode[code]
+	return entry, ok
+}
+
+// DefaultSuggestion returns the catalog's default remediation for code, or ""
+// when the code is unknown or carries no default.
+func DefaultSuggestion(code string) string {
+	return errorCatalogByCode[code].Suggestion
+}
