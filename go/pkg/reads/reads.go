@@ -93,13 +93,15 @@ func intFrom(m map[string]any, key string) int {
 // STRIATUM_BLOB_ENDPOINT; artifact.get_content then refuses for
 // blob-routed artifacts but still serves legacy repo-path bodies.
 type Options struct {
-	BlobClient *blob.Client
+	BlobClient      *blob.Client
+	StriatumVersion string
 }
 
 // packageBlobClient mirrors mutations.packageBlobClient: a single
 // daemon-startup-time blob client read by the artifact.get_content
 // handler. nil means blob storage is disabled.
 var packageBlobClient *blob.Client
+var packageStriatumVersion = "dev"
 
 // Register wires every read handler in this package onto the rpc.Server.
 // Call from cmd/striatumd/main.go after the registry-side handlers land.
@@ -112,6 +114,9 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 		o = opts[0]
 	}
 	packageBlobClient = o.BlobClient
+	if o.StriatumVersion != "" {
+		packageStriatumVersion = o.StriatumVersion
+	}
 	rpc.MethodRegistry["doctor.blob_block"] = rpc.NewMethod("doctor.blob_block", rpc.CapPtr(rpc.CapabilityRead), false, rpc.ScopeDaemonGlobal)
 	server.Register("status", makeHandler(runner, HandleStatus))
 	server.Register("dashboard", makeHandler(runner, HandleDashboard))

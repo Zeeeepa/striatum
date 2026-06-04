@@ -2,10 +2,12 @@ package reads
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/installers"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 )
@@ -175,6 +177,26 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// private-read denial for a live runtime credential.
 	pgReadScopeBlock := pgReadScopeDoctorBlock()
 
+	skillsBlock := map[string]any{"checked": false}
+	if repoRoot := doctorRepoRoot(ctx, runner, repositoryID); repoRoot != "" {
+		home, _ := os.UserHomeDir()
+		skillsHealth, err := installers.CheckSkillsHealth(installers.SkillsHealthParams{
+			Target:         repoRoot,
+			Home:           home,
+			CurrentVersion: packageStriatumVersion,
+		})
+		if err == nil {
+			skillsBlock = map[string]any{
+				"checked":         skillsHealth.Checked,
+				"current_version": skillsHealth.CurrentVersion,
+				"items":           skillsHealth.Items,
+			}
+			warnings = append(warnings, installers.SkillsHealthWarnings(skillsHealth)...)
+		} else {
+			warnings = append(warnings, "skills_check_failed: "+err.Error())
+		}
+	}
+
 	return map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
@@ -190,6 +212,23 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"principals":          principalsBlock,
 		"pg_write_boundary":   pgWriteBoundaryBlock,
 		"pg_read_scope":       pgReadScopeBlock,
+		"skills":              skillsBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
+}
+
+func doctorRepoRoot(ctx context.Context, runner any, repositoryID string) string {
+	if repositoryID == "" {
+		return ""
+	}
+	rows, err := collectRows(ctx, runner,
+		`SELECT repo_root FROM striatumd.repositories
+		  WHERE repository_id = $1 AND state != 'removed'
+		  ORDER BY registered_at DESC LIMIT 1`,
+		repositoryID,
+	)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(stringFrom(rows[0], "repo_root"))
 }

@@ -40,6 +40,7 @@ type SkillsResult struct {
 	Namespace    string       `json:"namespace"`
 	ManifestPath string       `json:"manifest_path"`
 	Files        []fileResult `json:"files"`
+	Cleanups     []fileResult `json:"cleanups,omitempty"`
 	DryRun       bool         `json:"dry_run"`
 }
 
@@ -68,6 +69,10 @@ func InstallSkills(p SkillsParams) (SkillsResult, error) {
 	if err != nil {
 		return SkillsResult{}, err
 	}
+	cleanups, err := cleanupStalePeerSkillBundles(p)
+	if err != nil {
+		return SkillsResult{}, err
+	}
 	manifestPath := skillsManifestPath(root, p.Profile, p.Namespace)
 	files, err := runPipeline(pipelineParams{
 		BaseDir:       root,
@@ -90,6 +95,7 @@ func InstallSkills(p SkillsParams) (SkillsResult, error) {
 		Namespace:    p.Namespace,
 		ManifestPath: manifestPath,
 		Files:        files,
+		Cleanups:     cleanups,
 		DryRun:       p.DryRun,
 	}, nil
 }
