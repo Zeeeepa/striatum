@@ -127,6 +127,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "",
 	},
 	{
+		Code:       "daemon_auth_lost",
+		Meaning:    "The daemon's authority secret no longer matches the database registry (the row is missing or was superseded by a concurrent rotator), so an authorized write was refused (RFC 0110 §4.5).",
+		Suggestion: "Restart the daemon to re-bootstrap its authority, or check for a concurrent rotator on the same runtime role (use per-instance roles for a shared PostgreSQL).",
+	},
+	{
 		Code:       "daemon_db_missing",
 		Meaning:    "The operation requires daemon PostgreSQL, which is not configured or reachable.",
 		Suggestion: "Check daemon PostgreSQL health with `striatum doctor` and restore the database before retrying.",

@@ -348,6 +348,7 @@ remediation is sensible for that code.
 | `commit_request_not_found` | The referenced commit_request artifact does not exist or is not readable. | Publish the commit_request artifact first, then retry with its request_id. |
 | `confirmation_required` | A mutating verb needs an explicit confirmation that was not supplied or did not match. | Re-run with the explicit confirmation the message names (for example confirm=true with a matching confirm_request_id). |
 | `conflict` | A uniqueness or attribution conflict (for example a client already attributed to another principal). | — |
+| `daemon_auth_lost` | The daemon's authority secret no longer matches the database registry (the row is missing or was superseded by a concurrent rotator), so an authorized write was refused (RFC 0110 §4.5). | Restart the daemon to re-bootstrap its authority, or check for a concurrent rotator on the same runtime role (use per-instance roles for a shared PostgreSQL). |
 | `daemon_db_missing` | The operation requires daemon PostgreSQL, which is not configured or reachable. | Check daemon PostgreSQL health with `striatum doctor` and restore the database before retrying. |
 | `daemon_unreachable` | The CLI could not reach the daemon RPC socket. | Ensure striatumd is running (`striatum doctor` reports daemon health), then retry. |
 | `dirty_tree_outside_commit_request` | The working tree has changes outside the commit_request included_paths. | Commit or revert the changes outside included_paths, then retry. |
