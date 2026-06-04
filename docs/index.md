@@ -28,6 +28,7 @@ collectively, not individually.
 
 | File | Audience | Summary |
 |---|---|---|
+| [../ARCHITECTURE.md](../ARCHITECTURE.md) | Fresh agent / human | One navigable map of the substrate: components, state ownership, surfaces, write boundary, run model, failure legibility (GH #161). |
 | [spec.md](reference/spec.md) | Anyone | The implementation contract for the V1 surface. The source of truth when this index and the runner disagree. |
 | [domain-driven-design.md](explanation/domain-driven-design.md) | Anyone curious about the framing | Why the vocabulary is the model, not bookkeeping; bounded context, aggregate roots, value objects, the events log, and the daemon-method write-boundary invariant. |
 | [doc-map.md](reference/doc-map.md) | Anyone editing the docs | The boundary contract: which doc owns what, what each doc deliberately does *not* contain, and the direction citations should flow. |

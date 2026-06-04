@@ -11,12 +11,13 @@ behavior, fix the doc.
 Read these first, in order:
 
 1. `README.md`
-2. `docs/index.md`
-3. `docs/reference/spec.md`
-4. `docs/decisions/decision-log.md`
-5. `docs/reference/ubiquitous-language.md`
-6. `docs/reference/todo.md`
-7. `docs/operator/BRIEF.md` for current operator state and the bounded
+2. `ARCHITECTURE.md` for the one-page substrate map
+3. `docs/index.md`
+4. `docs/reference/spec.md`
+5. `docs/decisions/decision-log.md`
+6. `docs/reference/ubiquitous-language.md`
+7. `docs/reference/todo.md`
+8. `docs/operator/BRIEF.md` for current operator state and the bounded
    plan links that supersede older handoffs.
 
 Treat `docs/_archive/ENGRAM_INCUBATION_CONTEXT.md`,

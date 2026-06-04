@@ -245,7 +245,7 @@ striatum --repo "$TARGET_REPO" run start --run-id <run_id> --json
 striatum --repo "$TARGET_REPO" dashboard --run-id <run_id> --once
 ```
 
-Full walkthrough: [`docs/USING_STRIATUM.md`](docs/tutorials/using-striatum.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md). Human-principal escalation guide: [`docs/HOW_TO_HUMAN.md`](docs/how-to/how-to-human.md).
+Architecture map: [`ARCHITECTURE.md`](ARCHITECTURE.md). Full walkthrough: [`docs/USING_STRIATUM.md`](docs/tutorials/using-striatum.md). AI-operator playbook: [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md). Human-principal escalation guide: [`docs/HOW_TO_HUMAN.md`](docs/how-to/how-to-human.md).
 
 ### Install the agent skill bundle
 
