@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## v2.18.1 — 2026-06-04
+
+### RFC 0110 Release N+1 (slice 2) — fix: restart-safe L0 boot order
+
+A correctness fix for the two-role L0 credential bootstrap shipped in v2.18.0.
+The daemon brought up its runtime pool from the `daemon.toml` password *before*
+`BootstrapAuthority` rotated that password (`ALTER ROLE … PASSWORD`) to a fresh
+RAM-only value. Because the rotation is never written back to `daemon.toml` (by
+design — §9.1: "A DSN captured before a restart fails after it"), the boot
+worked once but the *next* restart would present the now-stale password to the
+initial runtime connect and `log.Fatalf` — a crash loop under the unit's
+`Restart=on-failure`. This made the deferred operator v3 flip unsafe: the first
+restart after the flip would brick the daemon until the role password was reset
+by hand.
+
+- **`db.BootstrapAndConnect`** establishes the runtime pool in the §9.1 order:
+  run the authority bootstrap over the owner connection FIRST (rotating the
+  runtime password where two-role), THEN connect the runtime pool with the
+  rotated credential. `ALTER ROLE … PASSWORD` does not need the old password, so
+  the runtime connect always uses a current credential regardless of what
+  `daemon.toml` holds — restart-safe across any number of restarts. The old
+  connect-then-reconnect dance in `cmd/striatumd` is removed.
+- **Inert path unchanged**: with no owner bundle applied (the live daemon), the
+  bootstrap is schema-absent, no rotation occurs, and the runtime pool connects
+  with the configured DSN exactly as before — so installing this binary on the
+  unflipped production daemon is behavior-neutral.
+- **Gate — `TestBootstrapAndConnectRecoversFromStaleRuntimePassword`** (two-role
+  TCP): boot once (rotates the password away), assert a direct connect with the
+  now-stale password fails (the brick precondition), then assert a second
+  `BootstrapAndConnect` with the same stale config still comes up.
+
 ### RFC 0108 Phase 1 — multi-run composition gate (hermetic, no new behavior)
 
 The standing gate proving ≥2 independent runs compose on ONE repository, the

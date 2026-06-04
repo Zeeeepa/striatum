@@ -179,23 +179,31 @@ func main() {
 		log.Fatalf("striatumd refuses to start without a Postgres URL; pass --postgres-url or set STRIATUM_DAEMON_DB_URL")
 	}
 	{
-		var pool *db.Pool
-		var err error
-		if migrate {
-			var version int
-			pool, version, err = db.ConnectAndMigrate(ctx, config.URL, daemonVersion)
-			if err != nil {
-				log.Fatalf("daemon db connect/migrate failed: %v", err)
-			}
-			substrateSchema = version
-		} else {
-			pool, err = db.Connect(ctx, config.URL, daemonVersion)
-			if err != nil {
-				log.Fatalf("daemon db connect failed: %v", err)
-			}
+		// RFC 0110 §9.1 (restart-safe L0 boot order): run the authority bootstrap
+		// over the owner connection FIRST — in a two-role deployment this rotates
+		// the runtime role's password to a fresh RAM-only value — THEN bring up
+		// the runtime pool with the (possibly rotated) credential. Connecting the
+		// runtime pool first would only survive the first boot: rotation
+		// invalidates the password captured in daemon.toml, so a later restart
+		// would present a stale password and crash-loop (Restart=on-failure).
+		// Inert when no owner bundle is applied (authority schema absent): no
+		// rotation, runtime pool connects with config.URL unchanged. Fail-closed
+		// on any owner-connection failure (§9.2).
+		booted, err := db.BootstrapAndConnect(ctx, db.BootstrapConfig{
+			RuntimeURL:    config.URL,
+			OwnerURL:      strings.TrimSpace(os.Getenv("STRIATUM_OWNER_DB_URL")),
+			RuntimeRole:   runtimeRoleFromURL(config.URL),
+			InstanceID:    daemonInstanceID(),
+			DaemonVersion: daemonVersion,
+		}, migrate)
+		if err != nil {
+			log.Fatalf("daemon db connect/bootstrap failed: %v", err)
 		}
-		// The runtime pool may be reconnected below if L0 rotates the password,
-		// so the deferred close binds to the variable, not the initial pool.
+		pool := booted.Pool
+		substrateSchema = booted.SchemaVersion
+		authResult := booted.Authority
+		// pool is already connected with the rotated credential (L0 §9.1); no
+		// reconnect dance is needed. Release it on shutdown.
 		defer func() { pool.Close() }()
 		runner = pool.Runner
 		// RFC 0110 §8.2 (C-DEPLOY-CAPABILITY-PARITY): verify the binary and the
@@ -203,35 +211,15 @@ func main() {
 		// mutations. Inert when no owner bundle has stamped a capability; once
 		// the N+1 owner bundle is applied, a binary that does not support a
 		// stamped capability fails closed here (old-binary / authority-schema).
+		// This runs AFTER the L0 bootstrap above: a capability-skewed binary on
+		// an active authority schema will have rotated the credential once before
+		// failing closed here. That is harmless (the next boot re-rotates) and
+		// spec-compliant (§8.2 requires parity before serving, not before
+		// rotating); the only residue is registry/credential churn during a
+		// misconfigured-deploy crash loop — see the per-instance-id follow-up.
 		if err := db.VerifyCapabilityParity(ctx, runner,
 			db.RequiredAuthorityCapabilities(), db.SupportedAuthorityCapabilities()); err != nil {
 			log.Fatalf("daemon capability parity check failed: %v", err)
-		}
-		// RFC 0110 §9 (L0 credential bootstrap): over an owner connection,
-		// generate + register this instance's authority secret and (two-role
-		// only) rotate the runtime password. Inert when the owner bundle is not
-		// applied (authority schema absent) — so a daemon without the bundle is
-		// unaffected. Fail-closed on any owner-connection failure (§9.2).
-		authResult, err := db.BootstrapAuthority(ctx, db.BootstrapConfig{
-			RuntimeURL:    config.URL,
-			OwnerURL:      strings.TrimSpace(os.Getenv("STRIATUM_OWNER_DB_URL")),
-			RuntimeRole:   runtimeRoleFromURL(config.URL),
-			InstanceID:    daemonInstanceID(),
-			DaemonVersion: daemonVersion,
-		})
-		if err != nil {
-			log.Fatalf("daemon authority bootstrap failed: %v", err)
-		}
-		if authResult.NewRuntimeURL != "" {
-			// L0 rotated the runtime password: reconnect the pool with it before
-			// serving (RFC 0110 §9.1). The old pool's open connections are closed.
-			pool.Close()
-			rotatedPool, err := db.Connect(ctx, authResult.NewRuntimeURL, daemonVersion)
-			if err != nil {
-				log.Fatalf("daemon reconnect after credential rotation failed: %v", err)
-			}
-			pool = rotatedPool
-			runner = pool.Runner
 		}
 		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat, authResult.Posture, authResult.RotatorCollision)
 		log.Printf("daemon authority: posture=%s audit_hash_format=%s registered=%t rotator_collision=%t",

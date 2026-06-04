@@ -145,6 +145,61 @@ func BootstrapAuthority(ctx context.Context, cfg BootstrapConfig) (BootstrapResu
 	return result, nil
 }
 
+// RuntimeBootstrap is the established runtime pool plus the L0 authority
+// outcome, produced by BootstrapAndConnect in the RFC 0110 §9.1 boot order.
+type RuntimeBootstrap struct {
+	// Pool is the runtime connection pool, already connected with the
+	// (possibly rotated) credential.
+	Pool *Pool
+	// SchemaVersion is the migrated substrate schema version (0 when migrate
+	// was false).
+	SchemaVersion int
+	// Authority is the L0 bootstrap result (secret, posture, rotator probe).
+	Authority BootstrapResult
+}
+
+// BootstrapAndConnect performs the RFC 0110 §9.1 daemon boot sequence in the
+// restart-safe order: it FIRST runs BootstrapAuthority over the owner
+// connection — which, in a two-role deployment, rotates the runtime role's
+// password to a fresh RAM-only value — and THEN brings up the runtime pool
+// using the (possibly rotated) credential.
+//
+// The ordering is load-bearing. The inverse order (connect the runtime pool,
+// then rotate) only survives the first boot: rotation invalidates the password
+// captured in daemon.toml (§9.1: "A DSN captured before a restart fails after
+// it"), so every subsequent boot would present a stale password to the runtime
+// connect and fail to authenticate — a crash-loop brick under systemd
+// Restart=on-failure. Rotating over the owner connection first sidesteps this:
+// `ALTER ROLE … PASSWORD` does not need the old password, so the runtime pool
+// always connects with a current credential regardless of what daemon.toml
+// holds. See TestBootstrapAndConnectRecoversFromStaleRuntimePassword.
+//
+// When the authority schema is absent (no owner bundle applied) BootstrapAuthority
+// is inert: no rotation occurs and the runtime pool connects with cfg.RuntimeURL
+// unchanged — identical to pre-RFC-0110 behavior. Any owner-connection failure is
+// fail-closed (§9.2): the error is returned and the caller must refuse to serve.
+func BootstrapAndConnect(ctx context.Context, cfg BootstrapConfig, migrate bool) (*RuntimeBootstrap, error) {
+	auth, err := BootstrapAuthority(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	runtimeURL := cfg.RuntimeURL
+	if auth.NewRuntimeURL != "" {
+		runtimeURL = auth.NewRuntimeURL
+	}
+	var pool *Pool
+	version := 0
+	if migrate {
+		pool, version, err = ConnectAndMigrate(ctx, runtimeURL, cfg.DaemonVersion)
+	} else {
+		pool, err = Connect(ctx, runtimeURL, cfg.DaemonVersion)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &RuntimeBootstrap{Pool: pool, SchemaVersion: version, Authority: auth}, nil
+}
+
 // authorityDigest computes the registry digest the way assert_daemon_authority
 // verifies it: lower-hex sha256 of UTF-8(secret || salt).
 func authorityDigest(secret, salt string) string {
