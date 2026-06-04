@@ -171,6 +171,7 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 	case strings.Contains(sql, "SELECT w.workflow_json"):
 		return dashboardAllRowsFromMaps([]map[string]any{{"workflow_json": map[string]any{
 			"provenance_mode": "strict",
+			"operator_mode":   "constrained",
 			"recovery":        map[string]any{"auto_finalize": map[string]any{"enabled": true}},
 			"phases": []any{
 				map[string]any{"id": "phase_build", "name": "Build", "synthesis_job_id": "review"},
@@ -249,7 +250,7 @@ func TestHandleStatusBuildsPythonShapedRunProjection(t *testing.T) {
 	if laneSummary["pending"] != 1 || laneSummary["auto_from_artifact"] != 0 {
 		t.Fatalf("lane_finalization_summary = %#v", laneSummary)
 	}
-	if result["provenance_mode"] != "strict" || result["current_phase_id"] != "phase_build" {
+	if result["provenance_mode"] != "strict" || result["operator_mode"] != "constrained" || result["current_phase_id"] != "phase_build" {
 		t.Fatalf("run progress fields = %#v", result)
 	}
 	actions := result["next_actions"].([]string)

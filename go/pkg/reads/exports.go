@@ -79,13 +79,18 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	if err != nil {
 		doctor = map[string]any{"ok": false, "error": err.Error()}
 	}
+	workflow, err := statusWorkflowForRun(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
 
 	return map[string]any{
-		"run":       runs[0],
-		"jobs":      jobs,
-		"artifacts": artifacts,
-		"verdicts":  verdicts,
-		"doctor":    doctor,
+		"run":           runs[0],
+		"jobs":          jobs,
+		"artifacts":     artifacts,
+		"verdicts":      verdicts,
+		"doctor":        doctor,
+		"operator_mode": workflowOperatorMode(workflow),
 	}, nil
 }
 

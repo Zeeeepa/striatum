@@ -106,6 +106,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	}
 	var autoFinalize any
 	var provenanceMode any
+	var operatorMode any
 	result := map[string]any{
 		"runs":                                 runs,
 		"jobs":                                 jobs,
@@ -122,6 +123,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"concurrent_runs":                      concurrentRuns,
 		"next_actions":                         statusNextActions(claimable, openBlockers, humanCheckpoints, nonAccepting, hasOrphanSupervisor, hasStaleLeases, processHealth, supervisorStalls, autoFinalize),
 		"provenance_mode":                      provenanceMode,
+		"operator_mode":                        operatorMode,
 	}
 	if runID != "" {
 		workflow, err := statusWorkflowForRun(ctx, runner, repositoryID, runID)
@@ -129,6 +131,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			return nil, err
 		}
 		provenanceMode = nullableStringValue(stringValue(workflow["provenance_mode"]))
+		operatorMode = workflowOperatorMode(workflow)
 		autoFinalize, err = dashboardAllAutoFinalizeSummary(ctx, runner, repositoryID, runID, workflow)
 		if err != nil {
 			return nil, err
@@ -138,6 +141,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			return nil, err
 		}
 		result["provenance_mode"] = provenanceMode
+		result["operator_mode"] = operatorMode
 		result["auto_finalize_dry_run"] = autoFinalize
 		result["current_phase_id"] = phase["current_phase_id"]
 		result["phases"] = phase["phases"]

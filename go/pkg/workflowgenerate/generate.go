@@ -322,6 +322,9 @@ func Generate(spec Spec) (Generated, error) {
 	if spec.Shape == "multi_phase" || isCollaborationShape(spec.Shape) {
 		workflow["phases"] = phases
 	}
+	if hasModifier(spec, "constrained") {
+		workflow["operator_mode"] = "constrained"
+	}
 	// RFC 0093 / RFC 0064: a collaboration shape on the single-lane `local`
 	// fixture set runs the adjudicator on the same lane as the holder/proposer it
 	// adjudicates, so the same_model_adjudicator_pair lint (now CLI-refused)

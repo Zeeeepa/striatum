@@ -144,6 +144,27 @@ func TestMultiPhaseShapeEmitsV11PhasedGraph(t *testing.T) {
 	}
 }
 
+func TestConstrainedModifierDeclaresOperatorMode(t *testing.T) {
+	generated := mustGenerate(t, map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "minimal",
+		"lane_set":         "local",
+		"workflow_id":      "constrained-demo",
+		"name":             "Constrained Demo",
+		"workflow_version": "2026-06-04",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/constrained-demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/constrained-demo",
+		"artifact_root":    "striatum/constrained-demo",
+		"lanes":            map[string]any{},
+		"options":          map[string]any{},
+		"lane_modifiers":   []any{"constrained"},
+		"context_docs":     []any{},
+	})
+	if generated.Workflow["operator_mode"] != "constrained" {
+		t.Fatalf("operator_mode = %#v", generated.Workflow["operator_mode"])
+	}
+}
+
 func TestMultiPhaseInvalidCasesCarryFieldPath(t *testing.T) {
 	cases := []struct {
 		name      string

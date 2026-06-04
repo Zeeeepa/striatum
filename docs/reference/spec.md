@@ -565,6 +565,15 @@ Daemon-mediated sealed apply is represented by RFC 0031 apply receipts
 and fail-closed apply authority. Silent downgrade to `advisory` is a
 correctness bug.
 
+### Operator Modes
+
+Workflows may declare `operator_mode: constrained` as the RFC 0099 Phase 1
+operator assertion. The assertion is surfaced in `status --run-id` and
+`run.summary` so the operator boundary is visible in run reads. In V1 this
+field is advisory: it does not by itself sandbox an AI operator, mediate file
+writes, gate shell execution, or create audited escape decisions. Those
+enforcement surfaces remain the RFC 0099 Phase 2/3 work.
+
 ## Run Lifecycle
 
 A run starts in `running` (after `run start`). Terminal transitions
