@@ -58,6 +58,9 @@ Context: RFC 0033 (PostgreSQL as sole substrate; §3 append-only audit invariant
   #87 closes only when all four L2 gates are live — the PG-less lane OS user, the
   `0700` startup-asserted socket directory, `T-LANE-ISOLATION-NEG` green in CI,
   and blocking `daemon doctor` for PG-reachable lanes under the secure profile.
+  The negative gate is implemented as `make lane-isolation-check`; it requires a
+  configured lane OS identity plus explicit UNIX-socket and loopback TCP probe
+  URLs and fails if that identity can connect over either path.
 - **Owner DDL ships as versioned atomic owner bundles** (`go/pkg/db/sql/owner/`)
   applied out-of-band as the owner role, with a startup capability-parity check
   (both directions) and an N→N+1 two-release sequencing so the old-binary check
@@ -195,6 +198,11 @@ distinct lane user is configured — gated behind a config flag
 default-on a minor version later) so existing installs are not stranded on upgrade day.
 Also scrub `PGHOST` from the lane env (defense-in-depth against a lane handing a
 guessed socket path to a libpq tool).
+
+`make lane-isolation-check` is the configured `T-LANE-ISOLATION-NEG` harness for
+the hardened-profile CI/operator job. It is not part of the ordinary unit suite
+because it depends on host OS users, `sudo`, `psql`, and PostgreSQL listener /
+`pg_hba.conf` posture.
 
 ### L3 — Attribution: every mutation names its RPC and principal
 

@@ -128,6 +128,22 @@ sudo -u striatum-lane psql "host=/var/run/postgresql dbname=striatumd" -c 'SELEC
 # expected: FATAL: ... "striatum-lane" ... (pg_hba reject)
 ```
 
+The automated RFC 0110 L2 negative gate is `make lane-isolation-check`. It
+requires explicit probe URLs for both PostgreSQL paths and fails if the lane OS
+identity can connect over either one:
+
+```sh
+STRIATUM_LANE_OS_USER=striatum-lane \
+STRIATUM_LANE_ISOLATION_UNIX_URL="postgres:///striatumd?host=/run/striatum-postgres&connect_timeout=2" \
+STRIATUM_LANE_ISOLATION_TCP_URL="postgres://localhost/striatumd?connect_timeout=2" \
+make lane-isolation-check
+```
+
+This target is intended for the hardened-profile CI/operator job after the lane
+user, protected socket directory, and PostgreSQL `pg_hba.conf` deny rule are in
+place. It is not part of the ordinary unit suite because it depends on host OS
+users and PostgreSQL listener configuration.
+
 ## Scope and non-goals
 
 - This is OS-level isolation of a process Striatum spawns; it is **not** new
