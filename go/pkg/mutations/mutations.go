@@ -579,9 +579,50 @@ func verifyRequiredArtifacts(ctx context.Context, runner any, repositoryID, jobI
 }
 
 func maybeEnqueueDownstream(ctx context.Context, runner any, repositoryID, completedJobID string) error {
+	completed, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", completedJobID, false)
+	if err != nil {
+		return err
+	}
 	rows, err := queryRows(ctx, runner, `
 		SELECT job_id FROM striatumd.job_dependencies
 		 WHERE repository_id = $1 AND depends_on_job_id = $2`, repositoryID, completedJobID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		jobID := fmt.Sprint(row["job_id"])
+		job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, true)
+		if err != nil {
+			return err
+		}
+		if fmt.Sprint(job["state"]) != "blocked" {
+			continue
+		}
+		satisfied, err := dependenciesSatisfied(ctx, runner, repositoryID, jobID)
+		if err != nil {
+			return err
+		}
+		if satisfied {
+			if _, err := enqueueJob(ctx, runner, repositoryID, jobID); err != nil {
+				return err
+			}
+		}
+	}
+	if err := enqueueReadyBlockedJobs(ctx, runner, repositoryID, fmt.Sprint(completed["run_id"])); err != nil {
+		return err
+	}
+	return nil
+}
+
+func enqueueReadyBlockedJobs(ctx context.Context, runner any, repositoryID, runID string) error {
+	rows, err := queryRows(ctx, runner, `
+		SELECT job_id
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND state = 'blocked'
+		 ORDER BY created_at, job_id
+		 FOR UPDATE`, repositoryID, runID)
 	if err != nil {
 		return err
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -521,5 +522,65 @@ func TestSessionReportFlagsUnackedPacket(t *testing.T) {
 	}
 	if _, flagged := report2["unacked_packet"]; flagged {
 		t.Fatalf("session.report after work.ack must NOT flag an unacked packet, got %#v", report2)
+	}
+}
+
+func TestCompletionRequeuesReadyBlockedSibling(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_ready_blocked_sibling"
+	runID := "run_ready_blocked_sibling"
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"cross_examiner": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{}},
+	})
+
+	insertLifecycleJob(t, ctx, runner, repoID, runID, "job_lane_done", "lane_done", "completed")
+	insertLifecycleJob(t, ctx, runner, repoID, runID, "job_gate", "gate", "completed")
+	insertLifecycleJob(t, ctx, runner, repoID, runID, "job_ready", "ready_sibling", "blocked")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id, gate_json)
+		VALUES ($1,'job_ready','job_gate','{"on":"completed"}'::jsonb)`, repoID); err != nil {
+		t.Fatalf("insert dependency: %v", err)
+	}
+
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		return nil, maybeEnqueueDownstream(ctx, tx, repoID, "job_lane_done")
+	}); err != nil {
+		t.Fatalf("maybeEnqueueDownstream: %v", err)
+	}
+
+	if got := jobState(t, ctx, runner, repoID, "job_ready"); got != "queued" {
+		t.Fatalf("job_ready state = %q, want queued", got)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT target_lane_id, state
+		  FROM striatumd.queue_messages
+		 WHERE repository_id = $1 AND job_id = 'job_ready'
+		 ORDER BY created_at DESC
+		 LIMIT 1`, repoID)
+	if err != nil {
+		t.Fatalf("select queued message: %v", err)
+	}
+	if fmt.Sprint(row["state"]) != "pending" || fmt.Sprint(row["target_lane_id"]) != "codex" {
+		t.Fatalf("queued message = %#v, want pending codex message", row)
+	}
+}
+
+func insertLifecycleJob(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, workflowJobID, state string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  lane_selector_json, title, job_type, idempotency_key, expected_artifacts_json,
+		  created_at, completed_at
+		)
+		VALUES ($1,$2,$3,$4,1,$5,'cross_examiner','{"lane_id":"codex"}'::jsonb,
+		        $4,'review','idem_'||$2,'[]'::jsonb,NOW(),
+		        CASE WHEN $5 = 'completed' THEN NOW() ELSE NULL END)`,
+		repoID, jobID, runID, workflowJobID, state); err != nil {
+		t.Fatalf("insert job %s: %v", jobID, err)
 	}
 }
