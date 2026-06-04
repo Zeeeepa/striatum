@@ -3,11 +3,14 @@ package reads
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 )
+
+const doctorSupervisorProbeTimeout = 5 * time.Second
 
 // HandleDoctor mirrors reads/doctor.py. Returns a flat health report of
 // the running daemon-pg state: schema version, append-only invariants
@@ -101,9 +104,11 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 
 	supervisorLiveness := []map[string]any{}
 	if repositoryID != "" {
-		if rows, err := reattachStatusRows(ctx, runner, repositoryID, "", "", ""); err == nil {
+		probeCtx, cancel := context.WithTimeout(ctx, doctorSupervisorProbeTimeout)
+		defer cancel()
+		if rows, err := reattachStatusRowsWithOptions(probeCtx, runner, repositoryID, "", "", "", reattachStatusRowsOptions{nonTerminalRunsOnly: true}); err == nil {
 			for _, row := range rows {
-				view := reattachStatusView(row)
+				view := reattachStatusView(probeCtx, row)
 				class := superviseString(view["lane_liveness_class"])
 				if !strings.HasPrefix(class, "tmux_") {
 					continue

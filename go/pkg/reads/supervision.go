@@ -206,7 +206,7 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	reattachState := ""
 	reattachReason := ""
 	if len(reattachRows) > 0 {
-		reattachView := reattachStatusView(reattachRows[0])
+		reattachView := reattachStatusView(ctx, reattachRows[0])
 		reattachState = superviseString(reattachView["reattach_state"])
 		reattachReason = superviseString(reattachView["reattach_reason"])
 	}
@@ -421,7 +421,7 @@ func HandleSuperviseReattachStatus(ctx context.Context, runner db.Runner, envelo
 		"terminal":           0,
 	}
 	for _, row := range rows {
-		view := reattachStatusView(row)
+		view := reattachStatusView(ctx, row)
 		supervisors = append(supervisors, view)
 		summary["total"]++
 		state := superviseString(view["reattach_state"])
@@ -436,9 +436,24 @@ func HandleSuperviseReattachStatus(ctx context.Context, runner db.Runner, envelo
 	}, nil
 }
 
+type reattachStatusRowsOptions struct {
+	nonTerminalRunsOnly bool
+}
+
 func reattachStatusRows(ctx context.Context, runner db.Runner, repositoryID, runID, sessionID, supervisorID string) ([]map[string]any, error) {
+	return reattachStatusRowsWithOptions(ctx, runner, repositoryID, runID, sessionID, supervisorID, reattachStatusRowsOptions{})
+}
+
+func reattachStatusRowsWithOptions(ctx context.Context, runner db.Runner, repositoryID, runID, sessionID, supervisorID string, opts reattachStatusRowsOptions) ([]map[string]any, error) {
 	args := []any{repositoryID}
 	where := "ps.repository_id = $1"
+	runJoin := ""
+	if opts.nonTerminalRunsOnly {
+		runJoin = `JOIN striatumd.runs r
+		     ON r.repository_id = ps.repository_id
+		    AND r.run_id = ps.run_id`
+		where += " AND r.state NOT IN ('completed','failed','canceled')"
+	}
 	if runID != "" {
 		args = append(args, runID)
 		where += " AND ps.run_id = $" + strconv.Itoa(len(args))
@@ -482,6 +497,7 @@ func reattachStatusRows(ctx context.Context, runner db.Runner, repositoryID, run
 		      ds.ended_at AS daemon_ended_at,
 		      ds.stop_reason AS daemon_stop_reason
 		   FROM striatumd.process_supervisors ps
+		   `+runJoin+`
 		   LEFT JOIN striatumd.process_supervisor_pointers p
 		     ON p.repository_id = ps.repository_id
 		    AND p.supervisor_id = ps.supervisor_id
@@ -517,10 +533,10 @@ func reattachStatusRows(ctx context.Context, runner db.Runner, repositoryID, run
 	return rows, nil
 }
 
-func reattachStatusView(row map[string]any) map[string]any {
+func reattachStatusView(ctx context.Context, row map[string]any) map[string]any {
 	pid, hasPID := intValueOptional(row["pid"])
 	pointerMetadata := superviseObject(row["pointer_metadata_json"])
-	live := gosupervisor.ProbeLaneLiveness(context.Background(), superviseTmuxRunner, pointerMetadata, pid, superviseString(row["pid_start_time"]))
+	live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(row["pid_start_time"]))
 	pidAlive := hasPID && live.Alive
 	currentStart := ""
 	if live.Backed == "tmux" && live.Tmux != nil && live.Tmux.ObservedStartTok != "" {

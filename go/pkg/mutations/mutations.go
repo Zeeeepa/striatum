@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -863,6 +865,9 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 		if activeLease {
 			continue
 		}
+		if err := stopSupervisorsForTerminalSession(ctx, runner, repositoryID, runID, sessionID, now, reason); err != nil {
+			return err
+		}
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.sessions
 			   SET state = 'closed', closed_at = $1, close_reason = $2
@@ -876,6 +881,99 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 			"reason":     reason,
 			"source":     source,
 		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func stopSupervisorsForTerminalSession(ctx context.Context, runner any, repositoryID, runID, sessionID, endedAt, reason string) error {
+	tx, ok := runner.(db.TxRunner)
+	if !ok {
+		return fmt.Errorf("runner does not support supervisor terminal cleanup")
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT ps.supervisor_id,
+		       ps.pid,
+		       ps.pid_start_time,
+		       ps.stdin_pipe_path,
+		       p.daemon_supervisor_id,
+		       p.metadata_json AS pointer_metadata_json
+		  FROM striatumd.process_supervisors ps
+		  LEFT JOIN striatumd.process_supervisor_pointers p
+		    ON p.repository_id = ps.repository_id
+		   AND p.supervisor_id = ps.supervisor_id
+		 WHERE ps.repository_id = $1
+		   AND ps.run_id = $2
+		   AND ps.session_id = $3
+		   AND ps.state IN ('starting','attached','detached')
+		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+		 FOR UPDATE OF ps`,
+		repositoryID, runID, sessionID,
+	)
+	if err != nil {
+		return err
+	}
+	stopReason := "terminal run cleanup: " + reason
+	for _, row := range rows {
+		supervisorID := metadataString(row["supervisor_id"])
+		if supervisorID == "" {
+			continue
+		}
+		daemonSupervisorID := metadataString(row["daemon_supervisor_id"])
+		pid, hasPID := intValueOptional(row["pid"])
+		pidStart := metadataString(row["pid_start_time"])
+		metadata := asMap(row["pointer_metadata_json"])
+		eventExtra := map[string]any{}
+		var signaled any
+		if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(metadata); ok {
+			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, tmuxIdentity, pid, pidStart)
+			signaled = signal
+			if note != "" {
+				eventExtra["tmux_stop_note"] = note
+			}
+			if fallbackReason != "" {
+				eventExtra["tmux_kill_fallback_reason"] = fallbackReason
+			}
+			if cleanupSkip != "" {
+				eventExtra["pane_pid_cleanup_skipped_reason"] = cleanupSkip
+			}
+		} else if hasPID {
+			signal, cleanupSkip := terminateProcessWithStartToken(pid, pidStart)
+			signaled = signal
+			if cleanupSkip != "" {
+				eventExtra["pid_cleanup_skipped_reason"] = cleanupSkip
+			}
+		}
+		if helperPID, ok := intValueOptional(metadata["helper_pid"]); ok && (!hasPID || helperPID != pid) {
+			helperSignal, cleanupSkip := terminateProcessWithStartToken(helperPID, metadataString(metadata["helper_pid_start_time"]))
+			if helperSignal != nil {
+				eventExtra["helper_signal"] = helperSignal
+			}
+			if cleanupSkip != "" {
+				eventExtra["helper_pid_cleanup_skipped_reason"] = cleanupSkip
+			}
+		}
+		if stdinPipePath := metadataString(row["stdin_pipe_path"]); stdinPipePath != "" {
+			_ = os.Remove(stdinPipePath)
+		}
+		if err := updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "stopped", endedAt, 0, "", "", &endedAt, &stopReason); err != nil {
+			return err
+		}
+		payload := map[string]any{
+			"supervisor_id":        supervisorID,
+			"daemon_supervisor_id": nullableString(daemonSupervisorID),
+			"session_id":           sessionID,
+			"reason":               reason,
+			"source":               "terminal_run_cleanup",
+		}
+		if signaled != nil {
+			payload["signal"] = signaled
+		}
+		for key, value := range eventExtra {
+			payload[key] = value
+		}
+		if _, err := appendEvent(ctx, runner, repositoryID, runID, "supervisor.stopped", sessionID, nil, nil, nil, nil, payload); err != nil {
 			return err
 		}
 	}

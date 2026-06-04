@@ -373,7 +373,7 @@ func TestReattachStatusViewUsesTmuxObservedStartToken(t *testing.T) {
 	}})
 	defer restore()
 
-	view := reattachStatusView(map[string]any{
+	view := reattachStatusView(context.Background(), map[string]any{
 		"supervisor_id":                "sup_tmux",
 		"run_id":                       "run_1",
 		"session_id":                   "sess_1",
@@ -399,7 +399,6 @@ func TestReattachStatusViewUsesTmuxObservedStartToken(t *testing.T) {
 		t.Fatalf("reattach view = %#v", view)
 	}
 }
-
 
 // TestHandleSuperviseStatusReconcilesBenignAttachExit guards #63 F7 on the read
 // surface: a tmux-backed lane whose pane is alive (tmux_ok) and whose only
@@ -478,7 +477,7 @@ func TestHandleSuperviseStatusSurfacesHelperProcessGone(t *testing.T) {
 	row := superviseBaseRow("sup_tmux", 48211, "1748452211")
 	// Seed a dead helper PID inside metadata
 	row["pointer_metadata_json"] = map[string]any{
-		"helper_pid": 999999,
+		"helper_pid":            999999,
 		"helper_pid_start_time": "some-start-time",
 		"tmux": map[string]any{
 			"state":            "backed",
@@ -864,6 +863,82 @@ func TestHandleDoctorDeliveryDegradedSurfacesProblem(t *testing.T) {
 	rem := superviseString(sup["remediation"])
 	if !strings.Contains(rem, "striatum supervise rebridge") || !strings.Contains(rem, "--session-id sess_1") {
 		t.Fatalf("expected rebridge remediation, got: %q", rem)
+	}
+}
+
+type doctorTerminalSupervisorFakeRunner struct {
+	supervisorQuery string
+}
+
+func (r *doctorTerminalSupervisorFakeRunner) Exec(context.Context, string, ...any) error {
+	return nil
+}
+
+func (r *doctorTerminalSupervisorFakeRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return superviseReadFakeRow{}
+}
+
+func (r *doctorTerminalSupervisorFakeRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "8", nil
+}
+
+func (r *doctorTerminalSupervisorFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *doctorTerminalSupervisorFakeRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	if strings.Contains(sql, "striatumd.process_supervisors ps") {
+		r.supervisorQuery = sql
+		if strings.Contains(sql, "JOIN striatumd.runs r") && strings.Contains(sql, "r.state NOT IN ('completed','failed','canceled')") {
+			return dashboardAllRowsFromMaps([]map[string]any{}), nil
+		}
+		row := superviseBaseRow("sup_terminal", os.Getpid(), currentStartTokenForTest())
+		row["pointer_metadata_json"] = map[string]any{
+			"tmux": map[string]any{
+				"state":        "backed",
+				"session_name": "striatum-terminal-run",
+				"pane_id":      "%1",
+				"pane_pid":     os.Getpid(),
+			},
+		}
+		return dashboardAllRowsFromMaps([]map[string]any{row}), nil
+	}
+	return dashboardAllRowsFromMaps([]map[string]any{}), nil
+}
+
+type doctorPanicTmuxRunner struct {
+	called bool
+}
+
+func (r *doctorPanicTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
+	r.called = true
+	return "", errors.New("terminal-run supervisor should not be probed by doctor")
+}
+
+func TestHandleDoctorSkipsTerminalRunSupervisorLiveness(t *testing.T) {
+	runner := &doctorTerminalSupervisorFakeRunner{}
+	tmux := &doctorPanicTmuxRunner{}
+	restore := SetTmuxRunnerForTest(tmux)
+	defer restore()
+
+	result, err := HandleDoctor(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleDoctor: %v", err)
+	}
+	if runner.supervisorQuery == "" {
+		t.Fatal("expected doctor to query supervisors")
+	}
+	if !strings.Contains(runner.supervisorQuery, "JOIN striatumd.runs r") {
+		t.Fatalf("doctor supervisor query did not join runs: %s", runner.supervisorQuery)
+	}
+	if tmux.called {
+		t.Fatal("doctor probed tmux liveness for a terminal-run supervisor")
+	}
+	supervisors := result["supervisors"].([]map[string]any)
+	if len(supervisors) != 0 {
+		t.Fatalf("terminal-run supervisors should be omitted, got: %#v", supervisors)
 	}
 }
 
