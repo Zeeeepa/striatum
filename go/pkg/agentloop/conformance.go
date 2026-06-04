@@ -65,6 +65,14 @@ func CodexMCPURLOverrideArg(endpoint string) string {
 	return fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint)
 }
 
+// CodexProjectTrustOverrideArg returns the per-launch "-c projects.<repo>.trust_level"
+// override injected into codex lane commands. It is best-effort; current Codex
+// builds may still render the workspace-trust TUI, where the PTY responder is
+// the launch backstop.
+func CodexProjectTrustOverrideArg(repoRoot string) string {
+	return codexProjectTrustOverrideArg(repoRoot)
+}
+
 // GeminiSettingsBody renders the ephemeral agy (.gemini/settings.json) body the
 // agent-loop would write for the given endpoint and bearer, WITHOUT touching
 // the filesystem. It mirrors the settings map constructed in

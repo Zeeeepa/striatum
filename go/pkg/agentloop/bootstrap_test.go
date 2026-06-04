@@ -49,6 +49,20 @@ func TestAgentEnvironmentExposesLiteralTokenAndFilePointer(t *testing.T) {
 	assertEnvValue(t, env, EnvMCPTokenFile, "/runtime/client-token")
 }
 
+func TestAgentEnvironmentNormalizesDumbTerminal(t *testing.T) {
+	env := AgentEnvironment([]string{"TERM=dumb"}, BootstrapContext{
+		Endpoint: "http://127.0.0.1:1234/mcp/sse",
+	})
+	assertEnvValue(t, env, "TERM", "xterm-256color")
+}
+
+func TestAgentEnvironmentPreservesUsableTerminal(t *testing.T) {
+	env := AgentEnvironment([]string{"TERM=screen-256color"}, BootstrapContext{
+		Endpoint: "http://127.0.0.1:1234/mcp/sse",
+	})
+	assertEnvValue(t, env, "TERM", "screen-256color")
+}
+
 func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 	prompt := BuildBootstrapPrompt(BootstrapContext{
 		RepoRoot:     "/repo",

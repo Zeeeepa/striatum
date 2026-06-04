@@ -2,6 +2,7 @@ package workflowtemplates
 
 import (
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -16,11 +17,22 @@ func TestSeatTierForAdapterAgySupported(t *testing.T) {
 	}
 }
 
+func TestSeatTierForAdapterCodexSupported(t *testing.T) {
+	// codex graduated by the RFC 0109 P3 installed-CLI gate (#152): the real
+	// codex CLI holds a two-turn claim→publish→claim under one attested session.
+	if got := SeatTierForAdapter("codex"); got != SeatTierSupported {
+		t.Fatalf("SeatTierForAdapter(codex) = %q, want %q", got, SeatTierSupported)
+	}
+	if reason := SeatDegradationReason("codex"); reason != "" {
+		t.Fatalf("SeatDegradationReason(codex) must be empty now that codex is supported, got %q", reason)
+	}
+}
+
 func TestSeatTierForAdapterDefaultsExperimental(t *testing.T) {
-	// claude/codex work in practice but are NOT yet backed by an installed-CLI
-	// fixture (P3, #149), so the honest tier is experimental — never silently
-	// `supported`. This is the RFC 0109 thesis encoded as a default.
-	for _, adapter := range []string{"claude", "codex", "unknown-future-cli"} {
+	// claude works in practice but is NOT yet backed by an installed-CLI fixture
+	// (P3), so the honest tier is experimental — never silently `supported`.
+	// This is the RFC 0109 thesis encoded as a default.
+	for _, adapter := range []string{"claude", "unknown-future-cli"} {
 		if got := SeatTierForAdapter(adapter); got != SeatTierExperimental {
 			t.Errorf("SeatTierForAdapter(%q) = %q, want %q", adapter, got, SeatTierExperimental)
 		}
@@ -31,18 +43,19 @@ func TestSeatTierForAdapterDefaultsExperimental(t *testing.T) {
 }
 
 func TestSeatTierForAdapterNormalizesPath(t *testing.T) {
-	if got := SeatTierForAdapter("/home/u/.local/bin/agy"); got != SeatTierSupported {
+	if got := SeatTierForAdapter("/home/u/.local/bin/codex"); got != SeatTierSupported {
 		t.Fatalf("SeatTierForAdapter(abs path) = %q, want %q (must basename argv0 like agentloop.LaneAdapterName)", got, SeatTierSupported)
 	}
 }
 
-func TestAgySupportedAfterP3(t *testing.T) {
-	// The graduation: agy is `supported`, backed by its installed-CLI fixture. The
-	// adapterconformance graduation guard (TestSupportedSeatsHaveInstalledCLIFixture)
-	// enforces that backing.
+func TestSupportedSeatsAfterP3(t *testing.T) {
+	// The graduation: agy and codex are `supported`, backed by installed-CLI
+	// fixtures. The adapterconformance graduation guard
+	// (TestSupportedSeatsHaveInstalledCLIFixture) enforces that backing.
 	got := SupportedSeatAdapters()
-	if len(got) != 1 || got[0] != "agy" {
-		t.Fatalf("SupportedSeatAdapters() = %v, want [agy] after the RFC 0109 P3 gate graduated agy", got)
+	want := []string{"agy", "codex"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("SupportedSeatAdapters() = %v, want %v after the RFC 0109 P3 gates graduated agy and codex", got, want)
 	}
 }
 

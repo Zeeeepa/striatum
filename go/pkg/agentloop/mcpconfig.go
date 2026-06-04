@@ -67,12 +67,21 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		// provides it). Only the rotating URL needs overriding at launch —
 		// `-c mcp_servers.striatum.url="<endpoint>"` overrides config.toml
 		// without persisting (Decision 5: never persist the rotating port).
+		// Best-effort project trust is also per-launch: installed-CLI conformance
+		// runs create fresh temp repos. Current Codex builds can still render the
+		// workspace-trust TUI despite this override, so the PTY responder remains
+		// the launch backstop.
 		out := append([]string(nil), command...)
 		out = append(out, "-c", fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint))
+		out = append(out, "-c", codexProjectTrustOverrideArg(repoRoot))
 		return out, noop, nil
 	default:
 		return command, noop, nil
 	}
+}
+
+func codexProjectTrustOverrideArg(repoRoot string) string {
+	return fmt.Sprintf("projects.%q.trust_level=%q", repoRoot, "trusted")
 }
 
 // LaneAdapterName maps a (possibly absolute) lane argv0 to its bare adapter

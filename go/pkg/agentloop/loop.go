@@ -266,7 +266,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	cmd.Dir = cfg.RepoRoot
 	cmd.Env = childEnv
 
-	ptmx, err := pty.Start(cmd)
+	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 40, Cols: 120})
 	if err != nil {
 		return fmt.Errorf("agent-loop pty start: %w", err)
 	}
@@ -306,7 +306,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	outputDone := make(chan struct{})
 	go func() {
 		defer close(outputDone)
-		_, _ = io.Copy(sink, ptmx)
+		_ = copyPTYOutputWithTerminalReplies(ptmx, sink, ptmx, laneCommand[0])
 	}()
 
 	// Write the bootstrap prompt, then — after a short delay so the TUI line
@@ -324,7 +324,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		}
 	}
 
-	startDaemonReceiverLoop(ctx, cfg, ptmx, stderr)
+	startDaemonReceiverLoop(ctx, cfg, laneCommand[0], ptmx, stderr)
 
 	if stdin != nil {
 		go func() {
@@ -344,8 +344,8 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	return nil
 }
 
-func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, ptmx io.Writer, stderr io.Writer) {
-	if daemonReceiverDisabled(cfg.Env) || cfg.RepositoryID == "" || cfg.SessionID == "" {
+func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string, ptmx io.Writer, stderr io.Writer) {
+	if daemonReceiverDisabled(cfg.Env, adapter) || cfg.RepositoryID == "" || cfg.SessionID == "" {
 		return
 	}
 	clientCfg := rpcclient.Config{
@@ -423,17 +423,21 @@ func daemonReceiverReady(ctx context.Context, client rpcclient.Client, repositor
 		liveness["last_work_block_at"] != nil, nil
 }
 
-func daemonReceiverDisabled(env []string) bool {
+func daemonReceiverDisabled(env []string, adapter string) bool {
 	value, ok := envLookup(env, "STRIATUM_AGENT_LOOP_DAEMON_RECEIVER")
-	if !ok {
-		return false
+	if ok {
+		switch strings.ToLower(strings.TrimSpace(value)) {
+		case "0", "false", "off", "disabled":
+			return true
+		default:
+			return false
+		}
 	}
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "0", "false", "off", "disabled":
-		return true
-	default:
-		return false
-	}
+	// Codex already runs the Striatum MCP receive loop from its bootstrap prompt.
+	// Letting the PTY-side daemon receiver call work.await_packet races that loop:
+	// it can pre-claim the next packet under the same session and leave codex's
+	// own await call seeing no_work.
+	return LaneAdapterName(adapter) == "codex"
 }
 
 func promptForDaemonEnvelope(envelope map[string]any) string {

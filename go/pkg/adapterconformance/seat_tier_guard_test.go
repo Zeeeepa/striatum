@@ -15,10 +15,10 @@ import (
 // fixture registry can never silently drift apart — the seat tier cannot lie.
 //
 // Hermetic (no PG): it only compares two in-process registries, so it runs in the
-// default `make -C go test` tier. Today both registries are empty (no seat has an
-// installed-CLI gate yet, #149), so the guard passes vacuously — and the moment
-// someone marks agy `supported` without landing its fixture, this fails CI, which
-// is the whole point of RFC 0109 P3.
+// default `make -C go test` tier. A supported seat must stay backed by a green
+// installed-CLI fixture, and a fixture-backed seat must be graduated in the
+// workflow template catalog; either drift fails CI, which is the whole point of
+// RFC 0109 P3.
 func TestSupportedSeatsHaveInstalledCLIFixture(t *testing.T) {
 	for _, adapter := range workflowtemplates.SupportedSeatAdapters() {
 		if !InstalledCLISeatFixtures[adapter] {

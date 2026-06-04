@@ -74,6 +74,14 @@ func TestCodexMCPURLOverrideArg(t *testing.T) {
 	}
 }
 
+func TestCodexProjectTrustOverrideArg(t *testing.T) {
+	got := CodexProjectTrustOverrideArg(`/tmp/striatum repo "quoted"`)
+	want := `projects."/tmp/striatum repo \"quoted\"".trust_level="trusted"`
+	if got != want {
+		t.Fatalf("override = %q, want %q", got, want)
+	}
+}
+
 // TestGeminiSettingsBody asserts the rendered agy settings body carries the
 // striatum mcpServers entry and the #76 survey-suppression key, without touching
 // the filesystem.

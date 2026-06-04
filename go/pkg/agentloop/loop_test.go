@@ -200,11 +200,17 @@ func TestWritePromptThenSubmitAllowsZeroDelay(t *testing.T) {
 }
 
 func TestDaemonReceiverDisabledEnv(t *testing.T) {
-	if daemonReceiverDisabled([]string{"STRIATUM_AGENT_LOOP_DAEMON_RECEIVER=on"}) {
+	if daemonReceiverDisabled([]string{"STRIATUM_AGENT_LOOP_DAEMON_RECEIVER=on"}, "codex") {
 		t.Fatalf("receiver should stay enabled for on")
 	}
-	if !daemonReceiverDisabled([]string{"STRIATUM_AGENT_LOOP_DAEMON_RECEIVER=off"}) {
+	if !daemonReceiverDisabled([]string{"STRIATUM_AGENT_LOOP_DAEMON_RECEIVER=off"}, "agy") {
 		t.Fatalf("receiver should disable for off")
+	}
+	if !daemonReceiverDisabled(nil, "codex") {
+		t.Fatalf("codex should default to its own MCP receive loop, without the PTY-side daemon receiver")
+	}
+	if daemonReceiverDisabled(nil, "agy") {
+		t.Fatalf("non-codex adapters should keep the PTY-side daemon receiver by default")
 	}
 }
 

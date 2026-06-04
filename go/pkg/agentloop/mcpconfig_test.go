@@ -248,15 +248,20 @@ func TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings(t *testing.T) {
 }
 
 func TestInjectLaneMCPConfigCodexAppendsTomlUrlOverride(t *testing.T) {
+	repo := t.TempDir()
 	cmd, cleanup, err := injectLaneMCPConfig(
 		[]string{"/home/x/.local/bin/codex"},
-		t.TempDir(), "http://127.0.0.1:42727/mcp", TokenMaterial{Token: "dtok_secret"},
+		repo, "http://127.0.0.1:42727/mcp", TokenMaterial{Token: "dtok_secret"},
 	)
 	if err != nil {
 		t.Fatalf("inject codex: %v", err)
 	}
 	defer cleanup()
-	want := []string{"/home/x/.local/bin/codex", "-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`}
+	want := []string{
+		"/home/x/.local/bin/codex",
+		"-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`,
+		"-c", CodexProjectTrustOverrideArg(repo),
+	}
 	if strings.Join(cmd, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("codex injection = %#v, want %#v", cmd, want)
 	}

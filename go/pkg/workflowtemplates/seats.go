@@ -17,9 +17,9 @@ import (
 //     that a seat may carry this tier ONLY with such a fixture, so — exactly as
 //     for shapes (RFC 0105 backing) — the seat tier cannot lie.
 //   - `experimental` — works in practice but is NOT gated by an installed-CLI
-//     fixture. This is the honest default for claude/codex today: they hold a
-//     seat, but nothing catches the day a CLI version bump / trust-prompt change
-//     / config-format shift breaks them (the precise re-rot RFC 0109 P3 closes).
+//     fixture. This is the honest default for claude today: it holds a seat, but
+//     nothing catches the day a CLI version bump / trust-prompt change /
+//     config-format shift breaks it (the precise re-rot RFC 0109 P3 closes).
 //   - `degraded`     — a known, tracked defect prevents a reliable supervised
 //     multi-turn seat. agy is here (#95/#85/#76/#139).
 //   - `unsupported`  — declared but not viable at all.
@@ -58,8 +58,12 @@ var degradedSeats = map[string]string{}
 //     two-turn claim→publish→claim under one attested session), corroborated live
 //     by the 3-lane needs_revision panel (agy held its seat across the revision
 //     cycle) and the panel surviving a mid-run daemon restart.
+//   - codex: green RFC 0109 P3 installed-CLI fixture
+//     (TestInstalledCLISeatCodexTwoTurn: two-turn claim→publish→claim under one
+//     attested session against the hermetic MCP harness).
 var supportedSeats = map[string]struct{}{
-	"agy": {},
+	"agy":   {},
+	"codex": {},
 }
 
 // RegisterDegradedSeatForTest registers a degraded seat + reason for the lifetime

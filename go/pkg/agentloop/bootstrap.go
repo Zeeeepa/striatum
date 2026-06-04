@@ -78,7 +78,15 @@ func AgentEnvironment(base []string, ctx BootstrapContext) []string {
 	if ctx.Token.Source != "" && ctx.Token.Source != EnvMCPToken {
 		updates[EnvMCPTokenFile] = ctx.Token.Source
 	}
+	normalizeInteractiveTerminalEnv(base, updates)
 	return mergeEnv(base, updates)
+}
+
+func normalizeInteractiveTerminalEnv(base []string, updates map[string]string) {
+	term, ok := envLookup(base, "TERM")
+	if !ok || strings.TrimSpace(term) == "" || strings.TrimSpace(term) == "dumb" {
+		updates["TERM"] = "xterm-256color"
+	}
 }
 
 func mergeEnv(base []string, updates map[string]string) []string {

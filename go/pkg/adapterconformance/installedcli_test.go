@@ -71,16 +71,16 @@ func TestInstalledCLISeatAgyTwoTurn(t *testing.T) {
 	}
 }
 
-// TestInstalledCLISeatCodexTwoTurn is a placeholder for graduating the codex
-// seat on the same per-seat gate. It is skipped: against this in-process
-// httptest harness the codex CLI never reaches work.claim (job stays queued),
-// even with the full supervised invocation (`--model gpt-5.5 -c
-// model_reasoning_effort=… --dangerously-bypass-approvals-and-sandbox`), whereas
-// it claims fine against the live daemon. The difference is the codex MCP
-// client's transport against the harness endpoint, not a daemon-lifecycle defect
-// the gate measures. codex stays `experimental` (it holds no
-// InstalledCLISeatFixtures entry) until its hermetic MCP path is sorted; the
-// RunInstalledCLI runner already supports it. Tracked as RFC 0109 follow-up.
+// TestInstalledCLISeatCodexTwoTurn backs codex's supported seat tier. It covers
+// the hermetic path that previously stayed queued against the in-process MCP
+// harness: codex must launch past terminal/trust prompts, claim/publish/complete
+// turn 1, then claim/publish/complete turn 2 under the same attested session.
 func TestInstalledCLISeatCodexTwoTurn(t *testing.T) {
-	t.Skip("codex does not reach work.claim against the in-process httptest harness (works live); codex graduation is RFC 0109 follow-up — the runner supports it via RunInstalledCLI")
+	requireInstalledCLIGate(t)
+	h := NewHarness(t, "repo_conf_codex_seat")
+	report := RunInstalledCLI(t, h, "codex", InstalledCLIOptions{RunTimeout: installedCLITimeout(t)})
+	logInstalledCLIReport(t, report)
+	if !report.Passed() {
+		t.Fatalf("codex installed-CLI seat gate (RFC 0109 P3 / #95) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
+	}
 }
