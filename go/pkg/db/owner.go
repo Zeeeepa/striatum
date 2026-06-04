@@ -17,13 +17,14 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 1
+const LatestOwnerBundleVersion = 2
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
 
 var ownerBundleLabels = map[int]string{
 	1: "authority schema + v3 hash + phase 0 audit_only (RFC 0110 N+1)",
+	2: "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.

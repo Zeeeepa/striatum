@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## v2.18.2 — 2026-06-04
+
+### RFC 0110 Release N+1 (slice 2) — fix: owner bundle 0002 runtime parity read grant
+
+Found during the live v3 cutover. Owner bundle 0001 created
+`striatumd.schema_authority` (the capability-stamp table) as write-owner-only but
+never granted the runtime role SELECT. `db.VerifyCapabilityParity` reads that
+table *as the runtime role* (`striatumd_rw`) at startup, so once any owner bundle
+is applied the daemon failed parity with `permission denied for table
+schema_authority (42501)` and crash-looped under systemd `Restart=on-failure`. The
+slice-1 parity tests ran as the PEER owner and could not catch a runtime-role gap.
+
+- **Owner bundle `0002_runtime_grants.sql`**: `GRANT SELECT ON
+  striatumd.schema_authority TO striatumd_rw` (read-only, idempotent; the table's
+  write class stays owner-only, RFC 0110 §13). `LatestOwnerBundleVersion` → 2.
+  Additive — applied by `striatum daemon owner-ddl apply` on top of 0001.
+- **Gate — `TestParityReadGrant`**: after `ApplyOwnerBundles`, asserts
+  `striatumd_rw` holds SELECT (and not INSERT) on `schema_authority` via
+  `has_table_privilege` — the runtime-role privilege oracle the slice-1
+  enforcement tests use, which the owner-pool parity tests missed.
+
+> **Operator note (PG 16 L0 adoption prerequisite):** the owner DSN's role must
+> hold ADMIN OPTION on the runtime role to rotate it — `ALTER ROLE … PASSWORD`
+> requires CREATEROLE **and** ADMIN OPTION on the target in PG 16. Provision once
+> as a superuser: `GRANT striatumd_rw TO <owner> WITH ADMIN OPTION, INHERIT FALSE,
+> SET FALSE;`. Without it, the L0 bootstrap fails closed at startup.
+
 ## v2.18.1 — 2026-06-04
 
 ### RFC 0110 Release N+1 (slice 2) — fix: restart-safe L0 boot order

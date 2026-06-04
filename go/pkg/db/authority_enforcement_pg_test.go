@@ -48,6 +48,27 @@ func hasInsert(t *testing.T, ctx context.Context, runner db.Runner, table string
 		"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, 'INSERT')::text", table) == "true"
 }
 
+// TestParityReadGrant is the runtime-role read gate for the capability-parity
+// check (RFC 0110 §8.2, owner bundle 0002). db.VerifyCapabilityParity reads
+// striatumd.schema_authority AS THE RUNTIME ROLE at startup, so the runtime role
+// must hold SELECT on it once any bundle is applied; otherwise the daemon fails
+// parity with 42501 and crash-loops under Restart=on-failure. Bundle 0001
+// created schema_authority owner-only and omitted the read grant; the slice-1
+// parity tests ran as the PEER owner and could not catch the runtime-role gap.
+// The read grant must not leak write privilege (schema_authority stays
+// write-owner-only, RFC 0110 §13).
+func TestParityReadGrant(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.schema_authority', 'SELECT')::text") != "true" {
+		t.Fatal("striatumd_rw cannot SELECT schema_authority; the startup capability-parity check would fail 42501 (owner bundle must GRANT SELECT)")
+	}
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.schema_authority', 'INSERT')::text") != "false" {
+		t.Fatal("striatumd_rw must not hold INSERT on schema_authority; write stays owner-only")
+	}
+}
+
 // TestPhase0DirectInsertDenied is T-42501-P0 + T-GRANT-DRIFT: after the runtime
 // role is provisioned broad DML (as daemon doctor does), the owner bundle's
 // REVOKE removes audit_log INSERT (only) — so a direct write is denied while

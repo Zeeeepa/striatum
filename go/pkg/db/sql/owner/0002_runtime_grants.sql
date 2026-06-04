@@ -1,0 +1,16 @@
+-- RFC 0110 Release N+1 — owner bundle 0002: runtime read grant for the
+-- capability-parity check.
+--
+-- Bundle 0001 created striatumd.schema_authority (write-authority owner-only,
+-- RFC 0110 §13) but did not grant the runtime role SELECT. The startup
+-- capability-parity check (db.VerifyCapabilityParity) reads schema_authority
+-- AS THE RUNTIME ROLE (striatumd_rw) to compare the binary's supported
+-- capabilities against the stamped requires_daemon_auth set. Without this read
+-- grant the runtime role gets 42501 and the daemon fails its parity check at
+-- startup once any bundle is applied — a crash loop under systemd
+-- Restart=on-failure. (The slice-1 parity tests ran as the PEER owner and could
+-- not catch a runtime-role gap; TestParityReadGrant now does.)
+--
+-- Read-only and idempotent: schema_authority's write class stays owner-only;
+-- this grants SELECT only.
+GRANT SELECT ON striatumd.schema_authority TO striatumd_rw;

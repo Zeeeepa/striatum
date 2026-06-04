@@ -24,8 +24,9 @@ func TestOwnerBundleAppliesAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply owner bundles: %v", err)
 	}
-	if len(applied) != 1 || applied[0] != 1 || version != 1 {
-		t.Fatalf("apply result applied=%v version=%d; want [1], 1", applied, version)
+	// A fresh database applies every shipped bundle (1..LatestOwnerBundleVersion).
+	if version != db.LatestOwnerBundleVersion || len(applied) != db.LatestOwnerBundleVersion {
+		t.Fatalf("apply result applied=%v version=%d; want all %d bundles applied", applied, version, db.LatestOwnerBundleVersion)
 	}
 
 	// Re-apply is idempotent: nothing applied, version unchanged.
@@ -33,8 +34,8 @@ func TestOwnerBundleAppliesAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-apply owner bundles: %v", err)
 	}
-	if len(applied2) != 0 || version2 != 1 {
-		t.Fatalf("re-apply applied=%v version=%d; want [], 1", applied2, version2)
+	if len(applied2) != 0 || version2 != db.LatestOwnerBundleVersion {
+		t.Fatalf("re-apply applied=%v version=%d; want [], %d", applied2, version2, db.LatestOwnerBundleVersion)
 	}
 
 	// Objects exist.
