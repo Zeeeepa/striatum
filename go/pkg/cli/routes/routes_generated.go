@@ -25,6 +25,7 @@ var generatedRoutes = []Route{
 	{Command: "run", Subcommand: "resume", Method: "run.resume", ParamsGroup: "run_resume", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "run", Subcommand: "cancel", Method: "run.cancel", ParamsGroup: "run_cancel", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "run", Subcommand: "retry-job", Method: "run.retry_job", ParamsGroup: "run_retry_job", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "run", Subcommand: "integrate", Method: "run.integrate", ParamsGroup: "run_integrate", RequiredCapability: "apply", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "run", Subcommand: "summary", Method: "run.summary", ParamsGroup: "run_summary", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "run", Subcommand: "graph", Method: "run.graph", ParamsGroup: "run_graph", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "register-session", Subcommand: "", Method: "session.register", ParamsGroup: "register_session", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},

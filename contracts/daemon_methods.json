@@ -23,6 +23,7 @@
     {"command": "run", "subcommand": "resume", "method": "run.resume", "params": "run_resume"},
     {"command": "run", "subcommand": "cancel", "method": "run.cancel", "params": "run_cancel"},
     {"command": "run", "subcommand": "retry-job", "method": "run.retry_job", "params": "run_retry_job"},
+    {"command": "run", "subcommand": "integrate", "method": "run.integrate", "params": "run_integrate"},
     {"command": "run", "subcommand": "summary", "method": "run.summary", "params": "run_summary"},
     {"command": "run", "subcommand": "graph", "method": "run.graph", "params": "run_graph"},
     {"command": "register-session", "subcommand": null, "method": "session.register", "params": "register_session"},
@@ -932,6 +933,15 @@
     {
       "method": "run.retry_job",
       "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "run.integrate",
+      "required_capability": "apply",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",

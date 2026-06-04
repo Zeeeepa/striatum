@@ -168,6 +168,7 @@ delivery bridge or the supervisor is restarted.
 | `run.resume` | `run resume` | admin | single_repo | pg | real | no | no | stable |
 | `run.cancel` | `run cancel` | admin | single_repo | pg | real | no | no | stable |
 | `run.retry_job` | `run retry-job` | admin | single_repo | pg | real | no | no | stable |
+| `run.integrate` | `run integrate` | apply | single_repo | not implemented in Python RPC | real | no | no | Go RFC 0108 Phase 4 serialized gated integration (merge-tree plumbing; never auto-resolves) |
 | `repo.init` | `init` | admin | single_repo | bootstrap CLI helper | real | no | no Go SQLite import; Python bootstrap compatibility remains | Go registers PG-backed repo state and operational scratch only |
 | `recovery.stale_leases` | `recovery stale-leases` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.requeue_stale` | `recovery requeue-stale` | recovery | single_repo | pg | real | no | no | stable |
@@ -362,6 +363,7 @@ remediation is sensible for that code.
 | `invalid_transition` | The requested state transition is not legal from the current job, run, lease, or session state. | Re-read the live state (job.detail / run.detail, or `striatum status`) and take only the transition the current state allows. |
 | `key_rotation_unavailable` | daemon.key.rotate is not wired in this daemon build; signing keys were not modified. | — |
 | `lease_error` | The supplied lease is missing, expired, inactive, owned by another session, or bound to a different job. | Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet. |
+| `merge_conflict` | Integrating a run's branch into the target mainline conflicts; the merge was refused and mainline left untouched (RFC 0108 Phase 4 never auto-resolves). | Rebase or resolve the run branch against the target on a branch a maintainer merges, then re-run run.integrate; the conflicting paths are in the error details. |
 | `method_unknown` | The method has no registered handler. | Call tools/list and use a method the daemon actually exposes. |
 | `not_found` | A referenced entity (session, job, artifact, interrogation, ...) does not exist. | List the live entities first (list.runs / list.jobs / list.sessions / artifact.list_for_run) and re-issue with an id that exists. |
 | `not_implemented` | The method is registered but not implemented in this daemon build. | — |

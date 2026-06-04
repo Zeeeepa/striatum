@@ -105,6 +105,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("run.resume", makeHandler(runner, HandleRunResume))
 	server.Register("run.cancel", makeHandler(runner, HandleRunCancel))
 	server.Register("run.retry_job", makeHandler(runner, HandleRunRetryJob))
+	server.Register("run.integrate", makeHandler(runner, HandleRunIntegrate))
 	server.Register("branch.confirm", makeHandler(runner, HandleBranchConfirm))
 	server.Register("decision.record", makeHandler(runner, HandleDecisionRecord))
 	server.Register("checkpoint.resolve", makeHandler(runner, HandleCheckpointResolve))

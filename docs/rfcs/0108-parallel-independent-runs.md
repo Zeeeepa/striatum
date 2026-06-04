@@ -164,6 +164,35 @@ git/PR) so each run can become a branch/PR a maintainer or an integration gate
 merges. Files: `go/pkg/apply`, `run.go` (an integration verb/gate), the RFC 0067
 surface.
 
+**Landed** (`go/pkg/mutations/integrate.go`, method `run.integrate`): the
+serialized, gated integration step. It merges a **completed** run's branch into a
+target mainline branch (`--into`), **one run at a time per repository** —
+serialized on the same per-repo `lockRepo` the Phase 2/3 gates take, held across
+the merge so a concurrent integration cannot interleave — and **never
+auto-resolves**: a conflicting merge is refused with `merge_conflict` (RFC 0111
+catalog) naming the conflicting paths, leaving mainline untouched.
+
+The merge is **pure git plumbing** and never mutates a working tree or index:
+`git merge-tree --write-tree <into> <run-branch>` is a read-only 3-way merge
+simulation that both detects conflicts and produces the merged tree; on a clean
+result `git commit-tree` builds the merge commit (two parents, a dedicated
+`striatum-integrator` identity) and a compare-and-swap `git update-ref` advances
+the mainline ref to it — exactly as a fast-forwarding push would. The operator's
+checkout (whatever branch it is on, in whatever worktree) is never touched; only
+the mainline ref moves, which is what makes integration safe to run against a
+live repository with other runs' per-job worktrees checked out. The integration
+is recorded as a `run.integrated` event **before** the ref advance (git is not
+transactional with the DB; append-then-update-ref keeps a failure from leaving
+mainline advanced-but-unrecorded), and re-integrating a run into the same target
+is an idempotent no-op. No schema migration was needed — integration lives in the
+event chain. Gate (`go/pkg/adapterconformance/multirun_test.go`):
+`TestMultiRunSerializedIntegrationMergesCleanAndSurfacesConflict` (two runs
+changing different files integrate serially and mainline carries both; a
+conflicting pair surfaces `merge_conflict` and mainline is byte-for-byte
+unchanged; re-integration is a no-op). The maintainer/PR merge surface (RFC 0067)
+and populating the Phase 5 `integration_status` from the `run.integrated` event
+remain small follow-ups.
+
 ### Phase 5 — Repo concurrency view + attribution
 
 Extend `dashboard.all` (`reads/dashboard_all.go`) to a repo-scoped

@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+## v2.23.0 — 2026-06-04
+
+### RFC 0108 Phase 4 — serialized, gated integration
+
+The new `run.integrate` method merges a **completed** run's branch into a target
+mainline branch (`--into`), **one run at a time per repository**, and **never
+auto-resolves** a conflict — completing RFC 0108 ("two showerthoughts → two
+product branches, at once", now integrated cleanly).
+
+- **`HandleRunIntegrate`** (`go/pkg/mutations/integrate.go`): serialized on the
+  same per-repo `lockRepo` the Phase 2/3 gates take (held across the merge so a
+  concurrent integration cannot interleave). A conflicting merge is refused with
+  the new error code `merge_conflict` (RFC 0111 catalog) naming the conflicting
+  paths; mainline is left untouched.
+- **Pure git plumbing, no working-tree mutation**: `merge-tree --write-tree`
+  (read-only 3-way merge simulation — detects conflicts, produces the merged
+  tree) → `commit-tree` (merge commit, `striatum-integrator` identity) →
+  compare-and-swap `update-ref` to advance the mainline ref. The operator's
+  checkout (in any worktree) is never touched — only the mainline ref moves —
+  which makes integration safe against a live repo with other runs' per-job
+  worktrees checked out.
+- The integration is recorded as a `run.integrated` event **before** the ref
+  advance (git is not transactional with the DB), and re-integrating into the
+  same target is idempotent. No schema migration — integration lives in the event
+  chain.
+- New method wired through the contract (`contracts/daemon_methods.json` →
+  regenerated registry + routes), capability `apply`, CLI `run integrate
+  <run-id> --into <branch>`.
+- **Gate** (`go/pkg/adapterconformance/multirun_test.go`):
+  `TestMultiRunSerializedIntegrationMergesCleanAndSurfacesConflict`.
+
 ## v2.22.0 — 2026-06-04
 
 ### RFC 0110 Phase 1 — `audit_artifacts` write closure (§7)

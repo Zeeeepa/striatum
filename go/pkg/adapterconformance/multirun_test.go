@@ -42,6 +42,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -950,6 +951,149 @@ func TestMultiRunWriteScopeOverlapWarns(t *testing.T) {
 	}
 	if w := mrWarnings(res); len(w) != 0 {
 		t.Fatalf("run C with a disjoint write scope carried warnings: %v", w)
+	}
+}
+
+// --- Phase 4: serialized gated integration ---------------------------------
+
+// TestMultiRunSerializedIntegrationMergesCleanAndSurfacesConflict is the RFC 0108
+// Phase 4 gate: two completed runs on their own branches integrate into one
+// mainline through the serialized gate (one at a time, mainline advances for
+// each), and a pair that conflicts surfaces merge_conflict rather than corrupting
+// mainline. The merge is pure git plumbing (merge-tree -> commit-tree ->
+// update-ref), so no working tree is ever mutated.
+func TestMultiRunSerializedIntegrationMergesCleanAndSurfacesConflict(t *testing.T) {
+	repoID := "repo_multirun_p4"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	initGitRepo(t, repoRoot)
+	writeRepoFile(t, repoRoot, "base.txt", "base\n")
+	gitCommitAll(t, repoRoot, "base")
+	runGit(t, repoRoot, "branch", "-M", "mainline")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	// Two runs change DIFFERENT files off mainline (no conflict between them).
+	mrSeedBranchChange(t, repoRoot, "mainline", "striatum/p4-a", "a.txt", "from A\n")
+	mrSeedBranchChange(t, repoRoot, "mainline", "striatum/p4-b", "b.txt", "from B\n")
+	mrSeedCompletedRun(t, ctx, h, repoID, "run_p4_a", "striatum/p4-a")
+	mrSeedCompletedRun(t, ctx, h, repoID, "run_p4_b", "striatum/p4-b")
+
+	resA, err := mrIntegrate(ctx, h, repoID, "run_p4_a", "mainline")
+	if err != nil {
+		t.Fatalf("integrate A: %v", err)
+	}
+	if resA["integrated"] != true || fmt.Sprint(resA["status"]) != "integrated" {
+		t.Fatalf("A not integrated: %#v", resA)
+	}
+	resB, err := mrIntegrate(ctx, h, repoID, "run_p4_b", "mainline")
+	if err != nil {
+		t.Fatalf("integrate B: %v", err)
+	}
+	if resB["integrated"] != true {
+		t.Fatalf("B not integrated: %#v", resB)
+	}
+
+	// Mainline now carries BOTH runs' changes — the serialized merges composed.
+	assertBranchFileEquals(t, repoRoot, "mainline", "a.txt", "from A\n")
+	assertBranchFileEquals(t, repoRoot, "mainline", "b.txt", "from B\n")
+
+	// Re-integrating an already-integrated run is an idempotent no-op.
+	resA2, err := mrIntegrate(ctx, h, repoID, "run_p4_a", "mainline")
+	if err != nil {
+		t.Fatalf("re-integrate A: %v", err)
+	}
+	if fmt.Sprint(resA2["status"]) != "already_integrated" {
+		t.Fatalf("re-integrate A status = %v, want already_integrated", resA2["status"])
+	}
+
+	// A conflicting pair: both edit the SAME path; the second surfaces the conflict
+	// and mainline is left untouched (no corruption).
+	mrSeedBranchChange(t, repoRoot, "mainline", "striatum/p4-c", "shared.txt", "C version\n")
+	mrSeedBranchChange(t, repoRoot, "mainline", "striatum/p4-d", "shared.txt", "D version\n")
+	mrSeedCompletedRun(t, ctx, h, repoID, "run_p4_c", "striatum/p4-c")
+	mrSeedCompletedRun(t, ctx, h, repoID, "run_p4_d", "striatum/p4-d")
+
+	if _, err := mrIntegrate(ctx, h, repoID, "run_p4_c", "mainline"); err != nil {
+		t.Fatalf("integrate C: %v", err)
+	}
+	mainlineBefore := gitCapture(t, repoRoot, "rev-parse", "mainline")
+	_, err = mrIntegrate(ctx, h, repoID, "run_p4_d", "mainline")
+	if err == nil {
+		t.Fatal("integrating a conflicting run D succeeded — mainline corruption (RFC 0108 Phase 4 must surface the conflict)")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "merge_conflict" {
+		t.Fatalf("conflict refusal = %v, want code merge_conflict", err)
+	}
+	if !strings.Contains(rpcErr.Error(), "shared.txt") {
+		t.Fatalf("merge_conflict did not name the conflicting path: %v", err)
+	}
+	if got := gitCapture(t, repoRoot, "rev-parse", "mainline"); got != mainlineBefore {
+		t.Fatalf("mainline moved after a conflicting integration (corruption): %s -> %s", mainlineBefore, got)
+	}
+}
+
+// mrSeedBranchChange creates `branch` off `base`, writes `content` to `file`,
+// commits it, and restores the working tree to `base` (the integration path is
+// pure plumbing, so the checked-out branch never matters).
+func mrSeedBranchChange(t *testing.T, repoRoot, base, branch, file, content string) {
+	t.Helper()
+	runGit(t, repoRoot, "checkout", "-q", base)
+	runGit(t, repoRoot, "checkout", "-q", "-b", branch)
+	writeRepoFile(t, repoRoot, file, content)
+	gitCommitAll(t, repoRoot, "change on "+branch)
+	runGit(t, repoRoot, "checkout", "-q", base)
+}
+
+// mrSeedCompletedRun seeds a completed run with a confirmed branch (the state
+// HandleRunIntegrate requires), plus its own workflow snapshot.
+func mrSeedCompletedRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch string) {
+	t.Helper()
+	now := time.Now().UTC()
+	snapID := "snap_" + runID
+	if err := h.Runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ($1,$2,$3,$4,'{}'::jsonb,$5)`,
+		repoID, snapID, fixtureWorkflowID, "sha_"+runID, now); err != nil {
+		t.Fatalf("seed snapshot %s: %v", runID, err)
+	}
+	if err := h.Runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at,
+		  completed_at, branch_name, branch_confirmed_at, branch_confirmed_by
+		) VALUES ($1,$2,$3,(SELECT repo_root FROM striatumd.repositories WHERE repository_id=$1),
+		         'completed',$4,$4,$5,$4,'human')`,
+		repoID, runID, snapID, now, branch); err != nil {
+		t.Fatalf("seed completed run %s: %v", runID, err)
+	}
+}
+
+// mrIntegrate drives run.integrate through the production handler.
+func mrIntegrate(ctx context.Context, h *Harness, repoID, runID, into string) (map[string]any, error) {
+	return mutations.HandleRunIntegrate(ctx, h.Runner, mrEnv(repoID, "run.integrate", map[string]any{
+		"run_id": runID, "into": into,
+	}))
+}
+
+// gitCapture runs a git command and returns its trimmed stdout.
+func gitCapture(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v: %v", args, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// assertBranchFileEquals asserts `file` at `branch`'s tree equals `want`.
+func assertBranchFileEquals(t *testing.T, repoRoot, branch, file, want string) {
+	t.Helper()
+	got := gitCapture(t, repoRoot, "show", branch+":"+file)
+	if strings.TrimSpace(got) != strings.TrimSpace(want) {
+		t.Fatalf("%s:%s = %q, want %q", branch, file, got, want)
 	}
 }
 

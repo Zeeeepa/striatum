@@ -98,6 +98,7 @@ var methodEntries = []MethodEntry{
 	{Method: "run.resume", RequiredCapability: CapPtr(CapabilityAdmin), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "run.cancel", RequiredCapability: CapPtr(CapabilityAdmin), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "run.retry_job", RequiredCapability: CapPtr(CapabilityAdmin), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "run.integrate", RequiredCapability: CapPtr(CapabilityApply), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "repo.init", RequiredCapability: CapPtr(CapabilityAdmin), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "recovery.stale_leases", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "recovery.requeue_stale", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

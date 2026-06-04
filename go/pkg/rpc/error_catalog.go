@@ -202,6 +202,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet.",
 	},
 	{
+		Code:       "merge_conflict",
+		Meaning:    "Integrating a run's branch into the target mainline conflicts; the merge was refused and mainline left untouched (RFC 0108 Phase 4 never auto-resolves).",
+		Suggestion: "Rebase or resolve the run branch against the target on a branch a maintainer merges, then re-run run.integrate; the conflicting paths are in the error details.",
+	},
+	{
 		Code:       "method_unknown",
 		Meaning:    "The method has no registered handler.",
 		Suggestion: "Call tools/list and use a method the daemon actually exposes.",
