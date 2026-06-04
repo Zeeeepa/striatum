@@ -136,6 +136,40 @@ to run from an admin `psql` session. Connect the daemon as
 `striatumd_rw` after provisioning; running as the database owner still
 fails the append-only privilege check.
 
+### RFC 0110 L0 credential rotation: grant the owner ADMIN OPTION on the runtime role (PG 16, GH #169)
+
+RFC 0110 §9.1 rotates the runtime role's password to a fresh RAM-only value
+at **every daemon boot**, over the owner (`STRIATUM_OWNER_DB_URL`) connection:
+`ALTER ROLE striatumd_rw PASSWORD '<random>'`. This is what makes a leaked
+runtime DSN string die at the next restart. The rotation is only attempted in
+the **two-role** posture (owner ≠ runtime, i.e. `STRIATUM_OWNER_DB_URL` is set
+and differs from the runtime URL); the single-role / PEER posture skips it and
+surfaces a `rotation_skipped_single_role` doctor finding.
+
+**Prerequisite (PostgreSQL 16+).** A non-superuser owner role may only
+`ALTER ROLE … PASSWORD` another role when it was granted that role **with admin
+option**. (PostgreSQL 16 removed the old "any `CREATEROLE` role can alter any
+non-superuser role" behavior; admin membership is now required.) Grant it once,
+as a superuser, before adopting the two-role L0 posture:
+
+```bash
+sudo -u postgres psql -d striatum_daemon <<'SQL'
+-- Let the owner role rotate striatumd_rw's password without inheriting its
+-- privileges or being able to SET ROLE to it (admin the role, do not become it).
+GRANT striatumd_rw TO <owner-role> WITH ADMIN OPTION, INHERIT FALSE, SET FALSE;
+SQL
+```
+
+If the owner connects via PEER as your OS user (e.g.
+`postgres://halbritt@/striatum_daemon?host=/var/run/postgresql`), `<owner-role>`
+is that OS-user role. A **superuser** owner needs no grant (superusers can alter
+any role); a **single-role** deployment needs no grant (rotation is skipped).
+
+Without the grant, boot fails closed (RFC 0110 §9.2) with
+`daemon_pg_owner_bootstrap_failed: … rotate runtime password` (SQLSTATE 42501),
+and — because boot rotates before it serves — the daemon will not start. Apply
+the grant as a superuser, then restart.
+
 ### Applying daemon migrations as the owner role (GH #22)
 
 When a Striatum upgrade adds a new daemon migration, the runtime role

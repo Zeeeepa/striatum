@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### RFC 0110 operational follow-ups
+
+- **#168 — stable per-daemon instance id.** `daemonInstanceID()` minted a fresh
+  random id per process, so the owner-owned `striatumd.daemon_auth_registry`
+  grew one row per restart and a restart within the 5-minute role-scoped rotator
+  probe window (RFC 0110 §9.4) tripped a false `rotator_collision`. The instance
+  id is now persisted in the daemon runtime dir (0600) and read back on the next
+  boot, so a restart UPSERTs the single existing registry row.
+- **#169 — two-role L0 adoption prereq documented.** The postgres-transition
+  runbook and RFC 0110 §L0 now spell out the PostgreSQL 16 prerequisite that a
+  non-superuser owner must hold admin option on the runtime role
+  (`GRANT striatumd_rw TO <owner> WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`)
+  before adopting two-role boot-time password rotation.
+
 ## v2.19.0 — 2026-06-04
 
 ### RFC 0108 Phase 2 — isolation by default under concurrency

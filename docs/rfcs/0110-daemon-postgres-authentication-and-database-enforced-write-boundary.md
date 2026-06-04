@@ -144,6 +144,14 @@ from a previous run's core dump or swap is already dead.
 - **Single-role dev guard:** if the resolved owner role *is* the runtime role
   (common in dev), skip rotation with a `WARN` rather than rotating the password
   out from under the bootstrapping connection.
+- **Two-role adoption prereq (PostgreSQL 16+, GH #169):** a non-superuser owner
+  role may only `ALTER ROLE striatumd_rw PASSWORD …` when it holds **admin
+  option** on the runtime role (PG 16 removed the blanket "`CREATEROLE` can alter
+  any role" behavior). Grant it once as a superuser:
+  `GRANT striatumd_rw TO <owner> WITH ADMIN OPTION, INHERIT FALSE, SET FALSE`.
+  A superuser owner or the single-role posture needs no grant. The operator
+  runbook (`docs/how-to/postgres-transition.md`) carries the copy-paste form;
+  without it, boot fails closed (§9.2) with `daemon_pg_owner_bootstrap_failed`.
 - **Diagnosability:** `daemon doctor` gains a `db-credential-posture` probe that
   asserts a password is set (`SELECT rolpassword IS NOT NULL FROM pg_authid …`)
   **without ever reading or logging the value**; the daemon emits a single
