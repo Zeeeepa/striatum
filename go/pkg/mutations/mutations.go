@@ -83,6 +83,8 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("artifact.publish", makeHandler(runner, HandlePublishArtifact))
 	server.Register("publish_artifact", makeHandler(runner, HandlePublishArtifact))
 	server.Register("repo.write", makeHandler(runner, HandleRepoWrite))
+	server.Register("repo.patch_preview", makeHandler(runner, HandleRepoPatchPreview))
+	server.Register("repo.patch_apply", makeHandler(runner, HandleRepoPatchApply))
 	server.Register("process.run", makeHandler(runner, HandleProcessRun))
 	server.Register("git.commit_apply", makeHandler(runner, HandleGitCommitApply))
 	server.Register("worktree.create", makeHandler(runner, HandleWorktreeCreate))

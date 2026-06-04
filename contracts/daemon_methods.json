@@ -9,6 +9,8 @@
     {"command": "git", "subcommand": "commit-apply", "method": "git.commit_apply", "params": "git_commit_apply"},
     {"command": "repo", "subcommand": "add", "method": "repo.add", "params": "repo_add"},
     {"command": "repo", "subcommand": "write", "method": "repo.write", "params": "repo_write"},
+    {"command": "repo", "subcommand": "patch-preview", "method": "repo.patch_preview", "params": "repo_patch"},
+    {"command": "repo", "subcommand": "patch-apply", "method": "repo.patch_apply", "params": "repo_patch"},
     {"command": "process", "subcommand": "run", "method": "process.run", "params": "process_run"},
     {"command": "repo", "subcommand": "list", "method": "repo.list", "params": "repo_list"},
     {"command": "repo", "subcommand": "remove", "method": "repo.remove", "params": "repo_remove"},
@@ -791,6 +793,24 @@
     },
     {
       "method": "repo.write",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.patch_preview",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "repo.patch_apply",
       "required_capability": "write",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

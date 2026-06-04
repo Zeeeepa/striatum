@@ -92,8 +92,10 @@ Phase 1 ships first as the advisory half).
 Initial implementation: `repo.write` accepts exact UTF-8 content for one
 repo-relative file, validates the active session/lease and `repo_write`
 `write_scope`, targets the active per-job worktree when present, and refuses
-out-of-scope paths before any filesystem mutation. Patch preview/apply remains a
-future Phase 2 extension.
+out-of-scope paths before any filesystem mutation. `repo.patch-preview` and
+`repo.patch-apply` accept unified git-style patches, run `git apply --check`,
+derive changed paths through `git apply --numstat`, and refuse out-of-scope
+paths before mutation.
 
 ### 3. Capability-gated shell + evidence
 Permitted command classes are declared (build/test/lint); execution is recorded
@@ -138,13 +140,14 @@ surfaces absent such a decision remains a Phase 3 extension.
 - **Phase 1 (no schema):** the read-only `scope-check` diagnostic (#91) — git
   diff vs active packet `write_scope`, reported while work is in progress — plus
   the `operator_mode` assertion + surfacing. Advisory only.
-- **Phase 2:** the mediated `repo.write` verb with pre-apply scope enforcement.
-  The exact-content single-file slice has landed; patch preview/apply remains.
+- **Phase 2:** mediated repository writes with pre-apply scope enforcement.
+  The exact-content `repo.write` and unified-patch preview/apply slices have
+  landed.
 - **Phase 3:** capability-gated shell + evidence recording + escape-decision
   records; cooperating-harness profile docs (restricted tool sets per adapter).
-  The typed escape-decision record, mediated `process.run` evidence, and first
-  `process.run` escape-enforcement slices have landed; patch editing and
-  end-to-end constrained fixtures remain.
+  The typed escape-decision record, mediated `process.run` evidence, first
+  `process.run` escape-enforcement slice, and constrained-surface fixture have
+  landed.
 
 ## Open Questions
 

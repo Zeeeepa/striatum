@@ -123,6 +123,7 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 		{[]string{"publish-artifact"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<kind>", "<logical-name>", "<path>", "--allow-no-process-execution"}},
 		{[]string{"submit-review"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<path>", "accept|accept_with_findings|needs_revision|reject", "--logical-name", "--kind"}},
 		{[]string{"complete"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--summary"}},
+		{[]string{"repo", "patch-preview"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--patch"}},
 		{[]string{"process", "run"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--command-json", "--timeout-seconds"}},
 		{[]string{"worktree", "create"}, []string{"<session-id>", "<job-id>", "<lease-id>"}},
 	}
@@ -152,7 +153,7 @@ func TestUsageCoversIssue63Verbs(t *testing.T) {
 		"supervise_start", "supervise_stop", "supervise_status", "supervise_send", "supervise_trajectory",
 		"register_session", "checkpoint_resolve", "decision_record", "repo_add",
 		"claim_next", "ack", "heartbeat", "release", "send", "block",
-		"complete", "publish_artifact", "repo_write", "process_run", "verdict", "submit_review",
+		"complete", "publish_artifact", "repo_write", "repo_patch", "process_run", "verdict", "submit_review",
 		"worktree_create", "worktree_release",
 	} {
 		if _, ok := UsageFor(group); !ok {

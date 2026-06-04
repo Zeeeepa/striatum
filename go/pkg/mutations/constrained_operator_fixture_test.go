@@ -45,6 +45,28 @@ func TestConstrainedOperatorMediatedSurfaceFixture(t *testing.T) {
 		t.Fatalf("out-of-scope write landed: %v", statErr)
 	}
 
+	patch := repoPatchText("docs/out.txt", "mediated", "patched")
+	patchPreview, err := HandleRepoPatchPreview(ctx, runner, constrainedEnvelope("repo.patch_preview", map[string]any{"patch": patch}))
+	if err != nil {
+		t.Fatalf("repo.patch-preview: %v", err)
+	}
+	if patchPreview["status"] != "previewed" {
+		t.Fatalf("patch preview = %#v", patchPreview)
+	}
+	if body, err := os.ReadFile(filepath.Join(repoRoot, "docs", "out.txt")); err != nil || string(body) != "mediated\n" {
+		t.Fatalf("patch preview mutated body = %q err=%v", body, err)
+	}
+	patchApply, err := HandleRepoPatchApply(ctx, runner, constrainedEnvelope("repo.patch_apply", map[string]any{"patch": patch}))
+	if err != nil {
+		t.Fatalf("repo.patch-apply: %v", err)
+	}
+	if patchApply["status"] != "applied" {
+		t.Fatalf("patch apply = %#v", patchApply)
+	}
+	if body, err := os.ReadFile(filepath.Join(repoRoot, "docs", "out.txt")); err != nil || string(body) != "patched\n" {
+		t.Fatalf("patch apply body = %q err=%v", body, err)
+	}
+
 	processResult, err := HandleProcessRun(ctx, runner, constrainedEnvelope("process.run", map[string]any{
 		"process_id": "proc_allowed",
 		"args":       []any{"sh", "-c", "printf ok"},

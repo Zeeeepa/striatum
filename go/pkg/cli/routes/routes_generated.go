@@ -11,6 +11,8 @@ var generatedRoutes = []Route{
 	{Command: "git", Subcommand: "commit-apply", Method: "git.commit_apply", ParamsGroup: "git_commit_apply", RequiredCapability: "apply", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "repo", Subcommand: "add", Method: "repo.add", ParamsGroup: "repo_add", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "repo", Subcommand: "write", Method: "repo.write", ParamsGroup: "repo_write", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "repo", Subcommand: "patch-preview", Method: "repo.patch_preview", ParamsGroup: "repo_patch", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "repo", Subcommand: "patch-apply", Method: "repo.patch_apply", ParamsGroup: "repo_patch", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "process", Subcommand: "run", Method: "process.run", ParamsGroup: "process_run", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "repo", Subcommand: "list", Method: "repo.list", ParamsGroup: "repo_list", RequiredCapability: "read", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "repo", Subcommand: "remove", Method: "repo.remove", ParamsGroup: "repo_remove", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},

@@ -128,6 +128,17 @@ var usageByGroup = map[string]Usage{
 			"repo.write refuses review-only scopes and paths outside write_scope.allowed_paths before writing.",
 		},
 	},
+	"repo_patch": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session performing the mediated patch operation"},
+			{Name: "job-id", Positional: true, Required: true, Help: "repo-write job that owns the target paths"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "patch", Required: true, Help: "unified git-style patch text"},
+		},
+		Notes: []string{
+			"repo patch-preview checks applyability and write_scope without mutating files; repo patch-apply repeats the same checks before applying.",
+		},
+	},
 	"process_run": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session performing the mediated command"},

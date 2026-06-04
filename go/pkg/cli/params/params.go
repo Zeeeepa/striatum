@@ -77,7 +77,7 @@ func normalizeKey(key string) string {
 }
 
 func coerceValue(key string, value string) any {
-	if key == "body_json" || key == "content" {
+	if key == "body_json" || key == "content" || key == "patch" {
 		return value
 	}
 	if key == "spec" || strings.HasSuffix(key, "_json") {
@@ -141,6 +141,8 @@ func positionalNames(group string) []string {
 		return []string{"session_id", "job_id", "lease_id", "kind", "logical_name", "path"}
 	case "repo_write":
 		return []string{"session_id", "job_id", "lease_id", "path"}
+	case "repo_patch":
+		return []string{"session_id", "job_id", "lease_id"}
 	case "process_run":
 		return []string{"session_id", "job_id", "lease_id"}
 	case "verdict":

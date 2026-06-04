@@ -576,17 +576,18 @@ Workflows may declare `operator_mode: constrained` as the RFC 0099 Phase 1
 operator assertion. The assertion is surfaced in `status --run-id` and
 `run.summary` so the operator boundary is visible in run reads. In V1 this
 field is advisory: it does not by itself sandbox an AI operator. The initial
-RFC 0099 mediated surfaces are `repo.write`, an exact-content mutation that
-requires an active repo-write job lease and refuses paths outside the job's
-`write_scope` before it writes, and `process.run`, a command-array execution
-surface that requires an active job lease plus
+RFC 0099 mediated surfaces are `repo.write`, an exact-content mutation,
+`repo.patch-preview` / `repo.patch-apply`, scoped unified-patch operations that
+check applyability and all changed paths before mutation, and `process.run`, a
+command-array execution surface. These surfaces require active job leases;
+repository mutation surfaces require repo-write jobs and refuse paths outside
+the job's `write_scope` before writing. `process.run` requires
 `capability_requirements.process_execution: true` and records
 `process_executions` evidence without durable stdout/stderr transcripts. If the
 job lacks that process-execution opt-in, `process.run` is refused unless a prior
 typed escape decision exists for the same run with `escape_surface` equal to
 `process.run` or `shell_command` and `escape_action` equal to either the joined
-command text or `sha256:<command_sha256>`. Patch-style editing and the
-end-to-end constrained fixture remain Phase 2/3 work.
+command text or `sha256:<command_sha256>`.
 
 ## Run Lifecycle
 

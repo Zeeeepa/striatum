@@ -150,6 +150,8 @@ delivery bridge or the supervisor is restarted.
 | `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
 | `repo.write` | `repo write` | write | single_repo | pg + local_file_authoring | real | no | no | exact-content mediated repository write; validates active session/lease and job write_scope before any filesystem mutation |
+| `repo.patch_preview` | `repo patch-preview` | write | single_repo | pg + local_file_authoring | real | no | no | mediated unified-patch preview; validates active session/lease, `git apply --check`, and all changed paths against job write_scope without mutating files |
+| `repo.patch_apply` | `repo patch-apply` | write | single_repo | pg + local_file_authoring | real | no | no | mediated unified-patch apply; repeats preview validation before applying and records changed-path metadata without patch text |
 | `process.run` | `process run` | write | single_repo | pg + process execution | real | no | no | mediated command-array execution; requires active session/lease plus job `capability_requirements.process_execution=true` or a matching escape decision; records `process_executions` evidence and process events without durable stdout/stderr transcripts |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
 | `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
