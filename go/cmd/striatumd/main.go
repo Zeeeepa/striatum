@@ -564,18 +564,61 @@ var daemonInstanceIDOnce struct {
 	value string
 }
 
-// daemonInstanceID returns this process's stable instance id (RFC 0110 §9.1
-// registry key), generated once per daemon.
+// daemonInstanceID returns this daemon installation's instance id (RFC 0110 §9.1
+// registry key). It is stable across restarts: it is persisted in the daemon
+// runtime dir and read back on the next boot, so a restart UPSERTs the single
+// existing daemon_auth_registry row instead of inserting a new one (GH #168). A
+// fresh random id per process made the owner-owned registry grow one row per
+// restart and tripped a false rotator_collision on any restart within the
+// 5-minute role-scoped probe window (RFC 0110 §9.4).
 func daemonInstanceID() string {
 	daemonInstanceIDOnce.once.Do(func() {
-		buf := make([]byte, 16)
-		if _, err := rand.Read(buf); err != nil {
-			daemonInstanceIDOnce.value = "inst-unknown"
-			return
+		if dir, err := admin.RuntimeDir(); err == nil {
+			if id, err := stableInstanceID(dir); err == nil {
+				daemonInstanceIDOnce.value = id
+				return
+			}
 		}
-		daemonInstanceIDOnce.value = "inst-" + hex.EncodeToString(buf)
+		// Fallback when the runtime dir is unavailable: an ephemeral random id
+		// (pre-#168 behavior). Still correct; it just reverts to per-process
+		// registry churn for this boot.
+		daemonInstanceIDOnce.value = randomInstanceID()
 	})
 	return daemonInstanceIDOnce.value
+}
+
+// instanceIDFileName is the runtime-dir file that pins the daemon instance id
+// across restarts.
+const instanceIDFileName = "instance-id"
+
+// stableInstanceID returns the instance id persisted in runtimeDir, generating
+// and persisting a fresh one (0600, owner-only) on first boot. A present but
+// empty/whitespace file is treated as absent and replaced.
+func stableInstanceID(runtimeDir string) (string, error) {
+	path := filepath.Join(runtimeDir, instanceIDFileName)
+	if data, err := os.ReadFile(path); err == nil {
+		if id := strings.TrimSpace(string(data)); id != "" {
+			return id, nil
+		}
+	}
+	id := randomInstanceID()
+	if id == "inst-unknown" {
+		return "", errors.New("generate instance id: crypto/rand unavailable")
+	}
+	if err := writeOwnerOnlyTextFile(path, id+"\n"); err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+// randomInstanceID mints a fresh random instance id, or "inst-unknown" when the
+// system CSPRNG is unavailable.
+func randomInstanceID() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "inst-unknown"
+	}
+	return "inst-" + hex.EncodeToString(buf)
 }
 
 func writeOwnerOnlyTextFile(path string, content string) error {
