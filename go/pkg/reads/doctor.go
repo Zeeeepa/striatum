@@ -168,6 +168,11 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	pgWriteBoundaryBlock, pgWriteBoundaryWarnings := pgWriteBoundaryDoctorBlock()
 	warnings = append(warnings, pgWriteBoundaryWarnings...)
 
+	// RFC 0110 / #164: report the separate read-scope posture. This is not part
+	// of pg_write_boundary because current phases intentionally do not claim
+	// private-read denial for a live runtime credential.
+	pgReadScopeBlock := pgReadScopeDoctorBlock()
+
 	return map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
@@ -182,6 +187,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"lane_sandbox":        laneSandboxBlock,
 		"principals":          principalsBlock,
 		"pg_write_boundary":   pgWriteBoundaryBlock,
+		"pg_read_scope":       pgReadScopeBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
 	}, nil
 }

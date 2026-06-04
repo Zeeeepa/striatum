@@ -121,7 +121,10 @@ all (L2) — but a live credential reads what the daemon reads. The earlier
 "a leaked DSN is uninteresting" sentence is **retracted** as overbroad. A
 *read-scope least privilege* successor issue is filed before the first
 behavior-changing PR merges (§19); until it lands, no Striatum doc may claim
-private-read denial.
+private-read denial. The implementation reports this as a distinct
+`daemon doctor` `pg_read_scope` posture (`broad_runtime_select`,
+`private_read_denial: false`) so operators can distinguish the write-boundary
+claim from the still-open read-scope successor.
 
 **Claim phasing (binding, `C-PHASED-WRITE-CLOSURE`).** The sentence "the
 daemon's durable write paths are DB-enforced" (the sole-durable-write-path

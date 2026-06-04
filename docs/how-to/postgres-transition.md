@@ -170,6 +170,28 @@ Without the grant, boot fails closed (RFC 0110 §9.2) with
 and — because boot rotates before it serves — the daemon will not start. Apply
 the grant as a superuser, then restart.
 
+### RFC 0110 read-scope posture (GH #164)
+
+RFC 0110's current DB boundary protects unauthorized mutation, not private reads
+by a leaked **live** runtime credential. `striatumd_rw` still holds broad
+`SELECT` over daemon-owned tables so production read handlers can run through
+the runtime pool.
+
+`striatum daemon doctor --json` reports this separately from the write boundary:
+
+```json
+"pg_read_scope": {
+  "posture": "broad_runtime_select",
+  "private_read_denial": false
+}
+```
+
+Treat any `private_read_denial: false` posture as an explicit no-claim state.
+The read exposure is bounded by L0 rotation (a captured DSN string dies at the
+next restart) and L2 lane isolation once adopted, but the read-scope
+least-privilege successor (#164) remains open until the runtime read surface is
+reduced to a documented minimum.
+
 ### Applying daemon migrations as the owner role (GH #22)
 
 When a Striatum upgrade adds a new daemon migration, the runtime role

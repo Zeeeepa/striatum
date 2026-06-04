@@ -174,7 +174,11 @@ phase nomenclature and claim-keying below are normative.
 Read confidentiality against a *live* runtime credential is **not** claimed by
 RFC 0110 in these phases (the runtime role retains broad `SELECT`); it is bounded
 by L0 rotation and L2 isolation, and a read-scope least-privilege successor is
-tracked separately (#164). The decision log records each per-phase decision on landing.
+tracked separately (#164). `daemon doctor` reports this separate posture under
+`pg_read_scope`; the current posture is `broad_runtime_select`, with
+`private_read_denial: false`, until the successor reduces the runtime read
+surface to an enumerated minimum. The decision log records each per-phase
+decision on landing.
 
 ## Workflow Config
 

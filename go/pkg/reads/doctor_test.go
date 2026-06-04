@@ -54,6 +54,13 @@ func TestHandleDoctorReadsSubstrateVersionFromSchemaMetaKey(t *testing.T) {
 	if result["ok"] != true {
 		t.Fatalf("ok = %v, want true; problems=%v", result["ok"], result["problems"])
 	}
+	readScope, ok := result["pg_read_scope"].(map[string]any)
+	if !ok {
+		t.Fatalf("doctor result missing pg_read_scope block: %#v", result["pg_read_scope"])
+	}
+	if readScope["posture"] != pgReadScopeBroadRuntimeSelect {
+		t.Fatalf("pg_read_scope posture = %v, want %s", readScope["posture"], pgReadScopeBroadRuntimeSelect)
+	}
 	// substrate_version must be the FIRST scalar query doctor issues. (RFC 0107
 	// added the daemon-global principals scope query, so the total scalar-query
 	// count is no longer exactly one.)
