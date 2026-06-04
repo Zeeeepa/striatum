@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## v2.25.0 — 2026-06-04
+
+### RFC 0110 Phase 2 `full` — events become a SECURITY-DEFINER-only write surface (D167)
+
+The last L1 phase of RFC 0110: `striatumd.events` joins `audit_log` and
+`artifacts` as a database-enforced, owner-owned `SECURITY DEFINER`-only write
+surface. With `--pg-write-boundary full` and owner bundle 0004 applied, the
+doctor `pg_write_boundary=full` posture licenses the sole-durable-write-path
+claim — *the daemon's durable write paths are DB-enforced*.
+
+- **Owner bundle `0004_phase2_events.sql`**: `append_event_row` (SECURITY
+  DEFINER) asserts daemon authority, enforces transcript exclusion, locks the
+  per-repository chain head, computes the v3 chain hash in-DB, appends the event,
+  and advances the chain head — all atomic with the caller's mutation
+  transaction. `REVOKE INSERT ON striatumd.events FROM striatumd_rw`; `GRANT
+  EXECUTE` on the SD fn; stamp `event_sd_append`. `LatestOwnerBundleVersion` → 4.
+- **The event chain hash is computed entirely in-DB, with no Go counterpart**
+  (`event_v3_row_hash`, reusing bundle 0001's length-prefixed `audit_v3_enc_text`
+  and folding `payload_json` in as its canonical jsonb text). Unlike the audit
+  chain — whose doctor verifier recomputes hashes in Go — nothing in Go ever
+  recomputes an event row hash, so the in-DB-only hash satisfies G1 (the only
+  write path computes the hash and holds the chain lock in-DB) with zero
+  Go↔PL/pgSQL porting hazard. The chain stays linear across the v2→v3 boundary.
+- **Durable-event transcript exclusion** (`C-EVENT-NO-TRANSCRIPTS`): a payload
+  with a top-level `stdout`/`stderr`/`transcript`/`raw_output`/`provider_output`
+  key, or one over the 256 KiB cap, is `RAISE`d (SQLSTATE `23514`, distinct from
+  the events FK `23503`) before any row lands — keeping the DB a curated record,
+  not a transcript store (AGENTS.md product boundary, D028).
+- **Routing**: `db.AppendEventRowSD` + `db.EventRow`; both event chokepoints
+  (`mutations.appendEvent`, `reads.appendResolveEvent`) route through the SD fn at
+  `ActiveWriteBoundary().AtLeast(PhaseFull)`, byte-identical direct INSERT
+  otherwise (behavior-neutral until P2 is adopted). `events` → `ClassSDGated` in
+  the write-authority inventory; `SupportedAuthorityCapabilities` += `event_sd_append`.
+- **Gates** (green vs live PG): T-42501-P2 + T-GRANT-DRIFT, T-EXEC-AUTH (events),
+  T-EVENT-NOTRANSCRIPT (forbidden-key + oversize, both directions, zero rows),
+  positive end-to-end (a real event lands and the chain advances in-DB), routing
+  units, T-SD-HARDEN (+`append_event_row`).
+- **Deploy**: deploy order is load-bearing — the binary (supports
+  `event_sd_append`) before owner bundle 0004; `--pg-write-boundary full` in
+  lockstep. Rollback: `GRANT INSERT ON striatumd.events TO striatumd_rw` (as
+  owner) + remove the `full` drop-in + restart. `repo_event_chain_heads` stays
+  runtime-writable for parity with `audit_chain_head` (derived pointer, advanced
+  by the SD fn as owner).
+
 ## v2.24.0 — 2026-06-04
 
 ### RFC 0106 — graduate the `implementation_panel` shape to `supported`

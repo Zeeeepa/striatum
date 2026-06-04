@@ -3,6 +3,8 @@ package db_test
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -97,8 +99,10 @@ func TestPhase0DirectInsertDenied(t *testing.T) {
 	if hasInsert(t, ctx, pool.Runner, "audit_log") {
 		t.Fatal("T-42501-P0: bundle did not revoke striatumd_rw audit_log INSERT")
 	}
-	if !hasInsert(t, ctx, pool.Runner, "events") {
-		t.Fatal("events INSERT must stay untouched until P2 (false-green guard)")
+	// jobs is runtime coordination state (never SD-gated at any phase); it proves
+	// the revoke is targeted, not a blanket strip (false-green guard).
+	if !hasInsert(t, ctx, pool.Runner, "jobs") {
+		t.Fatal("jobs INSERT must stay untouched (false-green guard)")
 	}
 
 	// T-GRANT-DRIFT: a stray re-grant reopens the hole; reassert closes it.
@@ -205,8 +209,8 @@ func TestPhase1ArtifactInsertDenied(t *testing.T) {
 	if hasInsert(t, ctx, pool.Runner, "artifacts") {
 		t.Fatal("T-42501-P1: bundle 0003 did not revoke striatumd_rw artifacts INSERT")
 	}
-	if !hasInsert(t, ctx, pool.Runner, "events") {
-		t.Fatal("events INSERT must stay untouched until P2 (false-green guard)")
+	if !hasInsert(t, ctx, pool.Runner, "jobs") {
+		t.Fatal("jobs INSERT must stay untouched (false-green guard)")
 	}
 	// The runtime role must hold EXECUTE on the sanctioned SD write path.
 	if scalar(t, ctx, pool.Runner,
@@ -227,9 +231,9 @@ func TestPhase1ArtifactInsertDenied(t *testing.T) {
 	if hasInsert(t, ctx, pool.Runner, "artifacts") {
 		t.Fatal("T-GRANT-DRIFT: ReassertWriteRevokes did not re-close artifacts INSERT")
 	}
-	// ReassertWriteRevokes must not over-reach: events (no stamp) keeps its grant.
-	if !hasInsert(t, ctx, pool.Runner, "events") {
-		t.Fatal("ReassertWriteRevokes over-revoked events (only stamped surfaces should close)")
+	// ReassertWriteRevokes must not over-reach: jobs (no stamp) keeps its grant.
+	if !hasInsert(t, ctx, pool.Runner, "jobs") {
+		t.Fatal("ReassertWriteRevokes over-revoked jobs (only stamped surfaces should close)")
 	}
 }
 
@@ -289,6 +293,243 @@ func TestArtifactExecAuthorityGate(t *testing.T) {
 	}
 }
 
+// TestPhase2EventInsertDenied is T-42501-P2 + T-GRANT-DRIFT for the events
+// surface: owner bundle 0004 revokes striatumd_rw's direct events INSERT (only),
+// grants EXECUTE on the SD append function, and a stray re-grant is undone by
+// ReassertWriteRevokes — while jobs (never SD-gated) keeps its INSERT. This is
+// the last L1 phase: all three durable append-only surfaces are now SD-only.
+func TestPhase2EventInsertDenied(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+
+	if err := pool.Runner.Exec(ctx, "GRANT USAGE ON SCHEMA striatumd TO striatumd_rw"); err != nil {
+		t.Fatalf("provision usage: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, "GRANT INSERT ON ALL TABLES IN SCHEMA striatumd TO striatumd_rw"); err != nil {
+		t.Fatalf("provision insert: %v", err)
+	}
+	if !hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("precondition: striatumd_rw should hold events INSERT before the bundle")
+	}
+
+	if _, _, err := db.ApplyOwnerBundles(ctx, pool.Runner, "test"); err != nil {
+		t.Fatalf("apply owner bundle: %v", err)
+	}
+
+	if hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("T-42501-P2: bundle 0004 did not revoke striatumd_rw events INSERT")
+	}
+	if !hasInsert(t, ctx, pool.Runner, "jobs") {
+		t.Fatal("jobs INSERT must stay untouched (false-green guard)")
+	}
+	// The runtime role must hold EXECUTE on the sanctioned SD write path.
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_function_privilege('striatumd_rw', p.oid, 'EXECUTE')::text FROM pg_proc p WHERE proname='append_event_row' AND pronamespace='striatumd'::regnamespace ORDER BY oid DESC LIMIT 1") != "true" {
+		t.Fatal("striatumd_rw lacks EXECUTE on append_event_row; P2 event appends would fail")
+	}
+
+	// T-GRANT-DRIFT: a stray re-grant reopens the hole; reassert closes it.
+	if err := pool.Runner.Exec(ctx, "GRANT INSERT ON striatumd.events TO striatumd_rw"); err != nil {
+		t.Fatalf("simulate grant drift: %v", err)
+	}
+	if !hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("drift setup failed: re-grant did not take")
+	}
+	if err := db.ReassertWriteRevokes(ctx, pool.Runner); err != nil {
+		t.Fatalf("reassert revokes: %v", err)
+	}
+	if hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("T-GRANT-DRIFT: ReassertWriteRevokes did not re-close events INSERT")
+	}
+}
+
+// TestEventExecAuthorityGate is T-EXEC-AUTH for the events surface:
+// append_event_row with no/wrong daemon-authority secret raises SQLSTATE 28000
+// before any work and mutates zero rows; with the correct secret the call gets
+// PAST the authority gate (and the empty-payload transcript check) to the INSERT,
+// which trips a foreign-key violation (23503) because no parent repository is
+// seeded — proving authority passed, not that the write was blocked.
+func TestEventExecAuthorityGate(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-event-authority"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-test', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+
+	conn, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+
+	before := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.events")
+	const call = `SELECT striatumd.append_event_row('repo',NULL,'job.created',NULL,NULL,NULL,NULL,NULL,'{}'::jsonb)`
+
+	// No secret -> 28000, zero rows.
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "28000" {
+		t.Fatalf("append without secret: want 28000, got %q", code)
+	}
+	if got := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.events"); got != before {
+		t.Fatalf("failed authority append mutated rows: before=%s after=%s", before, got)
+	}
+
+	// Wrong secret -> 28000.
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', 'wrong', false)"); err != nil {
+		t.Fatalf("set wrong secret: %v", err)
+	}
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "28000" {
+		t.Fatalf("append with wrong secret: want 28000, got %q", code)
+	}
+
+	// Correct secret -> authority passes, INSERT reached: FK violation (23503),
+	// not an authority denial. Zero event rows still land.
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set correct secret: %v", err)
+	}
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "23503" {
+		t.Fatalf("authorized append: want 23503 (FK violation past the authority gate), got %q", code)
+	}
+	if got := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.events"); got != before {
+		t.Fatalf("authority gate let a partial row land: before=%s after=%s", before, got)
+	}
+}
+
+// TestEventTranscriptExclusion is T-EVENT-NOTRANSCRIPT (RFC 0110 §12,
+// C-EVENT-NO-TRANSCRIPTS): with valid daemon authority, a payload carrying a
+// top-level transcript key OR a transcript-sized payload is DB-rejected (23514,
+// distinct from the FK code) and mutates zero rows; a clean payload passes the
+// transcript gate and reaches the INSERT (23503 FK, no parent repo) — proving the
+// rejection is the transcript check, not a blanket refusal.
+func TestEventTranscriptExclusion(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-event-transcript"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-test', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+
+	conn, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+
+	before := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.events")
+	const callTmpl = `SELECT striatumd.append_event_row('repo',NULL,'lane.output',NULL,NULL,NULL,NULL,NULL,$1::jsonb)`
+
+	// Each forbidden top-level key is rejected with 23514, zero rows.
+	for _, key := range []string{"stdout", "stderr", "transcript", "raw_output", "provider_output"} {
+		payload := fmt.Sprintf(`{%q: "captured agent output"}`, key)
+		_, err := conn.Exec(ctx, callTmpl, payload)
+		if code := pgErrCode(err); code != "23514" {
+			t.Fatalf("forbidden key %q: want 23514 (transcript exclusion), got %q (%v)", key, code, err)
+		}
+	}
+
+	// A transcript-sized payload (> 256 KiB) is rejected with 23514, zero rows.
+	big := `{"data":"` + strings.Repeat("x", 300*1024) + `"}`
+	if code := pgErrCode(mustExecErrArg(conn, ctx, callTmpl, big)); code != "23514" {
+		t.Fatalf("oversize payload: want 23514, got %q", code)
+	}
+
+	if got := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.events"); got != before {
+		t.Fatalf("rejected payloads mutated rows: before=%s after=%s", before, got)
+	}
+
+	// A clean payload passes the transcript gate and reaches the INSERT (23503 FK,
+	// no parent repo) — not a transcript rejection.
+	clean := `{"job_id":"job_1","state":"running"}`
+	if code := pgErrCode(mustExecErrArg(conn, ctx, callTmpl, clean)); code != "23503" {
+		t.Fatalf("clean payload: want 23503 (passed the transcript gate, hit FK), got %q", code)
+	}
+}
+
+func mustExecErrArg(conn interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+}, ctx context.Context, sql string, arg any) error {
+	_, err := conn.Exec(ctx, sql, arg)
+	return err
+}
+
+// TestEventSDPathLandsAndChains is the positive end-to-end P2 proof: with a
+// seeded repository (FK parent) and valid daemon authority, append_event_row
+// lands a real events row entirely in-DB (assigning event_id, created_at, an
+// in-DB v3 row_hash, and previous_hash) and advances the per-repository chain
+// head; a second append links its previous_hash to the first row's row_hash, so
+// the chain stays linear (assertEventChainLinear's invariant) across SD writes.
+func TestEventSDPathLandsAndChains(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-event-positive"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-test', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories(
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state)
+		VALUES ('repo_p2', 'id', '/tmp/r', '/tmp/r/.striatum', 'r', now(), 1, 'active')`); err != nil {
+		t.Fatalf("seed repository: %v", err)
+	}
+
+	conn, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+
+	const call = `SELECT striatumd.append_event_row('repo_p2',NULL,$1,NULL,NULL,NULL,NULL,NULL,$2::jsonb)`
+
+	var id1, id2 int64
+	if err := conn.QueryRow(ctx, call, "run.started", `{"k":"v"}`).Scan(&id1); err != nil {
+		t.Fatalf("first append failed: %v", err)
+	}
+	if err := conn.QueryRow(ctx, call, "job.created", `{"job":"j1"}`).Scan(&id2); err != nil {
+		t.Fatalf("second append failed: %v", err)
+	}
+	if id1 == 0 || id2 == 0 || id1 == id2 {
+		t.Fatalf("expected two distinct non-zero event ids, got %d and %d", id1, id2)
+	}
+
+	// Both rows landed with a v3 hash and link into one linear chain.
+	hash1 := scalar(t, ctx, pool.Runner,
+		"SELECT row_hash FROM striatumd.events WHERE repository_id='repo_p2' AND event_id=$1", id1)
+	prev2 := scalar(t, ctx, pool.Runner,
+		"SELECT COALESCE(previous_hash,'') FROM striatumd.events WHERE repository_id='repo_p2' AND event_id=$1", id2)
+	if hash1 == "" {
+		t.Fatal("first event has empty row_hash")
+	}
+	if prev2 != hash1 {
+		t.Fatalf("chain broken: event %d previous_hash=%q, want first row_hash=%q", id2, prev2, hash1)
+	}
+	headHash := scalar(t, ctx, pool.Runner,
+		"SELECT last_hash FROM striatumd.repo_event_chain_heads WHERE repository_id='repo_p2'")
+	hash2 := scalar(t, ctx, pool.Runner,
+		"SELECT row_hash FROM striatumd.events WHERE repository_id='repo_p2' AND event_id=$1", id2)
+	if headHash != hash2 {
+		t.Fatalf("chain head last_hash=%q does not point at the tail row_hash=%q", headHash, hash2)
+	}
+}
+
 // TestRegistryACL is T-REGISTRY-ACL: the runtime role holds no SELECT on the
 // owner-only authority registry.
 func TestRegistryACL(t *testing.T) {
@@ -303,7 +544,7 @@ func TestRegistryACL(t *testing.T) {
 // DEFINER with a pinned search_path and no PUBLIC execute.
 func TestSDHardening(t *testing.T) {
 	pool, ctx := enforcementDB(t)
-	for _, fn := range []string{"assert_daemon_authority", "append_audit_row", "append_artifact_row"} {
+	for _, fn := range []string{"assert_daemon_authority", "append_audit_row", "append_artifact_row", "append_event_row"} {
 		if scalar(t, ctx, pool.Runner,
 			"SELECT prosecdef::text FROM pg_proc WHERE proname=$1 AND pronamespace='striatumd'::regnamespace ORDER BY oid DESC LIMIT 1", fn) != "true" {
 			t.Errorf("%s is not SECURITY DEFINER", fn)

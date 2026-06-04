@@ -254,6 +254,24 @@ func appendResolveEvent(
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	// RFC 0110 §7 P2 (full): route the event append through the owner-owned
+	// SECURITY DEFINER append_event_row (in-DB authority + transcript exclusion +
+	// v3 chain hash), atomic with this mutation. Behavior-neutral until P2 is
+	// adopted. Foreign keys are null-coerced here so the SD path's stored row
+	// matches the direct INSERT below.
+	if db.ActiveWriteBoundary().AtLeast(db.PhaseFull) {
+		return db.AppendEventRowSD(ctx, runner, db.EventRow{
+			RepositoryID:   repositoryID,
+			RunID:          nullableResolve(runID),
+			EventType:      eventType,
+			ActorSessionID: nullableResolve(actorSessionID),
+			JobID:          nullableResolve(jobID),
+			MessageID:      nullableResolve(messageID),
+			ArtifactID:     nullableResolve(artifactID),
+			LeaseID:        nullableResolve(leaseID),
+			Payload:        payload,
+		})
+	}
 	previousHash, err := previousResolveChainHead(ctx, runner, repositoryID)
 	if err != nil {
 		return 0, err

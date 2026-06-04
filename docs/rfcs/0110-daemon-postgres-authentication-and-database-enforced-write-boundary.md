@@ -40,6 +40,18 @@ Context: RFC 0033 (PostgreSQL as sole substrate; §3 append-only audit invariant
   is preserved permanently as the reader of pre-cutover rows; `VerifyRows`
   dispatches on `hash_format_version` (unknown ⇒ verifier failure). The cutover
   is **one release gate** (`R-V3`) behind an operator flag defaulting to v2.
+- **The events surface (P2 `full`) computes its v3 chain hash entirely in-DB,
+  with no Go counterpart** (`append_event_row` → `event_v3_row_hash`, owner bundle
+  0004). This is the rigorous in-DB path that still satisfies G1 with *zero* Go↔PL/pgSQL
+  porting hazard, because — unlike the audit chain, whose doctor verifier recomputes
+  row hashes in Go — **nothing in Go ever recomputes an event row hash**
+  (`canonicalEventHash` is write-only; the only event-chain verifier checks chain
+  *linkage*, not hash content). The chain continues linearly across the v2→v3
+  boundary (the SD fn reads the head's `last_hash` as `previous_hash`). Transcript
+  exclusion (`C-EVENT-NO-TRANSCRIPTS`) is enforced in the same SD fn — a payload
+  with a top-level `stdout`/`stderr`/`transcript`/`raw_output`/`provider_output`
+  key, or one over a 256 KiB cap, is `RAISE`d (`23514`) before any row lands. See
+  decision **D167**.
 - **Audit append becomes fail-closed and mutation-coupled.** For mutating RPCs
   the audit row is the final write **inside the same transaction** (atomic with
   the mutation); standalone appends (reads/denials/transport errors) convert an

@@ -20,14 +20,17 @@ const (
 )
 
 // writeAuthorityInventory classifies every daemon-owned table at the current
-// phase (Phase 1 = audit_artifacts). events becomes sd_gated at P2; update that
-// row when the phase lands.
+// phase (Phase 2 = full). All three durable append-only surfaces (audit_log,
+// artifacts, events) are SD-function-only.
 var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// Phase 0: audit_log is SD-function-only.
 	"audit_log": ClassSDGated,
 	// Phase 1 (audit_artifacts): artifacts is SD-function-only (owner bundle
 	// 0003, append_artifact_row). It is append-only via triggers too.
 	"artifacts": ClassSDGated,
+	// Phase 2 (full): events is SD-function-only (owner bundle 0004,
+	// append_event_row). It is append-only via triggers too.
+	"events": ClassSDGated,
 
 	// Authority schema + migration bookkeeping: owner-only.
 	"daemon_auth_registry": ClassOwnerOnly,
@@ -40,8 +43,9 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"daemon_meta":          ClassOwnerOnly,
 
 	// Live coordination + durable state: direct runtime DML retained for now.
-	// events (-> sd_gated at P2) stays here; it is append-only via triggers.
-	"events":                         ClassRuntimeDML,
+	// audit_chain_head / repo_event_chain_heads are the chain head pointers the
+	// SD append functions advance as owner; they stay runtime-writable (derived
+	// pointers, not the protected append-only surfaces).
 	"audit_chain_head":               ClassRuntimeDML,
 	"audit_segments":                 ClassRuntimeDML,
 	"audit_repositories":             ClassRuntimeDML,

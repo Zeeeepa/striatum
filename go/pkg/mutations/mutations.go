@@ -1059,6 +1059,26 @@ func appendEvent(
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	// RFC 0110 §7 P2 (full): once the operator declares the full write boundary
+	// the event append routes through the owner-owned SECURITY DEFINER
+	// append_event_row, which asserts daemon authority, enforces transcript
+	// exclusion, computes the v3 chain hash in-DB, and advances the chain head —
+	// atomic with this mutation. Behavior-neutral until P2 is adopted (the direct
+	// path below is unchanged). Foreign keys are null-coerced here so the SD
+	// path's stored row matches the direct INSERT.
+	if db.ActiveWriteBoundary().AtLeast(db.PhaseFull) {
+		return db.AppendEventRowSD(ctx, runner, db.EventRow{
+			RepositoryID:   repositoryID,
+			RunID:          nullable(runID),
+			EventType:      eventType,
+			ActorSessionID: nullable(actorSessionID),
+			JobID:          nullable(jobID),
+			MessageID:      nullable(messageID),
+			ArtifactID:     nullable(artifactID),
+			LeaseID:        nullable(leaseID),
+			Payload:        payload,
+		})
+	}
 	// Schema v6: read previous_hash from striatumd.repo_event_chain_heads
 	// (FOR UPDATE) instead of scanning the events table. The head row is
 	// upserted after the event insert so concurrent appenders serialize on

@@ -162,6 +162,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Re-issue the call with a fresh request_id.",
 	},
 	{
+		Code:       "event_payload_rejected",
+		Meaning:    "A durable event payload was refused by the database write boundary: it carried a transcript key (stdout/stderr/transcript/raw_output/provider_output) or exceeded the durable-event size cap (RFC 0110 §12, C-EVENT-NO-TRANSCRIPTS).",
+		Suggestion: "Record curated coordination state in the event, not captured agent output; transcripts belong in operator-local diagnostics, not the durable event chain.",
+	},
+	{
 		Code:       "file_read_failed",
 		Meaning:    "The daemon could not read a repository file it was asked to operate on.",
 		Suggestion: "Verify the path exists and is readable inside the repository, then retry.",
