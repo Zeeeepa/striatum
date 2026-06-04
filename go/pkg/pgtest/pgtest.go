@@ -53,6 +53,13 @@ func Pools(t *testing.T) (*db.Pool, *db.Pool) {
 	testURL, drop := createDatabase(t, ctx, baseURL)
 	t.Cleanup(drop)
 
+	// RFC 0110 §10 (C-PGTEST-NO-DML-GRANT): the canonical runtime role
+	// striatumd_rw must exist BEFORE migrate so migration 0005 provisions its
+	// production grant surface (broad table DML, then REVOKE UPDATE/DELETE on the
+	// append-only events/artifacts) on this test database — the same surface the
+	// 42501 negative-path gate must run against, instead of a hand-built one.
+	ensureRuntimeRole(t, ctx, baseURL)
+
 	pool, version, err := db.ConnectAndMigrate(ctx, testURL, "pgtest")
 	if err != nil {
 		t.Fatalf("connect/migrate pgtest database: %v", err)
@@ -74,19 +81,13 @@ func Pools(t *testing.T) (*db.Pool, *db.Pool) {
 	dbName := strings.TrimPrefix(parsed.Path, "/")
 	roleName := "striatumd_rw_" + dbName
 
-	_, err = pool.RawPool.Exec(ctx, fmt.Sprintf(`
-		DROP ROLE IF EXISTS %s;
-		CREATE ROLE %s;
-		GRANT CONNECT ON DATABASE %s TO %s;
-		GRANT USAGE ON SCHEMA striatumd TO %s;
-		GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA striatumd TO %s;
-		GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA striatumd TO %s;
-		REVOKE UPDATE, DELETE ON striatumd.events FROM %s;
-		REVOKE UPDATE, DELETE ON striatumd.artifacts FROM %s;
-		GRANT %s TO %s;
-	`, quoteIdent(roleName), quoteIdent(roleName), quoteIdent(dbName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(roleName), quoteIdent(currentUser)))
-	if err != nil {
-		t.Fatalf("setup unprivileged role: %v", err)
+	// The per-test LOGIN role is only a login shell over the migration-defined
+	// striatumd_rw privileges (membership); pgtest issues NO GRANT/REVOKE naming a
+	// protected table (G-PGTEST-GRANTS asserts this against roleSetupStatements).
+	for _, stmt := range roleSetupStatements(dbName, roleName, currentUser) {
+		if _, err := pool.RawPool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("setup unprivileged role (%q): %v", stmt, err)
+		}
 	}
 
 	t.Cleanup(func() {
@@ -158,6 +159,52 @@ func createDatabase(t *testing.T, ctx context.Context, baseURL string) (string, 
 		adminPool.Close()
 	}
 	return testURL.String(), drop
+}
+
+// ensureRuntimeRole creates the canonical, cluster-wide striatumd_rw role if it
+// is absent, so migration 0005 provisions its grant surface during migrate (RFC
+// 0110 §10). It is idempotent and tolerates a concurrent creator (parallel test
+// packages share the one cluster role); it never drops striatumd_rw.
+func ensureRuntimeRole(t *testing.T, ctx context.Context, baseURL string) {
+	t.Helper()
+	adminPool, err := pgxpool.New(ctx, baseURL)
+	if err != nil {
+		t.Fatalf("connect to ensure runtime role: %v", err)
+	}
+	defer adminPool.Close()
+	// duplicate_object (42710) means a parallel worker won the race — benign.
+	if _, err := adminPool.Exec(ctx, `
+		DO $$
+		BEGIN
+		  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'striatumd_rw') THEN
+		    CREATE ROLE striatumd_rw;
+		  END IF;
+		EXCEPTION WHEN duplicate_object THEN
+		  NULL;
+		END
+		$$;`); err != nil {
+		t.Fatalf("ensure striatumd_rw role: %v", err)
+	}
+}
+
+// roleSetupStatements returns the per-test login-role setup, kept as a pure
+// statement list so the G-PGTEST-GRANTS guard (TestRoleSetupIssuesNoProtectedDML)
+// can assert it issues NO GRANT/REVOKE naming a protected append-only table — the
+// per-test role derives its DML surface from striatumd_rw membership, and that
+// surface comes from migration 0005, never from imperative pgtest grants (RFC
+// 0110 §10, C-PGTEST-NO-DML-GRANT). The schema/sequence USAGE grants to
+// striatumd_rw mirror what `daemon doctor --provision-rw-role` adds beyond the
+// migration's table DML; they name no protected table.
+func roleSetupStatements(dbName, roleName, currentUser string) []string {
+	return []string{
+		fmt.Sprintf("DROP ROLE IF EXISTS %s", quoteIdent(roleName)),
+		fmt.Sprintf("CREATE ROLE %s", quoteIdent(roleName)),
+		fmt.Sprintf("GRANT CONNECT ON DATABASE %s TO %s", quoteIdent(dbName), quoteIdent(roleName)),
+		"GRANT USAGE ON SCHEMA striatumd TO striatumd_rw",
+		"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA striatumd TO striatumd_rw",
+		fmt.Sprintf("GRANT striatumd_rw TO %s", quoteIdent(roleName)),
+		fmt.Sprintf("GRANT %s TO %s", quoteIdent(roleName), quoteIdent(currentUser)),
+	}
 }
 
 func quoteIdent(value string) string {

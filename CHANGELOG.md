@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### RFC 0110 §10 — pgtest consumes the production grant surface (C-PGTEST-NO-DML-GRANT)
+
+`pgtest` no longer hand-builds the unprivileged role's DML with imperative
+`GRANT`/`REVOKE` on the protected append-only tables — a false-green channel for
+every `42501` negative-path gate. The per-test login role is now only a login
+shell over `striatumd_rw` (membership); its DML surface comes from the production
+migration provisioning (migration 0005 grants `striatumd_rw` broad DML, then
+`REVOKE`s `UPDATE`/`DELETE` on the append-only `events`/`artifacts`). The role is
+created before migrate so that provisioning fires on each test database.
+
+- **`roleSetupStatements`** issues only non-protected grants (CONNECT, schema +
+  sequence USAGE, and the two role-membership grants); **G-PGTEST-GRANTS**
+  (`TestRoleSetupIssuesNoProtectedDML`) fails if any setup statement `GRANT`/`REVOKE`s
+  DML naming a protected table or blanket-(re)grants table DML across the schema.
+- `TestPrivilegeRevocation` still proves `UPDATE`/`DELETE` on `events`/`artifacts`
+  is denied (`42501`) — now via the inherited production revokes, not a hand-built
+  one. Test-only change; no product behavior change.
+
 ## v2.25.0 — 2026-06-04
 
 ### RFC 0110 Phase 2 `full` — events become a SECURITY-DEFINER-only write surface (D167)
