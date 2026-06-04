@@ -20,11 +20,14 @@ const (
 )
 
 // writeAuthorityInventory classifies every daemon-owned table at the current
-// phase (release N+1 slice 1 = Phase 0 audit_only). artifacts becomes sd_gated
-// at P1 and events at P2; update those rows when each phase lands.
+// phase (Phase 1 = audit_artifacts). events becomes sd_gated at P2; update that
+// row when the phase lands.
 var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// Phase 0: audit_log is SD-function-only.
 	"audit_log": ClassSDGated,
+	// Phase 1 (audit_artifacts): artifacts is SD-function-only (owner bundle
+	// 0003, append_artifact_row). It is append-only via triggers too.
+	"artifacts": ClassSDGated,
 
 	// Authority schema + migration bookkeeping: owner-only.
 	"daemon_auth_registry": ClassOwnerOnly,
@@ -37,9 +40,7 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"daemon_meta":          ClassOwnerOnly,
 
 	// Live coordination + durable state: direct runtime DML retained for now.
-	// artifacts (-> sd_gated at P1) and events (-> sd_gated at P2) stay here in
-	// slice 1; they are append-only via triggers.
-	"artifacts":                      ClassRuntimeDML,
+	// events (-> sd_gated at P2) stays here; it is append-only via triggers.
 	"events":                         ClassRuntimeDML,
 	"audit_chain_head":               ClassRuntimeDML,
 	"audit_segments":                 ClassRuntimeDML,

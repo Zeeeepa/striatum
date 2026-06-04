@@ -17,7 +17,7 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 2
+const LatestOwnerBundleVersion = 3
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
@@ -25,6 +25,7 @@ var ownerBundleFS embed.FS
 var ownerBundleLabels = map[int]string{
 	1: "authority schema + v3 hash + phase 0 audit_only (RFC 0110 N+1)",
 	2: "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
+	3: "phase 1 audit_artifacts: append_artifact_row SD fn + artifacts INSERT revoke (RFC 0110 §7)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -125,17 +126,37 @@ func ApplyOwnerBundles(ctx context.Context, runner Runner, daemonVersion string)
 	return applied, current, nil
 }
 
-// phase0ProtectedTables are the surfaces whose direct INSERT is revoked from the
-// runtime role in Phase 0 (audit_only). It mirrors the REVOKE in owner bundle
-// 0001; later phases extend it (artifacts, then events).
-var phase0ProtectedTables = []string{"audit_log"}
+// capabilityProtectedTable maps each SD-append capability stamp to the table
+// whose direct runtime-role INSERT that phase revokes (RFC 0110 §7). The
+// protected set is derived from the stamps rather than a static list so a
+// deployment revokes exactly the surfaces its applied owner bundles have closed
+// — never a surface whose bundle is unapplied (which would break that surface's
+// writes for a daemon that has not adopted the phase).
+var capabilityProtectedTable = map[string]string{
+	"audit_sd_append":    "audit_log",
+	"artifact_sd_append": "artifacts",
+	"event_sd_append":    "events",
+}
 
-// ReassertWriteRevokes re-applies the protected-surface DML revokes from the
-// runtime role (RFC 0110 §6, C-GRANT-DRIFT). Any privilege-granting step
-// (migration helper, doctor repair-grants) must call this afterwards so a stray
-// GRANT cannot quietly reopen the Phase-0 hole. Run as the owner.
+// ReassertWriteRevokes re-applies the protected-surface INSERT revokes for every
+// phase whose capability the owner bundle has stamped (RFC 0110 §6,
+// C-GRANT-DRIFT). Any privilege-granting step (migration helper, doctor
+// repair-grants) must call this afterwards so a stray GRANT cannot quietly
+// reopen a closed surface. Run as the owner; a no-op when no authority schema is
+// present.
 func ReassertWriteRevokes(ctx context.Context, runner Runner) error {
-	for _, table := range phase0ProtectedTables {
+	stamped, present, err := readStampedCapabilities(ctx, runner)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for _, capability := range stamped {
+		table, ok := capabilityProtectedTable[capability]
+		if !ok {
+			continue
+		}
 		if err := runner.Exec(ctx, fmt.Sprintf(
 			"REVOKE INSERT ON striatumd.%s FROM striatumd_rw", table)); err != nil {
 			return fmt.Errorf("reassert revoke on %s: %w", table, err)

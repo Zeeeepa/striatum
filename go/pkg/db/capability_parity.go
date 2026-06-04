@@ -12,16 +12,28 @@ import (
 // parity fails closed if the schema stamps a capability this binary cannot
 // support (old-binary / authority-bearing-schema).
 func SupportedAuthorityCapabilities() []string {
-	return []string{"audit_sd_append"}
+	return []string{"audit_sd_append", "artifact_sd_append"}
 }
 
 // RequiredAuthorityCapabilities are capabilities the binary requires the schema
-// to stamp. Empty in release N+1 slice 1: the owner bundle is opt-in and the
-// daemon does not yet depend on the SD write path, so a binary with no bundle
-// applied runs inert — which is exactly what makes the old-binary check real
-// once any binary >= this one meets an authority-bearing schema.
+// to stamp, derived from the active write-boundary phase (RFC 0110 §7): once the
+// operator declares a phase, the daemon routes that phase's surfaces through the
+// SD write functions, so the matching capability MUST be stamped or boot fails
+// closed naming it (new-binary / old-schema). It is empty at PhaseNone /
+// PhaseAuditOnly: audit_log's SD path is gated independently by the audit hash
+// format, and a daemon with no phase declared runs inert — which is what keeps
+// the old-binary check real once any binary >= this one meets an
+// authority-bearing schema.
 func RequiredAuthorityCapabilities() []string {
-	return nil
+	phase := ActiveWriteBoundary()
+	var required []string
+	if phase.AtLeast(PhaseAuditArtifacts) {
+		required = append(required, "artifact_sd_append")
+	}
+	if phase.AtLeast(PhaseFull) {
+		required = append(required, "event_sd_append")
+	}
+	return required
 }
 
 // checkCapabilityParity enforces RFC 0110 §8.2 deploy capability parity in both

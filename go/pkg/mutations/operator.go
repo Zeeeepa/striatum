@@ -86,14 +86,19 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 		if err != nil {
 			return nil, err
 		}
-		if err := tx.Exec(ctx, `
-			INSERT INTO striatumd.artifacts (
-			  repository_id, artifact_id, run_id, job_id, session_id,
-			  logical_name, artifact_kind, repo_path, content_sha256,
-			  size_bytes, publish_mode, created_at
-			)
-			VALUES ($1,$2,$3,NULL,NULL,$4,'decision',$5,$6,$7,'create',$8)`,
-			repositoryID, artifactID, runID, decisionID, pathText, digest, len(body), createdAt); err != nil {
+		// RFC 0110 §7: SD-routed at phase audit_artifacts, direct INSERT before
+		// P1. job_id/session_id are NULL for an operator decision.
+		if err := db.AppendArtifactInTx(ctx, tx, db.ArtifactRow{
+			RepositoryID:  repositoryID,
+			ArtifactID:    artifactID,
+			RunID:         runID,
+			LogicalName:   decisionID,
+			ArtifactKind:  "decision",
+			RepoPath:      pathText,
+			ContentSHA256: digest,
+			SizeBytes:     len(body),
+			CreatedAt:     createdAt,
+		}); err != nil {
 			return nil, err
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, map[string]any{

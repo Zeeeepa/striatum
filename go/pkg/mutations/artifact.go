@@ -266,36 +266,31 @@ func publishArtifact(
 		}
 	}
 
-	exec, ok := runner.(interface {
-		Exec(context.Context, string, ...any) error
-	})
+	tx, ok := runner.(db.TxRunner)
 	if !ok {
-		return nil, fmt.Errorf("runner does not support exec")
+		return nil, fmt.Errorf("runner does not support transactional artifact append")
 	}
-	if err := exec.Exec(ctx, `
-		INSERT INTO striatumd.artifacts (
-		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
-		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
-		  created_at, author_line, blob_key, blob_sha256, blob_content_type, attempt
-		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'create',$11,$12,$13,$14,$15,$16)`,
-		repositoryID,
-		artifactID,
-		job["run_id"],
-		jobID,
-		sessionID,
-		logicalName,
-		kind,
-		pathText,
-		digest,
-		len(payload),
-		now,
-		nullable(authorLine),
-		nullable(blobKey),
-		nullable(blobSha256),
-		nullable(blobContentType),
-		attempt,
-	); err != nil {
+	// RFC 0110 §7: at phase audit_artifacts this routes through the owner-owned
+	// SECURITY DEFINER append_artifact_row (daemon-authority asserted in-DB);
+	// before P1 it is the historical direct INSERT.
+	if err := db.AppendArtifactInTx(ctx, tx, db.ArtifactRow{
+		RepositoryID:    repositoryID,
+		ArtifactID:      artifactID,
+		RunID:           job["run_id"],
+		JobID:           jobID,
+		SessionID:       sessionID,
+		LogicalName:     logicalName,
+		ArtifactKind:    kind,
+		RepoPath:        pathText,
+		ContentSHA256:   digest,
+		SizeBytes:       len(payload),
+		CreatedAt:       now,
+		AuthorLine:      nullable(authorLine),
+		BlobKey:         nullable(blobKey),
+		BlobSHA256:      nullable(blobSha256),
+		BlobContentType: nullable(blobContentType),
+		Attempt:         attempt,
+	}); err != nil {
 		return nil, err
 	}
 	if kind == "escalation" {

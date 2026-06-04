@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## v2.22.0 — 2026-06-04
+
+### RFC 0110 Phase 1 — `audit_artifacts` write closure (§7)
+
+The phased DB-enforced write boundary advances from P0 `audit_only` to P1
+`audit_artifacts`: artifact writes now route through an owner-owned
+`SECURITY DEFINER` function that asserts daemon authority in-DB before the
+INSERT, so a leaked runtime credential can no longer forge an artifact.
+
+- **Owner bundle 0003** (`go/pkg/db/sql/owner/0003_phase1_artifacts.sql`):
+  `append_artifact_row` SD function (hardened: pinned `search_path`, no PUBLIC
+  execute, `EXECUTE` to `striatumd_rw` only), `REVOKE INSERT ON
+  striatumd.artifacts FROM striatumd_rw`, and the `artifact_sd_append`
+  capability stamp. `LatestOwnerBundleVersion` → 3.
+- **Phase-routed write path** (`db.AppendArtifactInTx`): the three artifact
+  INSERT sites (publish, recovery, operator decision) route through the SD
+  function once the active write-boundary phase reaches `audit_artifacts`, and
+  the historical direct INSERT otherwise. The two paths emit an identical row.
+- **`--pg-write-boundary` flag** (`STRIATUM_PG_WRITE_BOUNDARY`,
+  `none|audit_only|audit_artifacts|full`): the operator-committed phase, kept in
+  lockstep with the applied owner bundles. Empty derives from the audit hash
+  format (v3 ⇒ `audit_only`). The `daemon doctor` `pg_write_boundary` posture is
+  now this phase string, and each phase's note states exactly the claim it
+  licenses (only `full` licenses "the daemon's durable write paths are
+  DB-enforced", C-PHASED-WRITE-CLOSURE).
+- **Capability parity** (§8.2): the binary now supports `artifact_sd_append`,
+  and a P1/P2 phase requires the matching stamp — boot fails closed naming a
+  missing stamp (new-binary/old-schema) or an unsupported stamp
+  (old-binary/new-schema). **Deploy order is load-bearing:** deploy the binary
+  *before* applying owner bundle 0003 and set `--pg-write-boundary
+  audit_artifacts` in lockstep with the apply.
+- **`ReassertWriteRevokes`** now derives the protected set from the stamped
+  capabilities, so a grant-repair re-closes exactly the surfaces the live
+  deployment has closed — never a surface whose bundle is unapplied.
+- **Gates:** T-42501-P1 + T-GRANT-DRIFT (artifacts INSERT revoked, EXECUTE
+  granted, drift re-closed, events untouched), T-EXEC-AUTH (artifacts), the
+  phase-routing unit gate, the posture gate, and the write-authority inventory
+  (artifacts → `sd_gated`).
+
 ### RFC 0110 operational follow-ups
 
 - **#168 — stable per-daemon instance id.** `daemonInstanceID()` minted a fresh

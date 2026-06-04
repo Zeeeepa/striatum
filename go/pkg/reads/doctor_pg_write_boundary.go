@@ -19,15 +19,14 @@ func pgWriteBoundaryDoctorBlock() (map[string]any, []string) {
 	if rotation == "" {
 		rotation = "inactive"
 	}
+	phase := db.ActiveWriteBoundary()
 	block := map[string]any{
-		"posture":             "none",
+		"posture":             string(phase),
 		"rotation":            rotation,
 		"audit_hash_format":   db.AuditHashFormat(),
 		"rotator_collision":   db.AuthorityRotatorCollision(),
 		"conn_reset_destroys": destroys,
-		"note": "RFC 0110 authority plumbing + L0/v3 mechanism are in place. DB-enforced write " +
-			"closure (P0 audit_only -> P2 full) lands in a later release; no Striatum claim of a sole " +
-			"DB-enforced durable write path is valid until this posture reads 'full'.",
+		"note":                pgWriteBoundaryNote(phase),
 	}
 	var warnings []string
 	if destroys > connResetStormThreshold {
@@ -39,4 +38,24 @@ func pgWriteBoundaryDoctorBlock() (map[string]any, []string) {
 			"use per-instance roles (striatumd_rw_<instance>) for a shared PostgreSQL (RFC 0110 §9.4)")
 	}
 	return block, warnings
+}
+
+// pgWriteBoundaryNote returns the operator-facing note for a write-boundary
+// posture (RFC 0110 §7). Each phase's note states exactly the claim that phase
+// licenses; only "full" licenses the sole-durable-write-path claim.
+func pgWriteBoundaryNote(phase db.WriteBoundaryPhase) string {
+	switch phase {
+	case db.PhaseFull:
+		return "RFC 0110 P2 full: audit_log, artifacts, and events are DB-enforced (SD-function-only). " +
+			"The daemon's durable write paths are DB-enforced."
+	case db.PhaseAuditArtifacts:
+		return "RFC 0110 P1 audit_artifacts: the audit chain and artifact writes are DB-enforced " +
+			"(SD-function-only). events is not yet closed; no sole-durable-write-path claim is valid until posture reads 'full'."
+	case db.PhaseAuditOnly:
+		return "RFC 0110 P0 audit_only: the audit chain is DB-enforced (SD-function-only). artifacts and " +
+			"events are not yet closed; no sole-durable-write-path claim is valid until posture reads 'full'."
+	default:
+		return "RFC 0110 authority plumbing + L0/v3 mechanism are in place but no surface is DB-enforced yet. " +
+			"No Striatum claim of a DB-enforced durable write path is valid until this posture reads 'full'."
+	}
 }

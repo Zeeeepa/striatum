@@ -108,8 +108,10 @@ func main() {
 	var mcpHTTPAddr string
 	var webTailscale bool
 	var auditHashFormat string
+	var pgWriteBoundary string
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
 	flag.StringVar(&auditHashFormat, "audit-hash-format", envOr("STRIATUM_AUDIT_HASH_FORMAT", "v2"), "RFC 0110 §5.2: audit row hash format (v2|v3); default v2. Flipping to v3 is the forward-only cutover and requires the owner bundle applied + a restart.")
+	flag.StringVar(&pgWriteBoundary, "pg-write-boundary", envOr("STRIATUM_PG_WRITE_BOUNDARY", ""), "RFC 0110 §7: phased write-closure phase (none|audit_only|audit_artifacts|full). Empty derives from --audit-hash-format (v3 => audit_only). Each phase routes its surfaces through the owner-owned SECURITY DEFINER append functions and requires the matching owner bundle applied + a restart, set in lockstep.")
 	flag.BoolVar(&webTailscale, "web-tailscale", envBool("STRIATUM_DAEMON_WEB_TAILSCALE"), "RFC 0085: serve a read-only tailnet-identity UI on a dedicated 0600 unix socket ($STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock) for `tailscale serve`; default off; loopback bind + bearer path unchanged")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.StringVar(&mcpHTTPAddr, "mcp-http-addr", defaultMCPHTTPAddr(), "loopback HTTP/SSE MCP listen address; use 'off' to disable")
@@ -206,6 +208,15 @@ func main() {
 		// reconnect dance is needed. Release it on shutdown.
 		defer func() { pool.Close() }()
 		runner = pool.Runner
+		// RFC 0110 §7: resolve and install the write-boundary phase BEFORE the
+		// capability-parity check, which derives its required capabilities from
+		// the active phase (a P1/P2 binary that lacks the matching owner-bundle
+		// stamp must fail closed naming it).
+		writeBoundary, err := db.ResolveWriteBoundary(pgWriteBoundary, auditHashFormat)
+		if err != nil {
+			log.Fatalf("daemon write-boundary phase: %v", err)
+		}
+		db.SetActiveWriteBoundary(writeBoundary)
 		// RFC 0110 §8.2 (C-DEPLOY-CAPABILITY-PARITY): verify the binary and the
 		// live schema agree on authority-bearing capabilities before serving
 		// mutations. Inert when no owner bundle has stamped a capability; once
@@ -222,8 +233,8 @@ func main() {
 			log.Fatalf("daemon capability parity check failed: %v", err)
 		}
 		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat, authResult.Posture, authResult.RotatorCollision)
-		log.Printf("daemon authority: posture=%s audit_hash_format=%s registered=%t rotator_collision=%t",
-			authResult.Posture, auditHashFormat, authResult.Registered, authResult.RotatorCollision)
+		log.Printf("daemon authority: posture=%s audit_hash_format=%s pg_write_boundary=%s registered=%t rotator_collision=%t",
+			authResult.Posture, auditHashFormat, writeBoundary, authResult.Registered, authResult.RotatorCollision)
 		tokenPath, err := admin.RuntimeTokenPath()
 		if err != nil {
 			log.Fatalf("resolve daemon runtime token path: %v", err)

@@ -97,8 +97,8 @@ func TestPhase0DirectInsertDenied(t *testing.T) {
 	if hasInsert(t, ctx, pool.Runner, "audit_log") {
 		t.Fatal("T-42501-P0: bundle did not revoke striatumd_rw audit_log INSERT")
 	}
-	if !hasInsert(t, ctx, pool.Runner, "artifacts") {
-		t.Fatal("Phase 0 should leave artifacts INSERT untouched (false-green guard)")
+	if !hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("events INSERT must stay untouched until P2 (false-green guard)")
 	}
 
 	// T-GRANT-DRIFT: a stray re-grant reopens the hole; reassert closes it.
@@ -180,6 +180,115 @@ func mustExecErr(conn interface {
 	return err
 }
 
+// TestPhase1ArtifactInsertDenied is T-42501-P1 + T-GRANT-DRIFT for the artifacts
+// surface: owner bundle 0003 revokes striatumd_rw's direct artifacts INSERT (only),
+// grants EXECUTE on the SD append function, and a stray re-grant is undone by
+// ReassertWriteRevokes — while events (closed only at P2) keeps its INSERT.
+func TestPhase1ArtifactInsertDenied(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+
+	if err := pool.Runner.Exec(ctx, "GRANT USAGE ON SCHEMA striatumd TO striatumd_rw"); err != nil {
+		t.Fatalf("provision usage: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, "GRANT INSERT ON ALL TABLES IN SCHEMA striatumd TO striatumd_rw"); err != nil {
+		t.Fatalf("provision insert: %v", err)
+	}
+	if !hasInsert(t, ctx, pool.Runner, "artifacts") {
+		t.Fatal("precondition: striatumd_rw should hold artifacts INSERT before the bundle")
+	}
+
+	if _, _, err := db.ApplyOwnerBundles(ctx, pool.Runner, "test"); err != nil {
+		t.Fatalf("apply owner bundle: %v", err)
+	}
+
+	if hasInsert(t, ctx, pool.Runner, "artifacts") {
+		t.Fatal("T-42501-P1: bundle 0003 did not revoke striatumd_rw artifacts INSERT")
+	}
+	if !hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("events INSERT must stay untouched until P2 (false-green guard)")
+	}
+	// The runtime role must hold EXECUTE on the sanctioned SD write path.
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_function_privilege('striatumd_rw', p.oid, 'EXECUTE')::text FROM pg_proc p WHERE proname='append_artifact_row' AND pronamespace='striatumd'::regnamespace ORDER BY oid DESC LIMIT 1") != "true" {
+		t.Fatal("striatumd_rw lacks EXECUTE on append_artifact_row; P1 publishes would fail")
+	}
+
+	// T-GRANT-DRIFT: a stray re-grant reopens the hole; reassert closes it.
+	if err := pool.Runner.Exec(ctx, "GRANT INSERT ON striatumd.artifacts TO striatumd_rw"); err != nil {
+		t.Fatalf("simulate grant drift: %v", err)
+	}
+	if !hasInsert(t, ctx, pool.Runner, "artifacts") {
+		t.Fatal("drift setup failed: re-grant did not take")
+	}
+	if err := db.ReassertWriteRevokes(ctx, pool.Runner); err != nil {
+		t.Fatalf("reassert revokes: %v", err)
+	}
+	if hasInsert(t, ctx, pool.Runner, "artifacts") {
+		t.Fatal("T-GRANT-DRIFT: ReassertWriteRevokes did not re-close artifacts INSERT")
+	}
+	// ReassertWriteRevokes must not over-reach: events (no stamp) keeps its grant.
+	if !hasInsert(t, ctx, pool.Runner, "events") {
+		t.Fatal("ReassertWriteRevokes over-revoked events (only stamped surfaces should close)")
+	}
+}
+
+// TestArtifactExecAuthorityGate is T-EXEC-AUTH for the artifacts surface:
+// append_artifact_row with no/wrong daemon-authority secret raises SQLSTATE 28000
+// before the INSERT and mutates zero rows; with the correct secret the call gets
+// PAST the authority gate to the INSERT (which then trips a foreign-key violation,
+// 23503, because no parent repository/run is seeded — proving authority passed,
+// not that the write was blocked).
+func TestArtifactExecAuthorityGate(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-artifact-authority"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-test', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+
+	conn, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer conn.Release()
+
+	before := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.artifacts")
+	const call = `SELECT striatumd.append_artifact_row('repo','art','run',NULL,NULL,'log','finding','p/f.md','sha',10,'create',now(),NULL,NULL,NULL,NULL,1)`
+
+	// No secret -> 28000, zero rows.
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "28000" {
+		t.Fatalf("append without secret: want 28000, got %q", code)
+	}
+	if got := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.artifacts"); got != before {
+		t.Fatalf("failed authority append mutated rows: before=%s after=%s", before, got)
+	}
+
+	// Wrong secret -> 28000.
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', 'wrong', false)"); err != nil {
+		t.Fatalf("set wrong secret: %v", err)
+	}
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "28000" {
+		t.Fatalf("append with wrong secret: want 28000, got %q", code)
+	}
+
+	// Correct secret -> authority passes, INSERT reached: FK violation (23503),
+	// not an authority denial. Zero artifact rows still land.
+	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set correct secret: %v", err)
+	}
+	if code := pgErrCode(mustExecErr(conn, ctx, call)); code != "23503" {
+		t.Fatalf("authorized append: want 23503 (FK violation past the authority gate), got %q", code)
+	}
+	if got := scalar(t, ctx, pool.Runner, "SELECT COUNT(*)::text FROM striatumd.artifacts"); got != before {
+		t.Fatalf("authority gate let a partial row land: before=%s after=%s", before, got)
+	}
+}
+
 // TestRegistryACL is T-REGISTRY-ACL: the runtime role holds no SELECT on the
 // owner-only authority registry.
 func TestRegistryACL(t *testing.T) {
@@ -194,7 +303,7 @@ func TestRegistryACL(t *testing.T) {
 // DEFINER with a pinned search_path and no PUBLIC execute.
 func TestSDHardening(t *testing.T) {
 	pool, ctx := enforcementDB(t)
-	for _, fn := range []string{"assert_daemon_authority", "append_audit_row"} {
+	for _, fn := range []string{"assert_daemon_authority", "append_audit_row", "append_artifact_row"} {
 		if scalar(t, ctx, pool.Runner,
 			"SELECT prosecdef::text FROM pg_proc WHERE proname=$1 AND pronamespace='striatumd'::regnamespace ORDER BY oid DESC LIMIT 1", fn) != "true" {
 			t.Errorf("%s is not SECURITY DEFINER", fn)

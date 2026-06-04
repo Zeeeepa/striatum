@@ -10,8 +10,12 @@ import (
 // boundary reports "none" (no phase has closed a surface), the active audit hash
 // format, and the bounded-discard counter, with no warnings on a clean process.
 func TestPgWriteBoundaryDoctorBlock(t *testing.T) {
-	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
+	t.Cleanup(func() {
+		db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false)
+		db.SetActiveWriteBoundary(db.PhaseNone)
+	})
 	db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false)
+	db.SetActiveWriteBoundary(db.PhaseNone)
 
 	block, warnings := pgWriteBoundaryDoctorBlock()
 	if block["posture"] != "none" {
@@ -29,6 +33,43 @@ func TestPgWriteBoundaryDoctorBlock(t *testing.T) {
 	if len(warnings) != 0 {
 		t.Errorf("unexpected warnings on a clean process: %v", warnings)
 	}
+}
+
+// TestPgWriteBoundaryPostureReflectsPhase is the RFC 0110 §7 posture gate: the
+// doctor pg_write_boundary posture string is the active write-boundary phase, and
+// the note states exactly the claim that phase licenses (so claims and reality
+// cannot drift, C-PHASED-WRITE-CLOSURE).
+func TestPgWriteBoundaryPostureReflectsPhase(t *testing.T) {
+	t.Cleanup(func() { db.SetActiveWriteBoundary(db.PhaseNone) })
+
+	db.SetActiveWriteBoundary(db.PhaseAuditArtifacts)
+	block, _ := pgWriteBoundaryDoctorBlock()
+	if block["posture"] != "audit_artifacts" {
+		t.Errorf("posture = %v, want audit_artifacts", block["posture"])
+	}
+	note, _ := block["note"].(string)
+	if !contains(note, "artifact") || contains(note, "durable write paths are DB-enforced.") {
+		t.Errorf("audit_artifacts note must claim artifacts but not the sole-durable-write-path claim: %q", note)
+	}
+
+	db.SetActiveWriteBoundary(db.PhaseFull)
+	block, _ = pgWriteBoundaryDoctorBlock()
+	if block["posture"] != "full" {
+		t.Errorf("posture = %v, want full", block["posture"])
+	}
+	note, _ = block["note"].(string)
+	if !contains(note, "durable write paths are DB-enforced") {
+		t.Errorf("full note must license the sole-durable-write-path claim: %q", note)
+	}
+}
+
+func contains(s, sub string) bool {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
+	}
+	return false
 }
 
 // TestDoctorSingleRolePosture is T-DOCTOR-SINGLEROLE (RFC 0110 §9.3): when
