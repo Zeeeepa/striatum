@@ -213,10 +213,19 @@ The [day-zero usage guide](docs/tutorials/using-striatum.md) walks new arrivals 
 ## Quick Start
 
 ```bash
-# Download and unpack a Go release archive for your OS/arch.
-# Then put its bin/ directory on PATH.
-tar -xzf striatum_2.3.2_linux-amd64.tar.gz
-export PATH="$PWD/striatum_2.3.2_linux-amd64/bin:$PATH"
+# One-line install: downloads the latest GitHub Release for your OS/arch,
+# verifies SHA256SUMS, and installs striatum + striatumd +
+# striatum-supervisor-helper into ~/.local/bin (see install.sh --help).
+curl -fsSL https://raw.githubusercontent.com/halbritt/striatum/main/install.sh | sh
+
+# Upgrading? A running striatumd keeps executing the OLD binary until you
+# restart it (the installer reminds you):
+#   systemctl --user restart striatumd
+
+# Or manually: download and unpack a Go release archive for your OS/arch,
+# then put its bin/ directory on PATH.
+tar -xzf striatum_2.15.0_linux-amd64.tar.gz
+export PATH="$PWD/striatum_2.15.0_linux-amd64/bin:$PATH"
 
 # Check/provision the daemon's Postgres substrate.
 striatum daemon doctor --apply-migrations
