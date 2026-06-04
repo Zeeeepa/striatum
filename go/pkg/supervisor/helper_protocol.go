@@ -12,12 +12,13 @@ const (
 	HelperLaunchSchemaVersion = "striatum.supervisor_helper.launch.v1"
 	HelperEventSchemaVersion  = "striatum.supervisor_helper.event.v1"
 
-	HelperEventAgentStarted   = "agent_started"
-	HelperEventPacketAccepted = "packet_accepted"
-	HelperEventProgress       = "progress"
-	HelperEventAgentExited    = "agent_exited"
-	HelperEventAttachExited   = "attach_client_exited"
-	HelperEventError          = "helper_error"
+	HelperEventAgentStarted      = "agent_started"
+	HelperEventPacketAccepted    = "packet_accepted"
+	HelperEventProgress          = "progress"
+	HelperEventAgentExited       = "agent_exited"
+	HelperEventAttachExited      = "attach_client_exited"
+	HelperEventProcessTerminated = "process_terminated"
+	HelperEventError             = "helper_error"
 )
 
 // HelperLaunchSpec is the single JSON object accepted by the standalone

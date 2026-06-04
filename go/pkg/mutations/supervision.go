@@ -16,13 +16,14 @@ import (
 )
 
 var superviseReportEventTypes = map[string]bool{
-	gosupervisor.HelperEventPacketAccepted: true,
-	gosupervisor.HelperEventAgentStarted:   true,
-	gosupervisor.HelperEventAttachExited:   true,
-	"artifact_observed":                    true,
-	gosupervisor.HelperEventProgress:       true,
-	gosupervisor.HelperEventAgentExited:    true,
-	gosupervisor.HelperEventError:          true,
+	gosupervisor.HelperEventPacketAccepted:    true,
+	gosupervisor.HelperEventAgentStarted:      true,
+	gosupervisor.HelperEventAttachExited:      true,
+	"artifact_observed":                       true,
+	gosupervisor.HelperEventProgress:          true,
+	gosupervisor.HelperEventAgentExited:       true,
+	gosupervisor.HelperEventProcessTerminated: true,
+	gosupervisor.HelperEventError:             true,
 }
 
 var supervisorActiveStates = map[string]bool{
@@ -216,7 +217,7 @@ func normalizeSuperviseReportEvent(raw map[string]any, defaultSessionID string, 
 		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"requires event_type", nil)
 	}
 	if !superviseReportEventTypes[eventType] {
-		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"event_type must be one of: agent_exited, agent_started, artifact_observed, attach_client_exited, helper_error, packet_accepted, progress", nil)
+		return superviseReportEvent{}, rpc.NewError("schema_invalid", prefix+"event_type must be one of: agent_exited, agent_started, artifact_observed, attach_client_exited, helper_error, packet_accepted, process_terminated, progress", nil)
 	}
 	supervisorID, err := optionalStringParam(raw, "supervisor_id")
 	if err != nil {
@@ -329,6 +330,11 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 			return nil, err
 		}
 	}
+	if event.EventType == gosupervisor.HelperEventProcessTerminated {
+		if err := updateReportSupervisorTerminationMetadata(ctx, runner, repositoryID, supervisor, event, now); err != nil {
+			return nil, err
+		}
+	}
 
 	payload := map[string]any{
 		"supervisor_id":        supervisor.SupervisorID,
@@ -372,6 +378,8 @@ func curatedSuperviseReportPayload(event superviseReportEvent, now string) map[s
 		return payload
 	case gosupervisor.HelperEventAgentExited:
 		return copyAllowedPayloadFields(event.Payload, "exit_code", "error", "cause")
+	case gosupervisor.HelperEventProcessTerminated:
+		return copyAllowedPayloadFields(event.Payload, "phase", "reason", "signal", "method", "pid", "attach_pid", "tmux_session_name")
 	case gosupervisor.HelperEventAttachExited:
 		payload := copyAllowedPayloadFields(event.Payload,
 			"pid",
@@ -393,6 +401,18 @@ func curatedSuperviseReportPayload(event superviseReportEvent, now string) map[s
 	default:
 		return map[string]any{}
 	}
+}
+
+func updateReportSupervisorTerminationMetadata(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, event superviseReportEvent, now string) error {
+	termination := copyAllowedPayloadFields(event.Payload, "phase", "reason", "signal", "method", "pid", "attach_pid", "tmux_session_name")
+	if event.ReportedAt != "" {
+		termination["reported_at"] = event.ReportedAt
+	} else {
+		termination["reported_at"] = now
+	}
+	return mergePointerMetadata(ctx, runner, repositoryID, supervisor.SupervisorID, map[string]any{
+		"last_process_termination": termination,
+	})
 }
 
 func copyAllowedPayloadFields(source map[string]any, keys ...string) map[string]any {

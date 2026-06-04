@@ -504,6 +504,38 @@ func TestHandleSuperviseStatusSurfacesHelperProcessGone(t *testing.T) {
 	}
 }
 
+func TestHandleSuperviseStatusSurfacesLastProcessTermination(t *testing.T) {
+	row := superviseBaseRow("sup_terminated", os.Getpid(), currentStartTokenForTest())
+	row["pointer_metadata_json"] = map[string]any{
+		"transport": "pty_helper",
+		"last_process_termination": map[string]any{
+			"phase":       "context",
+			"reason":      "context canceled",
+			"signal":      "SIGTERM",
+			"method":      "process_signal",
+			"pid":         1234,
+			"reported_at": "2026-06-04T18:00:00Z",
+		},
+	}
+	runner := &superviseReadFakeRunner{statusRow: row}
+	result, err := HandleSuperviseStatus(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_1", "session_id": "sess_1"},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStatus: %v", err)
+	}
+	termination, ok := result["last_process_termination"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing last_process_termination: %#v", result)
+	}
+	if termination["phase"] != "context" || termination["signal"] != "SIGTERM" || termination["reason"] != "context canceled" {
+		t.Fatalf("last_process_termination = %#v", termination)
+	}
+	if termination["pid"] != 1234 {
+		t.Fatalf("termination pid = %#v", termination["pid"])
+	}
+}
+
 func TestHandleSuperviseStatusSurfacesRootDeliveryDegradedWithoutTmuxMetadata(t *testing.T) {
 	row := superviseBaseRow("sup_plain", os.Getpid(), currentStartTokenForTest())
 	row["pointer_metadata_json"] = map[string]any{

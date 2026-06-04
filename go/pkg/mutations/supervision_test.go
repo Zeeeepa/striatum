@@ -599,6 +599,65 @@ func TestSuperviseReportRecordsHelperBatch(t *testing.T) {
 	}
 }
 
+func TestSuperviseReportRecordsProcessTerminationDiagnostic(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID:       "sup_1",
+			RunID:              "run_1",
+			SessionID:          "sess_1",
+			State:              "attached",
+			DaemonSupervisorID: "dsup_1",
+			Metadata:           map[string]any{"transport": "pty_helper"},
+		},
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	result, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_report_process_terminated",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"event_type":    gosupervisor.HelperEventProcessTerminated,
+			"timestamp":     "2026-06-04T18:00:00Z",
+			"payload": map[string]any{
+				"phase":      "context",
+				"reason":     "context canceled",
+				"signal":     "SIGTERM",
+				"method":     "process_signal",
+				"pid":        1234,
+				"attach_pid": 5678,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseReport process_terminated: %v", err)
+	}
+	if result["event_type"] != gosupervisor.HelperEventProcessTerminated || result["state"] != "attached" {
+		t.Fatalf("result = %#v", result)
+	}
+	update := tx.pointerMetadataUpdate()
+	if update == nil {
+		t.Fatalf("missing pointer metadata update: %#v", tx.execs)
+	}
+	metadata, ok := update.args[0].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata arg = %#v", update.args[0])
+	}
+	termination := metadata["last_process_termination"].(map[string]any)
+	if termination["phase"] != "context" || termination["signal"] != "SIGTERM" || termination["reason"] != "context canceled" {
+		t.Fatalf("last_process_termination = %#v", termination)
+	}
+	if termination["reported_at"] != "2026-06-04T18:00:00Z" {
+		t.Fatalf("reported_at = %#v", termination["reported_at"])
+	}
+	event := tx.eventInsert()
+	if event == nil || event.args[3] != "supervisor."+gosupervisor.HelperEventProcessTerminated {
+		t.Fatalf("missing supervisor.process_terminated event: %#v", tx.execs)
+	}
+}
+
 type superviseReportFakeRunner struct {
 	tx         *superviseReportFakeTx
 	beginCount int
@@ -657,6 +716,8 @@ func (tx *superviseReportFakeTx) QueryRow(_ context.Context, sql string, _ ...an
 			resource = &res
 		}
 		return superviseReportFakeRow{values: []any{tx.activeLeaseID, resource}}
+	case strings.Contains(sql, "FROM striatumd.process_supervisor_pointers"):
+		return superviseReportFakeRow{values: []any{tx.supervisor.Metadata}}
 	case strings.Contains(sql, "FROM striatumd.process_supervisors"):
 		dsup := tx.supervisor.DaemonSupervisorID
 		var pid any

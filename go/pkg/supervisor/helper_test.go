@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -148,6 +149,79 @@ func TestRunHelperEmitsLifecyclePacketAndProgressEvents(t *testing.T) {
 	tmux, ok := metadata["tmux"].(map[string]any)
 	if !ok || tmux["unavailable_reason"] != "missing_run_or_lane" {
 		t.Fatalf("agent_started tmux metadata = %#v", metadata["tmux"])
+	}
+}
+
+func TestRunHelperContextCancellationEmitsTerminationDiagnostic(t *testing.T) {
+	if _, err := os.Stat("/bin/sleep"); err != nil {
+		t.Skip("/bin/sleep not present; skipping helper termination diagnostic test")
+	}
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_helper_cancel",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/sleep", "60"},
+	}
+	launchBytes, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatalf("marshal launch: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events := &lockedBuffer{}
+	ptyOutput := &lockedBuffer{}
+	done := make(chan error, 1)
+	go func() {
+		done <- RunHelper(ctx, bytes.NewReader(append(launchBytes, '\n')), events, HelperOptions{PTYOutput: ptyOutput})
+	}()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(events.String(), HelperEventAgentStarted) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(events.String(), HelperEventAgentStarted) {
+		cancel()
+		t.Fatalf("helper did not report agent_started before timeout; events=%s", events.String())
+	}
+	cancel()
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("RunHelper error = %v, want context.Canceled; events=%s", err, events.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunHelper did not exit after context cancellation")
+	}
+
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var terminated *HelperControlEvent
+	var helperError *HelperControlEvent
+	for i := range decoded {
+		switch decoded[i].EventType {
+		case HelperEventProcessTerminated:
+			terminated = &decoded[i]
+		case HelperEventError:
+			helperError = &decoded[i]
+		}
+	}
+	if terminated == nil {
+		t.Fatalf("missing process_terminated event: %#v", decoded)
+	}
+	if terminated.Payload["phase"] != "context" || terminated.Payload["signal"] != "SIGTERM" || terminated.Payload["method"] != "process_signal" {
+		t.Fatalf("process_terminated payload = %#v", terminated.Payload)
+	}
+	if reason, _ := terminated.Payload["reason"].(string); !strings.Contains(reason, "context canceled") {
+		t.Fatalf("termination reason = %q", reason)
+	}
+	if helperError == nil || helperError.Payload["phase"] != "context" {
+		t.Fatalf("missing context helper_error event: %#v", decoded)
+	}
+	if !strings.Contains(ptyOutput.String(), "## killed by supervisor: phase=context signal=SIGTERM") {
+		t.Fatalf("termination diagnostic missing from PTY output: %q", ptyOutput.String())
 	}
 }
 
@@ -451,6 +525,29 @@ type eofPTY struct{}
 func (eofPTY) Read([]byte) (int, error)    { return 0, io.EOF }
 func (eofPTY) Write(p []byte) (int, error) { return len(p), nil }
 func (eofPTY) Close() error                { return nil }
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.buf.Bytes()...)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
 
 func helperEventsFromJSONL(data []byte) ([]HelperControlEvent, error) {
 	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))

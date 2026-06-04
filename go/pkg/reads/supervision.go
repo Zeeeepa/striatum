@@ -881,6 +881,9 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 	if mode := superviseString(metadata["agent_loop_mode"]); mode != "" {
 		view["agent_loop_mode"] = mode
 	}
+	if termination := processTerminationMetadata(superviseObject(metadata["last_process_termination"])); len(termination) > 0 {
+		view["last_process_termination"] = termination
+	}
 	view["lane_backend"] = laneBackend(metadata)
 	if tmux := tmuxMetadata(metadata); tmux != nil {
 		view["tmux"] = tmux
@@ -910,6 +913,21 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 		}
 	}
 	view["delivery_state"] = deliveryState(view["delivery_liveness"])
+}
+
+func processTerminationMetadata(raw map[string]any) map[string]any {
+	out := map[string]any{}
+	for _, key := range []string{"phase", "reason", "signal", "method", "tmux_session_name", "reported_at"} {
+		if value := superviseString(raw[key]); value != "" {
+			out[key] = value
+		}
+	}
+	for _, key := range []string{"pid", "attach_pid"} {
+		if value, ok := intValueOptional(raw[key]); ok {
+			out[key] = value
+		}
+	}
+	return out
 }
 
 func attachTmuxLiveness(view map[string]any, live gosupervisor.LaneLiveness) {

@@ -159,7 +159,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		case err := <-packetDone:
 			packetDone = nil
 			if err != nil {
-				terminateProcess(ctx, result, opts.TmuxRunner)
+				reportProcessTermination(ctx, result, opts, emitter, spec.SupervisorID, "packet_forward", err)
 				return emitter.helperError(spec.SupervisorID, "packet_forward", err)
 			}
 		case err := <-childDone:
@@ -183,7 +183,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 			}
 			return nil
 		case <-ctx.Done():
-			terminateProcess(ctx, result, opts.TmuxRunner)
+			reportProcessTermination(ctx, result, opts, emitter, spec.SupervisorID, "context", ctx.Err())
 			return emitter.helperError(spec.SupervisorID, "context", ctx.Err())
 		}
 	}
@@ -417,6 +417,67 @@ func processExitCode(err error) (int, bool) {
 		return exitError.ExitCode(), true
 	}
 	return 0, false
+}
+
+func reportProcessTermination(
+	ctx context.Context,
+	result *LaunchResult,
+	opts HelperOptions,
+	emitter *helperEmitter,
+	supervisorID string,
+	phase string,
+	cause error,
+) {
+	payload := processTerminationPayload(result, phase, cause)
+	_ = emitter.emit(newHelperEvent(HelperEventProcessTerminated, supervisorID, payload))
+	writeTerminationDiagnostic(opts.PTYOutput, payload)
+	terminateProcess(ctx, result, opts.TmuxRunner)
+}
+
+func processTerminationPayload(result *LaunchResult, phase string, cause error) map[string]any {
+	payload := map[string]any{
+		"phase":  phase,
+		"signal": "SIGTERM",
+		"method": "process_signal",
+	}
+	if cause != nil {
+		payload["reason"] = cause.Error()
+	}
+	if result == nil {
+		return payload
+	}
+	if result.PID > 0 {
+		payload["pid"] = result.PID
+	}
+	if result.AttachPID > 0 {
+		payload["attach_pid"] = result.AttachPID
+	}
+	if tmux := objectValue(result.Metadata["tmux"]); strings.TrimSpace(stringValue(tmux["state"])) == "backed" {
+		if sessionName := strings.TrimSpace(stringValue(tmux["session_name"])); sessionName != "" {
+			payload["method"] = "tmux_kill_session"
+			payload["tmux_session_name"] = sessionName
+		}
+	}
+	return payload
+}
+
+func writeTerminationDiagnostic(output io.Writer, payload map[string]any) {
+	if output == nil {
+		return
+	}
+	phase := strings.TrimSpace(stringValue(payload["phase"]))
+	if phase == "" {
+		phase = "unknown"
+	}
+	signal := strings.TrimSpace(stringValue(payload["signal"]))
+	if signal == "" {
+		signal = "unknown"
+	}
+	reason := strings.TrimSpace(stringValue(payload["reason"]))
+	if reason == "" {
+		reason = "unspecified"
+	}
+	_, _ = fmt.Fprintf(output, "\r\n## killed by supervisor: phase=%s signal=%s reason=%s\r\n", phase, signal, reason)
 }
 
 func terminateProcess(ctx context.Context, result *LaunchResult, runner TmuxRunner) {
