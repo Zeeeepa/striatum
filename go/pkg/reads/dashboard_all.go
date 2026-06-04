@@ -61,9 +61,19 @@ func HandleDashboardAll(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			result = append(result, entry)
 			continue
 		}
+		// RFC 0108 Phase 5: the repo-scoped concurrent-runs view (parallel fan-out
+		// + live collisions), the read complement to the Phase 2/3 run.start gates.
+		concurrentRuns, err := repoConcurrentRuns(ctx, runner, repositoryID)
+		if err != nil {
+			entry["state"] = "degraded"
+			entry["error"] = err.Error()
+			result = append(result, entry)
+			continue
+		}
 		entry["status"] = status
 		entry["stale_leases"] = staleLeases
 		entry["run_progress"] = runProgress
+		entry["concurrent_runs"] = concurrentRuns
 		result = append(result, entry)
 	}
 	return map[string]any{

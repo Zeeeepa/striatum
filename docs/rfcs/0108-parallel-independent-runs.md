@@ -173,6 +173,27 @@ parallel fan-out on one surface (the RFC 0102 attention principle). Per-run
 operator/principal attribution leans on RFC 0107. Files: `reads/dashboard_all.go`,
 `reads/status.go`, the web view.
 
+**Landed** (`go/pkg/reads/concurrent_runs.go`): `repoConcurrentRuns` returns,
+for every `running` run on the repo (the live parallel fan-out), a view row with
+its **branch**, the **repo-write paths** it intends to touch (the union of its
+repo-write jobs' `allowed_paths`), its **lane sessions** (operator label, role,
+lane, state), and the **live collisions** with other active runs — a shared
+branch (`kind:"branch"`) or an overlapping repo-write scope (`kind:"write_scope"`).
+It is the read-side reflection of exactly what the Phase 2/3 run.start gates
+enforce: the collision computation reuses the same branch-equality +
+bidirectional path-prefix-overlap logic, so the dashboard and the gate agree on
+what collides. `integration_status` is a `"in_flight"` placeholder until Phase 4
+populates real integration state. Surfaced as `concurrent_runs` on both
+`dashboard.all` (per repository) and `status` (repo-level, independent of an
+optional `run_id` filter — an operator viewing one run still sees the whole
+fan-out). SELECT-only, like the rest of the projection. Gate
+(`go/pkg/reads/concurrent_runs_test.go`):
+`TestRepoConcurrentRunsSurfacesFanOutAndCollisions` (four runs — a shared branch,
+an overlapping scope, and a disjoint document-only run — resolve to exactly the
+expected per-run collision sets) and `TestRepoConcurrentRunsExcludesTerminalRuns`
+(only `running` runs appear). The web view that renders this surface is a
+follow-up.
+
 ## Acceptance
 
 - **Phase 1 gate:** the multi-run harness fixture runs in CI — 2+ concurrent runs

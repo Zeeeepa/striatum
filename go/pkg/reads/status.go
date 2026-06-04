@@ -96,6 +96,14 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	if err != nil {
 		return nil, err
 	}
+	// RFC 0108 Phase 5: the repo-scoped concurrent-runs view is always repo-level
+	// (every `running` run on the repo + their live collisions), independent of an
+	// optional run_id filter, so an operator viewing one run still sees the whole
+	// parallel fan-out and any collision (the RFC 0102 attention principle).
+	concurrentRuns, err := repoConcurrentRuns(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
 	var autoFinalize any
 	var provenanceMode any
 	result := map[string]any{
@@ -111,6 +119,7 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"process_health":                       processHealth,
 		"supervisor_stalls":                    supervisorStalls,
 		"auto_finalize_dry_run":                autoFinalize,
+		"concurrent_runs":                      concurrentRuns,
 		"next_actions":                         statusNextActions(claimable, openBlockers, humanCheckpoints, nonAccepting, hasOrphanSupervisor, hasStaleLeases, processHealth, supervisorStalls, autoFinalize),
 		"provenance_mode":                      provenanceMode,
 	}

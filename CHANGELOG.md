@@ -23,6 +23,29 @@
   killing tmux-backed lanes or helper PIDs when safe and recording
   `supervisor.stopped`.
 
+## v2.21.0 — 2026-06-04
+
+### RFC 0108 Phase 5 — repo concurrency read-view
+
+`dashboard.all` and `status` now carry a `concurrent_runs` view: the repo-scoped
+parallel fan-out, so operators and maintainers see every live run and its
+collisions on one surface (the RFC 0102 attention principle).
+
+- **`repoConcurrentRuns`** (`go/pkg/reads/concurrent_runs.go`) returns, per
+  `running` run on the repo: its branch, the repo-write paths it intends to touch
+  (union of its repo-write jobs' `allowed_paths`), its lane sessions
+  (operator/role/lane/state), and the live collisions with other active runs — a
+  shared branch (`kind:"branch"`) or an overlapping repo-write scope
+  (`kind:"write_scope"`). The collision logic reuses the same branch-equality +
+  bidirectional path-prefix-overlap reasoning the Phase 2/3 run.start gates apply,
+  so the view and the gate agree on what collides.
+- `integration_status` is a `"in_flight"` placeholder until Phase 4 populates real
+  integration state. Surfaced on `dashboard.all` (per repository) and `status`
+  (repo-level, independent of an optional `run_id` filter). SELECT-only.
+- **Gate** (`go/pkg/reads/concurrent_runs_test.go`):
+  `TestRepoConcurrentRunsSurfacesFanOutAndCollisions` +
+  `TestRepoConcurrentRunsExcludesTerminalRuns`.
+
 ## v2.20.0 — 2026-06-04
 
 ### RFC 0108 Phase 3 — cross-run collision detection at run.start

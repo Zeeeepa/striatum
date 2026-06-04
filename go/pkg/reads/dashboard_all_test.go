@@ -39,6 +39,22 @@ func (dashboardAllFakeRunner) Query(_ context.Context, sql string, args ...any) 
 			{"repository_id": "repo_a", "display_name": "A", "repo_root": "/tmp/a", "state": "active"},
 			{"repository_id": "repo_b", "display_name": "B", "repo_root": "/tmp/b", "state": "disabled"},
 		}), nil
+	case strings.Contains(sql, "jsonb_agg(j.write_scope_json)"):
+		if args[0] == "repo_a" {
+			return dashboardAllRowsFromMaps([]map[string]any{{
+				"run_id": "run_a", "branch_name": "main", "state": "running", "paused_at": nil,
+				"write_scopes": []any{map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": []any{"docs"}}},
+			}}), nil
+		}
+		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "FROM striatumd.sessions s") && strings.Contains(sql, "r.state = 'running'"):
+		if args[0] == "repo_a" {
+			return dashboardAllRowsFromMaps([]map[string]any{{
+				"run_id": "run_a", "role_id": "author", "lane_id": "lane_a", "slug": "author-1",
+				"state": "active", "operator_label": "codex",
+			}}), nil
+		}
+		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "SELECT r.run_id, r.state, r.branch_name"):
 		if args[0] == "repo_a" {
 			return dashboardAllRowsFromMaps([]map[string]any{{"run_id": "run_a", "state": "running", "branch_name": "main"}}), nil

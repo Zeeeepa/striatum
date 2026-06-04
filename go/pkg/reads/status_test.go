@@ -43,6 +43,16 @@ func (r statusFakeRunner) Query(_ context.Context, sql string, args ...any) (pgx
 			return dashboardAllRowsFromMaps([]map[string]any{{"run_id": "run_a"}}), nil
 		}
 		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "jsonb_agg(j.write_scope_json)"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "branch_name": "main", "state": "running", "paused_at": nil,
+			"write_scopes": []any{map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": []any{"docs"}}},
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.sessions s") && strings.Contains(sql, "r.state = 'running'"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "role_id": "author", "lane_id": "lane_a", "slug": "author-1",
+			"state": "active", "operator_label": "codex",
+		}}), nil
 	case strings.Contains(sql, "SELECT r.run_id, r.state, r.branch_name"):
 		return dashboardAllRowsFromMaps([]map[string]any{{
 			"run_id": "run_a", "state": "running", "branch_name": "main",
