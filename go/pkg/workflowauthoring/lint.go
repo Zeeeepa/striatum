@@ -42,6 +42,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintWriteScopeRisk(workflow, jobMap, &findings)
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
+	lintDeprecatedClaudePrintLane(workflow, &findings)
 	lintExperimentalShape(workflow, &findings)
 	lintDegradedSeatLane(workflow, &findings)
 	for index := range findings {
@@ -416,6 +417,55 @@ func laneDeclaresAgentLoop(lane map[string]any) bool {
 // laneCommandIsAgyPrint reports whether the lane command invokes the `agy`
 // binary with a `--print` (one-shot) flag. It tolerates both a direct argv
 // (["agy", "--print", …]) and an `sh -c` stdin shim that execs agy.
+// lintDeprecatedClaudePrintLane warns when a claude lane invokes the retired
+// one-shot `--print`/`-p` mode. RFC 0088 / D148 retired `-p`/`--print`/`exec` for
+// ALL lanes: every lane is now a daemon-owned long-lived interactive PTY
+// agent-loop session. `claude --print` cannot run the work-packet loop — under
+// the agent-loop executor it prints once and exits without claiming, and as a
+// bare lane it never self-claims — so the lane silently parks/dies (the #148
+// class). It must not be hardened; it must not be used. Fires regardless of
+// adapter_capabilities.agent_loop because `--print` defeats the interactive loop
+// even when wrapped.
+func lintDeprecatedClaudePrintLane(workflow map[string]any, findings *[]map[string]any) {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if !laneCommandIsClaudePrint(lane) {
+			continue
+		}
+		*findings = append(*findings, map[string]any{
+			"rule":     "deprecated_claude_print_lane",
+			"severity": "warning",
+			"message":  "lane '" + laneID + "' runs `claude --print`/`-p`, the retired one-shot mode (RFC 0088 / D148). It cannot run the agent-loop interactive work-packet loop — it prints once and exits without ever claiming, so the lane silently parks/dies (#148). Use a bare interactive command: [\"claude\", \"--dangerously-skip-permissions\"] with \"adapter_capabilities\": {\"agent_loop\": true}",
+			"lane_id":  laneID,
+		})
+	}
+}
+
+// laneCommandIsClaudePrint reports whether a lane invokes the `claude` binary
+// with a one-shot `--print`/`-p` flag. Uses laneAdapter (basename of command[0])
+// so an absolute claude path is still detected.
+func laneCommandIsClaudePrint(lane map[string]any) bool {
+	if laneAdapter(lane) != "claude" {
+		return false
+	}
+	for _, arg := range stringsFromSlice(lane["command"]) {
+		for _, field := range strings.Fields(arg) {
+			switch strings.Trim(field, "\"'") {
+			case "--print", "-p":
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func laneCommandIsAgyPrint(lane map[string]any) bool {
 	command := stringsFromSlice(lane["command"])
 	if len(command) == 0 {

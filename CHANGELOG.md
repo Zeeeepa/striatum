@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **#148 / RFC 0088 — `claude --print` lanes are deprecated, not hardened.**
+  `claude --print`/`-p` is the retired one-shot mode (RFC 0088 / D148 retired
+  `-p`/`--print`/`exec` for all lanes in favor of daemon-owned interactive
+  agent-loop PTY sessions). It cannot run the work-packet loop — it prints once
+  and exits without claiming — so a `--print` lane silently parks/dies (the #148
+  symptom). New `workflow lint` warning `deprecated_claude_print_lane` flags any
+  `claude --print`/`-p` lane (fires even with `agent_loop=true`, since `--print`
+  defeats the interactive loop) and points to the supported shape
+  (`["claude","--dangerously-skip-permissions"]` + `adapter_capabilities.agent_loop`),
+  mirroring `agy_one_shot_pipe_lane` (D156). Also fixed the shipped
+  `workflow.generate` example in the `mcp` skill templates, which still showed
+  `["codex","exec"]` / `["claude","--print"]` — the source of such lanes — to the
+  supported interactive commands. (The right answer to "a `--print` lane wedges"
+  is not to harden `--print`; it is to not configure one. The silent-death
+  *diagnostic* remains as a separate general lane-death legibility item.)
 - **Mission acceptance met — 10× unattended, zero-rescue DoD (live).** Added
   `scripts/dod/driver.py`, the outside-CI live acceptance: it drives N consecutive
   multi-lane, review-gated, revision-capable runs to `completed` using only normal

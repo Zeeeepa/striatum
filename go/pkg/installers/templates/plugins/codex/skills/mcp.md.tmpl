@@ -34,7 +34,7 @@ Effective tool set:
 Preview workflow generation:
 
 ```json
-{{"method":"tools/call","params":{{"name":"workflow.generate.preview","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"striatum/workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","exec"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--print"]}}}},"options":{{"max_revision_cycles":1}}}}}}}}}}
+{{"method":"tools/call","params":{{"name":"workflow.generate.preview","arguments":{{"spec":{{"schema_version":"striatum.workflow_generator.v1","shape":"code_change","lane_set":"author_reviewer","workflow_id":"my-change","name":"My change","workflow_version":"2026-05-12","branch":{{"mode":"confirm","suggested_name":"striatum/my-change","allow_dirty":false}},"scaffold_root":"striatum/workflows/my-change","artifact_root":"striatum/my-change","lanes":{{"author":{{"display_model":"Codex GPT-5.5","command":["codex","--yolo"]}},"reviewer":{{"display_model":"Claude Opus","command":["claude","--dangerously-skip-permissions"]}}}},"options":{{"max_revision_cycles":1}}}}}}}}}}
 ```
 
 Workflow-file authoring writes use the web-chat workflow-authoring flow or CLI compatibility fallback and may not be discoverable through production daemon MCP `tools/list`. In web chat, `confirm_write: true` is still required and the UI must record a separate operator confirmation gesture before Striatum writes files.
