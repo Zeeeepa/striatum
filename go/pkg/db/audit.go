@@ -1,6 +1,7 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,6 +42,91 @@ func V2RowHash(row map[string]any) (string, error) {
 		"segment_id":          row["segment_id"],
 	}
 	return CanonicalHash(material)
+}
+
+// V3RowHash computes the RFC 0110 §5.1 v3 audit row hash: a length-prefixed
+// canonical byte stream over the 15 fields in fixed declared order, escaping-
+// free and key-order-free, so it is byte-identical to the in-database
+// striatumd.audit_v3_row_hash builder (T-HASH-PARITY). V2RowHash is preserved
+// permanently as the reader of pre-cutover (v2) rows.
+func V3RowHash(row map[string]any) (string, error) {
+	var buf bytes.Buffer
+	v3encText(&buf, row["ts"])
+	v3encInt(&buf, row["schema_version"])
+	v3encInt(&buf, row["hash_format_version"])
+	v3encText(&buf, row["daemon_version"])
+	v3encText(&buf, row["client_id"])
+	v3encText(&buf, row["repository_id"])
+	v3encText(&buf, row["method"])
+	v3encText(&buf, row["decision"])
+	v3encText(&buf, row["denial_reason"])
+	v3encText(&buf, row["transport"])
+	v3encText(&buf, row["request_id"])
+	v3encInt(&buf, row["exit_code"])
+	v3encText(&buf, row["params_sha256"])
+	v3encText(&buf, row["previous_hash"])
+	v3encInt(&buf, row["segment_id"])
+	sum := sha256.Sum256(buf.Bytes())
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// v3encText writes the v3 encoding of a text (or null) field: a null field is
+// the 3 bytes "-1:"; a present string s is octet_length(utf8(s)) as decimal
+// ASCII, then ':', then the UTF-8 bytes.
+func v3encText(buf *bytes.Buffer, value any) {
+	if value == nil {
+		buf.WriteString("-1:")
+		return
+	}
+	var s string
+	switch v := value.(type) {
+	case string:
+		s = v
+	default:
+		s = fmt.Sprint(v)
+	}
+	b := []byte(s)
+	buf.WriteString(strconv.Itoa(len(b)))
+	buf.WriteByte(':')
+	buf.Write(b)
+}
+
+// v3encInt writes the v3 encoding of an integer (or null) field: the integer is
+// rendered to decimal ASCII and then length-prefixed exactly like a string.
+func v3encInt(buf *bytes.Buffer, value any) {
+	if value == nil {
+		buf.WriteString("-1:")
+		return
+	}
+	var s string
+	switch n := value.(type) {
+	case int:
+		s = strconv.Itoa(n)
+	case int32:
+		s = strconv.FormatInt(int64(n), 10)
+	case int64:
+		s = strconv.FormatInt(n, 10)
+	default:
+		s = fmt.Sprint(n)
+	}
+	b := []byte(s)
+	buf.WriteString(strconv.Itoa(len(b)))
+	buf.WriteByte(':')
+	buf.Write(b)
+}
+
+// rowHashForFormat dispatches a row to its hash builder by hash_format_version:
+// 2 -> V2RowHash, 3 -> V3RowHash, anything else -> error (never a silent v2
+// fallback), so the verifier fails closed across an unknown format.
+func rowHashForFormat(row map[string]any) (string, error) {
+	switch fmt.Sprint(row["hash_format_version"]) {
+	case "2":
+		return V2RowHash(row)
+	case "3":
+		return V3RowHash(row)
+	default:
+		return "", fmt.Errorf("unknown audit hash_format_version %v", row["hash_format_version"])
+	}
 }
 
 type AuditRecorder struct {
@@ -302,7 +388,7 @@ func VerifyRows(rows []map[string]any) []map[string]any {
 			})
 			return problems
 		}
-		computed, err := V2RowHash(row)
+		computed, err := rowHashForFormat(row)
 		if err != nil || computed != fmt.Sprint(row["row_hash"]) {
 			problems = append(problems, map[string]any{
 				"check":   "daemon_pg_audit_row_hash",
