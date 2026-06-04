@@ -64,6 +64,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"complete",
 		"artifact.publish",
 		"publish_artifact",
+		"repo.write",
 		"worktree.create",
 		"worktree.release",
 		"supervise.start",

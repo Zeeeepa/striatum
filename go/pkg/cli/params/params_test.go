@@ -35,3 +35,16 @@ func TestBuildKeepsBodyJSONAsString(t *testing.T) {
 		t.Fatalf("body_json = %#v", got["body_json"])
 	}
 }
+
+func TestBuildKeepsRepoWriteContentAsString(t *testing.T) {
+	got, err := Build("repo_write", []string{"sess_1", "job_1", "lease_1", "docs/out.md", "--content", "true"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["session_id"] != "sess_1" || got["job_id"] != "job_1" || got["lease_id"] != "lease_1" || got["path"] != "docs/out.md" {
+		t.Fatalf("positionals = %#v", got)
+	}
+	if got["content"] != "true" {
+		t.Fatalf("content = %#v", got["content"])
+	}
+}

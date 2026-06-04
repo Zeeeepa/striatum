@@ -121,6 +121,7 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 		"supervise status":     {"--session-id", "supervise.status"},
 		"supervise trajectory": {"--session-id", "--tail", "--tail-lines", "supervise.trajectory"},
 		"repo add":             {"--init", "path", "repo.add"},
+		"repo write":           {"session-id", "job-id", "lease-id", "--content", "repo.write"},
 	}
 	for cmd, wants := range cases {
 		invoker := &fakeInvoker{}

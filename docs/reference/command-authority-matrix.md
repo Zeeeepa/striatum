@@ -149,6 +149,7 @@ delivery bridge or the supervisor is restarted.
 | `work.block` | `block` | write | single_repo | pg | real | no | no | stable |
 | `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
+| `repo.write` | `repo write` | write | single_repo | pg + local_file_authoring | real | no | no | exact-content mediated repository write; validates active session/lease and job write_scope before any filesystem mutation |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
 | `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |

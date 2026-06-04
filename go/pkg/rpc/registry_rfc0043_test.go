@@ -12,6 +12,7 @@ func TestRFC0043CanonicalCapabilities(t *testing.T) {
 		"work.complete":          CapabilityWrite,
 		"work.block":             CapabilityWrite,
 		"artifact.publish":       CapabilityWrite,
+		"repo.write":             CapabilityWrite,
 		"review.submit":          CapabilityReview,
 		"review.verdict":         CapabilityReview,
 		"decision.record":        CapabilityAdmin,

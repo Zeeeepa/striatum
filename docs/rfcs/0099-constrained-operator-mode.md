@@ -89,6 +89,12 @@ writes with the same vocabulary `work.complete` uses today. This is the
 enforcement counterpart to #91's read-only `scope-check` diagnostic (which
 Phase 1 ships first as the advisory half).
 
+Initial implementation: `repo.write` accepts exact UTF-8 content for one
+repo-relative file, validates the active session/lease and `repo_write`
+`write_scope`, targets the active per-job worktree when present, and refuses
+out-of-scope paths before any filesystem mutation. Patch preview/apply remains a
+future Phase 2 extension.
+
 ### 3. Capability-gated shell + evidence
 Permitted command classes are declared (build/test/lint); execution is recorded
 as structured evidence rows (reuse RFC 0046's `process_executions`/evidence
@@ -119,6 +125,7 @@ authority into a logged, reviewable exception.
   diff vs active packet `write_scope`, reported while work is in progress — plus
   the `operator_mode` assertion + surfacing. Advisory only.
 - **Phase 2:** the mediated `repo.write` verb with pre-apply scope enforcement.
+  The exact-content single-file slice has landed; patch preview/apply remains.
 - **Phase 3:** capability-gated shell + evidence recording + escape-decision
   records; cooperating-harness profile docs (restricted tool sets per adapter).
 

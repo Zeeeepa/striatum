@@ -151,7 +151,7 @@ func TestUsageCoversIssue63Verbs(t *testing.T) {
 		"supervise_start", "supervise_stop", "supervise_status", "supervise_send", "supervise_trajectory",
 		"register_session", "checkpoint_resolve", "repo_add",
 		"claim_next", "ack", "heartbeat", "release", "send", "block",
-		"complete", "publish_artifact", "verdict", "submit_review",
+		"complete", "publish_artifact", "repo_write", "verdict", "submit_review",
 		"worktree_create", "worktree_release",
 	} {
 		if _, ok := UsageFor(group); !ok {

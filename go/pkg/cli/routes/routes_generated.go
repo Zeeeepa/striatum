@@ -10,6 +10,7 @@ var generatedRoutes = []Route{
 	{Command: "git", Subcommand: "snapshot", Method: "git.snapshot", ParamsGroup: "git_snapshot", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "git", Subcommand: "commit-apply", Method: "git.commit_apply", ParamsGroup: "git_commit_apply", RequiredCapability: "apply", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "repo", Subcommand: "add", Method: "repo.add", ParamsGroup: "repo_add", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},
+	{Command: "repo", Subcommand: "write", Method: "repo.write", ParamsGroup: "repo_write", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "repo", Subcommand: "list", Method: "repo.list", ParamsGroup: "repo_list", RequiredCapability: "read", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "repo", Subcommand: "remove", Method: "repo.remove", ParamsGroup: "repo_remove", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "workflow", Subcommand: "accepted-risks", Method: "workflow.accepted_risks.list", ParamsGroup: "workflow_accepted_risks_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},

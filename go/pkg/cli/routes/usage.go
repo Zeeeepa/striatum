@@ -116,6 +116,18 @@ var usageByGroup = map[string]Usage{
 			"Markdown artifacts with front matter must satisfy the kind's schema and any author line must exactly match expected_artifacts[].author_line.",
 		},
 	},
+	"repo_write": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session performing the mediated repository write"},
+			{Name: "job-id", Positional: true, Required: true, Help: "repo-write job that owns the target path"},
+			{Name: "lease-id", Positional: true, Required: true, Help: "active lease for the job"},
+			{Name: "path", Positional: true, Required: true, Help: "repo-relative file path inside write_scope.allowed_paths"},
+			{Name: "content", Required: true, Help: "exact UTF-8 file content to write atomically"},
+		},
+		Notes: []string{
+			"repo.write refuses review-only scopes and paths outside write_scope.allowed_paths before writing.",
+		},
+	},
 	"verdict": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "review session recording the verdict"},
