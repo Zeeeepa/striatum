@@ -138,7 +138,10 @@ func TestAuditV3HashTimezoneIndependent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("V3RowHash: %v", err)
 	}
-	for _, tz := range []string{"UTC", "EST", "Asia/Kolkata", "Australia/Lord_Howe"} {
+	// IANA zone names only — abbreviation zones like "EST" are not portable
+	// (rejected as SQLSTATE 22023 on PostgreSQL builds without that
+	// abbreviation in timezone_abbreviations; America/New_York is its IANA form).
+	for _, tz := range []string{"UTC", "America/New_York", "Asia/Kolkata", "Australia/Lord_Howe"} {
 		if err := pool.Runner.Exec(ctx, fmt.Sprintf("SET TimeZone = %s", quoteLiteral(tz))); err != nil {
 			t.Fatalf("set timezone %s: %v", tz, err)
 		}
