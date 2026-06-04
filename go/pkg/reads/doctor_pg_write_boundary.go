@@ -7,26 +7,36 @@ import "github.com/halbritt/striatum/go/pkg/db"
 const connResetStormThreshold = 100
 
 // pgWriteBoundaryDoctorBlock reports the RFC 0110 daemon→PostgreSQL write-boundary
-// posture. In release N the authority plumbing is installed but no phase has
-// closed any surface, so the posture is "none" and L0 rotation is inert
-// (single-role); the conn-reset-destroy counter is surfaced as the bounded-
-// discard signal. The "sole durable write path" claim is only valid once the
-// posture string reaches "full" (phase P2).
+// posture. The DB-enforced phase posture is still "none" (P0/P1/P2 surface
+// closure is a later release); slice 2 adds the live L0/authority signals — the
+// daemon's bootstrap posture, the active audit hash format, and a rotator
+// collision — read from process state (the doctor runs in the daemon, so it
+// reports its own bootstrap posture without an owner read). No secret is read.
+// The "sole durable write path" claim is only valid once posture reads "full".
 func pgWriteBoundaryDoctorBlock() (map[string]any, []string) {
 	destroys := db.ConnResetDestroyCount()
+	rotation := db.AuthorityPosture()
+	if rotation == "" {
+		rotation = "inactive"
+	}
 	block := map[string]any{
 		"posture":             "none",
-		"rotation":            "rotation_skipped_single_role",
+		"rotation":            rotation,
+		"audit_hash_format":   db.AuditHashFormat(),
+		"rotator_collision":   db.AuthorityRotatorCollision(),
 		"conn_reset_destroys": destroys,
-		"note": "RFC 0110 authority plumbing is in place (in-transaction authority/attribution prelude, " +
-			"fail-closed mutation-coupled audit). DB-enforced write closure (P0 audit_only -> P2 full) and " +
-			"L0 credential rotation land in a later release; no Striatum claim of a sole DB-enforced durable " +
-			"write path is valid until this posture reads 'full'.",
+		"note": "RFC 0110 authority plumbing + L0/v3 mechanism are in place. DB-enforced write " +
+			"closure (P0 audit_only -> P2 full) lands in a later release; no Striatum claim of a sole " +
+			"DB-enforced durable write path is valid until this posture reads 'full'.",
 	}
 	var warnings []string
 	if destroys > connResetStormThreshold {
 		warnings = append(warnings, "pg_conn_reset_storm: many pooled connections were destroyed on release for "+
 			"carrying leftover transaction state; check for a mass-cancel or PostgreSQL stress event")
+	}
+	if db.AuthorityRotatorCollision() {
+		warnings = append(warnings, "pg_rotator_collision: another instance recently rotated the same runtime role; "+
+			"use per-instance roles (striatumd_rw_<instance>) for a shared PostgreSQL (RFC 0110 §9.4)")
 	}
 	return block, warnings
 }

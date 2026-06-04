@@ -42,8 +42,8 @@ func TestAuthLiveness(t *testing.T) {
 	}
 	const secret = "liveness-secret"
 	registerAuthoritySecret(t, ctx, pool.Runner, secret, "liveness-salt")
-	db.SetAuthorityRuntime(secret, db.AuditHashFormatV3)
-	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2) })
+	db.SetAuthorityRuntime(secret, db.AuditHashFormatV3, "", false)
+	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
 
 	// Authorized v3 write succeeds.
 	if err := tryWriteAuthorizedAudit(ctx, pool.Runner, secret, "live-1"); err != nil {

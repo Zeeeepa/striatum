@@ -17,10 +17,13 @@ const (
 
 // authorityRuntimeState is the process-level authority configuration set once at
 // daemon bootstrap (BootstrapAuthority): the per-instance daemon-authority
-// secret the prelude presents, and the active audit hash format.
+// secret the prelude presents, the active audit hash format, and the bootstrap
+// posture/rotator-collision the doctor reports.
 type authorityRuntimeState struct {
-	secret     string
-	hashFormat string
+	secret           string
+	hashFormat       string
+	posture          string
+	rotatorCollision bool
 }
 
 var authorityRuntime atomic.Pointer[authorityRuntimeState]
@@ -28,11 +31,13 @@ var authorityRuntime atomic.Pointer[authorityRuntimeState]
 // SetAuthorityRuntime installs the process authority configuration. Called once
 // at bootstrap; an empty secret + v2 format reproduces the pre-activation
 // (slice-1) behavior. A blank hashFormat is normalized to v2.
-func SetAuthorityRuntime(secret, hashFormat string) {
+func SetAuthorityRuntime(secret, hashFormat, posture string, rotatorCollision bool) {
 	if hashFormat == "" {
 		hashFormat = AuditHashFormatV2
 	}
-	authorityRuntime.Store(&authorityRuntimeState{secret: secret, hashFormat: hashFormat})
+	authorityRuntime.Store(&authorityRuntimeState{
+		secret: secret, hashFormat: hashFormat, posture: posture, rotatorCollision: rotatorCollision,
+	})
 }
 
 func currentAuthorityRuntime() authorityRuntimeState {
@@ -46,6 +51,18 @@ func currentAuthorityRuntime() authorityRuntimeState {
 // flips the cutover and the daemon re-bootstraps).
 func AuditHashFormat() string {
 	return currentAuthorityRuntime().hashFormat
+}
+
+// AuthorityPosture returns the daemon's bootstrap posture (empty before
+// bootstrap; one of the Posture* constants after).
+func AuthorityPosture() string {
+	return currentAuthorityRuntime().posture
+}
+
+// AuthorityRotatorCollision reports whether bootstrap detected another instance
+// recently rotating the same runtime role (RFC 0110 §9.4).
+func AuthorityRotatorCollision() bool {
+	return currentAuthorityRuntime().rotatorCollision
 }
 
 // AuthorityFromContext builds the authority/attribution context for a mutation

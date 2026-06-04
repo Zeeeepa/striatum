@@ -233,7 +233,7 @@ func main() {
 			pool = rotatedPool
 			runner = pool.Runner
 		}
-		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat)
+		db.SetAuthorityRuntime(authResult.Secret, auditHashFormat, authResult.Posture, authResult.RotatorCollision)
 		log.Printf("daemon authority: posture=%s audit_hash_format=%s registered=%t rotator_collision=%t",
 			authResult.Posture, auditHashFormat, authResult.Registered, authResult.RotatorCollision)
 		tokenPath, err := admin.RuntimeTokenPath()

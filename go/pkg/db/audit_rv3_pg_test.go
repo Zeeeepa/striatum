@@ -68,10 +68,10 @@ func TestRV3CutoverDispatch(t *testing.T) {
 	}
 	const secret = "rv3-secret"
 	registerAuthoritySecret(t, ctx, pool.Runner, secret, "rv3-salt")
-	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2) })
+	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
 
 	// Default v2: the Go path writes a v2 row; no v3 row is produced.
-	db.SetAuthorityRuntime(secret, db.AuditHashFormatV2)
+	db.SetAuthorityRuntime(secret, db.AuditHashFormatV2, "", false)
 	if db.AuditHashFormat() != "v2" {
 		t.Fatalf("default format = %q, want v2", db.AuditHashFormat())
 	}
@@ -84,7 +84,7 @@ func TestRV3CutoverDispatch(t *testing.T) {
 	}
 
 	// Flip to v3: the SD function writes a v3 row.
-	db.SetAuthorityRuntime(secret, db.AuditHashFormatV3)
+	db.SetAuthorityRuntime(secret, db.AuditHashFormatV3, "", false)
 	writeAuthorizedAudit(t, ctx, pool.Runner, secret, "req-v3")
 	if got := latestAuditFormat(t, ctx, pool.Runner, "req-v3"); got != "3" {
 		t.Fatalf("v3 flag wrote hash_format_version=%s; want 3", got)
