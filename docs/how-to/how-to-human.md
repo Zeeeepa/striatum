@@ -259,76 +259,32 @@ Striatum-aware agent how to drive the runner (RFC 0015 V1):
 "$RUNNER" --repo "$TARGET_REPO" init --with-skills all --json
 ```
 
-V1.2 ships four skill profiles plus an `all` fan-out:
-`claude_code` (auto-discovered by Claude Code), `codex` (flat
-agent docs at `.codex/agents/`), `gemini` (single guide; will
-graduate to a five-file shape once Gemini CLI's skill-discovery
-convention stabilizes), and `generic` (single Markdown guide for
-any other CLI). All profiles are byte-identical on re-install;
-operator edits are preserved unless you pass `--force`.
+The current Go installer ships four skill profiles plus an `all`
+fan-out: `claude_code`, `codex`, `agy`, and `generic`. All profiles
+are byte-identical on re-install; operator edits are preserved unless
+you pass `--force`.
 
-To also scaffold the seven canonical reader-facing DDD documents
-(RFC 0021) into the target repo's `docs/`:
+Register the repo, then install the agent-side bundle:
 
 ```bash
-# Combined first-time setup (recommended): agent skills + DDD docs.
-"$RUNNER" --repo "$TARGET_REPO" init \
-  --with-skills claude_code \
-  --with-ddd-layout \
-  --json
-
-# Preview what would be written (RFC 0021 V1.5):
-"$RUNNER" --repo "$TARGET_REPO" init \
-  --with-ddd-layout --ddd-layout-dry-run --json
-
-# Force-overwrite existing regular-file targets, recording
-# prior_sha256 for audit (RFC 0021 V1.5):
-"$RUNNER" --repo "$TARGET_REPO" init \
-  --with-ddd-layout --ddd-layout-force --json
+"$RUNNER" repo add "$TARGET_REPO" --init --json
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile claude_code --json
 ```
 
-`--with-ddd-layout` writes `docs/SPEC.md`, `docs/PRD.md`,
-`docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
-`docs/DDD.md`, `docs/rfcs/README.md`, and
-`docs/rfcs/0001-template.md`. Existing files are reported as
-`skipped` with `reason: "exists"` (or `would_skip` under
-`--ddd-layout-dry-run`). Non-regular-file targets (directories,
-broken symlinks) are reported as `error` and are not touched
-even with `--ddd-layout-force`.
-
-To also create the recommended Striatum-owned consumer-repo directories
-from RFC 0056:
-
-```bash
-"$RUNNER" --repo "$TARGET_REPO" init \
-  --with-striatum-layout \
-  --striatum-layout-workflow code-change \
-  --json
-
-"$RUNNER" --repo "$TARGET_REPO" init \
-  --with-striatum-layout --striatum-layout-dry-run --json
-```
-
-This creates only `striatum/workflows/` and
-`striatum/<workflow-slug>/`. It does not write workflow files, artifact
-files, or `.gitignore` entries; commit/ignore policy for artifact roots
-stays with the operator.
+Current Go builds do not expose `init --with-ddd-layout` or
+`init --with-striatum-layout`. To place workflow files and artifacts
+under the recommended committed `striatum/` tree, pass
+`--scaffold-root` and `--artifact-root` to `workflow generate`.
 
 ## Author or validate a workflow
 
 ```bash
 "$RUNNER" --repo "$TARGET_REPO" workflow validate "$WORKFLOW" --json
-"$RUNNER" --repo "$TARGET_REPO" workflow plan "$WORKFLOW" --json
-"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW"
-"$RUNNER" --repo "$TARGET_REPO" workflow graph "$WORKFLOW" --format json --json
 ```
 
 `workflow validate` checks required fields, role/lane references,
 artifact paths, dependency edges, bounded cycles, declared
 parallelism, and lane constraints. YAML files are rejected.
-`workflow plan` returns a dry-run plan; `workflow graph` exports
-Mermaid `flowchart TD` (default), JSON, or Graphviz DOT
-(`--format dot`, pipe through `dot -Tsvg` to render).
 
 The canonical authoring path is `striatum workflow generate` (see
 [WRITING_WORKFLOWS.md](writing-workflows.md) for the full surface and
@@ -336,30 +292,18 @@ options):
 
 ```bash
 "$RUNNER" workflow templates list --kind shape --json
-"$RUNNER" workflow generate striatum/workflows/my-change \
+"$RUNNER" workflow generate \
   --shape code_change \
   --lane-set local \
+  --workflow-id my-change \
+  --scaffold-root striatum/workflows/my-change \
   --artifact-root striatum/my-change \
-  --dry-run --json
+  --json
 ```
 
 `--shape` selects the graph family; `--lane-set` selects the lane
-topology. The dry-run envelope contains the compiled workflow,
-generated files, graph metadata, warnings, and validation result.
-Remove `--dry-run` to write the workflow tree.
-
-For a single-style starter (no lane-topology choice), the
-compatibility verb `workflow init` wraps the generator with
-`lane_set: "local"`:
-
-```bash
-"$RUNNER" workflow init --style review path/to/new-flow
-```
-
-`--style` accepts `minimal`, `review` (default), or `code-change`.
-The generated tree includes `workflow.json` plus `roles/` and
-`prompts/` stubs and validates cleanly. The command refuses to
-overwrite an existing path.
+topology. Preview is the default. Add `--write` to write the workflow
+tree.
 
 ### Backport harness-profile fragments
 
@@ -423,15 +367,17 @@ To choose from the bundled generator catalog instead of a fixed starter:
 
 ```bash
 "$RUNNER" workflow templates list --kind shape --json
-"$RUNNER" workflow generate striatum/workflows/my-change \
+"$RUNNER" workflow generate \
   --shape code_change \
   --lane-set local \
+  --workflow-id my-change \
+  --scaffold-root striatum/workflows/my-change \
   --artifact-root striatum/my-change \
-  --dry-run --json
+  --json
 ```
 
-The preview writes nothing. Remove `--dry-run` to create the workflow
-tree, then validate or edit
+The preview writes nothing. Add `--write` to create the workflow tree,
+then validate or edit
 `striatum/workflows/my-change/workflow.json` before `run prepare`.
 
 ## Prepare a run

@@ -108,7 +108,7 @@ flowchart TD
 ```
 
 ```bash
-striatum workflow init --style minimal workflows/my-task
+striatum workflow generate --shape minimal --workflow-id my-task --scaffold-root workflows/my-task --write
 ```
 
 ### Review and synthesis
@@ -123,7 +123,7 @@ flowchart TD
 ```
 
 ```bash
-striatum workflow init --style review workflows/my-review
+striatum workflow generate --shape review --workflow-id my-review --scaffold-root workflows/my-review --write
 ```
 
 ### Code change with bounded revision
@@ -139,7 +139,7 @@ flowchart TD
 ```
 
 ```bash
-striatum workflow init --style code-change workflows/my-change
+striatum workflow generate --shape code_change --workflow-id my-change --scaffold-root workflows/my-change --write
 ```
 
 ### Human checkpoint
@@ -233,9 +233,10 @@ striatum daemon doctor --apply-migrations
 # Start the Go daemon in a separate terminal and keep it running.
 striatum daemon start
 
-# Adopt/register a target repo and install the operator skill bundle.
+# Register a target repo and install the operator skill bundle.
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
 
 # Drive a workflow. The operator AI does the rest.
 WORKFLOW=examples/code-change-flow/workflow.json
@@ -256,8 +257,8 @@ striatum skills install --profile claude_code
 # Codex
 striatum skills install --profile codex
 
-# Gemini CLI
-striatum skills install --profile gemini
+# Agy
+striatum skills install --profile agy
 
 # All at once
 striatum skills install --profile all

@@ -18,8 +18,8 @@ live workflow-control mutations. Their daemon authority remains tracked in
 `docs/architecture/COMMAND_AUTHORITY_MATRIX.md`.
 
 Local workflow-file authoring commands such as `workflow validate`, `workflow
-plan`, `workflow graph`, `workflow init`, `workflow generate`, and `workflow
-upgrade` are not live workflow-control commands. Production MCP intentionally
+generate`, and `workflow templates` are not live workflow-control commands.
+Production MCP intentionally
 hides local file-authoring write tools until a separate product decision makes
 them supported production MCP tools.
 

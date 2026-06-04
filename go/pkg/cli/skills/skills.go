@@ -19,9 +19,19 @@ import (
 // beginning with "skills" or "plugin". repoRoot is the resolved target repo
 // (empty → current working directory). version stamps written manifests.
 func Run(args []string, stdout, stderr io.Writer, repoRoot, version string) int {
-	if len(args) < 2 {
-		_, _ = fmt.Fprintf(stderr, "usage: striatum %s install ...\n", args[0])
+	if len(args) == 0 {
+		_, _ = fmt.Fprintln(stderr, "usage: striatum {skills|plugin} ...")
 		return 2
+	}
+	if len(args) < 2 || isHelpArg(args[1]) {
+		out := stderr
+		rc := 2
+		if len(args) >= 2 {
+			out = stdout
+			rc = 0
+		}
+		writeUsage(out, args[0])
+		return rc
 	}
 	repo := repoRoot
 	if repo == "" {
@@ -52,6 +62,23 @@ func Run(args []string, stdout, stderr io.Writer, repoRoot, version string) int 
 	}
 	_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", args[0])
 	return 2
+}
+
+func isHelpArg(arg string) bool {
+	return arg == "-h" || arg == "--help" || arg == "help"
+}
+
+func writeUsage(out io.Writer, command string) {
+	switch command {
+	case "skills":
+		_, _ = fmt.Fprintln(out, "usage: striatum skills install [--profile <profile>] [--scope project|user] [--namespace <prefix>] [--force] [--dry-run] [--json]")
+	case "plugin":
+		_, _ = fmt.Fprintln(out, "usage: striatum plugin {install|uninstall} [--profile <profile>] [--scope project|user] [--namespace <name>] [--target <path>] [--force] [--json]")
+		_, _ = fmt.Fprintln(out, "  install     render an agent plugin bundle")
+		_, _ = fmt.Fprintln(out, "  uninstall   remove a previously rendered bundle using its manifest")
+	default:
+		_, _ = fmt.Fprintf(out, "usage: striatum %s ...\n", command)
+	}
 }
 
 type flagSet struct {

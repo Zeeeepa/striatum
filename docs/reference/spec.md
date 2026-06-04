@@ -66,9 +66,9 @@ during state transitions; see § Corpus Export And Augmentation Boundary.
 
 ## State Store
 
-`striatum init` creates or refreshes local operational setup next to the
-target repository. Repository registration is performed by
-`striatum adopt` or `striatum repo add <path> --init`.
+`striatum repo add <path> [--init]` registers a target repository
+with the daemon. `--init` creates `.striatum/scratch` and the
+`.gitignore` entry for a fresh target repository.
 The authoritative workflow state lives in the daemon-owned PostgreSQL
 instance under a `repository_id` scope; `.striatum/` is operational
 scratch for supervised wrapper FIFOs, pidfiles, and transient supervisor
@@ -106,16 +106,16 @@ binary supports is refused; client/daemon version skew refuses with
 exit code 10. The pre-D094 repo-local migration implementation is deleted;
 ordinary CLI verbs do not apply or import it.
 
-Day-zero setup is guided by `striatum adopt`, `daemon service
-install/start/status`, `daemon doctor --provision-rw-role
---repair-grants`, and `doctor --first-run`. These helpers are local
-bootstrap surfaces: they may initialize scratch files, render a user
-service, repair local Postgres grants, or run smoke checks, but they do
-not become an alternate workflow-state authority.
+Day-zero setup is guided by `striatum repo add --init`, `striatum skills
+install`, `striatum plugin install`, `daemon install/start/status`,
+and `doctor`. These helpers are bootstrap surfaces: they may render
+agent-side bundles, register a repository, render a user service,
+repair local Postgres grants, or run smoke checks, but they do not
+become an alternate workflow-state authority.
 
 Writable SQLite import windows are closed. The retired `migrate-repo-local`
 and `daemon migrate` spellings are fully removed. CLI verbs against an unregistered repo refuse with exit code 12
-(`repo_not_migrated`) and point operators to register with `adopt` or `repo add --init`; CLI verbs without a
+(`repo_not_migrated`) and point operators to register with `repo add --init`; CLI verbs without a
 reachable daemon refuse with exit code 11 (`daemon_unreachable`). Neither
 refusal opens or creates any local database file.
 
@@ -201,11 +201,11 @@ The V1 schema version is `striatum.workflow.v1`.
 
 The runner does not infer or select a default workflow for a target
 repository. `run prepare` requires an explicit workflow file path, and
-the workflow snapshot for a run is taken from that file. `workflow init`
-is only a scaffold generator; it currently supports `minimal`, `review`,
-and `code-change` starter styles and uses `review` when `--style` is
-omitted. Checked-in `examples/` are fixtures or starting points, not
-runtime defaults.
+the workflow snapshot for a run is taken from that file. `workflow
+generate` is the current scaffold generator; it supports catalog
+shapes such as `minimal`, `review`, and `code_change` and previews by
+default unless `--write` is passed. Checked-in `examples/` are
+fixtures or starting points, not runtime defaults.
 
 RFC 0034 V1 adds a workflow generator over the same schema. RFC 0078 has
 ported the active Go generator path to reuse Go workflow validation and lint
@@ -219,8 +219,7 @@ committee artifacts. RFC 0093 collaboration shapes
 (`falsification_gate`, `cross_examination`) emit V1.1 phased workflows with a
 `phase_synthesis` adjudicator job, a `collaboration_ledger` artifact, and a
 bounded `needs_revision` cycle back into the dialogue phase. Other built-in
-shapes emit V1. `workflow init --style` is compatibility sugar over this
-generator with `lane_set: "local"`.
+shapes emit V1.
 Generator preview envelopes also include the same advisory workflow lint
 payload exposed by `workflow lint`, including warning count and coverage
 summary; lint remains informational and does not change validation
@@ -1109,11 +1108,10 @@ Required commands, grouped by concern:
 
 ```text
 # Core lifecycle
-striatum init
+striatum repo add
 striatum workflow validate
-striatum workflow plan
-striatum workflow graph
-striatum workflow init
+striatum workflow generate
+striatum workflow templates
 striatum run prepare
 striatum branch confirm
 striatum run start
@@ -1327,8 +1325,8 @@ V1.2 ships four profiles plus an `all` fan-out:
 
 - `claude_code` writes one SKILL.md per skill under
   `.claude/skills/<namespace>striatum-*/SKILL.md`. The five skills are
-  `striatum-workflow` (router), `striatum-scaffold` (init / workflow
-  init / run prepare / run start / branch confirm), `striatum-claim-loop`
+  `striatum-workflow` (router), `striatum-scaffold` (repo add /
+  workflow generate / run prepare / run start / branch confirm), `striatum-claim-loop`
   (register-session / claim-next / ack / heartbeat / publish-artifact /
   verdict / submit-review / complete / worktree create / release),
   `striatum-supervise` (RFC 0009 supervisor lifecycle), and
@@ -1362,11 +1360,10 @@ whose hash differs from the manifest is `refused_modified` without
 `--force`; `--force` overwrites and updates the manifest;
 `--dry-run` prints the plan without writing.
 
-`striatum init [--with-skills [profile]]` runs `init` first and then
-calls the same install pipeline; default profile when the flag is
-present without a value is `claude_code`. `--with-skills all` flows
-through the same fan-out as `skills install --profile all`. The flag
-is opt-in; default `init` behavior is preserved byte-for-byte.
+Repository registration and skill installation are separate commands:
+run `striatum repo add <path> --init` first, then
+`striatum --repo <path> skills install --profile <profile>`. There is
+no combined `init --with-skills` surface in the current Go CLI.
 
 `striatum doctor` checks every installed manifest across all four
 profiles: `skills_missing` (a recorded file is absent on disk) and
@@ -1406,13 +1403,14 @@ waiting_human (yellow), failed/canceled (red), queued (grey), and pending
 each node with `current_state`, `attempt`, and a `latest_verdict` block for
 review jobs.
 
-`workflow init [--style minimal|review|code-change] <path>` writes a starter
-workflow tree. The generated tree includes `<path>/workflow.json` plus role
-and prompt stubs and validates cleanly with `workflow validate`. The default
-`review` style mirrors the `examples/code-change-flow/` shape with placeholder
-paths; `minimal` writes a single author job with no review; `code-change`
-adds a one-shot `needs_revision` cycle. The command refuses to overwrite an
-existing path.
+`workflow generate --shape <shape> [--lane-set <set>] [--workflow-id
+<id>] [--scaffold-root <path>] [--artifact-root <path>] [--option
+key=value ...] [--write]` writes a starter workflow tree when
+`--write` is supplied and otherwise previews the planned files. The
+generated tree includes `<scaffold-root>/workflow.json` plus role and
+prompt stubs and validates cleanly with `workflow validate` for the
+supported catalog shapes. The command refuses to overwrite existing
+files.
 
 ## Local API And MCP Boundary
 
@@ -1541,7 +1539,7 @@ refuses retired registry fallback. Runtime files are overrideable with
 Linux uses XDG runtime locations; macOS uses Caches for runtime files. Windows
 daemon support is not claimed in V1.
 
-`striatum repo add <path>` registers an initialized target repository.
+`striatum repo add <path> [--init]` registers a target repository.
 It authorizes the daemon admin token before recording the repository in
 daemon-owned Postgres. If `.striatum/` scratch is absent, registration
 refuses unless `--init` is passed; `--init` creates only operational

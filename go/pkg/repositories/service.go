@@ -332,7 +332,7 @@ func operationalScratch(repo string, init bool) (string, error) {
 	}
 	info, err := os.Stat(stateDir)
 	if err != nil || !info.IsDir() {
-		return "", rpc.NewError("repo_scratch_missing", "repo scratch is not initialized; rerun repo add with --init or run striatum init first", nil)
+		return "", rpc.NewError("repo_scratch_missing", "repo scratch is not initialized; rerun repo add with --init", nil)
 	}
 	return stateDir, nil
 }

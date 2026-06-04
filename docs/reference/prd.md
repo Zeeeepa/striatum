@@ -168,9 +168,9 @@ V1 satisfies the Seed Requirements above through the surface documented in
 - Current live state in daemon-owned PostgreSQL scoped per registered target
   repository, with `.striatum/` retained as operational scratch and
   pre-D094 SQLite only as migration/tombstone/fixture material.
-- JSON workflow validation, snapshots, dry-run planning, Mermaid/JSON graph
-  export, and `workflow init` starter trees (`minimal`, `review`,
-  `code-change`).
+- JSON workflow validation, snapshots, generator previews, and
+  `workflow generate` starter trees (`minimal`, `review`,
+  `code_change`).
 - Confirmation-gated branch start with records-only default plus opt-in
   `--create`, `--use-current`, and `--strict` git enforcement.
 - Sessions, leases, claim-next, ack, heartbeat, release, block, complete,

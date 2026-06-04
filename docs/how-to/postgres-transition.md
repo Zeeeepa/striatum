@@ -55,7 +55,7 @@ Two related changes shape the current product:
   checkout with `make install`.
 - For an existing pre-D094 repo: writable SQLite imports are retired.
   Archive or remove `.striatum/retired-local-state` before registering the
-  repository with `striatum adopt` or `striatum repo add --init`.
+  repository with `striatum repo add --init`.
 
 ## Provision the daemon-required role
 
@@ -300,14 +300,16 @@ touch no state.
 ## Register the target repo
 
 ```bash
-striatum --repo /path/to/target adopt --profile claude_code --json
+striatum repo add /path/to/target --init --json
+striatum --repo /path/to/target skills install --profile claude_code --json
 ```
 
-`adopt` initializes `.striatum/` scratch when needed, installs local
-agent assets, scaffolds DDD docs, registers the repo into daemon PostgreSQL,
-and reports a suggested workflow path. Writable SQLite import windows are
-closed; if a legacy `.striatum/retired-local-state` exists, archive or remove it
-before registering.
+`repo add --init` registers the repo into daemon PostgreSQL, creates
+`.striatum/scratch`, and adds `.striatum/` to `.gitignore`. `skills
+install` writes agent-side assets and does not create workflow state.
+Writable SQLite import windows are closed; if a legacy
+`.striatum/retired-local-state` exists, archive or remove it before
+registering.
 
 The first `daemon start` bootstraps a single admin token and writes an
 owner-only runtime `client-token` file under the daemon's runtime
@@ -321,7 +323,7 @@ retired compatibility spellings. They remain parseable so old automation gets
 a clear error, but they refuse with exit code 12 before importing or opening
 SQLite migration code. Current Striatum does not migrate legacy SQLite files
 as an operator workflow. Archive or remove legacy SQLite files, then register
-the target repository with `striatum adopt` or `striatum repo add --init`.
+the target repository with `striatum repo add --init`.
 
 ## Verify registration and retired SQLite state
 
@@ -352,7 +354,7 @@ repository cutover health in `striatum.authority_report.v1`.
 An unregistered repo, including a pre-D094 repo that still has legacy SQLite
 state, refuses CLI verbs with **exit code 12 (`repo_not_migrated`)**. The
 stderr message and JSON hint tell the operator to archive/remove legacy SQLite
-files and register with `adopt` or `repo add --init`.
+files and register with `repo add --init`.
 
 `striatum daemon doctor --json` reports one substrate (Postgres),
 one schema version, and one audit chain after successful registration.
@@ -369,7 +371,7 @@ The exit codes RFC 0043 reserves for daemon-required behavior:
 |---:|---|---|
 | 10 | Daemon RPC transport, handshake, or version-skew refusal (RFC 0030). | Reconcile client and daemon versions; rerun `daemon doctor`. |
 | 11 | `daemon_unreachable`. | Start the daemon (`striatum daemon start` or the systemd / launchd unit). Check the socket path printed in stderr. |
-| 12 | `repo_not_migrated`. | Archive/remove legacy SQLite files if present, then register with `striatum adopt` or `striatum repo add --init`. |
+| 12 | `repo_not_migrated`. | Archive/remove legacy SQLite files if present, then register with `striatum repo add --init`. |
 
 See [CLI_REFERENCE.md § Stable exit codes](../reference/cli-reference.md#stable-exit-codes)
 for the full closed list.

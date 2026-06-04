@@ -93,31 +93,26 @@ striatum daemon service install --manager auto --json
 striatum daemon service start --manager auto --json
 # OR: striatum daemon start --json &
 
-# 4. Adopt a target repo: init scratch, install skills/plugins,
-#    scaffold DDD docs, and register the repo in Postgres.
+# 4. Register a target repo, then install agent-side skills/plugins.
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
+striatum --repo "$TARGET_REPO" plugin install --profile claude_code --json
 
 # 5. Smoke-test the first-run path end to end, including daemon
 #    binary provenance and authority routing.
 striatum --repo "$TARGET_REPO" doctor --first-run --json
 ```
 
-What `adopt` does:
+What this setup does:
 
-- Creates `.striatum/` next to the target repo (runtime scratch).
+- Registers the repo with the daemon-owned Postgres substrate.
 - Writes the operator skill bundle to the agent's project-scope location
   such as `.claude/skills/striatum-*/`, `.agy/skills/striatum-*/`, or `.codex/agents/striatum-*.md`
   (`~/.codex/agents/striatum-*.md` for user-scope Codex installs).
 - Writes the agent-CLI plugin bundle for the selected profile when one
   exists. (The agy profile reuses the claude_code plugin and skill templates
   wholesale via standard imports under .agy/plugins/striatum/).
-- Scaffolds the seven canonical DDD docs under `docs/` (per
-  RFC 0021) — `SPEC.md`, `PRD.md`, `DECISION_LOG.md`,
-  `UBIQUITOUS_LANGUAGE.md`, `DDD.md`, `rfcs/README.md`,
-  `rfcs/0001-template.md`. Existing files are preserved.
-- Registers the repo with the daemon-owned Postgres substrate
-  and reports a suggested starter workflow path.
 
 On first initiation the operator skill bundle also prompts you about
 **optional, third-party agent skills** (for example a divergent-ideation
@@ -131,9 +126,8 @@ If the target repo follows the recommended layout in
 workflow file lives under `striatum/workflows/` and artifacts land
 under `striatum/<workflow-name>/`. Generated workflow trees use
 `striatum/workflows/<name>/workflow.json`.
-For an empty target repo, `striatum init --with-striatum-layout`
-creates those two directories without writing workflow files or
-artifact-root `.gitignore` policy.
+For an empty target repo, use `workflow generate --scaffold-root` and
+`--artifact-root` to create that layout with a concrete workflow.
 
 ## Your first run
 

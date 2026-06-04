@@ -65,6 +65,10 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		(len(globals.CommandArgs) < 2 || routes.IsHelpArg(globals.CommandArgs[1])) {
 		return runWorkflow(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
 	}
+	if len(globals.CommandArgs) > 0 && (globals.CommandArgs[0] == "skills" || globals.CommandArgs[0] == "plugin") &&
+		(len(globals.CommandArgs) < 2 || routes.IsHelpArg(globals.CommandArgs[1])) {
+		return cliskills.Run(globals.CommandArgs, stdout, stderr, globals.RepoPath, version)
+	}
 	if _, ok := localcommands.Lookup(globals.CommandArgs); ok {
 		commandArgs := globals.CommandArgs
 		switch commandArgs[0] {

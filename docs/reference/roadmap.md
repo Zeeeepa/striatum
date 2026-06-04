@@ -371,10 +371,10 @@ as drift guards.
   unexpected exception, with an architecture guardrail proving the path does
   not open repo-local SQLite.
 - `repo.add`, `repo.list`, and `repo.remove` now route through daemon RPC
-  and update `striatumd.repositories` directly; `repo add --init` creates
-  only operational scratch and never creates `.striatum/retired-local-state`.
-- Production `striatum init` and `striatum adopt` now share the same
-  scratch-only bootstrap, with repo-local SQLite init retained only for
+  and update `striatumd.repositories` directly; `repo add` never creates
+  `.striatum/retired-local-state`.
+- The retired `striatum init` / `striatum adopt` paths no longer define
+  production bootstrap; repo-local SQLite init is retained only for
   legacy test fixtures.
 - Workflow authoring methods are no longer production live-state authority:
   legacy Python RPC compatibility code refuses them as CLI-local, Go implements
@@ -1083,11 +1083,10 @@ priority than the active remediation runway unless scheduled explicitly.
   TODO #47. Phase 0 scaffold + **Phase A shipped in v1.55.0**
   (commit `a88f44d`): `docs/CONSUMER_REPO_LAYOUT.md` added with
   ASCII tree, per-section rationale, mid-life adoption guidance,
-  and dogfood-heavy-projects extension. Phase B shipped an additive
-  `init --with-striatum-layout` scaffold for `striatum/workflows/`
-  plus `striatum/<workflow-slug>/`. Workflow-file generation and
-  artifact-root ignore policy are closed as non-changes for this scaffold to
-  avoid surprising target-repository writes.
+  and dogfood-heavy-projects extension. The current Go CLI does not expose
+  the historical `init --with-striatum-layout` scaffold; use
+  `workflow generate --scaffold-root ... --artifact-root ...` for new
+  workflow trees.
 
 **Suggested implementer:** any lane. Documentation phases are
 single-track and additive — they touch docs and don't intersect

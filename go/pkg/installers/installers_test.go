@@ -163,8 +163,27 @@ func TestInstallPluginClaudeCode(t *testing.T) {
 		t.Fatal("expected marketplace result")
 	}
 	mkt := filepath.Join(target, ".striatum", "plugins", "marketplace.json")
-	if _, err := os.Stat(mkt); err != nil {
+	marketplaceBody, err := os.ReadFile(mkt)
+	if err != nil {
 		t.Fatalf("marketplace.json missing: %v", err)
+	}
+	var marketplace map[string]any
+	if err := json.Unmarshal(marketplaceBody, &marketplace); err != nil {
+		t.Fatalf("marketplace.json not valid JSON: %v", err)
+	}
+	owner, ok := marketplace["owner"].(map[string]any)
+	if !ok || owner["name"] != "Striatum" {
+		t.Fatalf("marketplace owner = %#v", marketplace["owner"])
+	}
+	readme, err := os.ReadFile(filepath.Join(result.BundleRoot, "README.md"))
+	if err != nil {
+		t.Fatalf("README.md missing: %v", err)
+	}
+	if strings.Contains(string(readme), "/plugin install ./.striatum/plugins/claude_code") {
+		t.Fatalf("README still contains invalid direct path install:\n%s", string(readme))
+	}
+	if !strings.Contains(string(readme), "/plugin marketplace add ./.striatum/plugins/marketplace.json") {
+		t.Fatalf("README missing marketplace file install path:\n%s", string(readme))
 	}
 }
 

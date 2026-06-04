@@ -150,7 +150,6 @@ delivery bridge or the supervisor is restarted.
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
 | `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
-| `workflow.init` | `workflow init` | write | single_repo | local_file_authoring | real | no | no live state | Go scaffold writer; refuses unsafe paths/overwrites |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
 | `workflow.accept_risk` | `workflow accept-risk` / MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
@@ -235,7 +234,7 @@ remediation phases should either daemon-route, quarantine, or delete.
 | `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
 | `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
 | `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed for ordinary CLI use; durable accepted-risk state is daemon-owned via `workflow.accept_risk` | no live state mutation from local lint | local_file_authoring |
-| `workflow init` / `generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
+| `workflow generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
 | `workflow upgrade` | local authoring helper with PG running-run guard | PostgreSQL-only running-run check; fails closed when PG state is unknown and never opens repo-local SQLite | local_file_authoring |
 | `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |
 | `run graph` | daemon RPC to PG handler | no | daemon_native |
@@ -373,7 +372,7 @@ remediation is sensible for that code.
 | `repo_blob_conflict` | The repository's blob bucket is owned by a different repository identity. | — |
 | `repo_not_found` | The repository path does not exist on disk. | Verify the repository path and re-run `striatum repo add` with the correct location. |
 | `repo_not_registered` | The repository is not registered with the daemon. | Register the repository first (`striatum repo add`), then retry. |
-| `repo_scratch_missing` | The repository scratch area is not initialized. | Run `striatum init` (or `striatum repo add --init`) in the target repository, then retry. |
+| `repo_scratch_missing` | The repository scratch area is not initialized. | Register the repository with `striatum repo add --init`, then retry. |
 | `run_not_found` | The run_id was not found. | List runs (list.runs) and use an existing run_id. |
 | `schema_invalid` | The request failed schema validation (missing, ill-typed, or malformed parameters or envelope). | Fix the named parameter to match the documented schema and resend the request. |
 | `sha256_mismatch` | A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted). | Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying. |

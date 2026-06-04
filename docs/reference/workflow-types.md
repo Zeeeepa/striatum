@@ -27,10 +27,6 @@ runtime default:
 
 | Surface | Current behavior |
 |---|---|
-| `striatum workflow init` | Scaffolds a new workflow tree. If `--style` is omitted, the scaffold style is `review`. |
-| `--style minimal` | One bounded job that publishes one artifact. |
-| `--style review` | Draft -> fresh review -> synthesis/apply. This is the recommended first-contact style. |
-| `--style code-change` | Draft -> review -> apply, with one bounded `needs_revision` cycle back to draft. |
 | `examples/` | Runnable fixtures and reference workflows. They are useful starting points, but the runner never auto-selects them. |
 | Historical fixtures | Incubation provenance. Read them for context, not as current default workflows. |
 | `striatum workflow templates` | Lists, shows, and renders the bundled local catalog of workflow shapes and lane sets. |
@@ -52,36 +48,39 @@ For a new workflow, prefer the generator before hand-editing JSON:
 
 ```bash
 striatum workflow templates list --kind shape
-striatum workflow generate striatum/workflows/my-change \
+striatum workflow generate \
   --shape code_change \
   --lane-set local \
+  --workflow-id my-change \
+  --scaffold-root striatum/workflows/my-change \
   --artifact-root striatum/my-change \
-  --dry-run --json
+  --json
 ```
 
-Drop `--dry-run` once the preview is right. `run prepare` still needs
-the generated `workflow.json` path explicitly.
+Preview is the default. Add `--write` once the preview is right.
+`run prepare` still needs the generated `workflow.json` path
+explicitly.
 
 Role packs and adversary packs are generator inputs for larger shapes.
 For example, RFC 0074 Phase B now supports a lightweight
 implementation panel:
 
 ```bash
-striatum workflow generate striatum/workflows/implementation-panel \
+striatum workflow generate \
   --shape implementation_panel \
   --lane-set multi_review \
+  --workflow-id implementation-panel \
+  --scaffold-root striatum/workflows/implementation-panel \
   --artifact-root striatum/implementation-panel \
-  --role-pack implementation_panel_roles \
-  --adversary-pack maintainer_cost \
   --option proposal_count=3 \
-  --dry-run --json
+  --json
 ```
 
 | Desired outcome | Use this type | Closest current starter |
 |---|---|---|
-| Do one small, bounded task and publish one artifact | Minimal bounded job | `workflow init --style minimal` |
-| Review a proposal, bug report, RFC, TODO, or draft before acting | Review and synthesis | `workflow init --style review` |
-| Make a code or docs change with a review gate | Code change with bounded revision | `workflow init --style code-change` |
+| Do one small, bounded task and publish one artifact | Minimal bounded job | `workflow generate --shape minimal` |
+| Review a proposal, bug report, RFC, TODO, or draft before acting | Review and synthesis | `workflow generate --shape review` |
+| Make a code or docs change with a review gate | Code change with bounded revision | `workflow generate --shape code_change` |
 | Require an owner decision before proceeding | Human checkpoint | `examples/human-checkpoint-flow/` |
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
@@ -102,7 +101,7 @@ it. Prefer explicit `lane_id` values for repeatable runs.
 
 | Desired lane behavior | Use this lane shape | Current starting point |
 |---|---|---|
-| Fast local fixture or operator-by-hand run | Single `local` process lane | `workflow init --style ...` |
+| Fast local fixture or operator-by-hand run | Single `local` process lane | `workflow generate --lane-set local` |
 | One model does authoring and review | Single agent lane with `write` and `review` capabilities | `examples/code-change-flow/` |
 | Author and reviewer should be separate model sessions | Separate author/reviewer lanes or fresh reviewer jobs | Adapt `examples/docs-review-flow/` |
 | You want productive disagreement | Multiple reviewer lanes, often different model families | `examples/rfc-ledger-cleanup/` |
@@ -229,7 +228,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style minimal striatum/workflows/my-task
+striatum workflow generate --shape minimal --workflow-id my-task --scaffold-root striatum/workflows/my-task --write
 ```
 
 ## Review And Synthesis
@@ -257,7 +256,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style review striatum/workflows/my-review
+striatum workflow generate --shape review --workflow-id my-review --scaffold-root striatum/workflows/my-review --write
 ```
 
 ## Code Change With Bounded Revision
@@ -283,7 +282,7 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow init --style code-change striatum/workflows/my-change
+striatum workflow generate --shape code_change --workflow-id my-change --scaffold-root striatum/workflows/my-change --write
 ```
 
 ## Human Checkpoint
@@ -384,8 +383,10 @@ Good fits:
 Start with:
 
 ```bash
-striatum workflow generate striatum/workflows/my-convo \
+striatum workflow generate \
   --shape conversation \
+  --workflow-id my-convo \
+  --scaffold-root striatum/workflows/my-convo \
   --option topic="your topic" \
   --option turns=5
 ```

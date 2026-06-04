@@ -254,7 +254,7 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	{
 		Code:       "repo_scratch_missing",
 		Meaning:    "The repository scratch area is not initialized.",
-		Suggestion: "Run `striatum init` (or `striatum repo add --init`) in the target repository, then retry.",
+		Suggestion: "Run `striatum repo add <path> --init` for the target repository, then retry.",
 	},
 	{
 		Code:       "run_not_found",

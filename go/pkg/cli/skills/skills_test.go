@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,33 @@ func TestRunUnknownProfileErrorsJSON(t *testing.T) {
 	}
 	if payload["ok"] != false {
 		t.Fatalf("ok = %#v", payload["ok"])
+	}
+}
+
+func TestBareSkillsAndPluginShowUsage(t *testing.T) {
+	tests := []struct {
+		args     []string
+		exitCode int
+		stream   string
+		want     string
+	}{
+		{args: []string{"skills"}, exitCode: 2, stream: "stderr", want: "usage: striatum skills install"},
+		{args: []string{"skills", "--help"}, exitCode: 0, stream: "stdout", want: "usage: striatum skills install"},
+		{args: []string{"plugin"}, exitCode: 2, stream: "stderr", want: "usage: striatum plugin {install|uninstall}"},
+		{args: []string{"plugin", "--help"}, exitCode: 0, stream: "stdout", want: "usage: striatum plugin {install|uninstall}"},
+	}
+	for _, tt := range tests {
+		var stdout, stderr bytes.Buffer
+		code := Run(tt.args, &stdout, &stderr, "", "1")
+		if code != tt.exitCode {
+			t.Fatalf("%v exit = %d, stderr = %s", tt.args, code, stderr.String())
+		}
+		got := stdout.String()
+		if tt.stream == "stderr" {
+			got = stderr.String()
+		}
+		if !strings.Contains(got, tt.want) {
+			t.Fatalf("%v output missing %q; stdout=%q stderr=%q", tt.args, tt.want, stdout.String(), stderr.String())
+		}
 	}
 }

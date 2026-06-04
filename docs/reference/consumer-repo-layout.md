@@ -47,7 +47,7 @@ stdout sinks. The daemon runtime token lives under the daemon runtime
 directory as `client-token`. **Never the workflow source of truth; never an artifact
 destination.**
 
-- Should be in `.gitignore`. `striatum init` adds it automatically.
+- Should be in `.gitignore`.
 - Do not write your own files here.
 - Do not assume anything in `.striatum/` survives a `serve` restart.
 
@@ -111,10 +111,9 @@ own [`docs/DECISION_LOG.md`](../decisions/decision-log.md) for the shape.
 
 ### RFCs go in `docs/rfcs/`
 
-Also from the RFC 0021 scaffold. Format: `NNNN-kebab-case-title.md`
-with a header comment and `Status:` line. `striatum init
---with-ddd-layout` writes `docs/rfcs/0001-template.md` to anchor
-the convention.
+If you adopt the RFC convention, use `NNNN-kebab-case-title.md` with
+a header comment and `Status:` line. Current Go builds do not scaffold
+these files automatically.
 
 ### `docs/dogfood/<NNN>/` for runs that produce auditable records
 
@@ -134,8 +133,8 @@ in Postgres is the durable record.
 
 ### `.gitignore` expectations
 
-`striatum init` adds `.striatum/` automatically. You decide whether
-the artifact roots (`striatum/<workflow-name>/`) are committed:
+Keep `.striatum/` ignored. You decide whether the artifact roots
+(`striatum/<workflow-name>/`) are committed:
 
 - **Committed** if artifacts are durable provenance you want in
   history (typical for dogfood-style projects, RFC ledgers,
@@ -154,17 +153,14 @@ them**. Striatum is generic. Concrete recommendations:
 - Workflow file wherever it lives today. Pass `--workflow <path>`
   on every `striatum workflow validate` / `run prepare`.
 - Artifact paths wherever your workflow JSON declares them.
-- DDD scaffold is the cheapest of these to adopt — run
-  `striatum init --with-ddd-layout --ddd-layout-dry-run` to see
-  what it would write, then drop the conflict-free pieces into
-  your repo.
-- Striatum directory scaffold is also opt-in — run
-  `striatum init --with-striatum-layout --striatum-layout-dry-run`
-  to preview `striatum/workflows/` and `striatum/<workflow-slug>/`
-  without writing workflow files or `.gitignore` entries.
+- DDD docs are the cheapest of these to adopt manually: add the
+  files that fit your repo and let the target repo own their content.
+- For new workflow trees, run `striatum workflow generate` with
+  `--scaffold-root striatum/workflows/<workflow-slug>` and
+  `--artifact-root striatum/<workflow-slug>`.
 
 The only hard requirement is `.striatum/` next to the target
-repo (added by `striatum init`); everything else is convention.
+repo for operational scratch; everything else is convention.
 
 ## Dogfood-heavy projects
 

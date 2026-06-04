@@ -43,6 +43,14 @@ type Usage struct {
 // Only groups with an entry here render a full `--help`; others fall back to a
 // generic synopsis derived from the route metadata.
 var usageByGroup = map[string]Usage{
+	"repo_add": {
+		Params: []Param{
+			{Name: "path", Positional: true, Required: true, Help: "target repository path to register"},
+			{Name: "init", Bool: true, Help: "create .striatum/scratch and add .striatum/ to .gitignore when registering a fresh target repo"},
+			{Name: "display-name", Help: "operator-facing repository name; defaults to the directory basename"},
+			{Name: "no-migrate", Bool: true, Help: "accepted compatibility flag; production registration never imports retired SQLite state"},
+		},
+	},
 	"register_session": {
 		Params: []Param{
 			{Name: "run-id", Positional: true, Required: true, Help: "run that owns the session"},

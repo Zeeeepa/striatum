@@ -141,78 +141,73 @@ reference at the bottom of the page.
 
 ## Day-zero AI operator setup
 
-You will install the runner once, install the skill bundle, and
-hand the agent your target repo. The agent does the rest.
+You will register the target repository, install the skill bundle,
+and hand the agent your target repo. The agent does the rest.
 
-V1.2 ships **four skill profiles**, one per supported agent CLI
-plus a fallback for anything else. Pick the one that matches your
-agent. To install everything in one shot, use `--profile all`.
+The current Go installer ships four skill profiles. Pick the one
+that matches your agent. To install everything in one shot, use
+`--profile all`.
 
 | Agent CLI | Use this profile | Where files land |
 |---|---|---|
-| Claude Code | `claude_code` | `.claude/skills/striatum-*/SKILL.md` (five files; Claude Code auto-discovers them) |
-| Codex CLI | `codex` | `.codex/agents/striatum-*.md` (five files) |
-| Gemini CLI | `gemini` | `striatum-STRIATUM_GEMINI_GUIDE.md` at the repo root (single concatenated guide) |
+| Claude Code | `claude_code` | `.claude/skills/striatum-*/SKILL.md` |
+| Codex CLI | `codex` | `.codex/agents/striatum-*.md` |
+| Agy | `agy` | `.agy/skills/striatum-*/SKILL.md` |
 | Anything else | `generic` | `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root |
-| Multiple CLIs | `all` | All four profiles, deterministic order, no collisions |
+| Multiple CLIs | `all` | All profiles, deterministic order, no collisions |
 
-`codex` reuses the Claude Code skill bodies verbatim — same
-content, flat-file layout. `gemini` is a single-guide fallback
-until Gemini CLI's skill-discovery convention stabilizes; the
-distinct filename keeps `--profile all` collision-free with
-`generic`.
+`codex` and `agy` reuse the Claude Code skill bodies where their
+plugin/skill layout is compatible. `generic` is a single-guide
+fallback.
 
 ### If your agent is Claude Code
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile claude_code --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
 ```
 
-That guided command initializes `.striatum/`, writes the RFC 0015
-skill bundle to `.claude/skills/striatum-*/`, scaffolds the DDD docs,
-and registers the repo with daemon PostgreSQL when the daemon DB URL is
-configured. The bundle teaches a Claude Code session how to drive the runner
-without reading the striatum source.
+The first command registers the target repo with daemon PostgreSQL.
+The second writes the RFC 0015 skill bundle to
+`.claude/skills/striatum-*/`. The bundle teaches a Claude Code session
+how to drive the runner without reading the striatum source.
 
 ### If your agent is Codex CLI
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile codex --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile codex --json
 ```
 
 Writes the same five-skill bundle as Claude Code, flat-file at
 `.codex/agents/striatum-{workflow,scaffold,claim-loop,supervise,recover}.md`.
 
-### If your agent is Gemini CLI
+### If your agent is Agy
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile gemini --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile agy --json
 ```
 
-Writes a single concatenated guide at
-`striatum-STRIATUM_GEMINI_GUIDE.md`. Load it as Gemini CLI's
-system context (paste, or use the CLI's "include this Markdown"
-convention).
+Writes the skill bundle under `.agy/skills/striatum-*/`.
 
 ### If your agent is anything else
 
 ```bash
 TARGET_REPO=/path/to/your/repo
-striatum --repo "$TARGET_REPO" adopt --profile generic --json
+striatum repo add "$TARGET_REPO" --init --json
+striatum --repo "$TARGET_REPO" skills install --profile generic --json
 ```
 
-Writes `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root — the
-same Markdown shape as the Gemini guide, structurally identical
-to the Claude Code bundle's five sections concatenated.
+Writes `striatum-STRIATUM_AGENT_GUIDE.md` at the repo root.
 
 ### Install everything (you switch CLIs, or you want a fallback)
 
 ```bash
-striatum --repo "$TARGET_REPO" adopt --profile all --json
-# or, against an existing initialized repo:
+striatum repo add "$TARGET_REPO" --init --json
 striatum --repo "$TARGET_REPO" skills install --profile all --json
 ```
 
@@ -220,38 +215,22 @@ Fans out across all four profiles in deterministic order. The
 profiles write to disjoint paths and each carries its own
 manifest, so they don't collide.
 
-### Also scaffold the reader-facing DDD docs (RFC 0021)
+### Scaffold a workflow
 
 ```bash
-striatum --repo "$TARGET_REPO" init \
-  --with-skills claude_code \
-  --with-ddd-layout \
+striatum --repo "$TARGET_REPO" workflow generate \
+  --shape code_change \
+  --workflow-id my-change \
+  --scaffold-root striatum/workflows/my-change \
+  --artifact-root striatum/my-change \
+  --write \
   --json
 ```
 
-`--with-ddd-layout` writes the seven canonical DDD documents
-(`docs/SPEC.md`, `docs/PRD.md`, `docs/DECISION_LOG.md`,
-`docs/UBIQUITOUS_LANGUAGE.md`, `docs/DDD.md`,
-`docs/rfcs/README.md`, `docs/rfcs/0001-template.md`) into the
-target repo so the reader-facing model has the same scaffold the
-agent-facing skills do. Existing files are preserved. Use
-`--ddd-layout-dry-run` to preview, `--ddd-layout-force` to
-overwrite (records `prior_sha256` for audit; non-regular-file
-targets still error and are not touched).
-
-### Also scaffold the recommended Striatum directories (RFC 0056)
-
-```bash
-striatum --repo "$TARGET_REPO" init \
-  --with-striatum-layout \
-  --striatum-layout-workflow code-change \
-  --json
-```
-
-`--with-striatum-layout` creates only `striatum/workflows/` and
-`striatum/<workflow-slug>/`. It does not write workflow files,
-artifact files, or `.gitignore` entries; the target repo keeps
-ownership of artifact commit policy.
+This creates `workflow.json`, roles, and prompt stubs in the committed
+`striatum/workflows/my-change` tree and points expected artifacts at
+`striatum/my-change`. Edit the prompts and lane commands before
+preparing a real run.
 
 ### Now drive the run
 
@@ -263,7 +242,7 @@ For the long-form companion to the bundle, see
 
 ## What's in `.striatum/`?
 
-After `adopt` or `repo add --init`, the target repo contains:
+After `repo add --init`, the target repo contains operational scratch:
 
 ```text
 .striatum/
@@ -273,15 +252,15 @@ After `adopt` or `repo add --init`, the target repo contains:
 
 `.striatum/` should be treated as operational scratch only.
 Authoritative workflow state lives in the daemon-owned PostgreSQL
-instance under a `repository_id` scope (D094 / RFC 0043). `adopt` and
-`repo add --init` register the repository without creating
-`retired-local-state`; if the directory already carried a V1 `retired-local-state`
+instance under a `repository_id` scope (D094 / RFC 0043). `repo add --init`
+registers the repository and creates scratch without creating `retired-local-state`; if
+the directory already carried a V1 `retired-local-state`
 from a pre-D094 install, archive or remove that legacy SQLite file before
 driving workflow verbs.
 
-`.striatum/` is added to `.gitignore`. Repository files outside
-`.striatum/` (artifacts, decisions, evidence exports) are durable
-provenance and should be committed normally.
+Keep `.striatum/` in the target repo's `.gitignore`. Repository
+files outside `.striatum/` (artifacts, decisions, evidence exports)
+are durable provenance and should be committed normally.
 
 ### Where will the workflow's output land?
 

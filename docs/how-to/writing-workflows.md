@@ -14,20 +14,24 @@ families and graph shapes, see [workflow-types.md](../reference/workflow-types.m
 
 ```bash
 striatum workflow templates list
-striatum workflow generate striatum/workflows/my-change \
+striatum workflow generate \
   --shape code_change \
   --lane-set author_reviewer \
+  --workflow-id my-change \
+  --scaffold-root striatum/workflows/my-change \
   --artifact-root striatum/my-change \
-  --lane-command author='["codex","exec"]' \
-  --lane-command reviewer='["codex","exec"]' \
-  --dry-run --json
+  --json
 ```
 
-The dry-run envelope contains the compiled workflow, generated files,
-graph metadata, warnings, and validation result. Removing `--dry-run`
-writes `workflow.json`, role stubs, and prompt stubs under that
-workflow tree, then revalidates the written file. V1 refuses
-overwrites.
+Preview is the default. The preview envelope contains the generated
+files and their paths without writing them. Add `--write` to create
+`workflow.json`, role stubs, and prompt stubs under that workflow
+tree. V1 refuses overwrites.
+
+The generator does not currently accept lane-command bindings on the
+CLI. For real agent lanes, generate the tree, edit the workflow's
+`lanes` map to declare the command and `adapter_capabilities`, then
+run `striatum workflow validate`.
 
 `--shape` selects the graph family (`minimal`, `review`,
 `code_change`, `human_checkpoint`, `evidence_backed`,
@@ -44,14 +48,14 @@ ordinary validated V1 workflow jobs and artifacts, not RFC 0052 typed
 committee-deliberation artifacts.
 
 ```bash
-striatum workflow generate striatum/workflows/panel \
+striatum workflow generate \
   --shape implementation_panel \
   --lane-set multi_review \
+  --workflow-id panel \
+  --scaffold-root striatum/workflows/panel \
   --artifact-root striatum/panel \
-  --role-pack implementation_panel_roles \
-  --adversary-pack operator_ergonomics \
   --option proposal_count=2 \
-  --dry-run --json
+  --json
 ```
 
 The generator is the path a team adopting striatum should reach for
@@ -60,18 +64,21 @@ closed vocabulary does not cover the workflow.
 
 ## Alternate paths (advanced)
 
-### Scaffold from a starter style
+### Generate a local starter
 
 ```bash
-striatum workflow init --style review path/to/new-flow
+striatum workflow generate \
+  --shape review \
+  --lane-set local \
+  --workflow-id new-flow \
+  --scaffold-root path/to/new-flow \
+  --write
 ```
 
-`--style` accepts `minimal`, `review` (default), or `code-change`.
-This is compatibility sugar over the generator with
-`lane_set: "local"` — use it when you want a single-file starter
-without picking a lane topology. The generated tree includes
-`workflow.json` plus `roles/` and `prompts/` stubs and validates
-cleanly. The command refuses to overwrite an existing path.
+Use this when you want a starter without binding real provider
+lanes yet. The generated tree includes `workflow.json` plus `roles/`
+and `prompts/` stubs and validates cleanly. The command refuses to
+overwrite existing files.
 
 ### Start from an example fixture
 
@@ -220,12 +227,11 @@ full selection guide and diagrams, see
 - **human checkpoint**: the runner records a required owner
   decision before later jobs become claimable.
 
-Use `workflow init --style review` for proposal review, RFC
+Use `workflow generate --shape review` for proposal review, RFC
 cleanup, bug triage, feature request analysis, and TODO
-conversion. Use `--style code-change` when the same scaffold
-should also drive repository edits. Use `--style minimal` for a
-single bounded job or when you want to build the graph from
-scratch.
+conversion. Use `--shape code_change` when the same scaffold
+should also drive repository edits. Use `--shape minimal` for a
+single bounded job or when you want to build the graph from scratch.
 
 `shape: "custom"` is not raw workflow JSON. It accepts a
 `striatum.workflow_plan.v1` plan with closed block kinds:

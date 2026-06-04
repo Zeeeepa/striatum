@@ -30,7 +30,8 @@ daemon MCP when available; `striatum <verb> --help` documents fallback flags.
 ## Common patterns
 
 ```bash
-striatum --repo /path/to/target init
+striatum repo add /path/to/target --json
+striatum --repo /path/to/target workflow generate --shape review --workflow-id my-review --write --json
 striatum --repo /path/to/target workflow validate path/to/workflow.json
 tools/call run.prepare {{"workflow":"path/to/workflow.json"}}
 tools/call run.start {{"run_id":"<id>"}}
@@ -39,7 +40,7 @@ tools/call run.start {{"run_id":"<id>"}}
 `branch.mode: "auto"` is the default; `run prepare` creates the
 branch and transitions the run to `ready` in one call. For
 `branch.mode: "confirm"` workflows, call `striatum branch confirm
---run-id <id> --create` after `run prepare`.
+--run-id <id> --branch <suggested_branch> --create` after `run prepare`.
 
 ## Optional skills (offer on first initiation)
 

@@ -327,8 +327,8 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     "adapter" rather than assuming Engram-specific paths or marker names.
     Current sweep (2026-05-18): refreshed current docs, RFC status notes,
     prompts, and root reference artifacts so daemon-owned PostgreSQL is the
-    authoritative live state, `.striatum/` is operational scratch, RFC 0056
-    has a directory-only `--with-striatum-layout` scaffold, and Engram remains
+    authoritative live state, `.striatum/` is operational scratch, workflow
+    trees are generated with explicit scaffold/artifact roots, and Engram remains
     optional external augmentation rather than a runtime dependency.
     Follow-up sweeps (2026-05-23): refreshed README status language,
     consumer-layout examples, historical tmux bootstrap wording, and the RFC
@@ -842,11 +842,9 @@ section is the canonical status snapshot.
     Phase A shipped v1.55.0 (commit `a88f44d`).
     `docs/CONSUMER_REPO_LAYOUT.md` written with ASCII tree, per-section
     rationale, mid-life adoption guidance, dogfood-heavy-projects
-    extension. Phase B now has an additive `init --with-striatum-layout`
-    scaffold for `striatum/workflows/` and `striatum/<workflow-slug>/`;
-    the 2026-05-23 closure keeps workflow-file generation and artifact-root
-    `.gitignore` policy out of this scaffold so `init` does not create
-    surprising workflow files or ignore rules in target repositories.
+    extension. Current Go builds do not expose the historical
+    `init --with-striatum-layout` scaffold; use `workflow generate` with
+    explicit scaffold/artifact roots for new workflow trees.
 
 ## Architecture Remediation Backlog
 
@@ -1181,9 +1179,9 @@ review and plan are root-level operator artifacts:
     `daemon doctor --provision-rw-role` / `--repair-grants` can repair
     the common local `striatumd_rw` role/grant shape or return pasteable
     admin SQL; `daemon service install/start/status` renders and controls
-    systemd-user or launchd daemon services; `striatum adopt` initializes
-    scratch, installs skill/plugin bundles, scaffolds DDD docs, and
-    registers the repo into daemon PostgreSQL; `doctor
+    systemd-user or launchd daemon services; `repo add` registers the repo
+    into daemon PostgreSQL; `skills install` / `plugin install` write
+    agent-side bundles; `doctor
     --first-run` returns a V1 diagnostic report covering daemon socket,
     Go daemon binary provenance, Postgres, runtime token, repo
     registration, MCP visibility, a sample read route, and daemon

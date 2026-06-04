@@ -128,6 +128,33 @@ func TestRetiredCLICompatibilityCommandsStayUnavailable(t *testing.T) {
 	}
 }
 
+func TestBareLocalInstallCommandsShowUsage(t *testing.T) {
+	tests := []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"plugin"}, want: "usage: striatum plugin {install|uninstall}"},
+		{args: []string{"plugin", "--help"}, want: "usage: striatum plugin {install|uninstall}"},
+		{args: []string{"skills"}, want: "usage: striatum skills install"},
+		{args: []string{"skills", "--help"}, want: "usage: striatum skills install"},
+	}
+	for _, tt := range tests {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			exitCode := run(tt.args, &stdout, &stderr)
+			if len(tt.args) == 1 && exitCode != 2 {
+				t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+			}
+			if len(tt.args) == 2 && exitCode != 0 {
+				t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+			}
+			if !strings.Contains(stdout.String()+stderr.String(), tt.want) {
+				t.Fatalf("usage missing %q; stdout=%q stderr=%q", tt.want, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestWorkflowValidateJSONErrorEnvelope(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "workflow.json")

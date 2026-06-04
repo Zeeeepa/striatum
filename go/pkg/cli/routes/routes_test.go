@@ -104,7 +104,7 @@ func TestRenderHelpSessionCloseListsRequiredReason(t *testing.T) {
 func TestUsageCoversIssue63Verbs(t *testing.T) {
 	for _, group := range []string{
 		"supervise_start", "supervise_stop", "supervise_status", "supervise_send",
-		"register_session", "checkpoint_resolve",
+		"register_session", "checkpoint_resolve", "repo_add",
 	} {
 		if _, ok := UsageFor(group); !ok {
 			t.Fatalf("missing usage descriptor for %q", group)

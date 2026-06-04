@@ -258,6 +258,7 @@ func writeMarketplace(target, profile, namespace string) (map[string]any, error)
 	path := filepath.Join(target, ".striatum", "plugins", "marketplace.json")
 	existing := map[string]any{
 		"name":      "local-striatum",
+		"owner":     map[string]any{"name": "Striatum"},
 		"interface": map[string]any{"displayName": "Local Striatum"},
 		"plugins":   []any{},
 	}
@@ -266,6 +267,9 @@ func writeMarketplace(target, profile, namespace string) (map[string]any, error)
 		if json.Unmarshal(data, &loaded) == nil {
 			existing = loaded
 		}
+	}
+	if _, ok := existing["owner"].(map[string]any); !ok {
+		existing["owner"] = map[string]any{"name": "Striatum"}
 	}
 	plugins, _ := existing["plugins"].([]any)
 	newEntry := map[string]any{

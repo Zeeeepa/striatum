@@ -14,11 +14,11 @@ type verbEntry struct {
 // that Python dicts guaranteed.
 var verbGroups = map[string][]verbEntry{
 	"scaffold": {
-		{"init", "Create `.striatum/` scratch in the target repo and register it with the daemon (live state lives in the daemon's PostgreSQL under a `repository_id` scope per D094 / RFC 0043)."},
-		{"workflow init", "Scaffold a starter `workflow.json` + roles/prompts."},
+		{"repo add", "Register the target repo with the daemon (live state lives in the daemon's PostgreSQL under a `repository_id` scope per D094 / RFC 0043)."},
+		{"workflow generate", "Render a starter `workflow.json` plus role/prompt stubs from a catalog shape."},
 		{"workflow validate", "Validate a workflow file; non-zero exit on error."},
 		{"run prepare", "Snapshot the workflow and prepare a run id."},
-		{"run start", "Transition a prepared run to `running`."},
+		{"run start", "Transition a prepared run to `running` and enqueue eligible root jobs for registered sessions to claim."},
 		{"branch confirm", "Confirm or create the run's working branch."},
 	},
 	"claim_loop": {

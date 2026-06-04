@@ -7,14 +7,9 @@
 ## Core lifecycle
 
 ```text
-striatum init [--with-skills <profile>] [--with-ddd-layout]
-              [--ddd-layout-force] [--ddd-layout-dry-run]
-              [--with-striatum-layout]
-              [--striatum-layout-workflow <slug>]
-              [--striatum-layout-dry-run]
-striatum adopt [--profile <profile>] [--postgres-url <url>]
-               [--dry-run] [--no-skills] [--no-plugins]
-               [--no-ddd-layout] [--no-register]
+striatum repo add <path> [--init]
+striatum skills install [--profile <profile>] [--scope project|user]
+striatum plugin install [--profile <profile>] [--scope project|user]
 striatum workflow validate
 striatum workflow generate
 striatum workflow templates list
@@ -46,8 +41,8 @@ lane (which needs no real lane command), so `workflow generate --shape
 conversation --option topic="…"` scaffolds a valid starter out of the box; edit
 in real lanes (e.g. `--lane-set author_reviewer` then supply lane commands in
 the generated `workflow.json`) before a real run. `--option phases=…`
-(`multi_phase`) and `--role-pack`/`--adversary-pack` options
-(`implementation_panel`) are accepted as the shape requires.
+(`multi_phase`) and shape-specific `--option key=value` values are
+accepted as the shape requires.
 
 The Python-era `workflow init`, `workflow lint`, `workflow plan`,
 `workflow graph`, `workflow upgrade`, and `workflow templates render-md`
@@ -60,40 +55,20 @@ Same-model-pairing lint is enforced by `workflow validate` (refuse unless
 `--allow-same-model-pairing`); operational accepted-risk overrides are recorded
 through the daemon `workflow accept-risk` / `workflow accepted-risks` commands.
 
-`striatum init` creates `.striatum/` in the target repo. The
-optional flags scaffold extra material:
+`striatum repo add <path> [--init]` registers a target repository
+with the daemon-owned PostgreSQL registry. Pass `--init` for a fresh
+target repo so the daemon creates `.striatum/scratch` and adds
+`.striatum/` to `.gitignore`.
 
-- `--with-skills <profile>` (RFC 0015) — write the agent skill
-  bundle for `claude_code` | `codex` | `gemini` | `generic` |
-  `all`. Default profile is `claude_code`.
-- `--with-ddd-layout` (RFC 0021) — scaffold the seven canonical
-  reader-facing DDD documents (`docs/SPEC.md`, `docs/PRD.md`,
-  `docs/DECISION_LOG.md`, `docs/UBIQUITOUS_LANGUAGE.md`,
-  `docs/DDD.md`, `docs/rfcs/README.md`,
-  `docs/rfcs/0001-template.md`). Existing files are preserved.
-- `--ddd-layout-force` (RFC 0021 V1.5) — overwrite existing
-  regular-file targets with the template body. Records
-  `prior_sha256` for audit. Non-regular-file targets
-  (directories, broken symlinks) still error and are not
-  touched.
-- `--ddd-layout-dry-run` (RFC 0021 V1.5) — preview without
-  writing. Per-file statuses use the `would_*` vocabulary.
-- `--with-striatum-layout` (RFC 0056 Phase B) — create the
-  recommended consumer-repo directories `striatum/workflows/` and
-  `striatum/<workflow-slug>/`. It writes no workflow files and no
-  `.gitignore` policy.
-- `--striatum-layout-workflow <slug>` — select the artifact-root
-  directory slug for `--with-striatum-layout`; default is
-  `code-change`.
-- `--striatum-layout-dry-run` — preview the Striatum directory
-  scaffold without creating directories.
+`striatum skills install --profile <profile>` writes the agent skill
+bundle for `claude_code` | `codex` | `agy` | `generic` | `all`.
+Use `--scope user` to install once in the user's agent config
+directory instead of a project tree.
 
-`striatum adopt` is the day-zero guided flow. It initializes
-`.striatum/`, installs the selected skill/plugin profile, scaffolds the
-DDD docs, registers the repo into daemon PostgreSQL when a Postgres URL is
-configured, and returns a suggested starter workflow
-path. Use `--dry-run` to preview, or `--no-register` when you only want
-the filesystem setup.
+`striatum plugin install --profile <profile>` writes agent plugin
+bundles for `claude_code`, `codex`, or `agy`. Project-scope plugin
+installs also write a local marketplace fixture when supported by the
+profile.
 
 `operator current-brief [--operator-docs-root <path>] [--json]`
 (RFC 0058 V1.5) is a local read-only helper for the operator progress
@@ -287,7 +262,7 @@ SQLite migration code. `daemon doctor --repo <path> --authority --json` is the
 supported cutover-evidence diagnostic and does not open SQLite as a database.
 CLI verbs against an unregistered repo refuse with exit code 12
 (`repo_not_migrated`) and point operators to archive/remove legacy SQLite
-files, then register with `adopt` or `repo add --init`.
+files, then register with `repo add --init`.
 
 RFC 0030/0031 add the daemon V2 RPC and supervision/apply foundation on
 top of RFC 0033. The wire envelope is versioned JSON; `daemon.hello`
@@ -547,7 +522,7 @@ striatum session close
 - `12`: `repo_not_migrated`. The target repository is not registered for
   daemon/PostgreSQL state or still has a legacy `.striatum/retired-local-state`;
   stderr and the `--json` hint tell the operator to archive/remove legacy
-  SQLite files and register with `adopt` or `repo add --init`.
+  SQLite files and register with `repo add --init`.
 
 ## See also
 
