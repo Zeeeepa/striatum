@@ -272,7 +272,7 @@ func main() {
 			log.Printf("warning: daemon runtime token %s unreadable; web service locked with a deny token (/v1 will 401 until the token is restored)", tokenPath)
 		}
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
-		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now}
+		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now, AuthoritySecret: authResult.Secret}
 		if pool.RawPool != nil {
 			supervisorPointerStore = db.NewSupervisorPointerStore(pool.RawPool)
 		}

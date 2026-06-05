@@ -182,15 +182,27 @@ the runtime pool.
 ```json
 "pg_read_scope": {
   "posture": "broad_runtime_select",
-  "private_read_denial": false
+  "private_read_denial": false,
+  "partial_projection_gates": [
+    {
+      "surface": "clients",
+      "denied_columns": ["token_hash", "token_salt"],
+      "owner_bundle": 5,
+      "authority_stamp": "auth_projection_read"
+    }
+  ]
 }
 ```
 
 Treat any `private_read_denial: false` posture as an explicit no-claim state.
-The read exposure is bounded by L0 rotation (a captured DSN string dies at the
-next restart) and L2 lane isolation once adopted, but the read-scope
-least-privilege successor (#164) remains open until the runtime read surface is
-reduced to a documented minimum.
+RFC 0113 R1 has landed the first partial projection gate: after owner bundle
+0005, `striatumd_rw` no longer has direct column `SELECT` on
+`striatumd.clients.token_hash` or `striatumd.clients.token_salt`; token
+authorization and token-admin secret reads use daemon-authorized
+`SECURITY DEFINER` functions instead. The remaining read exposure is bounded by
+L0 rotation (a captured DSN string dies at the next restart) and L2 lane
+isolation once adopted, but the read-scope least-privilege successor (#164)
+remains open until the runtime read surface is reduced to a documented minimum.
 
 ### Applying daemon migrations as the owner role (GH #22)
 

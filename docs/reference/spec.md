@@ -177,13 +177,18 @@ phase nomenclature and claim-keying below are normative.
   blocking doctor problem instead of an advisory warning.
 
 Read confidentiality against a *live* runtime credential is **not** claimed by
-RFC 0110 in these phases (the runtime role retains broad `SELECT`); it is bounded
-by L0 rotation and L2 isolation, and a read-scope least-privilege successor is
-tracked separately (#164). `daemon doctor` reports this separate posture under
-`pg_read_scope`; the current posture is `broad_runtime_select`, with
-`private_read_denial: false`, until the successor reduces the runtime read
-surface to an enumerated minimum. The decision log records each per-phase
-decision on landing.
+RFC 0110 in these phases. RFC 0113 R1 has reduced one high-value read surface:
+`striatumd.clients.token_hash` and `striatumd.clients.token_salt` are no longer
+directly selectable by the runtime role after owner bundle 0005, and token
+authorization/token-for-update secret reads route through daemon-authorized
+`SECURITY DEFINER` projections. The broader runtime role still retains broad
+`SELECT` on other sensitive daemon tables, so the read exposure remains bounded
+by L0 rotation and L2 isolation rather than a full private-read claim.
+`daemon doctor` reports this separate posture under `pg_read_scope`; the current
+posture is still `broad_runtime_select`, with `private_read_denial: false` and a
+`partial_projection_gates` entry for the client token-secret columns, until the
+successor (#164) reduces the runtime read surface to an enumerated minimum. The
+decision log records each per-phase decision on landing.
 
 ## Workflow Config
 

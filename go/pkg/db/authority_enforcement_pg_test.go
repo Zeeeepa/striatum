@@ -2,13 +2,18 @@ package db_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -48,6 +53,12 @@ func hasInsert(t *testing.T, ctx context.Context, runner db.Runner, table string
 	t.Helper()
 	return scalar(t, ctx, runner,
 		"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, 'INSERT')::text", table) == "true"
+}
+
+func hasColumnSelect(t *testing.T, ctx context.Context, runner db.Runner, table, column string) bool {
+	t.Helper()
+	return scalar(t, ctx, runner,
+		"SELECT has_column_privilege('striatumd_rw', 'striatumd.'||$1, $2, 'SELECT')::text", table, column) == "true"
 }
 
 // TestParityReadGrant is the runtime-role read gate for the capability-parity
@@ -540,6 +551,107 @@ func TestRegistryACL(t *testing.T) {
 	}
 }
 
+// TestTokenSecretColumnsUseAuthorityProjection is the #164/RFC 0113 R1
+// behavior gate: owner bundle 0005 removes direct runtime SELECT on token
+// hashes/salts while preserving daemon-authorized token validation.
+func TestTokenSecretColumnsUseAuthorityProjection(t *testing.T) {
+	ownerPool, runtimePool := pgtest.Pools(t)
+	ctx := context.Background()
+	if _, _, err := db.ApplyOwnerBundles(ctx, ownerPool.Runner, "test"); err != nil {
+		t.Fatalf("apply owner bundle: %v", err)
+	}
+
+	const authoritySecret = "projection-secret"
+	const authoritySalt = "projection-salt"
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-projection', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		authoritySecret, authoritySalt); err != nil {
+		t.Fatalf("register authority secret: %v", err)
+	}
+
+	now := time.Date(2026, 6, 5, 12, 0, 0, 0, time.UTC)
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_projection','ident_projection','/tmp/repo-projection',
+		          '/tmp/repo-projection/.striatum','repo-projection',$1,23,'active')`,
+		now); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	const tokenSalt = "token-salt"
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.clients (
+		  client_id, client_kind, display_name, token_id, token_hash, token_salt,
+		  created_at
+		) VALUES ('client_projection','test','projection client','tok_projection',$1,$2,$3)`,
+		hmacHex(tokenSalt, "secret"), tokenSalt, now); err != nil {
+		t.Fatalf("insert client: %v", err)
+	}
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities (
+		  capability_id, client_id, repository_id, capability, granted_at
+		) VALUES ('cap_projection','client_projection','repo_projection',$1,$2)`,
+		string(rpc.CapabilityRead), now); err != nil {
+		t.Fatalf("insert capability: %v", err)
+	}
+
+	if hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "token_hash") ||
+		hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "token_salt") {
+		t.Fatal("striatumd_rw can SELECT clients token secret columns after owner bundle 0005")
+	}
+	if !hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "client_id") {
+		t.Fatal("striatumd_rw lost clients.client_id SELECT; only token secret columns should be denied")
+	}
+	var tokenID string
+	if err := runtimePool.Runner.QueryRow(ctx,
+		"SELECT token_id FROM striatumd.clients WHERE token_id = $1", "tok_projection").Scan(&tokenID); err != nil {
+		t.Fatalf("runtime role cannot read non-secret token metadata: %v", err)
+	}
+	var tokenHash string
+	err := runtimePool.Runner.QueryRow(ctx,
+		"SELECT token_hash FROM striatumd.clients WHERE token_id = $1", "tok_projection").Scan(&tokenHash)
+	if code := pgErrCode(err); code != "42501" {
+		t.Fatalf("runtime direct token_hash read got err=%v code=%q, want SQLSTATE 42501", err, code)
+	}
+	err = runtimePool.Runner.QueryRow(ctx,
+		"SELECT token_hash FROM striatumd.load_token_for_update($1)", "tok_projection").Scan(&tokenHash)
+	if code := pgErrCode(err); code != "28000" {
+		t.Fatalf("projection without daemon authority got err=%v code=%q, want SQLSTATE 28000", err, code)
+	}
+
+	required := rpc.CapabilityRead
+	auth := rpc.PostgresAuthorizer{
+		Runner:          runtimePool.Runner,
+		Clock:           func() time.Time { return now },
+		AuthoritySecret: authoritySecret,
+	}
+	allowed := auth.Authorize(&required, "repo_projection", "tok_projection.secret")
+	if allowed.Decision != "allowed" || allowed.ClientID != "client_projection" || allowed.Capability != rpc.CapabilityRead {
+		t.Fatalf("authorized projection auth = %#v, want allowed read for client_projection", allowed)
+	}
+	denied := auth.Authorize(&required, "repo_projection", "tok_projection.wrong")
+	if denied.Decision != "denied" || denied.DenialReason != "token_invalid" {
+		t.Fatalf("wrong-secret projection auth = %#v, want denied/token_invalid", denied)
+	}
+
+	if err := ownerPool.Runner.Exec(ctx, "GRANT SELECT (token_hash, token_salt) ON striatumd.clients TO striatumd_rw"); err != nil {
+		t.Fatalf("simulate read grant drift: %v", err)
+	}
+	if !hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "token_hash") {
+		t.Fatal("read grant drift setup failed: token_hash SELECT did not reopen")
+	}
+	if err := db.ReassertReadRevokes(ctx, ownerPool.Runner); err != nil {
+		t.Fatalf("reassert read revokes: %v", err)
+	}
+	if hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "token_hash") ||
+		hasColumnSelect(t, ctx, ownerPool.Runner, "clients", "token_salt") {
+		t.Fatal("ReassertReadRevokes did not re-close clients token secret columns")
+	}
+}
+
 // TestSDHardening is T-SD-HARDEN: the owner-owned write functions are SECURITY
 // DEFINER with a pinned search_path and no PUBLIC execute.
 func TestSDHardening(t *testing.T) {
@@ -575,4 +687,10 @@ func containsAll(s string, subs ...string) bool {
 		}
 	}
 	return true
+}
+
+func hmacHex(salt, secret string) string {
+	mac := hmac.New(sha256.New, []byte(salt))
+	mac.Write([]byte(secret))
+	return hex.EncodeToString(mac.Sum(nil))
 }

@@ -12,7 +12,7 @@ import (
 // parity fails closed if the schema stamps a capability this binary cannot
 // support (old-binary / authority-bearing-schema).
 func SupportedAuthorityCapabilities() []string {
-	return []string{"audit_sd_append", "artifact_sd_append", "event_sd_append"}
+	return []string{"audit_sd_append", "artifact_sd_append", "event_sd_append", "auth_projection_read"}
 }
 
 // RequiredAuthorityCapabilities are capabilities the binary requires the schema

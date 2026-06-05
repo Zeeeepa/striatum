@@ -23,6 +23,17 @@ func TestPgReadScopeDoctorBlock(t *testing.T) {
 	if !containsStringItem(surfaces, "artifacts") || !containsStringItem(surfaces, "events") {
 		t.Fatalf("expected artifacts and events in representative surfaces, got %#v", surfaces)
 	}
+	gates, ok := block["partial_projection_gates"].([]map[string]any)
+	if !ok || len(gates) != 1 {
+		t.Fatalf("expected one partial projection gate, got %#v", block["partial_projection_gates"])
+	}
+	if gates[0]["surface"] != "clients" || gates[0]["authority_stamp"] != "auth_projection_read" {
+		t.Fatalf("unexpected partial projection gate: %#v", gates[0])
+	}
+	columns, ok := gates[0]["denied_columns"].([]string)
+	if !ok || !containsStringItem(columns, "token_hash") || !containsStringItem(columns, "token_salt") {
+		t.Fatalf("expected client token secret denied columns, got %#v", gates[0]["denied_columns"])
+	}
 }
 
 func containsStringItem(items []string, needle string) bool {

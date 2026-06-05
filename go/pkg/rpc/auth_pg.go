@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -23,14 +24,19 @@ type AuthQuerier interface {
 	QueryScalar(ctx context.Context, sql string, args ...any) (string, error)
 }
 
+type boundAuthQueryRower interface {
+	QueryRowBound(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // PostgresAuthorizer authorizes Go transition/runtime RPC requests by
 // validating Python-issued capability tokens against the production daemon's
 // PostgreSQL substrate. Denial reasons match
 // src/striatum/daemon_rpc/capability.py for compatibility with existing
 // contract and harness tests.
 type PostgresAuthorizer struct {
-	Runner AuthQuerier
-	Clock  func() time.Time
+	Runner          AuthQuerier
+	Clock           func() time.Time
+	AuthoritySecret string
 }
 
 func (a *PostgresAuthorizer) now() time.Time {
@@ -54,6 +60,10 @@ func (a *PostgresAuthorizer) Authorize(required *Capability, repositoryID string
 	tokenID, secret, ok := splitToken(token)
 	if !ok {
 		return AuthContext{RepositoryID: repositoryID, TokenID: tokenID, Decision: "denied", DenialReason: "token_malformed"}
+	}
+
+	if projected, ok := a.authorizeWithProjection(ctx, *required, repositoryID, tokenID, secret); ok {
+		return projected
 	}
 
 	var clientID, tokenHash, tokenSalt string
@@ -144,6 +154,70 @@ func (a *PostgresAuthorizer) Authorize(required *Capability, repositoryID string
 		Capability:   *required,
 		Decision:     "allowed",
 	}
+}
+
+func (a *PostgresAuthorizer) authorizeWithProjection(ctx context.Context, required Capability, repositoryID, tokenID, secret string) (AuthContext, bool) {
+	if a.AuthoritySecret == "" {
+		return AuthContext{}, false
+	}
+	bound, ok := a.Runner.(boundAuthQueryRower)
+	if !ok {
+		return AuthContext{}, false
+	}
+	var clientID, sessionID, denialReason pgtype.Text
+	var resolvedTokenID, resolvedRepositoryID, resolvedCapability, decision string
+	err := bound.QueryRowBound(ctx, `
+		SELECT client_id, token_id, repository_id, session_id,
+		       capability, decision, denial_reason
+		  FROM striatumd.authorize_capability($1, $2, $3, $4, $5, $6)`,
+		a.AuthoritySecret,
+		string(required),
+		repositoryID,
+		tokenID,
+		secret,
+		a.now(),
+	).Scan(
+		&clientID,
+		&resolvedTokenID,
+		&resolvedRepositoryID,
+		&sessionID,
+		&resolvedCapability,
+		&decision,
+		&denialReason,
+	)
+	if err != nil {
+		if pgErrCode(err) == "42883" {
+			return AuthContext{}, false
+		}
+		return AuthContext{RepositoryID: repositoryID, TokenID: tokenID, Decision: "denied", DenialReason: "internal_error"}, true
+	}
+	result := AuthContext{
+		ClientID:     nullableText(clientID),
+		TokenID:      resolvedTokenID,
+		RepositoryID: resolvedRepositoryID,
+		SessionID:    nullableText(sessionID),
+		Decision:     decision,
+		DenialReason: nullableText(denialReason),
+	}
+	if decision == "allowed" {
+		result.Capability = Capability(resolvedCapability)
+	}
+	return result, true
+}
+
+func nullableText(value pgtype.Text) string {
+	if !value.Valid {
+		return ""
+	}
+	return value.String
+}
+
+func pgErrCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
 }
 
 // hmacHexSecret reproduces src/striatum/daemon.py::_hash_token so that
