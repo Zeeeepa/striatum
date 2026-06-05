@@ -206,7 +206,17 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		     -- lease must resolve the live one, not let the random lease_id tiebreak
 		     -- pick the released (closed-session) lease and falsely requeue while the
 		     -- live lease still holds the job.
-		     ORDER BY (lz.state = 'active') DESC, lz.acquired_at DESC, lz.lease_id DESC
+		     -- Then prefer the job's own current_lease_id (the inverse #145 shape,
+		     -- caught by the ACE explicit-consumer fault fixture): when BOTH the
+		     -- prior attempt's lease and the current attempt's lease are released
+		     -- within the same second, the random lease_id tiebreak can resolve the
+		     -- PRIOR attempt's lease, whose owner session is still active, masking
+		     -- the genuinely dead current owner so the dead lane is never requeued.
+		     -- IS NOT DISTINCT FROM keeps the predicate false (not NULL) when the
+		     -- job's current_lease_id was already cleared (running-limbo).
+		     ORDER BY (lz.state = 'active') DESC,
+		              (lz.lease_id IS NOT DISTINCT FROM j.current_lease_id) DESC,
+		              lz.acquired_at DESC, lz.lease_id DESC
 		     LIMIT 1
 		  ) l ON true
 		  LEFT JOIN striatumd.sessions s
