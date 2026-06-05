@@ -183,6 +183,7 @@ the runtime pool.
 "pg_read_scope": {
   "posture": "broad_runtime_select",
   "private_read_denial": false,
+  "inventory_source": "go/pkg/db/read_authority_inventory.go",
   "partial_projection_gates": [
     {
       "surface": "clients",
@@ -199,10 +200,12 @@ RFC 0113 R1 has landed the first partial projection gate: after owner bundle
 0005, `striatumd_rw` no longer has direct column `SELECT` on
 `striatumd.clients.token_hash` or `striatumd.clients.token_salt`; token
 authorization and token-admin secret reads use daemon-authorized
-`SECURITY DEFINER` functions instead. The remaining read exposure is bounded by
-L0 rotation (a captured DSN string dies at the next restart) and L2 lane
-isolation once adopted, but the read-scope least-privilege successor (#164)
-remains open until the runtime read surface is reduced to a documented minimum.
+`SECURITY DEFINER` functions instead. The remaining broad read surface is
+table-inventoried and guard-tested so future tables cannot silently expand it.
+The remaining read exposure is bounded by L0 rotation (a captured DSN string
+dies at the next restart) and L2 lane isolation once adopted, but the read-scope
+least-privilege successor (#164) remains open until the runtime read surface is
+reduced to a documented minimum.
 
 ### Applying daemon migrations as the owner role (GH #22)
 

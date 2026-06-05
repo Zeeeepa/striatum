@@ -592,8 +592,8 @@ func TestTokenSecretColumnsUseAuthorityProjection(t *testing.T) {
 	}
 	if err := ownerPool.Runner.Exec(ctx, `
 		INSERT INTO striatumd.client_capabilities (
-		  capability_id, client_id, repository_id, capability, granted_at
-		) VALUES ('cap_projection','client_projection','repo_projection',$1,$2)`,
+		  capability_id, client_id, repository_id, capability, granted_at, session_id
+		) VALUES ('cap_projection','client_projection','repo_projection',$1,$2,'sess_projection')`,
 		string(rpc.CapabilityRead), now); err != nil {
 		t.Fatalf("insert capability: %v", err)
 	}
@@ -629,8 +629,9 @@ func TestTokenSecretColumnsUseAuthorityProjection(t *testing.T) {
 		AuthoritySecret: authoritySecret,
 	}
 	allowed := auth.Authorize(&required, "repo_projection", "tok_projection.secret")
-	if allowed.Decision != "allowed" || allowed.ClientID != "client_projection" || allowed.Capability != rpc.CapabilityRead {
-		t.Fatalf("authorized projection auth = %#v, want allowed read for client_projection", allowed)
+	if allowed.Decision != "allowed" || allowed.ClientID != "client_projection" ||
+		allowed.SessionID != "sess_projection" || allowed.Capability != rpc.CapabilityRead {
+		t.Fatalf("authorized projection auth = %#v, want allowed read for client_projection/sess_projection", allowed)
 	}
 	denied := auth.Authorize(&required, "repo_projection", "tok_projection.wrong")
 	if denied.Decision != "denied" || denied.DenialReason != "token_invalid" {

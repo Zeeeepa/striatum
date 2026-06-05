@@ -30,6 +30,7 @@ type tokenFakeRunner struct {
 	committed    bool
 	rolledBack   bool
 	execs        []tokenExecCall
+	queries      []tokenExecCall
 }
 
 func (f *tokenFakeRunner) Exec(_ context.Context, sql string, args ...any) error {
@@ -38,9 +39,24 @@ func (f *tokenFakeRunner) Exec(_ context.Context, sql string, args ...any) error
 }
 
 func (f *tokenFakeRunner) QueryRow(_ context.Context, sql string, args ...any) db.Row {
+	f.queries = append(f.queries, tokenExecCall{sql: sql, args: append([]any(nil), args...)})
 	switch {
 	case strings.Contains(sql, "COUNT(*)") && strings.Contains(sql, "FROM striatumd.clients"):
 		return tokenRow{values: []any{f.clientCount}}
+	case strings.Contains(sql, "FROM striatumd.load_token_for_update"):
+		if f.recordErr != nil {
+			return tokenRow{err: f.recordErr}
+		}
+		return tokenRow{values: []any{
+			f.record.ClientID,
+			f.record.ClientKind,
+			f.record.DisplayName,
+			f.record.TokenID,
+			f.record.TokenHash,
+			f.record.TokenSalt,
+			timestamptz(f.record.ExpiresAt),
+			timestamptz(f.record.RevokedAt),
+		}}
 	case strings.Contains(sql, "FROM striatumd.clients") && strings.Contains(sql, "FOR UPDATE"):
 		if f.recordErr != nil {
 			return tokenRow{err: f.recordErr}
@@ -248,6 +264,38 @@ func TestRevokeTokenAcceptsFullTokenAndRejectsWrongSecret(t *testing.T) {
 	}
 	if len(runner.execs) != 0 {
 		t.Fatal("wrong-secret revoke updated rows")
+	}
+}
+
+func TestRevokeTokenUsesProjectionFirstWithAuthoritySecret(t *testing.T) {
+	db.SetAuthorityRuntime("authority-secret", db.AuditHashFormatV3, db.PostureRotated, false)
+	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
+	runner := &tokenFakeRunner{
+		record: tokenRecord{
+			ClientID:    "dclient_old",
+			ClientKind:  "cli",
+			DisplayName: "old",
+			TokenID:     "dtok_old",
+			TokenHash:   hmacHexToken("salt", "good"),
+			TokenSalt:   "salt",
+		},
+		revokeCount: 1,
+	}
+	if _, err := (Service{Runner: runner}).RevokeToken(context.Background(), rpc.Envelope{Params: map[string]any{
+		"token": "dtok_old.good",
+	}}); err != nil {
+		t.Fatalf("RevokeToken: %v", err)
+	}
+	if len(runner.queries) == 0 {
+		t.Fatal("expected token lookup query")
+	}
+	if !strings.Contains(runner.queries[0].sql, "FROM striatumd.load_token_for_update") {
+		t.Fatalf("first token lookup = %s, want authority projection", runner.queries[0].sql)
+	}
+	for _, query := range runner.queries {
+		if strings.Contains(query.sql, "FROM striatumd.clients") && strings.Contains(query.sql, "token_hash") {
+			t.Fatalf("direct token-secret SELECT should not run with authority secret: %s", query.sql)
+		}
 	}
 }
 

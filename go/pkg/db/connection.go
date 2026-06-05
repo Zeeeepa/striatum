@@ -144,10 +144,9 @@ func (r PgxRunner) QueryRow(ctx context.Context, sql string, args ...any) Row {
 	return r.Pool.QueryRow(ctx, sql, args...)
 }
 
-// QueryRowBound is the row-query sibling of ExecBound. It exists for
-// daemon-authorized read projections that need to pass authority material via
-// the extended protocol without changing the default simple-protocol migration
-// behavior.
+// QueryRowBound executes a single row query over the extended protocol with
+// bound parameters. It is used for read-side SECURITY DEFINER projections that
+// must pass the daemon-authority secret without exposing it in query text.
 func (r PgxRunner) QueryRowBound(ctx context.Context, sql string, args ...any) Row {
 	return r.Pool.QueryRow(ctx, sql, boundExecArgs(args...)...)
 }
@@ -214,7 +213,7 @@ func (t *PgxTxRunner) QueryRow(ctx context.Context, sql string, args ...any) Row
 	return t.Tx.QueryRow(ctx, sql, args...)
 }
 
-// QueryRowBound runs a transaction-scoped row query over the extended protocol.
+// QueryRowBound is the transaction-scoped sibling of PgxRunner.QueryRowBound.
 func (t *PgxTxRunner) QueryRowBound(ctx context.Context, sql string, args ...any) Row {
 	return t.Tx.QueryRow(ctx, sql, boundExecArgs(args...)...)
 }

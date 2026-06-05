@@ -27,7 +27,7 @@ var ownerBundleLabels = map[int]string{
 	2: "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
 	3: "phase 1 audit_artifacts: append_artifact_row SD fn + artifacts INSERT revoke (RFC 0110 §7)",
 	4: "phase 2 full: append_event_row SD fn (in-DB v3 hash + transcript exclusion) + events INSERT revoke (RFC 0110 §7)",
-	5: "read-scope R1 token-secret projection: clients token_hash/token_salt SELECT revoke (RFC 0113)",
+	5: "runtime read scope R1: token-secret projections + clients secret-column SELECT revoke (RFC 0113)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -167,38 +167,29 @@ func ReassertWriteRevokes(ctx context.Context, runner Runner) error {
 	return nil
 }
 
-// ReassertReadRevokes re-applies narrow read-scope revokes for every read
-// projection phase whose capability the owner bundle has stamped. It is the
-// read-side sibling of ReassertWriteRevokes: owner-only grant repair can
-// safely call it after broad grants so a drifted token-secret SELECT does not
-// stay reopened.
+// ReassertReadRevokes re-applies read-scope revokes for authority-protected
+// read projections stamped by owner bundles. It is intentionally narrower than
+// the final #164 read split: bundle 0005 closes only the token secret columns
+// on clients while leaving non-secret client metadata directly readable for
+// existing daemon operations.
 func ReassertReadRevokes(ctx context.Context, runner Runner) error {
 	stamped, present, err := readStampedCapabilities(ctx, runner)
 	if err != nil {
 		return err
 	}
-	if !present {
+	if !present || !toSet(stamped)["auth_projection_read"] {
 		return nil
 	}
-	hasAuthProjection := false
-	for _, capability := range stamped {
-		if capability == "auth_projection_read" {
-			hasAuthProjection = true
-			break
-		}
-	}
-	if !hasAuthProjection {
-		return nil
-	}
-	if err := runner.Exec(ctx, "REVOKE SELECT ON striatumd.clients FROM striatumd_rw"); err != nil {
-		return fmt.Errorf("reassert revoke on clients token secrets: %w", err)
-	}
-	if err := runner.Exec(ctx, `
-		GRANT SELECT (
+	for _, stmt := range []string{
+		"REVOKE SELECT ON striatumd.clients FROM striatumd_rw",
+		`GRANT SELECT (
 		  client_id, client_kind, display_name, token_id,
 		  created_at, expires_at, revoked_at, last_used_at
-		) ON striatumd.clients TO striatumd_rw`); err != nil {
-		return fmt.Errorf("reassert clients projection grant: %w", err)
+		) ON striatumd.clients TO striatumd_rw`,
+	} {
+		if err := runner.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("reassert read revoke on clients: %w", err)
+		}
 	}
 	return nil
 }

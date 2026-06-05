@@ -16,23 +16,32 @@ func TestPgReadScopeDoctorBlock(t *testing.T) {
 	if block["runtime_role_select_scope"] != "broad" {
 		t.Fatalf("runtime_role_select_scope = %v, want broad", block["runtime_role_select_scope"])
 	}
+	if block["inventory_source"] != "go/pkg/db/read_authority_inventory.go" {
+		t.Fatalf("inventory_source = %v", block["inventory_source"])
+	}
 	surfaces, ok := block["representative_sensitive_surfaces"].([]string)
 	if !ok || len(surfaces) == 0 {
 		t.Fatalf("expected representative sensitive surfaces, got %#v", block["representative_sensitive_surfaces"])
 	}
-	if !containsStringItem(surfaces, "artifacts") || !containsStringItem(surfaces, "events") {
-		t.Fatalf("expected artifacts and events in representative surfaces, got %#v", surfaces)
+	if block["sensitive_surface_count"] != len(surfaces) {
+		t.Fatalf("sensitive_surface_count = %v, want %d", block["sensitive_surface_count"], len(surfaces))
 	}
 	gates, ok := block["partial_projection_gates"].([]map[string]any)
 	if !ok || len(gates) != 1 {
-		t.Fatalf("expected one partial projection gate, got %#v", block["partial_projection_gates"])
+		t.Fatalf("partial_projection_gates = %#v, want one token-secret gate", block["partial_projection_gates"])
 	}
 	if gates[0]["surface"] != "clients" || gates[0]["authority_stamp"] != "auth_projection_read" {
-		t.Fatalf("unexpected partial projection gate: %#v", gates[0])
+		t.Fatalf("partial projection gate = %#v, want clients/auth_projection_read", gates[0])
 	}
-	columns, ok := gates[0]["denied_columns"].([]string)
-	if !ok || !containsStringItem(columns, "token_hash") || !containsStringItem(columns, "token_salt") {
-		t.Fatalf("expected client token secret denied columns, got %#v", gates[0]["denied_columns"])
+	deniedColumns, ok := gates[0]["denied_columns"].([]string)
+	if !ok || !containsStringItem(deniedColumns, "token_hash") || !containsStringItem(deniedColumns, "token_salt") {
+		t.Fatalf("partial projection denied_columns = %#v, want token_hash/token_salt", gates[0]["denied_columns"])
+	}
+	if !containsStringItem(surfaces, "artifacts") || !containsStringItem(surfaces, "events") {
+		t.Fatalf("expected artifacts and events in representative surfaces, got %#v", surfaces)
+	}
+	if !containsStringItem(surfaces, "clients") || !containsStringItem(surfaces, "work_packets") {
+		t.Fatalf("expected clients and work_packets in representative surfaces, got %#v", surfaces)
 	}
 }
 

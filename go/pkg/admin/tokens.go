@@ -17,7 +17,6 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -545,6 +544,9 @@ func tokenTarget(params map[string]any) (string, string, bool, error) {
 }
 
 func loadTokenForUpdate(ctx context.Context, runner db.TxRunner, tokenID string) (tokenRecord, error) {
+	if db.AuthorityFromContext(ctx).Secret != "" {
+		return loadTokenForUpdateViaProjection(ctx, runner, tokenID)
+	}
 	record, err := scanTokenRecord(runner.QueryRow(ctx, `
 		SELECT client_id, client_kind, display_name, token_id, token_hash,
 		       token_salt, expires_at, revoked_at
@@ -558,9 +560,6 @@ func loadTokenForUpdate(ctx context.Context, runner db.TxRunner, tokenID string)
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return tokenRecord{}, rpc.NewError("token_invalid", "daemon token does not exist", nil)
-	}
-	if pgErrCode(err) == "42501" {
-		return loadTokenForUpdateViaProjection(ctx, runner, tokenID)
 	}
 	return tokenRecord{}, err
 }
@@ -600,14 +599,6 @@ func scanTokenRecord(row db.Row) (tokenRecord, error) {
 	record.ExpiresAt = pgTimePtr(expiresAt)
 	record.RevokedAt = pgTimePtr(revokedAt)
 	return record, nil
-}
-
-func pgErrCode(err error) string {
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
-		return pgErr.Code
-	}
-	return ""
 }
 
 func revokeTokenRows(ctx context.Context, tx db.TxRunner, clientID string, now time.Time, reason string) (int64, error) {

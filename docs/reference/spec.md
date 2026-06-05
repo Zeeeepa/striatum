@@ -168,27 +168,33 @@ phase nomenclature and claim-keying below are normative.
   directory make PostgreSQL unreachable from lanes as the hardened default; the
   daemon asserts the owner-only socket directory at startup and refuses
   permissive/custom shared socket directories.
-  **GH #87 status: "mitigated, pending lane-OS-user default"** — it closes only
-  when the lane OS user, `make lane-isolation-check` (`T-LANE-ISOLATION-NEG`)
-  green in hardened-profile CI for both UNIX-socket and loopback TCP probes, and
-  blocking doctor behavior under the secure profile are all live. The current
+  The daemon consumes `STRIATUM_LANE_OS_USER` for supervised lane launch and
+  records `run_as_user` metadata, but **GH #87 closes only when the host has the
+  dedicated PG-less lane OS user, passwordless sudo, PostgreSQL rejection rules,
+  `make lane-isolation-check` (`T-LANE-ISOLATION-NEG`) green in
+  hardened-profile CI for both UNIX-socket and loopback TCP probes, and blocking
+  doctor behavior under the secure profile all live**. The current
   secure-profile doctor gate is controlled by
   `STRIATUM_SECURITY_PG_SOCKET_HARDENED`; when enabled, `lane_pg_reachable` is a
   blocking doctor problem instead of an advisory warning.
 
-Read confidentiality against a *live* runtime credential is **not** claimed by
-RFC 0110 in these phases. RFC 0113 R1 has reduced one high-value read surface:
-`striatumd.clients.token_hash` and `striatumd.clients.token_salt` are no longer
-directly selectable by the runtime role after owner bundle 0005, and token
-authorization/token-for-update secret reads route through daemon-authorized
-`SECURITY DEFINER` projections. The broader runtime role still retains broad
-`SELECT` on other sensitive daemon tables, so the read exposure remains bounded
-by L0 rotation and L2 isolation rather than a full private-read claim.
-`daemon doctor` reports this separate posture under `pg_read_scope`; the current
-posture is still `broad_runtime_select`, with `private_read_denial: false` and a
-`partial_projection_gates` entry for the client token-secret columns, until the
-successor (#164) reduces the runtime read surface to an enumerated minimum. The
-decision log records each per-phase decision on landing.
+Read confidentiality against a *live* runtime credential is **not** fully
+claimed by RFC 0110/#164 yet. RFC 0113 R1 has one behavior-changing reduction:
+owner bundle 0005 revokes direct runtime `SELECT` on
+`striatumd.clients.token_hash` and `striatumd.clients.token_salt`, and routes
+token authorization / token-for-update secret reads through owner-owned
+`SECURITY DEFINER` projections guarded by `assert_daemon_authority()`. Other
+sensitive tables remain directly selectable, so L0 rotation and L2 isolation
+still bound the remaining exposure. `daemon doctor` reports this separate
+posture under `pg_read_scope`; the current top-level posture remains
+`broad_runtime_select`, with `private_read_denial: false`, plus a
+`partial_projection_gates` entry for the token-secret columns. The current broad
+read surface is explicitly inventoried in `go/pkg/db/read_authority_inventory.go`
+and guarded against unclassified table growth, but this inventory is not
+private-read denial. The #164 successor remains open until the runtime read
+surface is reduced to a documented least-privilege minimum and the doctor posture
+changes accordingly.
+The decision log records each per-phase decision on landing.
 
 ## Workflow Config
 
@@ -1792,7 +1798,10 @@ Production supervision metadata, lane attestation inputs, and supervisor
 pointers live in daemon-owned PostgreSQL under the registered repository
 scope. `supervise.*` CLI calls are daemon clients, not direct repo-local
 state edits. Legacy repo-local supervision shapes and one-shot wrappers are completely
-retired. Every lane is launched as a daemon-owned long-lived interactive PTY session.
+retired. Supervision state and delivery are daemon-owned; supervised lane
+processes default to the daemon OS user, or launch as the configured
+`STRIATUM_LANE_OS_USER` through noninteractive sudo when the host adopts the
+PG-less lane-user profile.
 
 The Python daemon is no longer a selectable production core. RFC 0039
 introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol
@@ -2086,8 +2095,11 @@ The supervise CLI surface:
 - `striatum supervise start --session-id <id>` validates the session is
   active and that its lane uses the `process` adapter, refuses if the
   session already has a supervisor in `('starting','attached','detached')`
-  state, and forks the lane command in a daemon-owned persistent interactive
-  PTY session. It keeps raw provider output out of daemon/PostgreSQL state and
+  state, and forks the lane command in a daemon-owned persistent supervision
+  session. When `STRIATUM_LANE_OS_USER` names a distinct OS user, the daemon
+  launches the lane command and any tmux session as that user with
+  `sudo -n -u <lane-user> -- env -i ...`; otherwise it preserves the same-user
+  behavior. It keeps raw provider output out of daemon/PostgreSQL state and
   durable artifacts, and transitions the row to `attached` once the child pid
   is alive. A
   `supervisor.starting` and `supervisor.started` event are recorded.
@@ -2137,7 +2149,8 @@ The supervise CLI surface:
   optional `pane_start_token`, `attach_command`, diagnostic
   `attach_client_pid`, `captured_at`, and probe visibility fields such as
   `last_ok_at`, `probe_skipped_at`, `probe_unavailable_count`,
-  `last_unavailable_detail`, `liveness_state`, and `liveness`. Tmux liveness
+  `last_unavailable_detail`, `liveness_state`, optional `run_as_user`, and
+  `liveness`. Tmux liveness
   payloads include `state: healthy|degraded|lost`; failures also include a
   typed `probe_failure` record with `failure_class`, optional `exit_code`,
   optional `errno`, optional `pane_process_alive`, and optional
