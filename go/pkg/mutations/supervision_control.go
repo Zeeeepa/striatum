@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -33,6 +34,7 @@ const (
 	stdinDeliveryOneShotEOF     = "one_shot_eof"
 
 	agentLoopModeSelfDriving = "self_driving"
+	supervisedLaneOSUserEnv  = "STRIATUM_LANE_OS_USER"
 	// agentLoopModePush labels a supervised lane that does NOT use the agent loop:
 	// a stdin-FIFO/push consumer that reads a delivered packet then runs the agent,
 	// rather than a true self-driver that calls work.await_packet. Recording the
@@ -55,6 +57,7 @@ type supervisionStartConfig struct {
 	Transport          string
 	StdinDelivery      string
 	RequireTmux        bool
+	RunAsUser          string
 	// CapabilityToken is the session-BOUND MCP capability token minted for this
 	// lane at supervise start (RFC 0096 V2 / #135). It is injected into the lane
 	// env as STRIATUM_MCP_TOKEN so the lane authenticates as its OWN session and
@@ -280,6 +283,9 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		if tmux := objectOrNil(launch.Metadata["tmux"]); tmux != nil {
 			payload["tmux"] = tmux
 		}
+		if runAsUser := metadataString(launch.Metadata["run_as_user"]); runAsUser != "" {
+			payload["run_as_user"] = runAsUser
+		}
 		_, err := appendEvent(ctx, tx, repositoryID, config.RunID, "supervisor.started", sessionID, nil, nil, nil, nil, payload)
 		return nil, err
 	}); err != nil {
@@ -303,6 +309,9 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		"lane_attestation":     laneAttestation(launch.PIDStartTime),
 		"lane_id":              config.LaneID,
 		"tmux":                 objectOrNil(launch.Metadata["tmux"]),
+	}
+	if runAsUser := metadataString(launch.Metadata["run_as_user"]); runAsUser != "" {
+		result["run_as_user"] = runAsUser
 	}
 	// #115: a prepared/running run uses its FROZEN workflow snapshot, so on-disk
 	// workflow.json edits are inert. Surface a warning when the lane just launched
@@ -530,7 +539,7 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		eventExtra := map[string]any{}
 		stopNote := any(nil)
 		if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(supervisor.Metadata); ok {
-			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, tmuxIdentity, supervisor.PID, supervisor.PIDStartTime)
+			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, supervisor.Metadata, tmuxIdentity, supervisor.PID, supervisor.PIDStartTime)
 			signaled = signal
 			if note != "" {
 				stopNote = note
@@ -750,7 +759,7 @@ func requireRebridgeableTmuxPane(ctx context.Context, supervisor supervisorContr
 	if !ok {
 		return gosupervisor.TmuxIdentity{}, rpc.NewError("invalid_transition", "supervise.rebridge requires a tmux-backed supervisor", nil)
 	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+	live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(supervisor.Metadata), supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
 	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
 		return gosupervisor.TmuxIdentity{}, rpc.NewError("invalid_transition", "supervise.rebridge cannot verify tmux pane liveness: "+live.Detail, nil)
 	}
@@ -781,7 +790,7 @@ func ensureSupervisorFIFO(path string) error {
 	return supervisionMkfifo(path)
 }
 
-func stopTmuxBackedLane(ctx context.Context, identity gosupervisor.TmuxIdentity, panePID int, paneStartToken string) (signal any, note string, fallbackReason string, cleanupSkip string) {
+func stopTmuxBackedLane(ctx context.Context, metadata map[string]any, identity gosupervisor.TmuxIdentity, panePID int, paneStartToken string) (signal any, note string, fallbackReason string, cleanupSkip string) {
 	if strings.TrimSpace(identity.SessionName) == "" {
 		if panePID > 0 {
 			signal, cleanupSkip = terminateProcessWithStartToken(panePID, paneStartToken)
@@ -789,7 +798,7 @@ func stopTmuxBackedLane(ctx context.Context, identity gosupervisor.TmuxIdentity,
 		}
 		return nil, "tmux_session_missing", "", ""
 	}
-	_, err := supervisionTmuxRunner.Run(ctx, "kill-session", "-t", identity.SessionName)
+	_, err := tmuxRunnerForSupervisorMetadata(metadata).Run(ctx, "kill-session", "-t", identity.SessionName)
 	if err == nil || tmuxSessionAlreadyGone(err) {
 		if err != nil {
 			note = string(gosupervisor.TmuxLivenessSessionMissing)
@@ -896,6 +905,10 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	config.Transport = transport
 	config.StdinDelivery = delivery
 	config.RequireTmux = requireTmux
+	config.RunAsUser = configuredLaneRunAsUser()
+	if config.RunAsUser != "" && runtime.GOOS == "windows" {
+		return config, rpc.NewError("invalid_transition", supervisedLaneOSUserEnv+" is not supported on windows", nil)
+	}
 	return config, nil
 }
 
@@ -911,6 +924,9 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 		"stdin_delivery":     config.StdinDelivery,
 		"require_tmux":       config.RequireTmux,
 		"agent_loop_mode":    config.AgentLoopMode,
+	}
+	if config.RunAsUser != "" {
+		metadata["run_as_user"] = config.RunAsUser
 	}
 	if config.Transport == supervisionTransportPTYHelper {
 		metadata["helper_events_path"] = eventPath
@@ -1260,7 +1276,7 @@ func reconcileSupervisorForDelivery(ctx context.Context, runner db.TxRunner, rep
 		if reason == "" {
 			reason = "pid_gone"
 		}
-		live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+		live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(supervisor.Metadata), supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
 		if reason == string(gosupervisor.TmuxLivenessUnavailable) {
 			count := tmuxUnavailableCount(supervisor.Metadata) + 1
 			metadata := tmuxProbeDegradedMetadata(supervisor.Metadata, live, count)
@@ -1551,9 +1567,8 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	}
 	stdin := os.NewFile(uintptr(fd), "stdin.pipe")
 	defer func() { _ = stdin.Close() }()
-	cmd := exec.CommandContext(ctx, config.Command[0], config.Command[1:]...)
-	cmd.Dir = config.RepoRoot
-	cmd.Env = supervisedEnv(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+	laneEnv := supervisedLaneEnv(config, supervisorID)
+	cmd := supervisedLaneCommandContext(ctx, config.Command, config.RepoRoot, config.RunAsUser, laneEnv)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -1577,7 +1592,11 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	go func() {
 		_ = cmd.Wait()
 	}()
-	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start}, nil
+	metadata := map[string]any{}
+	if config.RunAsUser != "" {
+		metadata["run_as_user"] = config.RunAsUser
+	}
+	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start, Metadata: metadata}, nil
 }
 
 func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervisorID, scratch, pipePath, eventPath string) (supervisionLaunchResult, error) {
@@ -1593,8 +1612,9 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		SupervisorID:    supervisorID,
 		ScratchDir:      filepath.Dir(scratch),
 		Command:         config.Command,
-		Env:             supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken),
+		Env:             supervisedPTYHelperSpecEnv(config, supervisorID),
 		WorkingDir:      config.RepoRoot,
+		RunAsUser:       config.RunAsUser,
 		PacketInputPath: pipePath,
 		RequireTmux:     config.RequireTmux,
 	}
@@ -1655,6 +1675,9 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		"helper_launch_spec_path": specPath,
 		"helper_events_path":      eventPath,
 	}
+	if config.RunAsUser != "" {
+		metadata["run_as_user"] = config.RunAsUser
+	}
 	if tmux := tmuxMetadataFromHelperEvents(events); tmux != nil {
 		metadata["tmux"] = tmux
 		if agentStart == "" {
@@ -1701,8 +1724,9 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 		SchemaVersion:   gosupervisor.HelperLaunchSchemaVersion,
 		SupervisorID:    supervisor.SupervisorID,
 		ScratchDir:      filepath.Dir(supervisor.ScratchPath),
-		Env:             []string{"PATH=" + supervisedPath()},
+		Env:             rebridgeHelperEnv(supervisor),
 		WorkingDir:      supervisorWorkingDir(supervisor),
+		RunAsUser:       supervisorRunAsUser(supervisor.Metadata),
 		PacketInputPath: supervisor.StdinPipePath,
 		RebridgeTmux:    &identity,
 	}
@@ -1751,6 +1775,9 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 		"helper_pid":            cmd.Process.Pid,
 		"helper_pid_start_time": helperStart,
 		"helper_events_path":    eventPath,
+	}
+	if runAsUser := supervisorRunAsUser(supervisor.Metadata); runAsUser != "" {
+		metadata["run_as_user"] = runAsUser
 	}
 	agentStart := identity.PaneStartToken
 	if tmux := tmuxMetadataFromHelperEvents(events); tmux != nil {
@@ -2499,6 +2526,162 @@ func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisor
 	return mergeEnvReplacing(supervisedEnvPassThrough(os.Environ()), entries)
 }
 
+func supervisedLaneEnv(config supervisionStartConfig, supervisorID string) []string {
+	adapter := config.adapterName()
+	if strings.TrimSpace(config.RunAsUser) == "" {
+		return supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+	}
+	entries := supervisedEnvEntries(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+	base := supervisedRunAsPassThrough(os.Environ(), config.RunAsUser)
+	if endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, os.Environ()); err == nil && strings.TrimSpace(endpoint) != "" {
+		base = mergeEnvReplacing(base, []string{"STRIATUM_MCP_URL=" + endpoint})
+	}
+	return mergeEnvReplacing(base, entries)
+}
+
+func supervisedPTYHelperSpecEnv(config supervisionStartConfig, supervisorID string) []string {
+	if strings.TrimSpace(config.RunAsUser) == "" {
+		return supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+	}
+	return supervisedLaneEnv(config, supervisorID)
+}
+
+func rebridgeHelperEnv(supervisor supervisorControlRow) []string {
+	runAsUser := supervisorRunAsUser(supervisor.Metadata)
+	if runAsUser == "" {
+		return []string{"PATH=" + supervisedPath()}
+	}
+	env := []string{"PATH=" + supervisedPath()}
+	env = append(env, laneUserIdentityEnv(runAsUser)...)
+	return env
+}
+
+func supervisedRunAsPassThrough(base []string, runAsUser string) []string {
+	out := make([]string, 0, len(supervisedEnvAllowlistKeys))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		switch key {
+		case "STRIATUM_MCP_URL",
+			"STRIATUM_MCP_ADDR",
+			"STRIATUM_MCP_PORT",
+			"STRIATUM_DAEMON_MCP_HTTP_URL",
+			"STRIATUM_DAEMON_MCP_HTTP_ENDPOINT_FILE",
+			"STRIATUM_DAEMON_MCP_HTTP_ADDR",
+			"STRIATUM_DAEMON_MCP_HTTP_PORT",
+			"STRIATUM_DAEMON_RUNTIME_DIR",
+			"TERM",
+			"COLORTERM",
+			"LANG",
+			"LANGUAGE",
+			"TZ":
+			out = append(out, entry)
+		default:
+			if strings.HasPrefix(key, "LC_") {
+				out = append(out, entry)
+			}
+		}
+	}
+	return mergeEnvReplacing(out, laneUserIdentityEnv(runAsUser))
+}
+
+func laneUserIdentityEnv(runAsUser string) []string {
+	runAsUser = strings.TrimSpace(runAsUser)
+	if runAsUser == "" {
+		return nil
+	}
+	entries := []string{
+		"USER=" + runAsUser,
+		"LOGNAME=" + runAsUser,
+	}
+	if home := laneOSUserHome(runAsUser); home != "" {
+		entries = append(entries, "HOME="+home)
+	}
+	return entries
+}
+
+var laneOSUserHome = func(name string) string {
+	u, err := user.Lookup(name)
+	if err != nil || strings.TrimSpace(u.HomeDir) == "" {
+		return ""
+	}
+	return u.HomeDir
+}
+
+func configuredLaneRunAsUser() string {
+	laneUser := strings.TrimSpace(os.Getenv(supervisedLaneOSUserEnv))
+	if laneUser == "" {
+		return ""
+	}
+	daemonUser := currentOSUsername()
+	if daemonUser != "" && sameOSUsername(laneUser, daemonUser) {
+		return ""
+	}
+	return laneUser
+}
+
+func currentOSUsername() string {
+	if u, err := user.Current(); err == nil && strings.TrimSpace(u.Username) != "" {
+		return strings.TrimSpace(u.Username)
+	}
+	return strings.TrimSpace(os.Getenv("USER"))
+}
+
+func sameOSUsername(a, b string) bool {
+	a = strings.TrimSpace(a)
+	b = strings.TrimSpace(b)
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	return strings.HasSuffix(b, `\`+a)
+}
+
+func supervisedLaneCommandContext(ctx context.Context, command []string, workingDir, runAsUser string, env []string) *exec.Cmd {
+	if strings.TrimSpace(runAsUser) == "" {
+		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
+		cmd.Dir = workingDir
+		cmd.Env = env
+		return cmd
+	}
+	args := []string{"-n", "-u", strings.TrimSpace(runAsUser), "--", "env", "-i"}
+	args = append(args, supervisedRunAsExecEnv(env)...)
+	args = append(args, command...)
+	cmd := exec.CommandContext(ctx, "sudo", args...)
+	cmd.Dir = workingDir
+	return cmd
+}
+
+func supervisedRunAsExecEnv(env []string) []string {
+	seen := map[string]int{}
+	for i, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			seen[key] = i
+		}
+	}
+	out := make([]string, 0, len(seen))
+	hasPath := false
+	for i, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || seen[key] != i {
+			continue
+		}
+		if key == "PATH" {
+			hasPath = true
+		}
+		out = append(out, entry)
+	}
+	if !hasPath {
+		out = append([]string{"PATH=" + supervisedPath()}, out...)
+	}
+	return out
+}
+
 func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken string) []string {
 	entries := []string{
 		"PATH=" + supervisedPath(),
@@ -2801,6 +2984,26 @@ func metadataString(value any) string {
 		return strings.TrimSpace(text)
 	}
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func supervisorRunAsUser(metadata map[string]any) string {
+	if runAsUser := strings.TrimSpace(metadataString(metadata["run_as_user"])); runAsUser != "" {
+		return runAsUser
+	}
+	if tmux := asMap(metadata["tmux"]); len(tmux) > 0 {
+		return strings.TrimSpace(metadataString(tmux["run_as_user"]))
+	}
+	return ""
+}
+
+func tmuxRunnerForSupervisorMetadata(metadata map[string]any) gosupervisor.TmuxRunner {
+	runAsUser := supervisorRunAsUser(metadata)
+	if runAsUser == "" {
+		return supervisionTmuxRunner
+	}
+	env := []string{"PATH=" + supervisedPath()}
+	env = append(env, laneUserIdentityEnv(runAsUser)...)
+	return gosupervisor.RunAsTmuxRunner(runAsUser, env)
 }
 
 func pidAliveLocal(pid int) bool {

@@ -29,6 +29,7 @@ type LaunchSpec struct {
 	Command       []string          // exec argv
 	Env           []string          // additional KEY=VAL entries (merged with os.Environ)
 	WorkingDir    string            // wd for the child
+	RunAsUser     string            // optional OS user for lane process/tmux execution
 	StdinPipePath string            // FIFO path; daemon writes packets here
 	StdoutPath    string            // DEVNULL by default; per D028, no transcript capture
 	StderrPath    string            // DEVNULL by default
@@ -58,6 +59,85 @@ func getEnvValue(env []string, key string) string {
 	return ""
 }
 
+func commandContext(ctx context.Context, spec LaunchSpec, program string, args ...string) *exec.Cmd {
+	path, cmdArgs, cmdEnv := commandInvocation(strings.TrimSpace(spec.RunAsUser), spec.Env, program, args...)
+	cmd := exec.CommandContext(ctx, path, cmdArgs...)
+	cmd.Dir = spec.WorkingDir
+	cmd.Env = cmdEnv
+	return cmd
+}
+
+func commandInvocation(runAsUser string, env []string, program string, args ...string) (string, []string, []string) {
+	if strings.TrimSpace(runAsUser) == "" {
+		return program, append([]string(nil), args...), mergeEnv(os.Environ(), env)
+	}
+	sudoArgs := []string{"-n", "-u", strings.TrimSpace(runAsUser), "--", "env", "-i"}
+	sudoArgs = append(sudoArgs, sanitizedRunAsEnv(env)...)
+	sudoArgs = append(sudoArgs, program)
+	sudoArgs = append(sudoArgs, args...)
+	return "sudo", sudoArgs, nil
+}
+
+func sanitizedRunAsEnv(env []string) []string {
+	out := dedupeEnvLastWins(env)
+	if getEnvValue(out, "PATH") == "" {
+		out = append([]string{"PATH=" + defaultRunAsPath()}, out...)
+	}
+	return out
+}
+
+func dedupeEnvLastWins(env []string) []string {
+	last := map[string]int{}
+	for i, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			last[key] = i
+		}
+	}
+	out := make([]string, 0, len(last))
+	for i, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || last[key] != i {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func defaultRunAsPath() string {
+	if path := strings.TrimSpace(os.Getenv("PATH")); path != "" {
+		return path
+	}
+	return "/usr/local/bin:/usr/bin:/bin"
+}
+
+func runAsMetadata(runAsUser string) map[string]any {
+	if strings.TrimSpace(runAsUser) == "" {
+		return nil
+	}
+	return map[string]any{"run_as_user": strings.TrimSpace(runAsUser)}
+}
+
+func withRunAsMetadata(metadata map[string]any, runAsUser string) map[string]any {
+	if strings.TrimSpace(runAsUser) == "" {
+		return metadata
+	}
+	out := map[string]any{}
+	for key, value := range metadata {
+		out[key] = value
+	}
+	out["run_as_user"] = strings.TrimSpace(runAsUser)
+	return out
+}
+
+func tmuxRunnerForSpec(spec LaunchSpec) TmuxRunner {
+	if strings.TrimSpace(spec.RunAsUser) == "" {
+		return DefaultTmuxRunner()
+	}
+	return RunAsTmuxRunner(spec.RunAsUser, spec.Env)
+}
+
 // Launch starts the supervised child. UsePTY=true allocates a pseudo-tty
 // via creack/pty and threads the master back as the daemon's stdin handle
 // for packet delivery (V1.6 F-pty closure). UsePTY=false uses os.Pipe +
@@ -76,9 +156,7 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 		return launchPTY(ctx, supervisorID, spec)
 	}
 
-	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
-	cmd.Dir = spec.WorkingDir
-	cmd.Env = mergeEnv(os.Environ(), spec.Env)
+	cmd := commandContext(ctx, spec, spec.Command[0], spec.Command[1:]...)
 
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
@@ -109,6 +187,7 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 		PID:         cmd.Process.Pid,
 		StdinWriter: stdinW,
 		Cmd:         cmd,
+		Metadata:    runAsMetadata(spec.RunAsUser),
 	}, nil
 }
 
@@ -145,7 +224,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	sessionName := tmuxSessionName(runID, laneID, supervisorID)
 
 	// Kill existing session with the same name if any (to avoid collisions / stale sessions)
-	_ = runTmuxSetupCommand(ctx, "kill-session", "-t", sessionName)
+	_ = runTmuxSetupCommand(ctx, spec, "kill-session", "-t", sessionName)
 
 	// 1. Create a detached tmux session with a placeholder process. The real
 	// lane command is respawned only after remain-on-exit is set, so even a
@@ -162,32 +241,31 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	newSessionArgs = append(newSessionArgs, tmuxEnvArgs(spec.Env)...)
 	newSessionArgs = append(newSessionArgs, "--")
 	newSessionArgs = append(newSessionArgs, "sh", "-c", "while :; do sleep 3600; done")
-	createCmd := exec.Command("tmux", newSessionArgs...)
-	createCmd.Env = mergeEnv(os.Environ(), spec.Env)
+	createCmd := commandContext(context.Background(), spec, "tmux", newSessionArgs...)
 	if err := runPreparedTmuxSetupCommand(ctx, createCmd, newSessionArgs...); err != nil {
 		return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
 	}
 	cleanupTmux := true
 	defer func() {
 		if cleanupTmux {
-			_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+			_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
 		}
 	}()
 
 	// 2. Set tmux options before the real command is allowed to run.
-	if err := runTmuxSetupCommand(ctx, "set-option", "-t", sessionName, "status", "off"); err != nil {
+	if err := runTmuxSetupCommand(ctx, spec, "set-option", "-t", sessionName, "status", "off"); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to configure tmux status: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
 	}
-	if err := runTmuxSetupCommand(ctx, "set-window-option", "-t", sessionName, "remain-on-exit", "on"); err != nil {
+	if err := runTmuxSetupCommand(ctx, spec, "set-window-option", "-t", sessionName, "remain-on-exit", "on"); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to configure tmux remain-on-exit: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
 	}
@@ -196,18 +274,17 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	respawnArgs = append(respawnArgs, tmuxEnvArgs(spec.Env)...)
 	respawnArgs = append(respawnArgs, "--")
 	respawnArgs = append(respawnArgs, spec.Command...)
-	respawnCmd := exec.CommandContext(ctx, "tmux", respawnArgs...)
-	respawnCmd.Env = mergeEnv(os.Environ(), spec.Env)
+	respawnCmd := commandContext(ctx, spec, "tmux", respawnArgs...)
 	if err := runPreparedTmuxSetupCommand(ctx, respawnCmd, respawnArgs...); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to respawn tmux lane command: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_respawn_failed"))
 	}
 
-	identity, err := CaptureTmuxIdentity(ctx, DefaultTmuxRunner(), sessionName)
+	identity, err := CaptureTmuxIdentity(ctx, tmuxRunnerForSpec(spec), sessionName)
 	if err != nil || identity.WindowID == "" || identity.PaneID == "" || identity.PanePID <= 0 {
 		if spec.RequireTmux {
 			if err != nil {
@@ -215,7 +292,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 			}
 			return nil, fmt.Errorf("supervisor: tmux identity capture failed")
 		}
-		_ = runTmuxSetupCommand(context.Background(), "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_identity_capture_failed"))
 	}
@@ -234,9 +311,7 @@ func attachTmuxPTY(ctx context.Context, identity TmuxIdentity, spec LaunchSpec) 
 	if strings.TrimSpace(identity.SessionName) == "" {
 		return nil, fmt.Errorf("supervisor: tmux session name is required")
 	}
-	attachCmd := exec.CommandContext(ctx, "tmux", "attach-session", "-t", identity.SessionName)
-	attachCmd.Dir = spec.WorkingDir
-	attachCmd.Env = mergeEnv(os.Environ(), spec.Env)
+	attachCmd := commandContext(ctx, spec, "tmux", "attach-session", "-t", identity.SessionName)
 
 	ptmx, err := pty.Start(attachCmd)
 	if err != nil {
@@ -247,9 +322,7 @@ func attachTmuxPTY(ctx context.Context, identity TmuxIdentity, spec LaunchSpec) 
 		StdinWriter: ptmx,
 		Cmd:         attachCmd,
 		AttachPID:   attachCmd.Process.Pid,
-		Metadata: map[string]any{
-			"tmux": tmuxBackedMetadata(identity, attachCmd.Process.Pid),
-		},
+		Metadata:    tmuxResultMetadata(identity, attachCmd.Process.Pid, spec.RunAsUser),
 	}, nil
 }
 
@@ -261,8 +334,8 @@ func tmuxEnvArgs(env []string) []string {
 	return args
 }
 
-func runTmuxSetupCommand(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+func runTmuxSetupCommand(ctx context.Context, spec LaunchSpec, args ...string) error {
+	cmd := commandContext(ctx, spec, "tmux", args...)
 	return runPreparedTmuxSetupCommand(ctx, cmd, args...)
 }
 
@@ -309,9 +382,7 @@ func tmuxSetupTimeout() time.Duration {
 }
 
 func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
-	cmd := exec.CommandContext(ctx, spec.Command[0], spec.Command[1:]...)
-	cmd.Dir = spec.WorkingDir
-	cmd.Env = mergeEnv(os.Environ(), spec.Env)
+	cmd := commandContext(ctx, spec, spec.Command[0], spec.Command[1:]...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("supervisor: pty.Start: %w", err)
@@ -320,7 +391,7 @@ func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]an
 		PID:         cmd.Process.Pid,
 		StdinWriter: ptmx,
 		Cmd:         cmd,
-		Metadata:    metadata,
+		Metadata:    withRunAsMetadata(metadata, spec.RunAsUser),
 	}, nil
 }
 
@@ -380,7 +451,17 @@ func mergeEnv(base []string, updates []string) []string {
 	return append(out, updates...)
 }
 
-func tmuxBackedMetadata(identity TmuxIdentity, attachPID int) map[string]any {
+func tmuxResultMetadata(identity TmuxIdentity, attachPID int, runAsUser string) map[string]any {
+	metadata := map[string]any{
+		"tmux": tmuxBackedMetadata(identity, attachPID, runAsUser),
+	}
+	if strings.TrimSpace(runAsUser) != "" {
+		metadata["run_as_user"] = strings.TrimSpace(runAsUser)
+	}
+	return metadata
+}
+
+func tmuxBackedMetadata(identity TmuxIdentity, attachPID int, runAsUser string) map[string]any {
 	metadata := map[string]any{
 		"state":             "backed",
 		"session_name":      identity.SessionName,
@@ -393,6 +474,9 @@ func tmuxBackedMetadata(identity TmuxIdentity, attachPID int) map[string]any {
 	}
 	if identity.PaneStartToken != "" {
 		metadata["pane_start_token"] = identity.PaneStartToken
+	}
+	if strings.TrimSpace(runAsUser) != "" {
+		metadata["run_as_user"] = strings.TrimSpace(runAsUser)
 	}
 	return metadata
 }

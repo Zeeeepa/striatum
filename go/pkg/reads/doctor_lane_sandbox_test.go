@@ -45,6 +45,9 @@ func TestLaneSandboxDoctorBlock(t *testing.T) {
 		if block["lane_pg_isolated"] != true {
 			t.Fatalf("expected lane_pg_isolated=true, got %#v", block["lane_pg_isolated"])
 		}
+		if block["daemon_launch_enforced"] != true || block["daemon_launch_mechanism"] != "sudo -n -u striatum-lane" {
+			t.Fatalf("expected daemon launch enforcement for adopted user, got %#v", block)
+		}
 		if len(warnings) != 0 {
 			t.Fatalf("expected no warning for an adopted lane user, got %#v", warnings)
 		}

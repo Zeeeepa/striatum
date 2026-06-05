@@ -28,10 +28,13 @@ follow:
    that, hitting an artifact-publish conflict, connected directly and tried to
    delete artifact rows and disable an append-only trigger.
 
-Peer-auth reachability cannot be closed in Go from inside the daemon — it is an
-**OS / PostgreSQL configuration** property. The fix is to run lanes as a
-dedicated, unprivileged OS user that has **no PostgreSQL role** and is denied by
-`pg_hba.conf`, so the lane's only control plane is the MCP surface.
+Peer-auth reachability is ultimately an **OS / PostgreSQL configuration**
+property. The daemon now consumes `STRIATUM_LANE_OS_USER` and launches supervised
+lane commands/tmux sessions through `sudo -n -u <lane-user> -- env -i ...`; the
+host must still provide the dedicated, unprivileged OS user, noninteractive sudo
+permission, target-repository access, and PostgreSQL rejection rule. The lane
+user must have **no PostgreSQL role** and be denied by `pg_hba.conf`, so the
+lane's only control plane is the MCP surface.
 
 `striatum doctor` reports this posture under `lane_sandbox` and emits a
 `lane_pg_reachable` warning until the isolation is adopted (see
@@ -74,24 +77,37 @@ local   all   striatum-lane   reject
 Reload PostgreSQL: `sudo systemctl reload postgresql`. The daemon's own role is
 unaffected — it continues to authenticate as before.
 
-### 4. Run supervised lanes as the lane user
+### 4. Permit the daemon to launch lanes as the lane user
 
-Configure your process manager / supervisor to spawn supervised-lane processes
-as `striatum-lane` (for a systemd-run daemon, this is the launch path that
-drops privileges to the lane user before `exec`). The lane keeps access to the
-target work tree and the MCP socket; it loses peer-auth access to Postgres.
+Grant the daemon OS user passwordless sudo to only the lane account. For example,
+if the daemon runs as `striatumd`, add a sudoers fragment with `visudo`:
 
-### 5. Declare adoption to `doctor`
+```
+striatumd ALL=(striatum-lane) NOPASSWD: ALL
+```
+
+The daemon uses `sudo -n -u striatum-lane -- env -i ...` when
+`STRIATUM_LANE_OS_USER=striatum-lane` is present. If sudo prompts or the rule is
+missing, supervised lane launch fails closed instead of silently falling back to
+the daemon's OS user.
+
+Also ensure `striatum-lane` can read/write the target repository paths that the
+workflow allows. Do not grant access to the daemon's private PostgreSQL socket
+directory, daemon config, or `.striatum/` scratch.
+
+### 5. Enable daemon launch enforcement and declare adoption to `doctor`
 
 Set the lane OS user in the daemon's environment so `striatum doctor` confirms
-the isolation and stops warning:
+the isolation, stops warning, and supervised lanes actually launch as that user:
 
 ```sh
 # e.g. in the daemon's systemd unit / environment:
 STRIATUM_LANE_OS_USER=striatum-lane
 ```
 
-`doctor` checks that this user exists and differs from the daemon's user.
+`doctor` checks that this user exists and differs from the daemon's user, and
+reports `daemon_launch_enforced=true` with
+`daemon_launch_mechanism="sudo -n -u striatum-lane"` when the posture is adopted.
 
 ### 6. Enable the secure-profile doctor gate
 

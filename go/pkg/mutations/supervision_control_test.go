@@ -710,6 +710,81 @@ func TestSupervisedEnvExcludesDaemonSecrets(t *testing.T) {
 	}
 }
 
+func TestSupervisedLaneEnvRunAsDropsDaemonIdentity(t *testing.T) {
+	origHome := laneOSUserHome
+	t.Cleanup(func() { laneOSUserHome = origHome })
+	laneOSUserHome = func(name string) string {
+		if name == "striatum-lane" {
+			return "/var/lib/striatum-lane"
+		}
+		return ""
+	}
+	pathDir := t.TempDir()
+	for k, v := range map[string]string{
+		"HOME":                           "/home/daemon",
+		"USER":                           "daemonuser",
+		"LOGNAME":                        "daemonuser",
+		"PATH":                           "/usr/bin",
+		"XDG_CONFIG_HOME":                "/home/daemon/.config",
+		"XDG_CACHE_HOME":                 "/home/daemon/.cache",
+		"SSH_AUTH_SOCK":                  "/run/user/1000/ssh-agent",
+		"STRIATUM_MCP_URL":               "http://127.0.0.1:9999/mcp",
+		"STRIATUM_MCP_TOKEN":             "shared-override-bearer",
+		"DATABASE_URL":                   "postgres:///striatumd",
+		"PGHOST":                         "/var/run/postgresql",
+		"TERM":                           "xterm-256color",
+		"LC_ALL":                         "en_US.UTF-8",
+		"STRIATUM_SUPERVISED_PATH_DIRS":  pathDir,
+		"STRIATUM_SUPERVISED_STDERR_LOG": "/tmp/daemon-debug.log",
+	} {
+		t.Setenv(k, v)
+	}
+	const boundToken = "stok_bound.session-secret-not-real"
+	env := supervisedLaneEnv(supervisionStartConfig{
+		RepositoryID:    "repo_1",
+		RunID:           "run_1",
+		SessionID:       "sess_1",
+		LaneID:          "lane_1",
+		RepoRoot:        "/repo",
+		Command:         []string{"/bin/true"},
+		OriginalCommand: []string{"claude"},
+		RunAsUser:       "striatum-lane",
+		CapabilityToken: boundToken,
+	}, "sup_1")
+
+	for _, banned := range []string{
+		"DATABASE_URL",
+		"PGHOST",
+		"XDG_CONFIG_HOME",
+		"XDG_CACHE_HOME",
+		"SSH_AUTH_SOCK",
+		"STRIATUM_SUPERVISED_STDERR_LOG",
+	} {
+		if hasEnvKey(env, banned) {
+			t.Fatalf("run-as lane env leaked %s: %#v", banned, env)
+		}
+	}
+	for key, want := range map[string]string{
+		"HOME":               "/var/lib/striatum-lane",
+		"USER":               "striatum-lane",
+		"LOGNAME":            "striatum-lane",
+		"STRIATUM_MCP_URL":   "http://127.0.0.1:9999/mcp",
+		"STRIATUM_MCP_TOKEN": boundToken,
+		"STRIATUM_RUN_ID":    "run_1",
+		"TERM":               "xterm-256color",
+		"LC_ALL":             "en_US.UTF-8",
+	} {
+		if got := envValue(t, env, key); got != want {
+			t.Fatalf("%s = %q, want %q in run-as env: %#v", key, got, want, env)
+		}
+	}
+	for _, entry := range env {
+		if strings.Contains(entry, "shared-override-bearer") || strings.Contains(entry, "/home/daemon") {
+			t.Fatalf("daemon identity/secret leaked into run-as env: %q", entry)
+		}
+	}
+}
+
 func hasEnvKey(env []string, key string) bool {
 	prefix := key + "="
 	for _, entry := range env {

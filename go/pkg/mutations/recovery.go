@@ -107,7 +107,7 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 				probePID = supervisorPID
 			}
 			expectedStart, _ := row["supervisor_pid_start_time"].(string)
-			live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, metadata, probePID, expectedStart)
+			live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(metadata), metadata, probePID, expectedStart)
 			alive := live.Alive
 			if live.Backed != "tmux" && pid > 0 {
 				alive = pidAlive(pid)

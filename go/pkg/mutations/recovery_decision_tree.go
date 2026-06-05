@@ -550,7 +550,7 @@ func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool 
 	if expectedStart == "<nil>" {
 		expectedStart = ""
 	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, metadata, pid, expectedStart)
+	live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(metadata), metadata, pid, expectedStart)
 	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
 		return false // cannot determine; do not requeue a possibly-live lane
 	}

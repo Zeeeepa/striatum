@@ -517,7 +517,7 @@ func scanReportSupervisor(row db.Row, notFound error) (supervisorReportRow, erro
 }
 
 func attachExitWithDaemonObservedLiveness(ctx context.Context, supervisor supervisorReportRow, event superviseReportEvent) superviseReportEvent {
-	live := gosupervisor.ProbeLaneLiveness(ctx, supervisionTmuxRunner, supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
+	live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(supervisor.Metadata), supervisor.Metadata, supervisor.PID, supervisor.PIDStartTime)
 	if live.Backed != "tmux" {
 		return event
 	}

@@ -8,24 +8,25 @@ type TmuxMeta struct {
 }
 
 type TmuxMetaBlock struct {
-	State                  string                 `json:"state,omitempty"`
-	SessionName            string                 `json:"session_name,omitempty"`
-	WindowID               string                 `json:"window_id,omitempty"`
-	PaneID                 string                 `json:"pane_id,omitempty"`
-	PaneStartToken         string                 `json:"pane_start_token,omitempty"`
-	AttachCommand          string                 `json:"attach_command,omitempty"`
-	UnavailableReason      string                 `json:"unavailable_reason,omitempty"`
-	CapturedAt             string                 `json:"captured_at,omitempty"`
-	ProbeSkippedAt         string                 `json:"probe_skipped_at,omitempty"`
-	LastOkAt               string                 `json:"last_ok_at,omitempty"`
-	LastUnavailableDetail  string                 `json:"last_unavailable_detail,omitempty"`
-	LivenessState          string                 `json:"liveness_state,omitempty"`
-	PanePID                int                    `json:"pane_pid,omitempty"`
-	AttachClientPID        int                    `json:"attach_client_pid,omitempty"`
-	ProbeUnavailableCount  int                    `json:"probe_unavailable_count,omitempty"`
-	DeliveryLiveness       *DeliveryLivenessBlock `json:"delivery_liveness,omitempty"`
-	AttachClientLastExit   map[string]any         `json:"attach_client_last_exit,omitempty"`
-	Liveness               map[string]any         `json:"liveness,omitempty"`
+	State                 string                 `json:"state,omitempty"`
+	SessionName           string                 `json:"session_name,omitempty"`
+	WindowID              string                 `json:"window_id,omitempty"`
+	PaneID                string                 `json:"pane_id,omitempty"`
+	PaneStartToken        string                 `json:"pane_start_token,omitempty"`
+	AttachCommand         string                 `json:"attach_command,omitempty"`
+	UnavailableReason     string                 `json:"unavailable_reason,omitempty"`
+	CapturedAt            string                 `json:"captured_at,omitempty"`
+	ProbeSkippedAt        string                 `json:"probe_skipped_at,omitempty"`
+	LastOkAt              string                 `json:"last_ok_at,omitempty"`
+	LastUnavailableDetail string                 `json:"last_unavailable_detail,omitempty"`
+	LivenessState         string                 `json:"liveness_state,omitempty"`
+	RunAsUser             string                 `json:"run_as_user,omitempty"`
+	PanePID               int                    `json:"pane_pid,omitempty"`
+	AttachClientPID       int                    `json:"attach_client_pid,omitempty"`
+	ProbeUnavailableCount int                    `json:"probe_unavailable_count,omitempty"`
+	DeliveryLiveness      *DeliveryLivenessBlock `json:"delivery_liveness,omitempty"`
+	AttachClientLastExit  map[string]any         `json:"attach_client_last_exit,omitempty"`
+	Liveness              map[string]any         `json:"liveness,omitempty"`
 }
 
 type DeliveryLivenessBlock struct {

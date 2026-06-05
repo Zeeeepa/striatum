@@ -84,6 +84,54 @@ func TestRunHelperPTYCatPacketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestRunHelperPassesRunAsUserToLaunchSpec(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	var got LaunchSpec
+	helperLaunch = func(_ context.Context, _ string, _ string, spec LaunchSpec) (*LaunchResult, error) {
+		got = spec
+		cmd := exec.Command("sh", "-c", "exit 0")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return &LaunchResult{
+			PID:         cmd.Process.Pid,
+			Cmd:         cmd,
+			StdinWriter: eofPTY{},
+			Metadata:    map[string]any{"run_as_user": spec.RunAsUser},
+		}, nil
+	}
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_run_as",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/true"},
+		Env:           []string{"PATH=/usr/bin"},
+		RunAsUser:     "striatum-lane",
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	if got.RunAsUser != "striatum-lane" {
+		t.Fatalf("RunAsUser = %q, want striatum-lane", got.RunAsUser)
+	}
+	if len(got.Env) != 1 || got.Env[0] != "PATH=/usr/bin" {
+		t.Fatalf("Env = %#v, want helper launch env preserved", got.Env)
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	if len(decoded) == 0 || decoded[0].Payload["metadata"] == nil {
+		t.Fatalf("agent_started metadata missing from events: %#v", decoded)
+	}
+}
+
 func TestRunHelperEmitsLifecyclePacketAndProgressEvents(t *testing.T) {
 	if _, err := os.Stat("/bin/cat"); err != nil {
 		t.Skip("/bin/cat not present; skipping helper event test")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -127,7 +128,7 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 	agentPIDAlive := false
 	var progress map[string]any
 	if hasPID && supervisorActiveStatesRead[state] {
-		live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(supervisor["pid_start_time"]))
+		live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunnerForMetadata(pointerMetadata), pointerMetadata, pid, superviseString(supervisor["pid_start_time"]))
 		attachTmuxLiveness(supervisor, live)
 		if live.Backed == "plain_pty" {
 			pidIdentityReason := live.Class
@@ -623,7 +624,7 @@ func reattachStatusRowsWithOptions(ctx context.Context, runner db.Runner, reposi
 func reattachStatusView(ctx context.Context, row map[string]any) map[string]any {
 	pid, hasPID := intValueOptional(row["pid"])
 	pointerMetadata := superviseObject(row["pointer_metadata_json"])
-	live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, pointerMetadata, pid, superviseString(row["pid_start_time"]))
+	live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunnerForMetadata(pointerMetadata), pointerMetadata, pid, superviseString(row["pid_start_time"]))
 	pidAlive := hasPID && live.Alive
 	currentStart := ""
 	if live.Backed == "tmux" && live.Tmux != nil && live.Tmux.ObservedStartTok != "" {
@@ -970,6 +971,9 @@ func attachSupervisorTmux(view map[string]any, metadataKey string) {
 	if mode := superviseString(metadata["agent_loop_mode"]); mode != "" {
 		view["agent_loop_mode"] = mode
 	}
+	if runAsUser := superviseRunAsUser(metadata); runAsUser != "" {
+		view["run_as_user"] = runAsUser
+	}
 	if termination := processTerminationMetadata(superviseObject(metadata["last_process_termination"])); len(termination) > 0 {
 		view["last_process_termination"] = termination
 	}
@@ -1147,9 +1151,48 @@ func attachTmuxLiveness(view map[string]any, live gosupervisor.LaneLiveness) {
 }
 
 func attachTmuxLivenessFromMetadata(ctx context.Context, view map[string]any, metadata map[string]any, pid int, expectedStart string) gosupervisor.LaneLiveness {
-	live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunner, metadata, pid, expectedStart)
+	live := gosupervisor.ProbeLaneLiveness(ctx, superviseTmuxRunnerForMetadata(metadata), metadata, pid, expectedStart)
 	attachTmuxLiveness(view, live)
 	return live
+}
+
+func superviseTmuxRunnerForMetadata(metadata map[string]any) gosupervisor.TmuxRunner {
+	runAsUser := superviseRunAsUser(metadata)
+	if runAsUser == "" {
+		return superviseTmuxRunner
+	}
+	env := []string{"PATH=" + supervisePath()}
+	env = append(env, superviseLaneUserIdentityEnv(runAsUser)...)
+	return gosupervisor.RunAsTmuxRunner(runAsUser, env)
+}
+
+func superviseRunAsUser(metadata map[string]any) string {
+	if runAsUser := strings.TrimSpace(superviseString(metadata["run_as_user"])); runAsUser != "" {
+		return runAsUser
+	}
+	if tmux := superviseObject(metadata["tmux"]); len(tmux) > 0 {
+		return strings.TrimSpace(superviseString(tmux["run_as_user"]))
+	}
+	return ""
+}
+
+func superviseLaneUserIdentityEnv(runAsUser string) []string {
+	runAsUser = strings.TrimSpace(runAsUser)
+	if runAsUser == "" {
+		return nil
+	}
+	entries := []string{"USER=" + runAsUser, "LOGNAME=" + runAsUser}
+	if u, err := user.Lookup(runAsUser); err == nil && strings.TrimSpace(u.HomeDir) != "" {
+		entries = append(entries, "HOME="+u.HomeDir)
+	}
+	return entries
+}
+
+func supervisePath() string {
+	if path := strings.TrimSpace(os.Getenv("PATH")); path != "" {
+		return path
+	}
+	return "/usr/local/bin:/usr/bin:/bin"
 }
 
 func tmuxMetadata(metadata map[string]any) map[string]any {
@@ -1158,7 +1201,7 @@ func tmuxMetadata(metadata map[string]any) map[string]any {
 		return nil
 	}
 	tmux := map[string]any{}
-	for _, key := range []string{"state", "session_name", "window_id", "pane_id", "pane_start_token", "attach_command", "unavailable_reason", "captured_at", "probe_skipped_at", "last_ok_at", "last_unavailable_detail", "liveness_state"} {
+	for _, key := range []string{"state", "session_name", "window_id", "pane_id", "pane_start_token", "attach_command", "unavailable_reason", "captured_at", "probe_skipped_at", "last_ok_at", "last_unavailable_detail", "liveness_state", "run_as_user"} {
 		if value := superviseString(raw[key]); value != "" {
 			tmux[key] = value
 		}

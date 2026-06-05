@@ -75,8 +75,25 @@ type execTmuxRunner struct {
 	timeout time.Duration
 }
 
+type runAsTmuxRunner struct {
+	runAsUser string
+	env       []string
+	timeout   time.Duration
+}
+
 func DefaultTmuxRunner() TmuxRunner {
 	return execTmuxRunner{timeout: tmuxProbeTimeout()}
+}
+
+func RunAsTmuxRunner(runAsUser string, env []string) TmuxRunner {
+	if strings.TrimSpace(runAsUser) == "" {
+		return DefaultTmuxRunner()
+	}
+	return runAsTmuxRunner{
+		runAsUser: strings.TrimSpace(runAsUser),
+		env:       append([]string(nil), env...),
+		timeout:   tmuxProbeTimeout(),
+	}
 }
 
 func (r execTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
@@ -87,6 +104,32 @@ func (r execTmuxRunner) Run(ctx context.Context, args ...string) (string, error)
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, "tmux", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if runCtx.Err() != nil {
+		return stdout.String(), runCtx.Err()
+	}
+	if err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return stdout.String(), fmt.Errorf("%w: %s", err, detail)
+	}
+	return stdout.String(), nil
+}
+
+func (r runAsTmuxRunner) Run(ctx context.Context, args ...string) (string, error) {
+	timeout := r.timeout
+	if timeout <= 0 {
+		timeout = tmuxProbeTimeout()
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	spec := LaunchSpec{RunAsUser: r.runAsUser, Env: r.env}
+	cmd := commandContext(runCtx, spec, "tmux", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

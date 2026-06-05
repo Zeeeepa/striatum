@@ -31,6 +31,7 @@ type HelperLaunchSpec struct {
 	Command         []string      `json:"command"`
 	Env             []string      `json:"env,omitempty"`
 	WorkingDir      string        `json:"working_dir,omitempty"`
+	RunAsUser       string        `json:"run_as_user,omitempty"`
 	PacketInputPath string        `json:"packet_input_path,omitempty"`
 	RequireTmux     bool          `json:"require_tmux,omitempty"`
 	RebridgeTmux    *TmuxIdentity `json:"rebridge_tmux,omitempty"`

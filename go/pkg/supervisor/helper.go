@@ -98,6 +98,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		Command:     spec.Command,
 		Env:         spec.Env,
 		WorkingDir:  spec.WorkingDir,
+		RunAsUser:   spec.RunAsUser,
 		UsePTY:      true,
 		RequireTmux: spec.RequireTmux,
 	}

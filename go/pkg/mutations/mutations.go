@@ -973,7 +973,7 @@ func stopSupervisorsForTerminalSession(ctx context.Context, runner any, reposito
 		eventExtra := map[string]any{}
 		var signaled any
 		if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(metadata); ok {
-			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, tmuxIdentity, pid, pidStart)
+			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, metadata, tmuxIdentity, pid, pidStart)
 			signaled = signal
 			if note != "" {
 				eventExtra["tmux_stop_note"] = note

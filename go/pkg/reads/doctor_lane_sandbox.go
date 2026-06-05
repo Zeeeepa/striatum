@@ -56,11 +56,15 @@ func laneSandboxDoctorBlock() (map[string]any, []string, []string) {
 	laneUser := strings.TrimSpace(os.Getenv(laneOSUserEnv))
 	hardened := envBool(lanePGSocketHardenedEnv)
 	block := map[string]any{
-		"checked":            true,
-		"daemon_user":        daemonUser,
-		"proxy":              "configuration posture (no live PostgreSQL probe)",
-		"pg_socket_hardened": hardened,
-		"enforcement":        "advisory",
+		"checked":                    true,
+		"daemon_user":                daemonUser,
+		"proxy":                      "configuration posture (no live PostgreSQL probe)",
+		"pg_socket_hardened":         hardened,
+		"enforcement":                "advisory",
+		"launch_user_env":            laneOSUserEnv,
+		"daemon_launch_enforced":     false,
+		"daemon_launch_mechanism":    "same_os_user",
+		"requires_passwordless_sudo": false,
 	}
 	if hardened {
 		block["enforcement"] = "blocking"
@@ -74,6 +78,9 @@ func laneSandboxDoctorBlock() (map[string]any, []string, []string) {
 	if laneUser != "" && laneUser != daemonUser {
 		if lookupOSUser(laneUser) {
 			block["lane_pg_isolated"] = true
+			block["daemon_launch_enforced"] = true
+			block["daemon_launch_mechanism"] = "sudo -n -u " + laneUser
+			block["requires_passwordless_sudo"] = true
 			return block, nil, nil
 		}
 		block["lane_pg_isolated"] = false
