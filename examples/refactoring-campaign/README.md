@@ -61,6 +61,10 @@ workflow, not a failure.
 
 ## How to run
 
+The optional `skills/optional/refactoring-campaign/` skill automates this
+whole section — instantiation, stage ordering, artifact handoff, and the
+stop gates (see `skills/README.md` for install). Manually:
+
 The daemon is a hard prerequisite for every Striatum verb. Validate each
 stage, then prepare and start runs in order; later stages read earlier
 stages' finalized artifacts from the repository.
