@@ -27,6 +27,7 @@ chooser, see [`docs/WORKFLOW_TYPES.md`](../docs/reference/workflow-types.md).
 | `implementation-panel-flow/` | You want three independent implementation options, fixed-dimension scorecards, arbitration, dissent review, and a final decision. |
 | `falsification-gate-flow/` | You want a holder/falsifier dialogue gated by an adjudicator's collaboration ledger. |
 | `cross-examination-flow/` | You want a finding or proposal cross-examined before downstream publication. |
+| `refactoring-campaign/` | You want a goal-adjudicated, behavior-preserving refactoring campaign: three chained runs (goal selection, falsified plan gate, sliced execution with preservation review). |
 | `adapter-unavailable-flow/` | You want a validation fixture for unavailable adapters. |
 | `failed-review-revision-cycle/` | You want to exercise a failed bounded revision cycle. |
 

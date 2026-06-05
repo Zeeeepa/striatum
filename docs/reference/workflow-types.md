@@ -89,6 +89,7 @@ striatum workflow generate \
 | Challenge a published proposal with falsifier artifacts before committing | Falsification gate | `workflow generate --shape falsification_gate --option topic=...` |
 | Require challenge/rebuttal provenance before publishing a finding | Cross-examination gate | `workflow generate --shape cross_examination --option topic=...` |
 | Audit code, docs, RFC status, and operator adoption risk together | Three-lane code and docs audit | RFC 0076 operator workflow |
+| Execute a behavior-preserving refactoring campaign (goal selection, falsified plan gate, sliced execution) | Refactoring campaign (three chained runs) | `examples/refactoring-campaign/` |
 
 ## Lane Selection Heuristic
 
