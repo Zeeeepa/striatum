@@ -115,6 +115,21 @@ func TestPacketTaskPromptLeavesRootRelativePath(t *testing.T) {
 	}
 }
 
+func TestNoTargetsPacketUnchanged(t *testing.T) {
+	workflow := map[string]any{
+		"jobs": []any{
+			map[string]any{"id": "consumer", "type": "review"},
+		},
+	}
+	targets, err := interrogationTargetsForPacket(context.Background(), inertRunner{}, "repo_no_targets", "run_no_targets", workflow, "consumer")
+	if err != nil {
+		t.Fatalf("interrogationTargetsForPacket: %v", err)
+	}
+	if targets != nil {
+		t.Fatalf("targets = %#v, want nil", targets)
+	}
+}
+
 func TestDownstreamImplementationEnvelopeForPacketSurfacesReachableWriteScopes(t *testing.T) {
 	workflow := map[string]any{
 		"jobs": []any{
@@ -523,6 +538,82 @@ func TestClaimNextSuppressesSuperviseSendWithSelfDrivingSupervisor(t *testing.T)
 	}
 	if _, ok := nextSteps["self_claim_note"]; !ok {
 		t.Fatalf("expected self_claim_note: %#v", nextSteps)
+	}
+}
+
+func TestClaimNextProjectsExplicitInterrogationTargets(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_interrogation_targets"
+	runID := "run_" + repoID
+	targetSession := "sess_synth"
+	consumerSession := "sess_consumer"
+	consumerJob := "job_consumer"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id":  "wf",
+		"roles":        map[string]any{"synthesizer": map[string]any{}, "reviewer": map[string]any{}},
+		"lanes":        map[string]any{"claude": map[string]any{"display_model": "Claude", "capabilities": []any{"interrogate"}}},
+		"context_docs": []any{},
+		"jobs": []any{
+			map[string]any{"id": "design_synthesis", "interrogable": true},
+			map[string]any{"id": "explicit_consumer", "interrogation_targets": []any{map[string]any{"workflow_job_id": "design_synthesis", "required": true}}},
+		},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, targetSession, "synthesizer", "claude", nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, targetSession, "claude")
+	intgSeedSession(t, ctx, runner, repoID, runID, consumerSession, "reviewer", "claude", []string{"interrogate"}, "active")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, created_at, completed_at
+		) VALUES ($1,'job_synth',$2,'design_synthesis',2,'completed','synthesizer','Synthesis','synthesis','idem_synth','[]'::jsonb,NOW(),NOW())`,
+		repoID, runID); err != nil {
+		t.Fatalf("insert synth job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.events (repository_id, run_id, event_type, actor_session_id, job_id, payload_json, created_at)
+		VALUES ($1,$2,'session.awaiting_interrogation',$3,'job_synth','{"workflow_job_id":"design_synthesis","attempt":2}'::jsonb,NOW())`,
+		repoID, runID, targetSession); err != nil {
+		t.Fatalf("insert awaiting event: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, created_at
+		) VALUES ($1,$2,$3,'explicit_consumer',1,'queued','reviewer','Consumer','build','idem_consumer','[]'::jsonb,NOW())`,
+		repoID, consumerJob, runID); err != nil {
+		t.Fatalf("insert consumer job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_role_id, target_lane_id, created_at, updated_at
+		) VALUES ($1,'msg_consumer',$2,$3,'work','pending',0,'reviewer','claude',NOW(),NOW())`,
+		repoID, runID, consumerJob); err != nil {
+		t.Fatalf("insert consumer message: %v", err)
+	}
+
+	res, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": consumerSession}))
+	if err != nil {
+		t.Fatalf("claim explicit consumer: %v", err)
+	}
+	packet := asMap(res["packet"])
+	contextBlock := asMap(packet["context"])
+	targets := asList(contextBlock["interrogation_targets"])
+	if len(targets) != 1 {
+		t.Fatalf("packet interrogation_targets = %#v", contextBlock["interrogation_targets"])
+	}
+	target := asMap(targets[0])
+	if target["workflow_job_id"] != "design_synthesis" || target["required"] != true {
+		t.Fatalf("target identity = %#v", target)
+	}
+	if target["state"] != "available" || target["target_session_id"] != targetSession || intValue(target["target_attempt"]) != 2 {
+		t.Fatalf("target availability = %#v", target)
+	}
+	if !strings.Contains(fmt.Sprint(target["instruction"]), "Open interrogation") {
+		t.Fatalf("target instruction = %#v", target["instruction"])
 	}
 }
 

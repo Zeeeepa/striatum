@@ -1115,6 +1115,9 @@ func completeAutoRecoveredJob(ctx context.Context, runner any, repositoryID, job
 	}); err != nil {
 		return nil, err
 	}
+	if err := markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+		return nil, err
+	}
 	if err := maybeEnqueueDownstream(ctx, runner, repositoryID, jobID); err != nil {
 		return nil, err
 	}
@@ -1935,6 +1938,9 @@ func completeRecoveredJob(ctx context.Context, runner any, repositoryID, jobID, 
 	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "job.completed", sessionID, jobID, messageID, nil, leaseID, map[string]any{"summary": summary}); err != nil {
 		return nil, err
 	}
+	if err := markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+		return nil, err
+	}
 	if err := maybeEnqueueDownstream(ctx, runner, repositoryID, jobID); err != nil {
 		return nil, err
 	}
@@ -2080,6 +2086,9 @@ func cancelSingleJob(ctx context.Context, runner any, repositoryID string, job m
 		"reason":          reason,
 		"workflow_job_id": job["workflow_job_id"],
 	}); err != nil {
+		return nil, err
+	}
+	if err := markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
 		return nil, err
 	}
 	return map[string]any{

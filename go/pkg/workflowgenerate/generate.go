@@ -938,6 +938,9 @@ func compileAdjudicatedConstraintExtraction(spec Spec, maxCycles int) ([]map[str
 		examiner := job(id, "build", fmt.Sprintf("Cross-examiner (%s)", posture), "cross_examiner", collaborationReviewerLane(spec, idx+1), fmt.Sprintf("%s/cross_exam/%s", base, posture), "CROSS_EXAM.md", "handoff", id, "ace_cross_examiner", "Challenge the candidate synthesis for "+topic+" from the "+posture+" posture: record findings[] rows with severity, the affected invariant, and the closest acceptable answer.")
 		examiner["phase_id"] = "cross_exam"
 		examiner["parallel_group"] = "cross_exam"
+		examiner["interrogation_targets"] = []map[string]any{
+			{"workflow_job_id": "convener_draft", "required": true},
+		}
 		jobs = append(jobs, examiner)
 		crossSynthInputs = append(crossSynthInputs, id)
 	}

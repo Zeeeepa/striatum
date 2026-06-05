@@ -347,6 +347,13 @@ func buildPacket(
 	if augmentation := augmentationReferences(workflow, fmt.Sprint(job["workflow_job_id"]), fmt.Sprint(run["repo_root"])); augmentation != nil {
 		packetContext["augmentation_references"] = augmentation
 	}
+	targets, err := interrogationTargetsForPacket(ctx, runner, repositoryID, fmt.Sprint(run["run_id"]), workflow, fmt.Sprint(job["workflow_job_id"]))
+	if err != nil {
+		return nil, err
+	}
+	if len(targets) > 0 {
+		packetContext["interrogation_targets"] = targets
+	}
 	// #105: workflow-declared paths (role definition, context docs, prompts) are
 	// relative to the workflow directory, but a lane runs from the repo root.
 	// Surface the repo-root-relative workflow_root as the explicit base, and
@@ -542,6 +549,148 @@ func workflowJobInterrogable(workflow map[string]any, workflowJobID string) bool
 		}
 	}
 	return false
+}
+
+func interrogationTargetsForPacket(ctx context.Context, runner any, repositoryID, runID string, workflow map[string]any, consumerWorkflowJobID string) ([]map[string]any, error) {
+	consumer := workflowJobDefinition(workflow, consumerWorkflowJobID)
+	if consumer == nil {
+		return nil, nil
+	}
+	targets := explicitInterrogationTargetsFromJob(consumer)
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	entries := make([]map[string]any, 0, len(targets))
+	for _, target := range targets {
+		entry, err := interrogationTargetPacketEntry(ctx, runner, repositoryID, runID, target)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+func workflowJobDefinition(workflow map[string]any, workflowJobID string) map[string]any {
+	for _, item := range asList(workflow["jobs"]) {
+		def := asMap(item)
+		if fmt.Sprint(def["id"]) == workflowJobID {
+			return def
+		}
+	}
+	return nil
+}
+
+func interrogationTargetPacketEntry(ctx context.Context, runner any, repositoryID, runID string, target explicitInterrogationTarget) (map[string]any, error) {
+	entry := map[string]any{
+		"workflow_job_id": target.WorkflowJobID,
+		"required":        target.Required,
+	}
+	targetJob, err := currentWorkflowJobRow(ctx, runner, repositoryID, runID, target.WorkflowJobID)
+	if err != nil {
+		return nil, err
+	}
+	if targetJob == nil {
+		entry["state"] = "not_ready"
+		entry["reason"] = nil
+		entry["instruction"] = interrogationTargetInstruction("not_ready")
+		return entry, nil
+	}
+	attempt := intValue(targetJob["attempt"])
+	if attempt <= 0 {
+		attempt = 1
+	}
+	entry["target_attempt"] = attempt
+	if fmt.Sprint(targetJob["state"]) == "skipped" {
+		entry["state"] = "unavailable"
+		entry["reason"] = "target_skipped"
+		entry["instruction"] = interrogationTargetInstruction("unavailable")
+		return entry, nil
+	}
+	targetSessionID, err := interrogableTargetSessionForJob(ctx, runner, repositoryID, fmt.Sprint(targetJob["job_id"]))
+	if err != nil {
+		return nil, err
+	}
+	if targetSessionID == "" {
+		entry["state"] = "not_ready"
+		entry["reason"] = nil
+		if reason, err := latestRetiredInterrogationTargetReason(ctx, runner, repositoryID, runID, target.WorkflowJobID); err != nil {
+			return nil, err
+		} else if reason == "revision_reopened" {
+			entry["reason"] = reason
+		}
+		entry["instruction"] = interrogationTargetInstruction("not_ready")
+		return entry, nil
+	}
+	entry["target_session_id"] = targetSessionID
+	sessionRows, err := queryRows(ctx, runner, `
+		SELECT state, close_reason
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2
+		 LIMIT 1`, repositoryID, targetSessionID)
+	if err != nil {
+		return nil, err
+	}
+	if len(sessionRows) == 0 || fmt.Sprint(sessionRows[0]["state"]) != "active" {
+		entry["state"] = "unavailable"
+		reason := ""
+		if len(sessionRows) > 0 {
+			reason = fmt.Sprint(sessionRows[0]["close_reason"])
+		}
+		if reason == "" || reason == "<nil>" {
+			reason = "target_retired"
+		}
+		entry["reason"] = reason
+		entry["instruction"] = interrogationTargetInstruction("unavailable")
+		return entry, nil
+	}
+	entry["state"] = "available"
+	entry["reason"] = nil
+	entry["instruction"] = interrogationTargetInstruction("available")
+	return entry, nil
+}
+
+func currentWorkflowJobRow(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) (map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT job_id, workflow_job_id, attempt, state
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2 AND workflow_job_id = $3
+		 ORDER BY attempt DESC, created_at DESC
+		 LIMIT 1`, repositoryID, runID, workflowJobID)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	return rows[0], nil
+}
+
+func latestRetiredInterrogationTargetReason(ctx context.Context, runner any, repositoryID, runID, workflowJobID string) (string, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT s.close_reason
+		  FROM striatumd.events e
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = e.repository_id AND j.job_id = e.job_id
+		  JOIN striatumd.sessions s
+		    ON s.repository_id = e.repository_id AND s.session_id = e.actor_session_id
+		 WHERE e.repository_id = $1 AND e.run_id = $2
+		   AND e.event_type = 'session.awaiting_interrogation'
+		   AND j.workflow_job_id = $3
+		 ORDER BY j.attempt DESC, e.event_id DESC
+		 LIMIT 1`, repositoryID, runID, workflowJobID)
+	if err != nil || len(rows) == 0 {
+		return "", err
+	}
+	return fmt.Sprint(rows[0]["close_reason"]), nil
+}
+
+func interrogationTargetInstruction(state string) string {
+	switch state {
+	case "available":
+		return "Open interrogation against target_session_id before recording findings."
+	case "unavailable":
+		return "The interrogation target is unavailable; proceed on the published artifact and record that interrogation was unavailable."
+	default:
+		return "The interrogation target is not ready; do not use a stale prior-attempt target_session_id."
+	}
 }
 
 func laneWorktreeIsolation(workflow map[string]any, laneID string) string {

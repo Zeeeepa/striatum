@@ -956,12 +956,110 @@ func intgSeedPanelWindow(t *testing.T, ctx context.Context, runner db.Runner, re
 	return runID, target, reviewers, reviewJobs
 }
 
+func intgSeedExplicitConsumerWindow(t *testing.T, ctx context.Context, runner db.Runner, repoID string) (runID, target, consumerSession, consumerJob string) {
+	t.Helper()
+	runID = "run_" + repoID
+	target = "sess_synth"
+	consumerSession = "sess_consumer"
+	consumerJob = "job_consumer"
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"synthesizer": map[string]any{}, "reviewer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{"display_model": "Claude", "capabilities": []any{"interrogate"}}},
+		"jobs": []any{
+			map[string]any{"id": "design_synthesis", "interrogable": true},
+			map[string]any{"id": "phase_gate", "type": "phase_synthesis"},
+			map[string]any{"id": "explicit_consumer", "interrogation_targets": []any{map[string]any{"workflow_job_id": "design_synthesis", "required": true}}},
+		},
+		"edges": []any{
+			map[string]any{"from": "design_synthesis", "to": "phase_gate", "on": "completed"},
+			map[string]any{"from": "phase_gate", "to": "explicit_consumer", "on": "completed"},
+		},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, target, "synthesizer", "claude", nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, target, "claude")
+	intgSeedSession(t, ctx, runner, repoID, runID, consumerSession, "reviewer", "claude", []string{"interrogate"}, "active")
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  state, idempotency_key, created_at, completed_at
+		) VALUES ($1,'job_synth',$2,'design_synthesis','Synthesis','synthesis','synthesizer','completed','idem_synth',$3,$3)`,
+		repoID, runID, now); err != nil {
+		t.Fatalf("insert synth job: %v", err)
+	}
+	// The snapshot keeps the phase_synthesis def type; the stored row uses
+	// job_type='review' because run.prepare maps phase_synthesis defs to the
+	// stored review shape (jobs_job_type_check forbids 'phase_synthesis').
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  state, idempotency_key, created_at, completed_at
+		) VALUES ($1,'job_gate',$2,'phase_gate','Gate','review','reviewer','completed','idem_gate',$3,$3)`,
+		repoID, runID, now); err != nil {
+		t.Fatalf("insert gate job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  state, idempotency_key, created_at
+		) VALUES ($1,$2,$3,'explicit_consumer','Consumer','build','reviewer','running','idem_consumer',$4)`,
+		repoID, consumerJob, runID, now); err != nil {
+		t.Fatalf("insert consumer job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id)
+		VALUES ($1,'job_gate','job_synth'), ($1,$2,'job_gate')`, repoID, consumerJob); err != nil {
+		t.Fatalf("insert explicit consumer dependencies: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.events (repository_id, run_id, event_type, actor_session_id, job_id, created_at)
+		VALUES ($1,$2,'session.awaiting_interrogation',$3,'job_synth',now())`, repoID, runID, target); err != nil {
+		t.Fatalf("insert awaiting event: %v", err)
+	}
+	return runID, target, consumerSession, consumerJob
+}
+
 func intgJobCompleted(t *testing.T, ctx context.Context, runner db.Runner, repoID, jobID string) {
 	t.Helper()
 	if err := runner.Exec(ctx, `
 		UPDATE striatumd.jobs SET state='completed', completed_at=now()
 		 WHERE repository_id=$1 AND job_id=$2`, repoID, jobID); err != nil {
 		t.Fatalf("complete job %s: %v", jobID, err)
+	}
+}
+
+func TestExplicitInterrogationConsumerKeepsWindowAcrossPhaseGate(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_explicit_consumer"
+	runID, target, consumerSession, consumerJob := intgSeedExplicitConsumerWindow(t, ctx, runner, repoID)
+
+	closed, err := maybeCloseInterrogationTarget(ctx, runner, repoID, runID, target)
+	if err != nil {
+		t.Fatalf("maybe close target: %v", err)
+	}
+	if closed {
+		t.Fatalf("explicit pending consumer behind a completed phase gate must keep target open")
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, target); got != "active" {
+		t.Fatalf("target must stay active for explicit consumer, got %q", got)
+	}
+
+	id := mustOpen(t, ctx, runner, repoID, consumerSession, target)
+	if _, err := HandleInterrogationClose(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": consumerSession, "interrogation_id": id,
+	})); err != nil {
+		t.Fatalf("close explicit interrogation: %v", err)
+	}
+	intgJobCompleted(t, ctx, runner, repoID, consumerJob)
+	closed, err = maybeCloseInterrogationTarget(ctx, runner, repoID, runID, target)
+	if err != nil {
+		t.Fatalf("maybe close after consumer terminal: %v", err)
+	}
+	if !closed {
+		t.Fatalf("target should close after explicit consumer terminalizes")
 	}
 }
 

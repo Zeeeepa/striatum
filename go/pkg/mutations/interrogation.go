@@ -80,6 +80,9 @@ func HandleInterrogationOpen(ctx context.Context, runner db.Runner, envelope rpc
 			if signal, ok, sigErr := interrogationUnavailableSignal(ctx, tx, repositoryID, interrogator, targetSessionID, err); sigErr != nil {
 				return nil, sigErr
 			} else if ok {
+				if evtErr := appendInterrogationUnavailableEvent(ctx, tx, repositoryID, interrogator, signal); evtErr != nil {
+					return nil, evtErr
+				}
 				return signal, nil
 			}
 			return nil, err
@@ -372,6 +375,19 @@ func HandleInterrogationClose(ctx context.Context, runner db.Runner, envelope rp
 // that still holds the interrogation window open.
 const terminalInterrogationConsumerStates = `('completed','failed','canceled','skipped','waiting_human')`
 
+var terminalInterrogationConsumerStateSet = map[string]bool{
+	"completed":     true,
+	"failed":        true,
+	"canceled":      true,
+	"skipped":       true,
+	"waiting_human": true,
+}
+
+type explicitInterrogationTarget struct {
+	WorkflowJobID string
+	Required      bool
+}
+
 // maybeCloseInterrogationTarget closes a target session that finished its
 // interrogable work, once the whole review panel that consumes it has finished.
 //
@@ -508,13 +524,11 @@ func interrogableTargetSessionForJob(ctx context.Context, runner any, repository
 	return fmt.Sprint(row["actor_session_id"]), nil
 }
 
-// interrogationConsumersPending reports whether any reviewer job that depends on
-// the interrogable job is still in a pre-verdict working state — i.e. could yet
-// interrogate the live target. Direct dependents of an interrogable job are
-// exactly the review panel (the next phase depends on the reviewers, not on the
-// interrogable job), so this is a precise panel-scoped predicate.
+// interrogationConsumersPending reports whether any direct or explicit consumer
+// of the interrogable job is still in a pre-verdict working state — i.e. could
+// yet interrogate the live target.
 func interrogationConsumersPending(ctx context.Context, runner any, repositoryID, interrogableJobID string) (bool, error) {
-	return existsRow(ctx, runner, `
+	pendingDirect, err := existsRow(ctx, runner, `
 		SELECT 1
 		  FROM striatumd.job_dependencies dep
 		  JOIN striatumd.jobs j
@@ -522,20 +536,52 @@ func interrogationConsumersPending(ctx context.Context, runner any, repositoryID
 		 WHERE dep.repository_id = $1 AND dep.depends_on_job_id = $2
 		   AND j.state NOT IN `+terminalInterrogationConsumerStates+`
 		 LIMIT 1`, repositoryID, interrogableJobID)
+	if err != nil || pendingDirect {
+		return pendingDirect, err
+	}
+	target, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", interrogableJobID, false)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	consumerIDs, err := explicitInterrogationConsumersForTarget(ctx, runner, repositoryID, fmt.Sprint(target["run_id"]), fmt.Sprint(target["workflow_job_id"]))
+	if err != nil || len(consumerIDs) == 0 {
+		return false, err
+	}
+	consumerSet := map[string]bool{}
+	for _, id := range consumerIDs {
+		consumerSet[id] = true
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT workflow_job_id, state
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2`, repositoryID, target["run_id"])
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if !consumerSet[fmt.Sprint(row["workflow_job_id"])] {
+			continue
+		}
+		if !terminalInterrogationConsumerStateSet[fmt.Sprint(row["state"])] {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
-// releaseInterrogationTargetForCompletedReview closes the interrogable target
-// session(s) upstream of a just-terminated reviewer job once every reviewer in
-// the panel has finished. This is the authoritative panel-window closer: the
-// last reviewer's interrogation.close cannot close the target (the closing
-// reviewer's own job is still active at that moment), so the window is retired
-// here when the final reviewer job reaches a terminal state. Safe to call after
-// any reviewer job completes; it no-ops while consumers are still pending.
-func releaseInterrogationTargetForCompletedReview(ctx context.Context, runner any, repositoryID, runID, reviewJobID string) error {
+// releaseInterrogationTargetsForTerminalConsumer closes the interrogable target
+// session(s) consumed by a just-terminalized job once every direct or explicit
+// consumer has finished. Safe to call after any consumer job terminalizes; it
+// no-ops while consumers are still pending.
+func releaseInterrogationTargetsForTerminalConsumer(ctx context.Context, runner any, repositoryID, runID, consumerJobID string) error {
+	targetJobIDs := map[string]bool{}
 	upstreams, err := queryRows(ctx, runner, `
 		SELECT depends_on_job_id
 		  FROM striatumd.job_dependencies
-		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, reviewJobID)
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, consumerJobID)
 	if err != nil {
 		return err
 	}
@@ -544,7 +590,34 @@ func releaseInterrogationTargetForCompletedReview(ctx context.Context, runner an
 		if interrogableJobID == "" || interrogableJobID == "<nil>" {
 			continue
 		}
-		targetSessionID, err := interrogableTargetSessionForJob(ctx, runner, repositoryID, interrogableJobID)
+		targetJobIDs[interrogableJobID] = true
+	}
+	consumer, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", consumerJobID, false)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	targets, err := explicitInterrogationTargetsForConsumer(ctx, runner, repositoryID, runID, fmt.Sprint(consumer["workflow_job_id"]))
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		rows, err := queryRows(ctx, runner, `
+			SELECT job_id
+			  FROM striatumd.jobs
+			 WHERE repository_id = $1 AND run_id = $2 AND workflow_job_id = $3
+			 ORDER BY attempt DESC, created_at DESC`, repositoryID, runID, target.WorkflowJobID)
+		if err != nil {
+			return err
+		}
+		for _, row := range rows {
+			targetJobIDs[fmt.Sprint(row["job_id"])] = true
+		}
+	}
+	for targetJobID := range targetJobIDs {
+		targetSessionID, err := interrogableTargetSessionForJob(ctx, runner, repositoryID, targetJobID)
 		if err != nil {
 			return err
 		}
@@ -556,6 +629,225 @@ func releaseInterrogationTargetForCompletedReview(ctx context.Context, runner an
 		}
 	}
 	return nil
+}
+
+// releaseInterrogationTargetForCompletedReview preserves the historical review
+// call-site name while routing through the generalized terminal-consumer hook.
+func releaseInterrogationTargetForCompletedReview(ctx context.Context, runner any, repositoryID, runID, reviewJobID string) error {
+	return releaseInterrogationTargetsForTerminalConsumer(ctx, runner, repositoryID, runID, reviewJobID)
+}
+
+func markJobTerminal(ctx context.Context, runner any, repositoryID, runID, jobID string) error {
+	if err := appendRequiredSkippedInterrogationEvents(ctx, runner, repositoryID, runID, jobID); err != nil {
+		return err
+	}
+	return releaseInterrogationTargetsForTerminalConsumer(ctx, runner, repositoryID, runID, jobID)
+}
+
+func appendInterrogationUnavailableEvent(ctx context.Context, runner any, repositoryID string, interrogator map[string]any, signal map[string]any) error {
+	runID := fmt.Sprint(interrogator["run_id"])
+	jobID, err := activeJobIDForSession(ctx, runner, repositoryID, fmt.Sprint(interrogator["session_id"]))
+	if err != nil {
+		return err
+	}
+	payload := map[string]any{
+		"target_session_id": signal["target_session_id"],
+		"reason":            signal["reason"],
+		"status":            signal["status"],
+	}
+	if value, ok := signal["interrogable_job_id"]; ok {
+		payload["interrogable_job_id"] = value
+	}
+	if value, ok := signal["target_workflow_job_id"]; ok {
+		payload["target_workflow_job_id"] = value
+	}
+	_, err = appendEvent(ctx, runner, repositoryID, runID, "interrogation.unavailable_signaled", interrogator["session_id"], nullable(jobID), nil, nil, nil, payload)
+	return err
+}
+
+func activeJobIDForSession(ctx context.Context, runner any, repositoryID, sessionID string) (string, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT resource_id
+		  FROM striatumd.leases
+		 WHERE repository_id = $1 AND owner_session_id = $2
+		   AND resource_type = 'job' AND state = 'active'
+		 ORDER BY acquired_at DESC
+		 LIMIT 1`, repositoryID, sessionID)
+	if err != nil || len(rows) == 0 {
+		return "", err
+	}
+	return fmt.Sprint(rows[0]["resource_id"]), nil
+}
+
+func appendRequiredSkippedInterrogationEvents(ctx context.Context, runner any, repositoryID, runID, consumerJobID string) error {
+	consumer, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", consumerJobID, false)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	targets, err := explicitInterrogationTargetsForConsumer(ctx, runner, repositoryID, runID, fmt.Sprint(consumer["workflow_job_id"]))
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		if !target.Required {
+			continue
+		}
+		if err := appendRequiredSkippedInterrogationEvent(ctx, runner, repositoryID, runID, consumer, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func appendRequiredSkippedInterrogationEvent(ctx context.Context, runner any, repositoryID, runID string, consumer map[string]any, target explicitInterrogationTarget) error {
+	targetJob, err := currentWorkflowJobRow(ctx, runner, repositoryID, runID, target.WorkflowJobID)
+	if err != nil {
+		return err
+	}
+	targetAttempt := 1
+	targetSessionID := ""
+	if targetJob != nil {
+		targetAttempt = intValue(targetJob["attempt"])
+		if targetAttempt <= 0 {
+			targetAttempt = 1
+		}
+		targetSessionID, err = interrogableTargetSessionForJob(ctx, runner, repositoryID, fmt.Sprint(targetJob["job_id"]))
+		if err != nil {
+			return err
+		}
+	}
+	alreadyRecorded, err := existsRow(ctx, runner, `
+		SELECT 1 FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   AND event_type = 'interrogation.required_skipped'
+		   AND payload_json->>'target_workflow_job_id' = $4
+		   AND COALESCE((payload_json->>'target_attempt')::int, 1) = $5
+		 LIMIT 1`, repositoryID, runID, consumer["job_id"], target.WorkflowJobID, targetAttempt)
+	if err != nil || alreadyRecorded {
+		return err
+	}
+	if targetSessionID != "" {
+		opened, err := requiredTargetWasOpened(ctx, runner, repositoryID, runID, fmt.Sprint(consumer["job_id"]), targetSessionID)
+		if err != nil || opened {
+			return err
+		}
+	}
+	unavailable, err := requiredTargetUnavailableWasSignaled(ctx, runner, repositoryID, runID, fmt.Sprint(consumer["job_id"]), target.WorkflowJobID, targetSessionID)
+	if err != nil || unavailable {
+		return err
+	}
+	_, err = appendEvent(ctx, runner, repositoryID, runID, "interrogation.required_skipped", nil, consumer["job_id"], nil, nil, nil, map[string]any{
+		"consumer_workflow_job_id": fmt.Sprint(consumer["workflow_job_id"]),
+		"target_workflow_job_id":   target.WorkflowJobID,
+		"target_session_id":        nullable(targetSessionID),
+		"target_attempt":           targetAttempt,
+	})
+	return err
+}
+
+func requiredTargetWasOpened(ctx context.Context, runner any, repositoryID, runID, consumerJobID, targetSessionID string) (bool, error) {
+	return existsRow(ctx, runner, `
+		SELECT 1
+		  FROM striatumd.interrogations i
+		 WHERE i.repository_id = $1 AND i.run_id = $2
+		   AND i.target_session_id = $3
+		   AND i.interrogator_session_id IN (
+		     SELECT DISTINCT session_id
+		       FROM striatumd.work_packets
+		      WHERE repository_id = $1 AND run_id = $2 AND job_id = $4
+		   )
+		 LIMIT 1`, repositoryID, runID, targetSessionID, consumerJobID)
+}
+
+func requiredTargetUnavailableWasSignaled(ctx context.Context, runner any, repositoryID, runID, consumerJobID, targetWorkflowJobID, targetSessionID string) (bool, error) {
+	return existsRow(ctx, runner, `
+		SELECT 1
+		  FROM striatumd.events e
+		 WHERE e.repository_id = $1 AND e.run_id = $2
+		   AND e.event_type = 'interrogation.unavailable_signaled'
+		   AND e.actor_session_id IN (
+		     SELECT DISTINCT session_id
+		       FROM striatumd.work_packets
+		      WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   )
+		   AND (
+		     e.payload_json->>'target_session_id' = $4
+		     OR e.payload_json->>'target_workflow_job_id' = $5
+		     OR e.payload_json->>'interrogable_job_id' = (
+		       SELECT job_id FROM striatumd.jobs
+		        WHERE repository_id = $1 AND run_id = $2 AND workflow_job_id = $5
+		        ORDER BY attempt DESC, created_at DESC LIMIT 1
+		     )
+		   )
+		 LIMIT 1`, repositoryID, runID, consumerJobID, targetSessionID, targetWorkflowJobID)
+}
+
+func explicitInterrogationConsumersForTarget(ctx context.Context, runner any, repositoryID, runID, targetWorkflowJobID string) ([]string, error) {
+	workflow, err := workflowSnapshotForRun(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	consumers := []string{}
+	for _, item := range asList(workflow["jobs"]) {
+		job := asMap(item)
+		consumerID := fmt.Sprint(job["id"])
+		if consumerID == "" || consumerID == "<nil>" {
+			continue
+		}
+		for _, target := range explicitInterrogationTargetsFromJob(job) {
+			if target.WorkflowJobID == targetWorkflowJobID {
+				consumers = append(consumers, consumerID)
+				break
+			}
+		}
+	}
+	return consumers, nil
+}
+
+func explicitInterrogationTargetsForConsumer(ctx context.Context, runner any, repositoryID, runID, consumerWorkflowJobID string) ([]explicitInterrogationTarget, error) {
+	workflow, err := workflowSnapshotForRun(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range asList(workflow["jobs"]) {
+		job := asMap(item)
+		if fmt.Sprint(job["id"]) == consumerWorkflowJobID {
+			return explicitInterrogationTargetsFromJob(job), nil
+		}
+	}
+	return nil, nil
+}
+
+func explicitInterrogationTargetsFromJob(job map[string]any) []explicitInterrogationTarget {
+	targets := []explicitInterrogationTarget{}
+	for _, item := range asList(job["interrogation_targets"]) {
+		target := asMap(item)
+		workflowJobID := strings.TrimSpace(fmt.Sprint(target["workflow_job_id"]))
+		if workflowJobID == "" || workflowJobID == "<nil>" {
+			continue
+		}
+		targets = append(targets, explicitInterrogationTarget{
+			WorkflowJobID: workflowJobID,
+			Required:      target["required"] == true,
+		})
+	}
+	return targets
+}
+
+func workflowSnapshotForRun(ctx context.Context, runner any, repositoryID, runID string) (map[string]any, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT ws.workflow_json
+		  FROM striatumd.runs r
+		  JOIN striatumd.workflow_snapshots ws
+		    ON ws.repository_id = r.repository_id AND ws.workflow_snapshot_id = r.workflow_snapshot_id
+		 WHERE r.repository_id = $1 AND r.run_id = $2`, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	return asMap(row["workflow_json"]), nil
 }
 
 // closeInterrogationTargetForReopen retires the prior-attempt interrogable
@@ -771,6 +1063,9 @@ func interrogationUnavailableSignal(ctx context.Context, runner any, repositoryI
 	}
 	if jobID, err := interrogableJobForTargetSession(ctx, runner, repositoryID, targetSessionID); err == nil && jobID != "" {
 		signal["interrogable_job_id"] = jobID
+		if job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, false); err == nil {
+			signal["target_workflow_job_id"] = job["workflow_job_id"]
+		}
 	}
 	return signal, true, nil
 }

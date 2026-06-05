@@ -937,6 +937,11 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if err := sessionliveness.Record(ctx, tx, repositoryID, request.sessionID, sessionliveness.LastWorkBlockAt); err != nil {
 			return nil, err
 		}
+		if state == "waiting_human" {
+			if err := markJobTerminal(ctx, tx, repositoryID, fmt.Sprint(job["run_id"]), request.jobID); err != nil {
+				return nil, err
+			}
+		}
 		return map[string]any{"status": "blocked", "blocker_id": blockerID}, nil
 	})
 }
@@ -1045,9 +1050,13 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "session.awaiting_interrogation", sessionID, jobID, nil, nil, nil, map[string]any{
 				"session_id":      sessionID,
 				"workflow_job_id": job["workflow_job_id"],
+				"attempt":         job["attempt"],
 			}); err != nil {
 				return nil, err
 			}
+		}
+		if err := markJobTerminal(ctx, tx, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+			return nil, err
 		}
 		if err := maybeEnqueueDownstream(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err

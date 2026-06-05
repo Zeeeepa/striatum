@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+## v2.27.0 — 2026-06-05
+
+### RFC 0112 / D171 — explicit interrogation consumers (V1)
+
+Workflow jobs may declare `interrogation_targets` to consume an upstream
+interrogable job's preserved-context window without fake graph edges. ACE's
+cross-examiners sit behind the `convener_synthesis` phase gate, so
+direct-dependency inference closed `convener_draft`'s window before
+cross-examination could open; the explicit declaration keeps it live.
+
+- `workflow validate` enforces the D171 rules (self-target, duplicate target,
+  chained interrogable consumer, unknown/non-interrogable/unreachable target =
+  hard errors); `workflow lint` warns on >3 targets, a lane without the
+  `interrogate` capability, unknown entry fields, and redundant direct-dep
+  targets.
+- The consumer relation is snapshot-derived (frozen `workflow_json` + live
+  `jobs` rows); no new table, migration, RPC family, or dependency edge.
+- All production terminal transitions route through a `markJobTerminal` choke
+  point that releases interrogation windows for terminal consumers;
+  `TestTerminalJobStateWritesRouteThroughMarkJobTerminal` (AST guard) fails any
+  new direct terminal write outside it (allowlist: `run.cancel` family).
+- `claim-next` packets project `context.interrogation_targets` attempt-aware
+  (`available`/`unavailable`/`not_ready` with `target_session_id`,
+  `target_attempt`, `reason`, daemon-authored instruction); the
+  `session.awaiting_interrogation` event payload gains additive `attempt`.
+- Advisory V1 `required`: skipped required targets record
+  `interrogation.required_skipped`; non-wedging opens against retired targets
+  record `interrogation.unavailable_signaled`. No hard completion gate.
+- The ACE generator declares every cross-examiner as an explicit consumer of
+  `convener_draft`; `adjudicated_constraint_extraction` gains an RFC 0105-style
+  conformance fixture (window across the phase gate, revision-reopen fresh
+  window, dead-lane during re-cascade, advisory evidence) but stays
+  `experimental` pending a separate graduation decision.
+
+### Recovery — deterministic released-lease resolution in the dead-lane scan
+
+The ACE fault fixture exposed an inverse-#145 shape: when a prior attempt's
+released lease and the current attempt's released lease share the same
+second-granular `acquired_at`, the random `lease_id` tiebreak could resolve the
+PRIOR attempt's lease — whose owner session is still active — masking the
+genuinely dead current owner so the dead lane was never requeued.
+`recoverStuckJobs` now prefers the job's own `current_lease_id`
+(NULL-safe) between the active-lease preference and the timestamp ordering.
+
+### RFC 0096 V2 — daemon launches supervised lanes as `STRIATUM_LANE_OS_USER`
+
+When `STRIATUM_LANE_OS_USER` names an OS user distinct from the daemon's, the
+daemon launches supervised lane commands and their tmux sessions through
+`sudo -n -u <lane-user> -- env -i ...` with a sanitized lane environment, and
+probes/stops/rebridges tmux as that user. Launch fails closed if the sudo rule
+is missing. `doctor` reports `daemon_launch_enforced`, the launch mechanism,
+and the passwordless-sudo requirement under `lane_sandbox`; `run_as_user` is
+recorded in supervisor metadata, events, and status views. GH #87 still
+requires host adoption (PG-less lane user, sudoers, `pg_hba` reject rules) and
+a green lane-isolation gate.
+
+### RFC 0113 R1 follow-through — token-admin reads prefer the authority projection
+
+Token revoke/rotate now route `loadTokenForUpdate` through the
+`striatumd.load_token_for_update` SECURITY DEFINER projection whenever the
+daemon-authority secret is present, instead of attempting the direct
+secret-column SELECT and falling back on `42501`. The `pg_read_scope` doctor
+block derives its sensitive-surface inventory and denied columns from
+`go/pkg/db/read_authority_inventory.go` instead of a hand-copied list.
+
 ### RFC 0106 / D169 — `cross_examination` co-graduates by structural isomorphism
 
 `cross_examination` now shares the `falsification_gate` RFC 0105 reliability

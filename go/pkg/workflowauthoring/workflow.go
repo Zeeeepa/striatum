@@ -318,6 +318,9 @@ func Validate(workflow map[string]any) error {
 	if err := validateEdges(workflow, jobMap); err != nil {
 		return err
 	}
+	if err := validateInterrogationTargets(workflow, jobMap); err != nil {
+		return err
+	}
 	// Phase-shape rules are shared with run.prepare so `workflow validate`
 	// rejects the same shapes locally instead of passing then failing at
 	// launch (GH #66). See pkg/workflowauthoring/phases.go.
@@ -1088,6 +1091,70 @@ func validateEdges(workflow map[string]any, jobMap map[string]map[string]any) er
 		}
 		if !sameStringSet(declared, edgeNeeds) {
 			return errf("job %q needs disagree with workflow edges", jobID)
+		}
+	}
+	return nil
+}
+
+func validateInterrogationTargets(workflow map[string]any, jobMap map[string]map[string]any) error {
+	edges, err := EdgeDependencyPairs(workflow)
+	if err != nil {
+		return err
+	}
+	pairs := make([][2]string, 0, len(edges))
+	for _, edge := range edges {
+		pairs = append(pairs, [2]string{stringValue(edge["from"]), stringValue(edge["to"])})
+	}
+	for jobID, job := range jobMap {
+		raw, exists := job["interrogation_targets"]
+		if !exists {
+			continue
+		}
+		if job["interrogable"] == true {
+			return errf("job %q cannot also declare interrogable when it declares interrogation_targets", jobID)
+		}
+		var targets []any
+		switch typed := raw.(type) {
+		case []any:
+			targets = typed
+		case []map[string]any:
+			targets = make([]any, 0, len(typed))
+			for _, item := range typed {
+				targets = append(targets, item)
+			}
+		default:
+			return errf("job %q interrogation_targets must be a list", jobID)
+		}
+		if len(targets) == 0 {
+			return errf("job %q interrogation_targets must include at least one target", jobID)
+		}
+		seenTargets := map[string]bool{}
+		for index, item := range targets {
+			target, ok := item.(map[string]any)
+			if !ok {
+				return fieldErr(fmt.Sprintf("jobs.%s.interrogation_targets[%d]", jobID, index), "job %q interrogation_targets entries must be objects", jobID)
+			}
+			targetID, ok := target["workflow_job_id"].(string)
+			if !ok || strings.TrimSpace(targetID) == "" {
+				return fieldErr(fmt.Sprintf("jobs.%s.interrogation_targets[%d].workflow_job_id", jobID, index), "job %q interrogation target must declare workflow_job_id", jobID)
+			}
+			if targetID == jobID {
+				return errf("job %q cannot target itself for interrogation", jobID)
+			}
+			if seenTargets[targetID] {
+				return errf("job %q has duplicate interrogation target %q", jobID, targetID)
+			}
+			seenTargets[targetID] = true
+			targetJob := jobMap[targetID]
+			if targetJob == nil {
+				return errf("job %q references unknown interrogation target %q", jobID, targetID)
+			}
+			if targetJob["interrogable"] != true {
+				return errf("job %q interrogation target %q does not declare interrogable: true", jobID, targetID)
+			}
+			if !hasPath(pairs, targetID, jobID) {
+				return errf("job %q must be reachable downstream from interrogation target %q", jobID, targetID)
+			}
 		}
 	}
 	return nil

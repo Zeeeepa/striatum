@@ -240,6 +240,140 @@ func TestValidateRejectsInvalidSharedResources(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidInterrogationTargets(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		mutate  func(map[string]any)
+		wantErr string
+	}{
+		{
+			name: "unknown target",
+			mutate: func(workflow map[string]any) {
+				interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "missing"},
+				}
+			},
+			wantErr: "unknown interrogation target",
+		},
+		{
+			name: "self target",
+			mutate: func(workflow map[string]any) {
+				interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "apply"},
+				}
+			},
+			wantErr: "cannot target itself",
+		},
+		{
+			name: "duplicate target",
+			mutate: func(workflow map[string]any) {
+				interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "draft"},
+					map[string]any{"workflow_job_id": "draft"},
+				}
+			},
+			wantErr: "duplicate interrogation target",
+		},
+		{
+			name: "target not interrogable",
+			mutate: func(workflow map[string]any) {
+				jobs := workflow["jobs"].([]any)
+				jobs[0].(map[string]any)["interrogable"] = false
+				interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "draft"},
+				}
+			},
+			wantErr: "does not declare interrogable",
+		},
+		{
+			name: "target not upstream",
+			mutate: func(workflow map[string]any) {
+				jobs := workflow["jobs"].([]any)
+				jobs = append(jobs, interrogationBuildJob("isolated"))
+				workflow["jobs"] = jobs
+				jobs[len(jobs)-1].(map[string]any)["interrogable"] = true
+				interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "isolated"},
+				}
+			},
+			wantErr: "must be reachable downstream",
+		},
+		{
+			name: "chained interrogable consumer",
+			mutate: func(workflow map[string]any) {
+				consumer := interrogationConsumerJob(workflow)
+				consumer["interrogable"] = true
+				consumer["interrogation_targets"] = []any{
+					map[string]any{"workflow_job_id": "draft"},
+				}
+			},
+			wantErr: "cannot also declare interrogable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			workflow := interrogationTargetWorkflow()
+			tc.mutate(workflow)
+			err := Validate(workflow)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("Validate error = %v, want containing %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsReachableInterrogationTargets(t *testing.T) {
+	workflow := interrogationTargetWorkflow()
+	interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+		map[string]any{"workflow_job_id": "draft", "required": true},
+	}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate reachable interrogation target: %v", err)
+	}
+}
+
+func TestLintReportsInterrogationTargetWarnings(t *testing.T) {
+	workflow := interrogationTargetWorkflow()
+	interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+		map[string]any{"workflow_job_id": "draft", "required": true, "extra": "warn"},
+	}
+	rules := lintRuleSet(t, workflow)
+	for _, rule := range []string{
+		"interrogation_target_unknown_field",
+		"interrogation_target_missing_interrogate_capability",
+	} {
+		if !rules[rule] {
+			t.Fatalf("lint rules missing %s: %#v", rule, rules)
+		}
+	}
+
+	workflow = interrogationTargetWorkflow()
+	jobs := workflow["jobs"].([]any)
+	review := jobs[1].(map[string]any)
+	review["interrogation_targets"] = []any{map[string]any{"workflow_job_id": "draft"}}
+	if !lintRuleSet(t, workflow)["interrogation_target_redundant_direct_dependency"] {
+		t.Fatalf("expected redundant direct-dependency warning")
+	}
+
+	workflow = interrogationTargetWorkflow()
+	jobs = workflow["jobs"].([]any)
+	for _, id := range []string{"target_2", "target_3", "target_4"} {
+		target := interrogationBuildJob(id)
+		target["interrogable"] = true
+		jobs = append(jobs, target)
+		workflow["edges"] = append(workflow["edges"].([]any), map[string]any{"from": id, "to": "apply", "on": "completed"})
+	}
+	workflow["jobs"] = jobs
+	interrogationConsumerJob(workflow)["interrogation_targets"] = []any{
+		map[string]any{"workflow_job_id": "draft"},
+		map[string]any{"workflow_job_id": "target_2"},
+		map[string]any{"workflow_job_id": "target_3"},
+		map[string]any{"workflow_job_id": "target_4"},
+	}
+	if !lintRuleSet(t, workflow)["interrogation_target_count_high"] {
+		t.Fatalf("expected high target-count warning")
+	}
+}
+
 func TestLintAllowsDistinctSharedResourceNamespaces(t *testing.T) {
 	workflow := validWorkflow()
 	jobs := workflow["jobs"].([]any)
@@ -993,4 +1127,46 @@ func validWorkflow() map[string]any {
 			},
 		},
 	}
+}
+
+func interrogationTargetWorkflow() map[string]any {
+	workflow := validWorkflow()
+	jobs := workflow["jobs"].([]any)
+	draft := jobs[0].(map[string]any)
+	draft["interrogable"] = true
+	apply := interrogationBuildJob("apply")
+	jobs = append(jobs, apply)
+	workflow["jobs"] = jobs
+	workflow["edges"] = append(workflow["edges"].([]any), map[string]any{"from": "review", "to": "apply", "on": "completed"})
+	return workflow
+}
+
+func interrogationBuildJob(id string) map[string]any {
+	return map[string]any{
+		"id":      id,
+		"type":    "build",
+		"role_id": "author",
+		"lane_id": "codex",
+		"write_scope": map[string]any{
+			"mode":            "repo_write",
+			"allowed_paths":   []any{"src/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": id,
+			"kind":         "handoff",
+			"path":         "src/" + id + ".md",
+			"required":     true,
+		}},
+	}
+}
+
+func interrogationConsumerJob(workflow map[string]any) map[string]any {
+	for _, item := range workflow["jobs"].([]any) {
+		job := item.(map[string]any)
+		if job["id"] == "apply" {
+			return job
+		}
+	}
+	return nil
 }

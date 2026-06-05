@@ -46,6 +46,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintDeprecatedClaudePrintLane(workflow, &findings)
 	lintExperimentalShape(workflow, &findings)
 	lintDegradedSeatLane(workflow, &findings)
+	lintInterrogationTargets(workflow, jobMap, &findings)
 	for index := range findings {
 		findings[index]["fingerprint"] = FindingFingerprint(findings[index])
 	}
@@ -484,6 +485,91 @@ func lintDegradedSeatLane(workflow map[string]any, findings *[]map[string]any) {
 			"seat_tier": tier,
 		})
 	}
+}
+
+func lintInterrogationTargets(workflow map[string]any, jobMap map[string]map[string]any, findings *[]map[string]any) {
+	lanes, _ := workflow["lanes"].(map[string]any)
+	directDeps := map[string]bool{}
+	for _, item := range anySlice(workflow["edges"]) {
+		edge, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		fromID := stringValue(edge["from"])
+		toID := stringValue(edge["to"])
+		if fromID != "" && toID != "" {
+			directDeps[toID+"\x00"+fromID] = true
+		}
+	}
+	for _, jobID := range sortedJobIDs(jobMap) {
+		job := jobMap[jobID]
+		targets := anySlice(job["interrogation_targets"])
+		if len(targets) == 0 {
+			continue
+		}
+		if len(targets) > 3 {
+			*findings = append(*findings, map[string]any{
+				"rule":         "interrogation_target_count_high",
+				"severity":     "warning",
+				"message":      fmt.Sprintf("job %q declares %d interrogation targets; more than three targets increases operator and lane complexity", jobID, len(targets)),
+				"job_id":       jobID,
+				"target_count": len(targets),
+			})
+		}
+		laneID := stringValue(job["lane_id"])
+		if !laneHasCapability(lanes, laneID, "interrogate") {
+			*findings = append(*findings, map[string]any{
+				"rule":     "interrogation_target_missing_interrogate_capability",
+				"severity": "warning",
+				"message":  fmt.Sprintf("job %q declares interrogation_targets but lane %q does not declare the interrogate capability", jobID, laneID),
+				"job_id":   jobID,
+				"lane_id":  laneID,
+			})
+		}
+		for index, item := range targets {
+			target, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			targetID := stringValue(target["workflow_job_id"])
+			for key := range target {
+				if key == "workflow_job_id" || key == "required" {
+					continue
+				}
+				*findings = append(*findings, map[string]any{
+					"rule":          "interrogation_target_unknown_field",
+					"severity":      "warning",
+					"message":       fmt.Sprintf("job %q interrogation_targets[%d] has unknown field %q; V1 ignores it", jobID, index, key),
+					"job_id":        jobID,
+					"target_job_id": targetID,
+					"field":         key,
+				})
+			}
+			if directDeps[jobID+"\x00"+targetID] {
+				*findings = append(*findings, map[string]any{
+					"rule":           "interrogation_target_redundant_direct_dependency",
+					"severity":       "warning",
+					"message":        fmt.Sprintf("job %q declares interrogation target %q that is already a direct dependency", jobID, targetID),
+					"job_id":         jobID,
+					"target_job_id":  targetID,
+					"related_job_id": targetID,
+				})
+			}
+		}
+	}
+}
+
+func laneHasCapability(lanes map[string]any, laneID string, capability string) bool {
+	lane, ok := lanes[laneID].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, item := range anySlice(lane["capabilities"]) {
+		if stringValue(item) == capability {
+			return true
+		}
+	}
+	return false
 }
 
 // laneAdapter resolves a lane's bare adapter seat name from its command argv0

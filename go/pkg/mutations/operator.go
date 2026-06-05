@@ -387,6 +387,9 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 			}); err != nil {
 				return nil, err
 			}
+			if err := markJobTerminal(ctx, tx, repositoryID, runID, fmt.Sprint(blockerJobID)); err != nil {
+				return nil, err
+			}
 			if err := maybeEnqueueDownstream(ctx, tx, repositoryID, fmt.Sprint(blockerJobID)); err != nil {
 				return nil, err
 			}
@@ -439,6 +442,9 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				}
 				downstream, err = downstreamJobs(ctx, tx, repositoryID, fmt.Sprint(blockerJobID))
 				if err != nil {
+					return nil, err
+				}
+				if err := markJobTerminal(ctx, tx, repositoryID, runID, fmt.Sprint(blockerJobID)); err != nil {
 					return nil, err
 				}
 			}

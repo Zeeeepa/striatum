@@ -428,9 +428,11 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 //     naming is ignored.
 //
 // The remaining collaboration / interrogation shapes (conversation,
-// adjudicated_constraint_extraction, iterated_interrogating_panel,
-// human_checkpoint, evidence_backed, custom) deliberately have NO entry here and
-// therefore stay `experimental` until a fixture proves them.
+// iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
+// deliberately have NO entry here and therefore stay `experimental` until a
+// fixture proves them. `adjudicated_constraint_extraction` has an RFC 0112
+// explicit-consumer fixture, but it also stays out of this registry until a
+// separate graduation decision changes the support tier.
 var ReliabilityFixtureShapes = map[string]bool{
 	"minimal":                true,
 	"review":                 true,

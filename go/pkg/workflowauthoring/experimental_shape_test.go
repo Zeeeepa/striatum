@@ -8,7 +8,7 @@ import "testing"
 
 func TestLintWarnsOnExperimentalShape(t *testing.T) {
 	wf := validWorkflow()
-	wf["shape"] = "adjudicated_constraint_extraction" // experimental: no RFC 0105 fixture
+	wf["shape"] = "adjudicated_constraint_extraction" // experimental: fixture exists, no support-tier graduation
 	if !lintRuleSet(t, wf)["experimental_shape"] {
 		t.Fatalf("expected experimental_shape warning for an experimental-shape workflow")
 	}

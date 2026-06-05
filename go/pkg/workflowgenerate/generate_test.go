@@ -519,10 +519,24 @@ func TestAdjudicatedConstraintExtractionEmitsEightPhaseGraph(t *testing.T) {
 	for id := range jobs {
 		if strings.HasPrefix(id, "cross_examiner_") {
 			examinerCount++
+			targets := listFrom(jobs[id]["interrogation_targets"])
+			if len(targets) != 1 {
+				t.Fatalf("%s interrogation_targets = %#v, want exactly convener_draft", id, jobs[id]["interrogation_targets"])
+			}
+			target := mapFrom(targets[0])
+			if target["workflow_job_id"] != "convener_draft" || target["required"] != true {
+				t.Fatalf("%s interrogation target = %#v, want required convener_draft", id, target)
+			}
 		}
 	}
 	if examinerCount != 5 {
 		t.Fatalf("cross_examiner count = %d, want 5 (default postures)", examinerCount)
+	}
+	for _, item := range listFrom(workflow["edges"]) {
+		edge := mapFrom(item)
+		if edge["from"] == "convener_draft" && strings.HasPrefix(fmt.Sprint(edge["to"]), "cross_examiner_") {
+			t.Fatalf("ACE must not add fake convener_draft -> cross_examiner edge: %#v", edge)
+		}
 	}
 	if generated.Metadata["shape_family"] != "collaboration" {
 		t.Fatalf("metadata shape_family = %#v", generated.Metadata["shape_family"])

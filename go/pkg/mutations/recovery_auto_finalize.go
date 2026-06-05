@@ -1146,6 +1146,9 @@ func completeAutoFinalizedJob(ctx context.Context, runner any, repositoryID, job
 	}); err != nil {
 		return nil, err
 	}
+	if err := markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+		return nil, err
+	}
 	if err := maybeEnqueueDownstream(ctx, runner, repositoryID, jobID); err != nil {
 		return nil, err
 	}

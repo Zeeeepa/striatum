@@ -241,7 +241,11 @@ committee artifacts. RFC 0093 collaboration shapes
 bounded `needs_revision` cycle back into the dialogue phase. These two generated
 shapes are static challenge/rebuttal gates over published artifacts; they do not
 keep the author or holder session live and do not imply runtime model-family
-attestation for manually registered sessions. Other built-in shapes emit V1.
+attestation for manually registered sessions. `shape:
+"adjudicated_constraint_extraction"` emits a V1.1 phased workflow whose
+cross-examiner jobs declare explicit interrogation consumers targeting
+`convener_draft`; the shape remains experimental until a later graduation
+decision changes the support tier. Other built-in shapes emit V1.
 Generator preview envelopes also include the same advisory workflow lint
 payload exposed by `workflow lint`, including warning count and coverage
 summary; lint remains informational and does not change validation
@@ -425,6 +429,65 @@ related parallel jobs with overlapping resource claims. Agents should serialize
 mutating validation against exclusive resources or use the declared namespace
 before running resource-mutating gates. Workflows with no declared shared
 resources produce packets without this key.
+
+### Explicit Interrogation Consumers
+
+Workflow jobs may declare `interrogation_targets` (RFC 0112 V1) to consume the
+live preserved context of an upstream interrogable job without adding fake graph
+edges:
+
+```json
+{
+  "id": "cross_examiner_1",
+  "interrogation_targets": [
+    {"workflow_job_id": "convener_draft", "required": true}
+  ]
+}
+```
+
+Each target entry must be an object with a non-empty `workflow_job_id`; `required`
+is optional and defaults to `false`. Validation rejects duplicate targets,
+self-targeting, unknown target jobs, targets that are not `interrogable: true`,
+targets that are not upstream of the consumer in the workflow graph, and chained
+consumers (a job that is itself `interrogable: true` may not declare
+`interrogation_targets` in V1). Unknown target-entry fields are lint warnings,
+not validation errors. `workflow lint` also warns when a job declares more than
+three targets, when its lane does not advertise `interrogate`, or when a target
+is already a direct dependency and the declaration is redundant.
+
+The resolver is snapshot-derived: it reads the frozen workflow snapshot and live
+`jobs` rows for the run. Striatum does not materialize interrogation consumers in
+a table, does not add synthetic `job_dependencies`, and does not infer consumers
+from terminal output or provider hooks.
+
+An interrogable target's preserved-context window stays open while any direct
+dependent or explicit interrogation consumer is non-terminal. Terminal consumer
+states for this predicate are `completed`, `failed`, `canceled`, `skipped`, and
+`waiting_human`. When a consumer enters one of those states, the terminal hook
+evaluates the union of direct and explicit consumers and closes the target
+session with `interrogation_window_closed` once none remain pending. Re-opening
+the target for a revision closes the prior attempt's target session and any open
+interrogations with `revision_reopened`; the fresh attempt gets its own
+`session.awaiting_interrogation` event. That event payload includes the target's
+current `workflow_job_id` and `attempt` so packet projection and evidence queries
+stay attempt-scoped.
+
+`required: true` is advisory in V1. It never blocks claiming, completion,
+verdicts, or human checkpoints. Instead, terminalizing a consumer that skipped a
+required target records `interrogation.required_skipped`, and an attempted open
+against a legitimately retired target records
+`interrogation.unavailable_signaled`. These evidence events are daemon DB facts,
+not durable transcript capture.
+
+When a job declares targets, `claim-next` adds
+`context.interrogation_targets` to its work packet. Each entry includes the
+declared `workflow_job_id`, `required`, `state`, `reason`, and instruction text.
+Available targets also include `target_session_id` and `target_attempt`.
+Unavailable or not-yet-ready targets may include `target_attempt` and a reason
+such as `revision_reopened`, `target_skipped`, or `target_retired`. The
+projection is attempt-aware and must not point a consumer at a stale prior
+attempt target after a revision re-open. Jobs without declarations produce
+packets without the block.
 
 ### Reviewer Policy
 

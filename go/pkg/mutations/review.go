@@ -289,9 +289,12 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			}); err != nil {
 				return nil, err
 			}
+			if err := markJobTerminal(ctx, tx, repositoryID, fmt.Sprint(job["run_id"]), jobID); err != nil {
+				return nil, err
+			}
 			rows, err := queryRows(ctx, tx, `
-				SELECT blocker_id FROM striatumd.blockers
-				 WHERE repository_id = $1
+					SELECT blocker_id FROM striatumd.blockers
+					 WHERE repository_id = $1
 				   AND job_id = $2
 				   AND state = 'open'
 				   AND severity = 'human_checkpoint'
@@ -896,7 +899,10 @@ func completeReviewJob(ctx context.Context, runner any, repositoryID string, job
 		return err
 	}
 	_, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "job.completed", sessionID, job["job_id"], messageID, nil, leaseID, map[string]any{"summary": summary})
-	return err
+	if err != nil {
+		return err
+	}
+	return markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]))
 }
 
 func failReviewJob(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID string) error {
@@ -930,7 +936,10 @@ func failReviewJob(ctx context.Context, runner any, repositoryID string, job map
 		return err
 	}
 	_, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "job.failed", sessionID, job["job_id"], messageID, nil, leaseID, map[string]any{"reason": "reject"})
-	return err
+	if err != nil {
+		return err
+	}
+	return markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]))
 }
 
 func openHumanCheckpoint(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, description string) (string, error) {
@@ -979,6 +988,9 @@ func openHumanCheckpoint(ctx context.Context, runner any, repositoryID string, j
 		"blocker_id":  blockerID,
 		"description": description,
 	}); err != nil {
+		return "", err
+	}
+	if err := markJobTerminal(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"])); err != nil {
 		return "", err
 	}
 	return blockerID, nil
