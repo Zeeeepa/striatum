@@ -70,7 +70,9 @@ const (
 // `implementation_panel` graduated on its fan-out/join reliability fixture
 // (adapterconformance/implementation_panel_test.go); `falsification_gate`
 // graduated on its multi-job revision re-cascade fixture
-// (adapterconformance/falsification_gate_test.go).
+// (adapterconformance/falsification_gate_test.go). `cross_examination` shares
+// that fixture only while workflowgenerate's graph-isomorphism guard proves it
+// remains structurally identical after ignoring role/artifact naming.
 var supportedShapes = map[string]struct{}{
 	"minimal":                {},
 	"review":                 {},
@@ -78,6 +80,7 @@ var supportedShapes = map[string]struct{}{
 	"multi_review_synthesis": {},
 	"implementation_panel":   {},
 	"falsification_gate":     {},
+	"cross_examination":      {},
 }
 
 // SupportTierForShape returns the RFC 0106 support tier for a shape template_id.

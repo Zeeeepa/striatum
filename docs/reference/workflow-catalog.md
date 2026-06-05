@@ -77,7 +77,7 @@ Require falsifying cross-examination and a rebuttal record before a finding or p
 - Recommended for: finding readiness checks; proposal publication gates; challenge/rebuttal provenance
 - Default lane sets: `multi_review`, `author_reviewer`, `local`
 - Required options: `workflow_id`, `artifact_root`, `topic`
-**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD

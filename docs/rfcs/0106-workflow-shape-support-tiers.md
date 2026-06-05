@@ -38,7 +38,9 @@ proven to run unattended, and stop widening until the catalog catches up.
 3. **Graduation gate.** A shape moves `experimental → supported` **only** when it
    has a passing RFC 0105 fixture across the fault matrix. A guard test fails if a
    shape is marked `supported` without a registered green fixture — so the tier
-   cannot lie.
+   cannot lie. D169 adds one narrow amendment: a provably-isomorphic generated
+   shape may share another shape's fixture when a separate graph-isomorphism guard
+   fails on structural drift while ignoring role/artifact/prose naming.
 4. **Freeze policy (decision-log, not code).** Record a decision: **no new shapes
    are authored until the existing catalog has graduated** (or been explicitly
    marked permanently-experimental). This is a discipline commitment, reversible by
@@ -52,6 +54,8 @@ pretending unproven shapes are production-ready.
 - `workflow.lint` warns on `experimental`-shape runs and is silent on `supported`
   ones; tested in `workflowauthoring`.
 - A guard test rejects `support_tier: supported` without a green RFC 0105 fixture.
+- Any shared-fixture co-graduation has an explicit graph-isomorphism guard and
+  names the source fixture it depends on.
 - `docs/reference/workflow-catalog.md` renders the tier per shape.
 - An initial honest classification lands: the shapes proven in dogfoods
   (minimal, review+synthesis, code-change) start `supported`; the
@@ -65,6 +69,23 @@ pretending unproven shapes are production-ready.
 - Not blocking experimental shapes — yolo may opt in; the lint informs, it does
   not gate.
 - Not designing new shapes — this RFC freezes new-shape authoring, it does not add.
+
+## D169 Amendment: Isomorphic Co-Graduation
+
+`cross_examination` is a narrow co-graduation case. With equal challenger-chain
+length, its generated graph is structurally the same as `falsification_gate`:
+source artifact → linear challenger chain → optional scribe → adjudicator
+collaboration-ledger gate → commit → final, with a `needs_revision` cycle back
+to the first challenger. The differences are role, job, artifact, and prompt
+names.
+
+Duplicating `falsification_gate_test.go` under renamed jobs would add no new
+unattended-reliability coverage. Instead, `cross_examination` may use the
+`falsification_gate` reliability fixture while
+`go/pkg/workflowgenerate/generate_test.go::TestCrossExaminationIsStructurallyIsomorphicToFalsificationGate`
+continues to prove the generated graph is isomorphic. If the guard fails, either
+restore equivalence, demote `cross_examination`, or add a genuinely distinct RFC
+0105 fixture for the new structure.
 
 ## Relationship to prior RFCs
 

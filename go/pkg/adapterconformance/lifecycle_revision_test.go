@@ -422,13 +422,15 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 //     underwrites `falsification_gate` — its needs_revision cycle re-opens the
 //     whole chain, transitively re-blocking the gate (depth 2) past the depth-1
 //     single-job reopen the review-cycle fixture exercises, and recovers a hard
-//     dead lane in a MIDDLE dialogue node mid-re-cascade.
+//     dead lane in a MIDDLE dialogue node mid-re-cascade. It also underwrites
+//     `cross_examination` only while workflowgenerate's graph-isomorphism guard
+//     proves the generated graph is structurally identical after role/artifact
+//     naming is ignored.
 //
 // The remaining collaboration / interrogation shapes (conversation,
-// cross_examination, adjudicated_constraint_extraction,
-// iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
-// deliberately have NO entry here and therefore stay `experimental` until a
-// fixture proves them.
+// adjudicated_constraint_extraction, iterated_interrogating_panel,
+// human_checkpoint, evidence_backed, custom) deliberately have NO entry here and
+// therefore stay `experimental` until a fixture proves them.
 var ReliabilityFixtureShapes = map[string]bool{
 	"minimal":                true,
 	"review":                 true,
@@ -436,4 +438,5 @@ var ReliabilityFixtureShapes = map[string]bool{
 	"multi_review_synthesis": true,
 	"implementation_panel":   true,
 	"falsification_gate":     true,
+	"cross_examination":      true,
 }

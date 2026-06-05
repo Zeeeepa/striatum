@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### RFC 0106 / D169 — `cross_examination` co-graduates by structural isomorphism
+
+`cross_examination` now shares the `falsification_gate` RFC 0105 reliability
+fixture instead of carrying a shallow renamed duplicate. The graduation is gated
+by `TestCrossExaminationIsStructurallyIsomorphicToFalsificationGate`, which
+normalizes the generated graph and fails if the two shapes structurally drift
+while ignoring role/artifact/prose naming.
+
+- `workflowtemplates.supportedShapes` and
+  `adapterconformance.ReliabilityFixtureShapes` now include
+  `cross_examination`.
+- The RFC 0106 policy now allows narrow isomorphic co-graduation only with an
+  explicit drift guard; the new-shape freeze remains in force.
+- The experimental-shape lint regression now uses
+  `adjudicated_constraint_extraction`.
+
 ## v2.26.0 — 2026-06-04
 
 ### RFC 0110 §10 — pgtest consumes the production grant surface (C-PGTEST-NO-DML-GRANT)

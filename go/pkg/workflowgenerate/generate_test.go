@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -333,6 +335,42 @@ func TestCollaborationShapesEmitSubstanceGateV11Graphs(t *testing.T) {
 				if strings.Contains(content, "stay live") || strings.Contains(content, "interrogat") {
 					t.Fatalf("generated support file %q still promises live interrogation", path)
 				}
+			}
+		})
+	}
+}
+
+func TestCrossExaminationIsStructurallyIsomorphicToFalsificationGate(t *testing.T) {
+	for _, includeScribe := range []bool{false, true} {
+		t.Run(fmt.Sprintf("include_scribe=%v", includeScribe), func(t *testing.T) {
+			falsification := collaborationGeneratorSpec("falsification_gate")
+			falsificationOptions := mapFrom(falsification["options"])
+			falsificationOptions["falsifier_count"] = 2
+			falsificationOptions["max_revision_cycles"] = 2
+			falsificationOptions["include_scribe"] = includeScribe
+
+			crossExamination := collaborationGeneratorSpec("cross_examination")
+			crossOptions := mapFrom(crossExamination["options"])
+			// cross_examination derives its challenger count from reviewer_count:
+			// reviewers 1..N-1 challenge, reviewer N adjudicates. Match the
+			// two-challenger chain exercised by falsification_gate's fixture.
+			crossOptions["reviewer_count"] = 3
+			crossOptions["max_revision_cycles"] = 2
+			crossOptions["include_scribe"] = includeScribe
+
+			falsificationGenerated, err := GenerateFromMap(falsification)
+			if err != nil {
+				t.Fatalf("GenerateFromMap(falsification_gate): %v", err)
+			}
+			crossGenerated, err := GenerateFromMap(crossExamination)
+			if err != nil {
+				t.Fatalf("GenerateFromMap(cross_examination): %v", err)
+			}
+
+			falsificationGraph := collaborationStructuralGraph(falsificationGenerated.Workflow)
+			crossGraph := collaborationStructuralGraph(crossGenerated.Workflow)
+			if !reflect.DeepEqual(falsificationGraph, crossGraph) {
+				t.Fatalf("cross_examination no longer shares falsification_gate's structural reliability fixture\nfalsification_gate: %#v\ncross_examination: %#v", falsificationGraph, crossGraph)
 			}
 		})
 	}
@@ -974,4 +1012,99 @@ func hasEdge(value any, from, to string) bool {
 		}
 	}
 	return false
+}
+
+func collaborationStructuralGraph(workflow map[string]any) map[string]any {
+	jobs := []map[string]any{}
+	for _, item := range listFrom(workflow["jobs"]) {
+		job := mapFrom(item)
+		artifactKinds := []string{}
+		for _, artifactItem := range listFrom(job["expected_artifacts"]) {
+			artifact := mapFrom(artifactItem)
+			artifactKinds = append(artifactKinds, fmt.Sprint(artifact["kind"]))
+		}
+		sort.Strings(artifactKinds)
+		freshSessionRequired, _ := job["fresh_session_required"].(bool)
+		jobs = append(jobs, map[string]any{
+			"id":                      canonicalCollaborationNodeID(fmt.Sprint(job["id"])),
+			"type":                    fmt.Sprint(job["type"]),
+			"lane_id":                 fmt.Sprint(job["lane_id"]),
+			"phase_id":                fmt.Sprint(job["phase_id"]),
+			"expected_artifact_kinds": artifactKinds,
+			"fresh_session_required":  freshSessionRequired,
+		})
+	}
+	sort.Slice(jobs, func(left, right int) bool {
+		return fmt.Sprint(jobs[left]["id"]) < fmt.Sprint(jobs[right]["id"])
+	})
+
+	edges := []map[string]any{}
+	for _, item := range listFrom(workflow["edges"]) {
+		edge := mapFrom(item)
+		edges = append(edges, map[string]any{
+			"from": canonicalCollaborationNodeID(fmt.Sprint(edge["from"])),
+			"to":   canonicalCollaborationNodeID(fmt.Sprint(edge["to"])),
+			"on":   fmt.Sprint(edge["on"]),
+		})
+	}
+	sort.Slice(edges, func(left, right int) bool {
+		leftKey := fmt.Sprintf("%s>%s>%s", edges[left]["from"], edges[left]["to"], edges[left]["on"])
+		rightKey := fmt.Sprintf("%s>%s>%s", edges[right]["from"], edges[right]["to"], edges[right]["on"])
+		return leftKey < rightKey
+	})
+
+	cycles := []map[string]any{}
+	for _, item := range listFrom(workflow["cycles"]) {
+		cycle := mapFrom(item)
+		allowSameLane, _ := cycle["allow_same_lane"].(bool)
+		allowSameModel, _ := cycle["allow_same_model"].(bool)
+		cycles = append(cycles, map[string]any{
+			"from":             canonicalCollaborationNodeID(fmt.Sprint(cycle["from"])),
+			"to":               canonicalCollaborationNodeID(fmt.Sprint(cycle["to"])),
+			"on_verdict":       fmt.Sprint(cycle["on_verdict"]),
+			"max_iterations":   cycle["max_iterations"],
+			"allow_same_lane":  allowSameLane,
+			"allow_same_model": allowSameModel,
+		})
+	}
+	sort.Slice(cycles, func(left, right int) bool {
+		leftKey := fmt.Sprintf("%s>%s>%s", cycles[left]["from"], cycles[left]["to"], cycles[left]["on_verdict"])
+		rightKey := fmt.Sprintf("%s>%s>%s", cycles[right]["from"], cycles[right]["to"], cycles[right]["on_verdict"])
+		return leftKey < rightKey
+	})
+
+	phases := []map[string]any{}
+	for _, item := range listFrom(workflow["phases"]) {
+		phase := mapFrom(item)
+		phases = append(phases, map[string]any{
+			"id":               fmt.Sprint(phase["id"]),
+			"synthesis_job_id": canonicalCollaborationNodeID(fmt.Sprint(phase["synthesis_job_id"])),
+		})
+	}
+	sort.Slice(phases, func(left, right int) bool {
+		return fmt.Sprint(phases[left]["id"]) < fmt.Sprint(phases[right]["id"])
+	})
+
+	return map[string]any{
+		"schema_version": fmt.Sprint(workflow["schema_version"]),
+		"jobs":           jobs,
+		"edges":          edges,
+		"cycles":         cycles,
+		"phases":         phases,
+	}
+}
+
+func canonicalCollaborationNodeID(id string) string {
+	switch id {
+	case "holder", "author_draft":
+		return "source"
+	case "adjudicate", "commit_proposal", "final_summary", "scribe_note":
+		return id
+	}
+	for _, prefix := range []string{"falsifier_", "cross_examiner_"} {
+		if strings.HasPrefix(id, prefix) {
+			return "challenger_" + strings.TrimPrefix(id, prefix)
+		}
+	}
+	return id
 }
