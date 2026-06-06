@@ -146,9 +146,10 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 // "invalid reference: <branch>" (#183). When the ref is missing, create it with
 // `git branch <name> <base>` at the run's recorded branch_base (or HEAD when
 // branch_base was not recorded) — NEVER `git checkout -b`: the daemon must never
-// move the operator's primary checkout HEAD. A later RFC (0115) will supersede the
-// broader branch-confirmation lifecycle; this is an independently-safe standalone
-// fix that only adds the missing ref and leaves HEAD untouched.
+// move the operator's primary checkout HEAD. A later RFC (0117, per-job worktree
+// & branch ref-safety) will supersede the broader branch-confirmation lifecycle;
+// this is an independently-safe standalone fix that only adds the missing ref and
+// leaves HEAD untouched.
 func ensureWorktreeBaseBranchRef(ctx context.Context, repoRoot, branch, branchBase string) error {
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
@@ -171,6 +172,13 @@ func ensureWorktreeBaseBranchRef(ctx context.Context, repoRoot, branch, branchBa
 		return err
 	}
 	if created.ExitCode != 0 {
+		// A concurrent worktree create for the same run may have created the
+		// branch between our probe and this create; if the ref resolves now,
+		// the goal (ref exists) is met — losing that race is not a failure.
+		verify, verr := runGitWorktreeCommand(ctx, repoRoot, "rev-parse", "--verify", "--quiet", branch+"^{commit}")
+		if verr == nil && verify.ExitCode == 0 {
+			return nil
+		}
 		return rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git branch create for worktree base failed", created), nil)
 	}
 	return nil

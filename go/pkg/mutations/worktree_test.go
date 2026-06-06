@@ -279,3 +279,52 @@ func TestGitWorktreeErrorMessageTruncatesCommandOutput(t *testing.T) {
 		t.Fatalf("truncated detail length = %d", len(strings.TrimPrefix(message, "git worktree add failed: ")))
 	}
 }
+
+// TestEnsureWorktreeBaseBranchRefToleratesLostCreateRace guards the concurrent
+// worktree-create race: two creates for the same run can both probe the missing
+// ref before either runs `git branch`; the loser's create fails "already
+// exists" but the ref now resolves, so the goal is met and the create must not
+// refuse. A create that fails while the ref is still unresolvable keeps the
+// refusal.
+func TestEnsureWorktreeBaseBranchRefToleratesLostCreateRace(t *testing.T) {
+	prev := runGitWorktreeCommand
+	defer func() { runGitWorktreeCommand = prev }()
+
+	probes := 0
+	runGitWorktreeCommand = func(_ context.Context, _ string, args ...string) (gitWorktreeResult, error) {
+		switch args[0] {
+		case "rev-parse":
+			probes++
+			if probes == 1 {
+				// First probe: ref missing.
+				return gitWorktreeResult{ExitCode: 1}, nil
+			}
+			// Re-verify after the lost create: a sibling created the ref.
+			return gitWorktreeResult{ExitCode: 0}, nil
+		case "branch":
+			return gitWorktreeResult{ExitCode: 128, Stderr: "fatal: a branch named 'wf/raced' already exists"}, nil
+		default:
+			t.Fatalf("unexpected git command %v", args)
+			return gitWorktreeResult{}, nil
+		}
+	}
+	if err := ensureWorktreeBaseBranchRef(context.Background(), "/repo", "wf/raced", ""); err != nil {
+		t.Fatalf("lost create race must not refuse: %v", err)
+	}
+
+	runGitWorktreeCommand = func(_ context.Context, _ string, args ...string) (gitWorktreeResult, error) {
+		switch args[0] {
+		case "rev-parse":
+			// Ref never resolves: missing before and after the failed create.
+			return gitWorktreeResult{ExitCode: 1}, nil
+		case "branch":
+			return gitWorktreeResult{ExitCode: 128, Stderr: "fatal: not a valid object name: 'nope'"}, nil
+		default:
+			t.Fatalf("unexpected git command %v", args)
+			return gitWorktreeResult{}, nil
+		}
+	}
+	if err := ensureWorktreeBaseBranchRef(context.Background(), "/repo", "wf/raced", "nope"); err == nil {
+		t.Fatal("real branch-create failure must still refuse")
+	}
+}

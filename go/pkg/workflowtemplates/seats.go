@@ -71,8 +71,9 @@ var supportedSeats = map[string]struct{}{
 
 // RegisterDegradedSeatForTest registers a degraded seat + reason for the lifetime
 // of a test and returns a cleanup that restores the prior state. It is the seam
-// that keeps the degraded_seat_lane lint's warning path under test now that the
-// only production-degraded seat (agy) has graduated. Test-only; never call from
+// that keeps the degraded_seat_lane lint's warning path under test independent of
+// which seats happen to be production-degraded at the time (agy graduated in
+// RFC 0109 Phase B, then was re-demoted by D174/#190). Test-only; never call from
 // production code.
 func RegisterDegradedSeatForTest(adapter, reason string) func() {
 	name := normalizeAdapterName(adapter)
