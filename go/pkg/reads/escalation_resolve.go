@@ -203,8 +203,22 @@ func loadEscalationProjection(ctx context.Context, runner any, repositoryID stri
 	return shapeEscalations(rows)[0], nil
 }
 
+// withResolveTx runs escalation.resolve's body inside an authorized mutation
+// transaction. Although escalation.resolve is registered in the reads package
+// (its Python parity handler lives beside the escalation projection), it is a
+// write verb: it must open its transaction the same way every mutation verb does
+// (db.BeginAuthorizedMutation, via the mutations withTx chokepoint) so the RFC
+// 0110 authority/attribution prelude is the transaction's first statement. Under
+// pg_write_boundary=full the event append routes through the owner-owned SECURITY
+// DEFINER append_event_row, which asserts daemon authority from the
+// prelude-installed striatum.daemon_auth GUC; a bare runner.BeginTx leaves that
+// GUC unset, so the SD function raises SQLSTATE 28000 and the handler returns
+// daemon_auth_lost while every other write verb succeeds (#176). The mutation
+// audit row is appended as the final write inside the same transaction (RFC 0110
+// §4.4), atomic with the resolve, mirroring the mutations chokepoint; an append
+// failure fails the whole resolve closed.
 func withResolveTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
-	tx, err := runner.BeginTx(ctx)
+	tx, err := db.BeginAuthorizedMutation(ctx, runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -218,11 +232,46 @@ func withResolveTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (
 	if err != nil {
 		return nil, err
 	}
+	auditID, audited, err := appendResolveMutationAudit(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
 	committed = true
+	if audited {
+		if dispatch, ok := rpc.AuditDispatchFromContext(ctx); ok {
+			dispatch.AuditID = auditID
+			dispatch.Appended = true
+		}
+	}
 	return result, nil
+}
+
+// appendResolveMutationAudit appends the success audit row for escalation.resolve
+// inside the resolve transaction, mirroring the mutations package's
+// appendMutationAudit (RFC 0110 §4.4). It returns audited=false (no error) when
+// the context lacks dispatch threading (a direct handler unit test or a
+// recorder-less server), leaving auditing to the standalone dispatch path; an
+// append failure is surfaced as an error so the resolve fails closed.
+func appendResolveMutationAudit(ctx context.Context, tx db.TxRunner) (string, bool, error) {
+	meta, ok, err := db.BuildAuditMetaFromContext(ctx, true)
+	if err != nil {
+		return "", false, err
+	}
+	if !ok {
+		return "", false, nil
+	}
+	auditID, err := db.AppendAuditInTx(ctx, tx, meta)
+	if err != nil {
+		return "", false, rpc.NewError(
+			"audit_append_failed",
+			"daemon could not append the mutation audit row; rolling the mutation back",
+			map[string]any{"cause": err.Error()},
+		)
+	}
+	return auditID, true, nil
 }
 
 func queryAnyRows(ctx context.Context, runner any, sql string, args ...any) ([]map[string]any, error) {
