@@ -1,6 +1,6 @@
 # RFC 0114: Runtime read-scope least privilege — principals, principal_clients, client_sessions
 
-Status: proposed
+Status: accepted (D173)
 Date: 2026-06-06
 author: author-claude-opus-4.8-001
 Context: RFC 0113 (runtime read-scope least privilege, R1 started), RFC 0110
