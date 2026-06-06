@@ -89,4 +89,3 @@ func seedDoctorClient(t *testing.T, runner db.Runner, clientID string, now time.
 		t.Fatalf("seed client %s: %v", clientID, err)
 	}
 }
-

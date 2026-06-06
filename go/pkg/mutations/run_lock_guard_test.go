@@ -103,6 +103,7 @@ func (r *lockRecorder) QueryScalar(ctx context.Context, sql string, args ...any)
 func (r *lockRecorder) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return r.inner.(queryer).Query(ctx, sql, args...)
 }
+
 // EncodesJSONBAsText opts the recorder into db.JSONBArg's pgx text encoding,
 // since it delegates to a real pgx runner.
 func (r *lockRecorder) EncodesJSONBAsText() bool { return true }

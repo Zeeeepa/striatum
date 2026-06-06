@@ -31,6 +31,7 @@ const sessionBoundTokenTTL = 24 * time.Hour
 //     its first packet — a silent rescue-forcing wedge that surfaced only once
 //     the #135 session-bound token was actually wired into the lane env (before
 //     that, lanes used the shared repo-scoped token, which carries read).
+//
 // All grants are bound to the registering session_id (RFC 0096 V2 / #135), so
 // the resolved AuthContext for this token reports IsSessionBound and the
 // session-scoped handlers refuse any act-as session other than this one.

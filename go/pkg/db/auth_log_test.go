@@ -16,10 +16,10 @@ func TestAuthLogRedaction(t *testing.T) {
 		"reason_code":    `dial error to postgresql://striatumd_rw:s3cr3tP@ss@/striatum?password=s3cr3tP@ss`,
 		"duration_ms":    12,
 		// Non-whitelisted keys that must be dropped entirely.
-		"dsn":          "postgres://striatumd_rw:hunter2@/striatum",
-		"raw_error":    "FATAL: password authentication failed for user with secret=hunter2",
-		"auth_secret":  "deadbeefsecret",
-		"stack":        "goroutine 1 ...",
+		"dsn":         "postgres://striatumd_rw:hunter2@/striatum",
+		"raw_error":   "FATAL: password authentication failed for user with secret=hunter2",
+		"auth_secret": "deadbeefsecret",
+		"stack":       "goroutine 1 ...",
 	}
 
 	out := RedactAuthLogDetail(detail)

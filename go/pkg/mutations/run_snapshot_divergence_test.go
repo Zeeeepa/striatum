@@ -113,9 +113,9 @@ func TestWorkflowSnapshotDivergence(t *testing.T) {
 		writeWorkflowFile(t, sourcePath, canonical) // restore a valid, matching file
 		cases := [][3]string{
 			{repoRoot, filepath.Join(repoRoot, "missing.json"), matchSha}, // file gone
-			{repoRoot, "", matchSha},                                      // no source_path
-			{repoRoot, sourcePath, ""},                                    // no snapshot sha
-			{repoRoot, sourcePath, "<nil>"},                               // nullable rendered
+			{repoRoot, "", matchSha},        // no source_path
+			{repoRoot, sourcePath, ""},      // no snapshot sha
+			{repoRoot, sourcePath, "<nil>"}, // nullable rendered
 		}
 		for _, c := range cases {
 			if w := workflowSnapshotDivergence(c[0], c[1], c[2]); w != "" {

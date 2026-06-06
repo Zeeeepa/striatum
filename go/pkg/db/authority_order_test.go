@@ -38,7 +38,7 @@ type recordingOrderRunner struct {
 	stmts *[]recordedStmt
 }
 
-func (r recordingOrderRunner) Exec(context.Context, string, ...any) error { return nil }
+func (r recordingOrderRunner) Exec(context.Context, string, ...any) error   { return nil }
 func (r recordingOrderRunner) QueryRow(context.Context, string, ...any) Row { return nil }
 func (r recordingOrderRunner) QueryScalar(context.Context, string, ...any) (string, error) {
 	return "", nil

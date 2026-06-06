@@ -1,0 +1,2 @@
+# Lane-authored provenance artifacts are byte-exact; exempt from whitespace checks.
+docs/operator/artifacts/** -whitespace
