@@ -33,16 +33,22 @@ jobs:
       STRIATUM_P3_INSTALLED_CLI: "1"
       STRIATUM_P3_RUN_TIMEOUT: 4m
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
 
       - name: Install agy CLI
         run: |
-          curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --skip-aliases --skip-path
+          # The upstream installer now only accepts -d/--dir; the old
+          # --skip-aliases/--skip-path flags were removed and made the step
+          # fail with "Unknown parameter". The script installs to
+          # $HOME/.local/bin by default and runs `agy install` as a non-fatal
+          # PATH/alias handoff (it only warns when the dir is not yet on PATH),
+          # so a bare invocation is sufficient here.
+          curl -fsSL https://antigravity.google/cli/install.sh | bash
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
