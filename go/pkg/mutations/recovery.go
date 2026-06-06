@@ -1144,6 +1144,16 @@ func HandleRecoveryStaleLeases(ctx context.Context, runner db.Runner, envelope r
 		if _, err := expireLeases(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
+		// #179: the expired-lease disjunct must only surface leases that still
+		// represent an UNRESOLVED stale condition. A lease that recovery already
+		// transferred or requeued away is historical provenance, not an actionable
+		// stale lease — its job has since moved to a fresh lease/attempt — yet the
+		// bare `l.state = 'expired'` join kept matching it, so every later
+		// recovery.stale_leases call re-reported the same already-released lease as
+		// stale. expireLeases (run just above) stamps a genuinely stale lease
+		// state='expired', released_at=now, release_reason='expired', so released_at
+		// alone cannot discriminate; the recovery transfer/requeue release reasons
+		// are what mark a lease as already handled. Exclude those.
 		rows, err := queryRows(ctx, tx, `
 			SELECT j.job_id, j.workflow_job_id, j.state AS job_state,
 			       j.write_scope_json,
@@ -1155,13 +1165,19 @@ func HandleRecoveryStaleLeases(ctx context.Context, runner db.Runner, envelope r
 			  LEFT JOIN striatumd.leases l
 			    ON l.repository_id = j.repository_id
 			   AND (l.lease_id = j.current_lease_id
-			        OR (l.resource_id = j.job_id AND l.state = 'expired'))
+			        OR (l.resource_id = j.job_id
+			            AND l.state = 'expired'
+			            AND (l.release_reason IS NULL
+			                 OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))))
 			  LEFT JOIN striatumd.queue_messages qm
 			    ON qm.repository_id = j.repository_id
 			   AND qm.message_id = j.current_message_id
 			 WHERE j.repository_id = $1
 			   AND j.run_id = $2
-			   AND (j.state = 'stale_lease' OR l.state = 'expired')
+			   AND (j.state = 'stale_lease'
+			        OR (l.state = 'expired'
+			            AND (l.release_reason IS NULL
+			                 OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))))
 			 ORDER BY j.workflow_job_id, l.expires_at`, repositoryID, runID)
 		if err != nil {
 			return nil, err
