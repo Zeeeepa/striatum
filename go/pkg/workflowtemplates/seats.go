@@ -41,12 +41,15 @@ const (
 // Keep entries tied to a tracked issue so "agy is broken" is never tribal
 // knowledge that resets every umbrella (RFC 0109 §B).
 //
-// EMPTY as of RFC 0109 Phase B: agy graduated to `supported` once its installed-CLI
-// gate went green (#149) — the historical defects (#95/#85/#76/#139) no longer
-// reproduce against the current CLI. A seat returns here only when a tracked defect
-// prevents a reliable supervised multi-turn seat; the day a CLI bump breaks a seat,
-// the P3 gate fails CI and the seat is re-classified here.
-var degradedSeats = map[string]string{}
+// #190 (D174): agy is demoted `supported → degraded` again. The installed agy CLI
+// (Antigravity 1.0.6) is OAuth-only — it has no headless/--login/API-key path — so
+// the RFC 0109 P3 Installed CLI Gate stalls on an interactive login picker at the
+// conformance step and the green fixture can no longer be produced. A seat returns
+// to `supported` only via the RFC 0109 graduation gate once a headless auth path
+// returns.
+var degradedSeats = map[string]string{
+	"agy": "agy CLI 1.0.6 (Antigravity) is OAuth-only with no headless/--login/API-key path; the RFC 0109 P3 installed-CLI gate stalls on an interactive login picker, so the supported seat fixture cannot be produced (#190)",
+}
 
 // supportedSeats are adapters with a green RFC 0109 P3 installed-CLI conformance
 // fixture (adapterconformance.InstalledCLISeatFixtures). The graduation guard
@@ -54,15 +57,15 @@ var degradedSeats = map[string]string{}
 // cannot be added here without its fixture, and a fixture cannot exist without
 // graduating the seat — "the tier cannot lie."
 //
-//   - agy: green RFC 0109 P3 installed-CLI fixture (TestInstalledCLISeatAgyTwoTurn:
-//     two-turn claim→publish→claim under one attested session), corroborated live
-//     by the 3-lane needs_revision panel (agy held its seat across the revision
-//     cycle) and the panel surviving a mid-run daemon restart.
 //   - codex: green RFC 0109 P3 installed-CLI fixture
 //     (TestInstalledCLISeatCodexTwoTurn: two-turn claim→publish→claim under one
 //     attested session against the hermetic MCP harness).
+//
+// #190 (D174): agy was REMOVED from this set — its installed-CLI fixture can no
+// longer go green because agy CLI 1.0.6 is OAuth-only and the gate stalls on a
+// login picker. It is now `degraded` (degradedSeats); re-promotion is the RFC 0109
+// graduation gate once a headless auth path returns.
 var supportedSeats = map[string]struct{}{
-	"agy":   {},
 	"codex": {},
 }
 

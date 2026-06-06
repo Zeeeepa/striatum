@@ -3,25 +3,19 @@ package workflowauthoring
 import (
 	"strings"
 	"testing"
-
-	"github.com/halbritt/striatum/go/pkg/workflowtemplates"
 )
 
 // TestLintWarnsOnDegradedSeatLane: a workflow declaring a lane whose adapter seat
 // is `degraded` must emit the RFC 0109 degraded_seat_lane warning naming the lane
-// and the gap — closing the silent-collapse half of #139. agy graduated to
-// `supported` in Phase B, so no production seat is degraded; the warning path is
-// exercised with a synthetic degraded seat via the workflowtemplates test seam.
+// and the gap — closing the silent-collapse half of #139. As of #190 (D174) agy is
+// the real production degraded seat (OAuth-only CLI 1.0.6 stalls the P3 gate), so
+// the warning path is exercised directly against it — no synthetic test seam needed.
 func TestLintWarnsOnDegradedSeatLane(t *testing.T) {
-	cleanup := workflowtemplates.RegisterDegradedSeatForTest("phantom-cli",
-		"phantom multi-turn collapse (#0000)")
-	defer cleanup()
-
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)
-	lanes["phantom"] = map[string]any{
+	lanes["agy"] = map[string]any{
 		"adapter":              "process",
-		"command":              []any{"phantom-cli", "--go"},
+		"command":              []any{"agy", "--dangerously-skip-permissions"},
 		"adapter_capabilities": map[string]any{"agent_loop": true},
 	}
 	payload, err := Lint(workflow)
@@ -38,7 +32,7 @@ func TestLintWarnsOnDegradedSeatLane(t *testing.T) {
 	if found == nil {
 		t.Fatalf("expected a degraded_seat_lane warning for a declared degraded-seat lane")
 	}
-	if found["lane_id"] != "phantom" || found["adapter"] != "phantom-cli" {
+	if found["lane_id"] != "agy" || found["adapter"] != "agy" {
 		t.Fatalf("warning must name the offending lane/adapter: %#v", found)
 	}
 	if found["seat_tier"] != "degraded" {
@@ -49,19 +43,13 @@ func TestLintWarnsOnDegradedSeatLane(t *testing.T) {
 	}
 }
 
-// TestLintSilentOnSupportedOrExperimentalSeatLane: agy (now `supported`, RFC 0109
-// P3) and claude/codex (`experimental` — they hold a seat, just ungated by an
-// installed-CLI fixture) must NOT trigger the degraded_seat_lane warning. Faithful
-// to RFC 0109's acceptance, which surfaces degraded/unsupported seats specifically,
-// and proves the graduation closed the loop (agy stops warning).
+// TestLintSilentOnSupportedOrExperimentalSeatLane: claude (`experimental`) and
+// codex (`supported`) must NOT trigger the degraded_seat_lane warning. As of #190
+// (D174) agy is `degraded`, so it is no longer in the silent set — it is covered by
+// TestLintWarnsOnDegradedSeatLane.
 func TestLintSilentOnSupportedOrExperimentalSeatLane(t *testing.T) {
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)
-	lanes["agy"] = map[string]any{
-		"adapter":              "process",
-		"command":              []any{"agy", "--dangerously-skip-permissions"},
-		"adapter_capabilities": map[string]any{"agent_loop": true},
-	}
 	lanes["claude_code"] = map[string]any{
 		"adapter":              "process",
 		"command":              []any{"claude", "--dangerously-skip-permissions"},
