@@ -18,8 +18,63 @@ import (
 // src/striatum/plugins/templates. The Python __init__.py package-data markers
 // are intentionally not embedded (RFC 0078 Gate B drops them).
 //
-//go:embed templates/skills templates/plugins
+//go:embed templates/skills templates/plugins templates/optional
 var embedded embed.FS
+
+// readOptionalSkillFile returns the raw bytes of one file within a
+// Striatum-authored optional skill bundle (#177), rooted at
+// templates/optional. Unlike the core skill templates these are copied
+// verbatim — they are authored bundles, not parameterized templates, and carry
+// literal braces (shell ${...}) that the format_map renderer would reject.
+func readOptionalSkillFile(relpath string) ([]byte, error) {
+	body, err := embedded.ReadFile("templates/optional/" + relpath)
+	if err != nil {
+		if errFsNotExist(err) {
+			return nil, fmt.Errorf("optional skill file not found: %s", relpath)
+		}
+		return nil, err
+	}
+	return body, nil
+}
+
+// optionalSkillFiles lists the embedded files under one optional skill bundle,
+// as slash-relative paths beneath the skill directory (e.g. "SKILL.md",
+// "scripts/instantiate.sh").
+func optionalSkillFiles(name string) ([]string, error) {
+	root := "templates/optional/" + name
+	var files []string
+	err := fs.WalkDir(embedded, root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel := path[len(root)+1:]
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return files, nil
+}
+
+// optionalSkillNames lists the embedded Striatum-authored optional skill
+// bundle names (the immediate child directories of templates/optional).
+func optionalSkillNames() ([]string, error) {
+	entries, err := fs.ReadDir(embedded, "templates/optional")
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	return names, nil
+}
 
 // readSkillTemplate returns the raw bytes of a skills template, rooted at
 // the former striatum.skills.templates package (e.g. "claude_code/workflow.md.tmpl").

@@ -11,6 +11,7 @@ var commands = []Command{
 	{Command: "workflow", Subcommand: "generate", Rationale: "local workflow generation renders a starter workflow from an embedded catalog shape; it previews (or writes repo files) and touches no daemon state"},
 	{Command: "workflow", Subcommand: "templates", Rationale: "local catalog read lists/shows workflow template shapes and lane sets from embedded data; it touches no daemon state"},
 	{Command: "skills", Subcommand: "install", Rationale: "skills install renders embedded skill templates into the user/project skills dir; it writes no daemon state"},
+	{Command: "skills", Subcommand: "list", Rationale: "skills list reads the embedded optional-skill catalog and the on-disk manifests to report installed state; it writes no daemon state"},
 	{Command: "plugin", Subcommand: "install", Rationale: "plugin install renders embedded plugin bundles into the user/project plugin dir; it writes no daemon state"},
 	{Command: "plugin", Subcommand: "uninstall", Rationale: "plugin uninstall removes a previously rendered bundle by reading its on-disk manifest; it writes no daemon state"},
 	{Command: "daemon", Subcommand: "install", Rationale: "daemon install is a bootstrap helper that renders the systemd user unit and scaffolds daemon.toml before any daemon exists; it writes no daemon RPC state"},
