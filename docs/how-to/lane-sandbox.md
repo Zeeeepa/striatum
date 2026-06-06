@@ -65,16 +65,24 @@ If a role exists, drop it: `sudo -u postgres psql -c 'DROP ROLE "striatum-lane"'
 
 ### 3. Deny the lane user at `pg_hba.conf`
 
-Add a **reject** rule for the lane user on the local socket, ABOVE the broader
-local rules so it is matched first (path varies by distro, e.g.
-`/etc/postgresql/16/main/pg_hba.conf`):
+Add **reject** rules for the lane user, ABOVE the broader rules so they are
+matched first (path varies by distro, e.g. `/etc/postgresql/16/main/pg_hba.conf`).
+Reject both the local socket (peer) path and the loopback TCP path so the lane is
+denied over **both** routes the negative gate probes — a host whose default
+loopback rule is `host all all 127.0.0.1/32 scram-sha-256` would otherwise let a
+lane with a role/password through:
 
 ```
-# Reject the supervised-lane OS user before any broader local rule (#87).
-local   all   striatum-lane   reject
+# Reject the supervised-lane OS user before any broader rule (#87).
+local   all   striatum-lane                    reject
+host    all   striatum-lane   127.0.0.1/32     reject
+host    all   striatum-lane   ::1/128          reject
 ```
 
-Reload PostgreSQL: `sudo systemctl reload postgresql`. The daemon's own role is
+Reload PostgreSQL **without restarting it** (a restart would drop the live
+daemon's connections). Either `sudo systemctl reload postgresql`, or, as the
+PostgreSQL superuser over the peer socket,
+`sudo -u postgres psql -c "SELECT pg_reload_conf()"`. The daemon's own role is
 unaffected — it continues to authenticate as before.
 
 ### 4. Permit the daemon to launch lanes as the lane user
@@ -150,9 +158,21 @@ identity can connect over either one:
 
 ```sh
 STRIATUM_LANE_OS_USER=striatum-lane \
-STRIATUM_LANE_ISOLATION_UNIX_URL="postgres:///striatumd?host=/run/striatum-postgres&connect_timeout=2" \
+STRIATUM_LANE_ISOLATION_UNIX_URL="postgres:///striatumd?host=/var/run/postgresql&connect_timeout=2" \
 STRIATUM_LANE_ISOLATION_TCP_URL="postgres://localhost/striatumd?connect_timeout=2" \
 make lane-isolation-check
+```
+
+Set `host=` in the UNIX URL to your cluster's actual `unix_socket_directories`
+(`SHOW unix_socket_directories;`). On a default Debian/Ubuntu cluster that is
+`/var/run/postgresql`; a deployment that runs PostgreSQL behind a dedicated
+protected socket directory points the URL there instead. The gate passes when the
+lane identity is rejected over **both** the UNIX socket and loopback TCP, e.g.:
+
+```
+ok: lane identity denied over protected UNIX socket
+ok: lane identity denied over loopback TCP
+T-LANE-ISOLATION-NEG: ok
 ```
 
 This target is intended for the hardened-profile CI/operator job after the lane
