@@ -2,6 +2,94 @@
 
 ## Unreleased
 
+## v2.29.0 — 2026-06-06
+
+Triage-execution wave: 17 issues fixed directly (every S/M-tier issue from the
+2026-06-06 full-backlog triage), each landed with a test-first regression and a
+multi-angle code review. Design-class clusters got RFC proposals on review
+branches (RFC 0116 zero-operator-touch DAG for #178/#188-policy; RFC 0117
+per-job worktree & branch ref-safety for #186/#184) — those await maintainer
+review and are NOT part of this release.
+
+### `claude --print` retirement (#199 — deadline 2026-06-15)
+
+After 2026-06-15 a live `claude --print` invocation bills API tokens (real
+money per packet) instead of plan usage. The retired one-shot mode is now
+impossible to reach from a workflow without an explicit override:
+
+- `.striatum/bin/*-supervised-wrapper.sh` untracked (`.striatum/` fully
+  ignored; on-disk operator copies preserved); archived template stamped
+  DO-NOT-USE; deployed copies in registered target repos retired in place.
+- The `deprecated_claude_print_lane` lint escalated warning → **refusal** at
+  `workflow validate`, `run prepare`, and supervise launch (last line of
+  defense on the frozen snapshot). Override: inline lane option
+  `allow_claude_print: true`. The refusal names the cost consequence.
+- CI hygiene guard: no tracked executable/operational file may invoke
+  `claude --print` (lint enforcement + historical docs excluded).
+
+### Daemon robustness
+
+- **#176** `escalation.resolve` no longer raises `daemon_auth_lost` under
+  `pg_write_boundary=full`: `withResolveTx` now begins an authorized mutation
+  (RFC 0110 authority prelude) and appends the mutation audit row in the same
+  tx, mirroring the mutations chokepoint. Real-PG regression.
+- **#180/#200** `HandleSuperviseStatus` no longer panics (`index out of range
+  [0]`) when the post-drain re-fetch fails or returns empty — the daemon-stop
+  crash that rotated the MCP port and orphaned live lanes.
+- **#191** supervisor `RunHelper` joins the packet-stream goroutine on child
+  exit (bounded drain), retiring the `packet_accepted` data race; the drain is
+  skipped when the stream already ended (no gratuitous 500ms exit delay).
+  Verified 200/200 under `-race -count=200 -cpu=4`.
+- **#179** `recovery.stale_leases` (and the `dashboard.all` mirror) no longer
+  report already-transferred historical leases as stale
+  (`release_reason IN (recovery_transfer, operator_transfer,
+  recovery_requeue)` excluded, NULL-safe).
+
+### Session-lease safety (#189, resolves #174)
+
+`register-session --replace` is refused when it would displace a session that
+heartbeated within the advertised heartbeat window — the verified production
+mechanism behind #174's "requeue before advertised expiry" (event stream shows
+`lease.released reason=superseded` on live sessions; daemon expiry exonerated).
+New catalogued content code `displaced_session_live` names the displaced
+session, its last-heartbeat age, and the window; `--force-live --reason "..."`
+is the recorded escape hatch. The work packet's `heartbeat_after_seconds` now
+derives from the canonical liveness policy instead of a hardcoded 300.
+
+### Lifecycle & guards
+
+- **#175** `work.complete` resolves the completing job's open autonomous
+  blockers in the same tx (`blocker.resolved_on_completion` event per blocker);
+  human-checkpoint and escalation-class blockers stay open.
+- **#181** supervise start refuses agent-loop lanes whose argv0 cannot
+  self-drive, derived from the C0-pinned `agentloop.BootstrapDeliveryModeFor`
+  contract (no parallel adapter list to drift).
+- **#183** worktree create creates a confirmed-but-refless branch ref at the
+  recorded base via ref-only `git branch` (never `checkout -b`; primary HEAD
+  untouched; concurrent-create race tolerated). Standalone stopgap — RFC 0117
+  proposes the full ref-safety lifecycle.
+- **#188** (text half) the fresh-reviewer refusal names the active author
+  session and suggests `session close` alongside `--force-non-fresh`; the
+  policy half is RFC 0116 scope.
+- **#190 / D174** agy seat demoted `supported → degraded` (Antigravity 1.0.6
+  is OAuth-only; the Installed CLI Gate now detects the login picker and
+  skips-with-reason instead of stalling). Re-promotion path: RFC 0109
+  graduation gate once a headless auth path returns.
+
+### CLI / DX
+
+- **#185** `striatum why <target_id>` accepts its positional argument.
+- **#187** `workflow generate --option lanes.<id>.command=<JSON array>` routes
+  into `spec.lanes`; a reconcile test guarantees every catalog-advertised
+  `required_options` key stays CLI-settable.
+- **#182** new `striatum daemon token-create` verb (authority matrix +
+  generated route contracts updated); `capability_missing`/`capability_expired`
+  refusals now name the method, the missing capability, and the mint
+  remediation; operator runbook section added.
+- **#177** `striatum skills install --optional <name>` / `skills list`:
+  manifest-tracked optional-skill tier rendering Striatum-authored skills only
+  (`refactoring-campaign`); third-party suggestions stay suggest-only.
+
 ## v2.28.0 — 2026-06-06
 
 ### RFC 0106 / D172 — graduate `adjudicated_constraint_extraction` to `supported`
