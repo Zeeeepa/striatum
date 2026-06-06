@@ -43,6 +43,14 @@ type Usage struct {
 // Only groups with an entry here render a full `--help`; others fall back to a
 // generic synopsis derived from the route metadata.
 var usageByGroup = map[string]Usage{
+	"why": {
+		Params: []Param{
+			{Name: "target-id", Positional: true, Required: true, Help: "id to explain — a run_id, job_id, session_id, message_id, lease_id, or blocker_id"},
+		},
+		Notes: []string{
+			"why resolves the target_id and prints how it reached its current state; list runs with `striatum list runs` and find ids with `striatum status --run-id <id>`.",
+		},
+	},
 	"claim_next": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "active session that should claim the next eligible work packet"},

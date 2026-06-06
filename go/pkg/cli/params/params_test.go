@@ -26,6 +26,22 @@ func TestBuildParsesRepeatedFlags(t *testing.T) {
 	}
 }
 
+// TestBuildMapsWhyPositionalTargetID is the #185 regression: `striatum why
+// <target_id>` must land the lone positional in target_id (the param the why
+// handler reads), not in the catch-all args slice.
+func TestBuildMapsWhyPositionalTargetID(t *testing.T) {
+	got, err := Build("why", []string{"run_1"}, Options{RepositoryID: "repo_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["target_id"] != "run_1" {
+		t.Fatalf("target_id = %#v, want \"run_1\"", got["target_id"])
+	}
+	if _, leaked := got["args"]; leaked {
+		t.Fatalf("positional leaked into args: %#v", got["args"])
+	}
+}
+
 func TestBuildKeepsBodyJSONAsString(t *testing.T) {
 	got, err := Build("send", []string{"sess_1", "note", "--body-json", `{"text":"hi"}`}, Options{})
 	if err != nil {

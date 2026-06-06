@@ -119,6 +119,8 @@ func positionalNames(group string) []string {
 		return []string{"id"}
 	case "run_prepare":
 		return []string{"workflow"}
+	case "why":
+		return []string{"target_id"}
 	case "run_start", "run_pause", "run_resume", "run_cancel", "run_summary", "run_graph", "run_integrate":
 		return []string{"run_id"}
 	case "run_retry_job":
