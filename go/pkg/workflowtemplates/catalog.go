@@ -73,14 +73,20 @@ const (
 // (adapterconformance/falsification_gate_test.go). `cross_examination` shares
 // that fixture only while workflowgenerate's graph-isomorphism guard proves it
 // remains structurally identical after ignoring role/artifact naming.
+// `adjudicated_constraint_extraction` graduated on its RFC 0112
+// explicit-interrogation-consumer reliability fixture
+// (adapterconformance/ace_interrogation_test.go) — the only fixture that drives
+// genuine interrogation through the production handlers, composing fan-out/join
+// with a recursive revision re-cascade across a phase-synthesis gate.
 var supportedShapes = map[string]struct{}{
-	"minimal":                {},
-	"review":                 {},
-	"code_change":            {},
-	"multi_review_synthesis": {},
-	"implementation_panel":   {},
-	"falsification_gate":     {},
-	"cross_examination":      {},
+	"minimal":                           {},
+	"review":                            {},
+	"code_change":                       {},
+	"multi_review_synthesis":            {},
+	"implementation_panel":              {},
+	"falsification_gate":                {},
+	"cross_examination":                 {},
+	"adjudicated_constraint_extraction": {},
 }
 
 // SupportTierForShape returns the RFC 0106 support tier for a shape template_id.

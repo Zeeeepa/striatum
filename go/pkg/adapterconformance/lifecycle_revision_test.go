@@ -410,14 +410,18 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 // green RFC 0105 reliability fixture in this package, so RFC 0106's graduation
 // guard can refuse a `supported` tier for any shape without one (the tier cannot
 // lie). Coverage:
+//
 //   - the single-job repo-write lane (chaos_test.go) underwrites `minimal` and
 //     `code_change`;
+//
 //   - the two-lane review-gated needs_revision-cycle lifecycle (this file)
 //     underwrites `review` and `multi_review_synthesis`;
+//
 //   - the fan-out/join panel lifecycle (implementation_panel_test.go) underwrites
 //     `implementation_panel` — the only one of these whose distinctive structure
 //     (3-way fan-out + multi-predecessor join + parallel-branch fault recovery)
 //     none of the other fixtures exercises;
+//
 //   - the multi-job dialogue-chain revision re-cascade (falsification_gate_test.go)
 //     underwrites `falsification_gate` — its needs_revision cycle re-opens the
 //     whole chain, transitively re-blocking the gate (depth 2) past the depth-1
@@ -427,18 +431,26 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 //     proves the generated graph is structurally identical after role/artifact
 //     naming is ignored.
 //
+//   - the explicit-interrogation-consumer ACE lifecycle (ace_interrogation_test.go)
+//     underwrites `adjudicated_constraint_extraction` — the only fixture that
+//     drives genuine interrogation (open/ask/answer/close) through the production
+//     handlers, composing a fan-out of interrogating cross-examiners + a join
+//     INSIDE a revision re-cascade across a phase-synthesis gate (RFC 0112), with
+//     a preserved-context secret never written to artifacts, a revision-reopen
+//     fresh window, a dead-lane-during-re-cascade same-attempt requeue, and a
+//     waiting-human consumer + advisory unavailable/required-skip evidence.
+//
 // The remaining collaboration / interrogation shapes (conversation,
 // iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
 // deliberately have NO entry here and therefore stay `experimental` until a
-// fixture proves them. `adjudicated_constraint_extraction` has an RFC 0112
-// explicit-consumer fixture, but it also stays out of this registry until a
-// separate graduation decision changes the support tier.
+// fixture proves them.
 var ReliabilityFixtureShapes = map[string]bool{
-	"minimal":                true,
-	"review":                 true,
-	"code_change":            true,
-	"multi_review_synthesis": true,
-	"implementation_panel":   true,
-	"falsification_gate":     true,
-	"cross_examination":      true,
+	"minimal":                           true,
+	"review":                            true,
+	"code_change":                       true,
+	"multi_review_synthesis":            true,
+	"implementation_panel":              true,
+	"falsification_gate":                true,
+	"cross_examination":                 true,
+	"adjudicated_constraint_extraction": true,
 }

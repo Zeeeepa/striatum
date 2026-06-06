@@ -2,6 +2,45 @@
 
 ## Unreleased
 
+## v2.28.0 — 2026-06-06
+
+### RFC 0106 / D172 — graduate `adjudicated_constraint_extraction` to `supported`
+
+`adjudicated_constraint_extraction` (ACE) graduates `experimental → supported`,
+the fourth distinct-fixture shape to clear the RFC 0106 / D162 graduation gate
+(after `implementation_panel` D166, `falsification_gate` D168, and the
+isomorphic co-graduation of `cross_examination` D169/D170). This graduates an
+EXISTING shape; the RFC 0106 new-shape FREEZE remains in force.
+
+- Graduation rests on the RFC 0112 explicit-interrogation-consumer fixture
+  `go/pkg/adapterconformance/ace_interrogation_test.go` — the ONLY fixture that
+  drives genuine interrogation (`interrogation.open/ask/answer/close`) through the
+  production handlers, composing a fan-out of interrogating cross-examiners + a
+  join INSIDE a recursive revision re-cascade across a `phase_synthesis` gate.
+  Four cells, all green vs live PostgreSQL: happy (preserved-context secret never
+  written to artifacts), revision-reopen (fresh attempt-aware target),
+  dead-lane-during-re-cascade (same-attempt requeue, zero escalations, join stays
+  blocked, run completes), and waiting-human/advisory-evidence
+  (`interrogation.required_skipped` + `interrogation.unavailable_signaled`).
+- Flips both maps (`workflowtemplates.supportedShapes` +
+  `adapterconformance.ReliabilityFixtureShapes`, reconciled by the bidirectional
+  guard `TestSupportedShapesHaveReliabilityFixture`); regenerates
+  `docs/reference/workflow-catalog.md` (ACE now `supported`); repoints the
+  `experimental_shape` lint test to the still-experimental
+  `iterated_interrogating_panel`.
+- Discharges the historical gating risk D171 deferred ("ACE graduation remains
+  out of scope until the RFC 0105 fixture lands"): an interrogable job +
+  interrogation window now provably drives cleanly without wedging on the RFC 0095
+  revision reopen. Adjudicated through a dogfood decision panel (author + claude
+  reviewer + codex reviewer + synthesis): unanimous accept.
+
+### CI / hygiene (since v2.27.0)
+
+- `chore(ci)`: bump remaining GitHub Actions to Node 24 majors.
+- `fix(ci)`: repair the agy CLI install in the Installed CLI Gate.
+- `chore`: fix gofmt drift and exempt provenance artifacts from whitespace
+  checks.
+
 ## v2.27.0 — 2026-06-05
 
 ### RFC 0112 / D171 — explicit interrogation consumers (V1)

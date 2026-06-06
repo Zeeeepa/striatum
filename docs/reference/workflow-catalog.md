@@ -11,7 +11,7 @@ An eight-phase productive-refusal loop: cross-examiners challenge a candidate sy
 - Recommended for: design and spec authoring; productive refusal; constraint-extracting multi-model panels
 - Default lane sets: `multi_review`, `author_reviewer`, `local`
 - Required options: `workflow_id`, `artifact_root`, `topic`
-**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+**Support tier:** `supported` — has a green RFC 0105 unattended-reliability fixture.
 
 ```mermaid
 flowchart TD
