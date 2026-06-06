@@ -24,6 +24,10 @@ type worktreeCreateInputs struct {
 	Job        map[string]any
 	RunID      string
 	BaseBranch string
+	// BranchBase is the run's recorded branch_base (the commit/ref the confirmed
+	// branch should fork from). It may be empty when the branch was confirmed in
+	// records_only mode; the ref-ensure path then falls back to HEAD (#183).
+	BranchBase string
 }
 
 type gitWorktreeResult struct {
@@ -81,6 +85,10 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 
+	if err := ensureWorktreeBaseBranchRef(ctx, repoRoot, inputs.BaseBranch, inputs.BranchBase); err != nil {
+		return nil, err
+	}
+
 	result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "add", "--detach", target, inputs.BaseBranch)
 	if err != nil {
 		return nil, err
@@ -129,6 +137,43 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 		"worktree_path": relative,
 		"base_branch":   inputs.BaseBranch,
 	}, nil
+}
+
+// ensureWorktreeBaseBranchRef makes the confirmed branch ref exist before
+// `git worktree add --detach <branch>` resolves it. `branch confirm` in its
+// default records_only mode never creates the git ref (run.go HandleBranchConfirm),
+// so a per-job worktree create against a confirmed-but-refless branch failed with
+// "invalid reference: <branch>" (#183). When the ref is missing, create it with
+// `git branch <name> <base>` at the run's recorded branch_base (or HEAD when
+// branch_base was not recorded) — NEVER `git checkout -b`: the daemon must never
+// move the operator's primary checkout HEAD. A later RFC (0115) will supersede the
+// broader branch-confirmation lifecycle; this is an independently-safe standalone
+// fix that only adds the missing ref and leaves HEAD untouched.
+func ensureWorktreeBaseBranchRef(ctx context.Context, repoRoot, branch, branchBase string) error {
+	branch = strings.TrimSpace(branch)
+	if branch == "" {
+		return nil
+	}
+	// Already a resolvable ref (branch, tag, or commit)? Nothing to do.
+	verify, err := runGitWorktreeCommand(ctx, repoRoot, "rev-parse", "--verify", "--quiet", branch+"^{commit}")
+	if err != nil {
+		return err
+	}
+	if verify.ExitCode == 0 {
+		return nil
+	}
+	base := strings.TrimSpace(branchBase)
+	if base == "" {
+		base = "HEAD"
+	}
+	created, err := runGitWorktreeCommand(ctx, repoRoot, "branch", branch, base)
+	if err != nil {
+		return err
+	}
+	if created.ExitCode != 0 {
+		return rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git branch create for worktree base failed", created), nil)
+	}
+	return nil
 }
 
 func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -271,10 +316,15 @@ func validatedWorktreeCreateInputs(ctx context.Context, runner any, repositoryID
 	if nullable(run["branch_confirmed_at"]) == nil {
 		return worktreeCreateInputs{}, rpc.NewError("invalid_transition", "run branch must be confirmed before worktree create", nil)
 	}
+	branchBase := strings.TrimSpace(fmt.Sprint(run["branch_base"]))
+	if branchBase == "<nil>" {
+		branchBase = ""
+	}
 	return worktreeCreateInputs{
 		Job:        job,
 		RunID:      fmt.Sprint(job["run_id"]),
 		BaseBranch: baseBranch,
+		BranchBase: branchBase,
 	}, nil
 }
 
