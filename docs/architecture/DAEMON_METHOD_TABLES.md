@@ -158,6 +158,7 @@
 | `process run` | `process.run` | `write` | `single_repo` |
 | `repo list` | `repo.list` | `read` | `daemon_global` |
 | `repo remove` | `repo.remove` | `admin` | `daemon_global` |
+| `daemon token-create` | `daemon.token.create` | `admin` | `daemon_global` |
 | `workflow accepted-risks` | `workflow.accepted_risks.list` | `read` | `single_repo` |
 | `workflow accept-risk` | `workflow.accept_risk` | `admin` | `single_repo` |
 | `list runs` | `list.runs` | `read` | `single_repo` |

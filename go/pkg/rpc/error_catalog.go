@@ -104,7 +104,7 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	{
 		Code:       "capability_missing",
 		Meaning:    "The token does not carry the capability the method requires.",
-		Suggestion: "Use a token that grants the required capability for this repository (re-register the session or ask the operator to mint one).",
+		Suggestion: "Use a token that grants the required capability the error names: re-register the session, or have an admin mint one with `striatum daemon token-create --capability <name>` (see docs/how-to/how-to-human.md).",
 	},
 	{
 		Code:       "capability_scope_mismatch",

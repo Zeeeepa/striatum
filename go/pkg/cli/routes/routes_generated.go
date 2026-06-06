@@ -16,6 +16,7 @@ var generatedRoutes = []Route{
 	{Command: "process", Subcommand: "run", Method: "process.run", ParamsGroup: "process_run", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "repo", Subcommand: "list", Method: "repo.list", ParamsGroup: "repo_list", RequiredCapability: "read", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "repo", Subcommand: "remove", Method: "repo.remove", ParamsGroup: "repo_remove", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},
+	{Command: "daemon", Subcommand: "token-create", Method: "daemon.token.create", ParamsGroup: "daemon_token_create", RequiredCapability: "admin", RepositoryScopeMode: "daemon_global", Deprecated: false},
 	{Command: "workflow", Subcommand: "accepted-risks", Method: "workflow.accepted_risks.list", ParamsGroup: "workflow_accepted_risks_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "workflow", Subcommand: "accept-risk", Method: "workflow.accept_risk", ParamsGroup: "workflow_accept_risk", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "list", Subcommand: "runs", Method: "list.runs", ParamsGroup: "list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},

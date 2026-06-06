@@ -801,6 +801,50 @@ only read tools. Mutation grants (`write`, `review`, `claim`, `apply`,
 short-lived, and are re-checked on every `tools/call`. Prompt-injected
 tool arguments cannot escalate beyond the token's grants.
 
+### Mint a capability token (`apply`, `recovery`, …)
+
+`daemon start` bootstraps a single admin client token and writes it to the
+owner-only client-token file under the runtime directory. Current bootstrap
+also grants `apply` (and every other capability) to that token, so
+`run integrate` (capability `apply`) works out of the box. But a token minted
+by an **older** daemon may carry `admin` without `apply`: `branch confirm`
+(admin) succeeds while `run integrate` fails closed with `capability_missing`.
+The refusal now names the missing capability, the method, and this
+remediation.
+
+Mint a fresh token that carries the capability the error names with the
+admin-gated `daemon token-create` verb (RPC `daemon.token.create`,
+daemon-global):
+
+```bash
+# Apply-capable token so `run integrate` can land a completed run worktree.
+"$RUNNER" daemon token-create --capability apply --display-name operator-apply --json
+
+# Multiple grants in one token (repeat --capability).
+"$RUNNER" daemon token-create \
+  --capability apply --capability recovery \
+  --display-name operator-ops --json
+```
+
+The cleartext token is returned once in the response. Supply it to subsequent
+CLI verbs with `--capability-token <token>` (or `--capability-token-file`), or
+write it to the runtime client-token file to replace the bootstrap token. Keep
+it short-lived; pass `--expires-in <duration>` to bound its lifetime.
+
+If you cannot mint an apply-capable token (no admin access, or the daemon is
+unavailable) and you must land a completed run, the campaign fallback is a
+strict fast-forward of the run branch — never a conflict resolution:
+
+```bash
+# The run branch must be strictly ahead of the integration target.
+git merge --ff-only <run-branch>
+```
+
+Use `--ff-only` only when the merge is a zero-conflict fast-forward; if git
+refuses, do not hand-resolve — mint an apply token and use the serialized
+`run integrate` instead. Record the manual fast-forward in the target repo's
+commit message so the provenance trail stays honest.
+
 For chat-assisted workflow generation, start the web service with
 `--allow-mutations` only when you want the browser to be able to write
 generated workflow files. The model may call `generate_workflow_preview`

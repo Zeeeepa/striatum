@@ -72,6 +72,38 @@ func TestDispatchRoutesMutationThroughRPC(t *testing.T) {
 	}
 }
 
+// #182: `daemon token-create` routes to the daemon.token.create RPC so an
+// operator can mint an apply-capable token (run.integrate) without raw RPC.
+// It is daemon_global, so no repository_id resolution happens, and repeated
+// --capability flags collapse into a capabilities array.
+func TestDispatchRoutesDaemonTokenCreate(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"daemon", "token-create",
+		"--capability", "apply", "--capability", "admin",
+		"--display-name", "operator-apply"}, &stdout, &stderr, Options{Invoker: invoker, ResolveRepo: true})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 {
+		t.Fatalf("expected a single RPC call (no repo.resolve for daemon_global), got %#v", invoker.calls)
+	}
+	got := invoker.calls[0]
+	if got.method != "daemon.token.create" {
+		t.Fatalf("method = %q", got.method)
+	}
+	if _, ok := got.params["repository_id"]; ok {
+		t.Fatalf("daemon_global route must not carry repository_id: %#v", got.params)
+	}
+	caps, ok := got.params["capabilities"].([]any)
+	if !ok || len(caps) != 2 || caps[0] != "apply" || caps[1] != "admin" {
+		t.Fatalf("capabilities = %#v (params=%#v)", got.params["capabilities"], got.params)
+	}
+	if got.params["display_name"] != "operator-apply" {
+		t.Fatalf("display_name = %#v", got.params["display_name"])
+	}
+}
+
 func TestDispatchUnknownCommand(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := Run(context.Background(), []string{"bogus"}, &stdout, &stderr, Options{Invoker: &fakeInvoker{}})

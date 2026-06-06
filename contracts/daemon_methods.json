@@ -14,6 +14,7 @@
     {"command": "process", "subcommand": "run", "method": "process.run", "params": "process_run"},
     {"command": "repo", "subcommand": "list", "method": "repo.list", "params": "repo_list"},
     {"command": "repo", "subcommand": "remove", "method": "repo.remove", "params": "repo_remove"},
+    {"command": "daemon", "subcommand": "token-create", "method": "daemon.token.create", "params": "daemon_token_create"},
     {"command": "workflow", "subcommand": "accepted-risks", "method": "workflow.accepted_risks.list", "params": "workflow_accepted_risks_list"},
     {"command": "workflow", "subcommand": "accept-risk", "method": "workflow.accept_risk", "params": "workflow_accept_risk"},
     {"command": "list", "subcommand": "runs", "method": "list.runs", "params": "list"},

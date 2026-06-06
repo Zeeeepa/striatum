@@ -109,3 +109,21 @@ striatum --repo <target> run integrate --run-id <stage-2-run-id>
 conflicting paths. The campaign's provenance lives at
 `striatum/refactoring/<slug>/` — goal decision, gated plan, ledgers,
 final report — and travels with the repo.
+
+If `run integrate` refuses with `capability_missing` (the token lacks the
+`apply` capability), mint an apply-capable token and retry:
+
+```sh
+striatum daemon token-create --capability apply --display-name operator-apply --json
+striatum --repo <target> --capability-token <token> run integrate --run-id <stage-2-run-id>
+```
+
+Only if you cannot obtain an apply token, fall back to a strict fast-forward
+of the run branch — never a conflict resolution:
+
+```sh
+git merge --ff-only <run-branch>   # refuses unless strictly ahead; never hand-resolve
+```
+
+Record the manual fast-forward in the commit message. See
+`docs/how-to/how-to-human.md` ("Mint a capability token").

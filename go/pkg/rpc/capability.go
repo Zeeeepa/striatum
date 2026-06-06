@@ -232,7 +232,14 @@ func (a *MemoryAuthorizer) Authorize(required *Capability, repositoryID string, 
 	return ctx
 }
 
-func RequireAllowed(ctx AuthContext) error {
+// RequireAllowed converts a denied AuthContext into an rpc.Error. The method and
+// the capability the route requires are named in the message and details so a
+// capability_missing / capability_expired refusal is legible: it tells the
+// operator exactly which capability the method needs and how to mint a token
+// that carries it (#182, RFC 0111). method and required may be empty for
+// callers (e.g. direct handler tests) that lack the route metadata; the message
+// then degrades to the generic form.
+func RequireAllowed(ctx AuthContext, method string, required *Capability) error {
 	if ctx.Decision == "allowed" {
 		return nil
 	}
@@ -240,7 +247,35 @@ func RequireAllowed(ctx AuthContext) error {
 	if reason == "" {
 		reason = "capability_missing"
 	}
-	return NewError(reason, "daemon RPC authorization failed", nil)
+	requiredCap := ""
+	if required != nil {
+		requiredCap = string(*required)
+	}
+	message := "daemon RPC authorization failed"
+	var details map[string]any
+	if reason == "capability_missing" || reason == "capability_expired" {
+		details = map[string]any{}
+		if method != "" {
+			details["method"] = method
+		}
+		if requiredCap != "" {
+			details["required_capability"] = requiredCap
+		}
+		lack := "which this token does not carry"
+		if reason == "capability_expired" {
+			lack = "whose grant on this token has expired"
+		}
+		switch {
+		case method != "" && requiredCap != "":
+			message = "daemon RPC authorization failed: method " + method + " requires the " + requiredCap + " capability, " + lack
+		case requiredCap != "":
+			message = "daemon RPC authorization failed: this method requires the " + requiredCap + " capability, " + lack
+		}
+		if requiredCap != "" {
+			details["remediation"] = "mint a token that grants " + requiredCap + ": `striatum daemon token-create --capability " + requiredCap + "` (admin token required); see docs/how-to/how-to-human.md"
+		}
+	}
+	return NewError(reason, message, details)
 }
 
 func HashSecret(secret string) string {

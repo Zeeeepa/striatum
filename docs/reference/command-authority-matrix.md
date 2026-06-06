@@ -188,7 +188,7 @@ delivery bridge or the supervisor is restarted.
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |
 | `repo.remove` | `repo remove` | admin | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
-| `daemon.token.create` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token issuance; cleartext token returned once |
+| `daemon.token.create` | `daemon token-create` | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token issuance; cleartext token returned once. CLI route added in #182 so operators can mint apply-capable tokens (run.integrate) without raw RPC |
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token revocation by token id or full token |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token rotation with ambiguous-scope refusal |
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go rotates the local Ed25519 sealed-apply fallback key file and returns key id/public-key metadata; full apply-gate mutation remains separate |
@@ -348,7 +348,7 @@ remediation is sensible for that code.
 | `branch_mismatch` | The current git branch does not match the commit_request branch. | Check out the branch named in the commit_request, then retry. |
 | `capability_denied` | The token is valid but this session may not perform the requested action (for example: not the floor holder, interrogator, or target session). | Verify you are the session the action belongs to and re-issue the call from that session; do not act for other lanes. |
 | `capability_expired` | The granted capability has expired. | Re-register the session (session.register) or ask the operator to mint a fresh capability token, then retry. |
-| `capability_missing` | The token does not carry the capability the method requires. | Use a token that grants the required capability for this repository (re-register the session or ask the operator to mint one). |
+| `capability_missing` | The token does not carry the capability the method requires. | Use a token that grants the required capability the error names: re-register the session, or have an admin mint one with `striatum daemon token-create --capability <name>` (see docs/how-to/how-to-human.md). |
 | `capability_scope_mismatch` | The capability is scoped to a different repository than the request targets. | Re-issue the call with the repository_id the token is scoped to, or obtain a token scoped to this repository. |
 | `commit_request_not_found` | The referenced commit_request artifact does not exist or is not readable. | Publish the commit_request artifact first, then retry with its request_id. |
 | `concurrent_run_isolation_required` | Another run is already active on the repository and this run has a repo-write job on a lane without worktree_isolation: per_job, so starting it would share the main checkout (RFC 0108 Phase 2). | Set worktree_isolation: per_job on the run's repo-write lane so each run gets its own detached worktree, then start the run; or wait for the active run to finish. |

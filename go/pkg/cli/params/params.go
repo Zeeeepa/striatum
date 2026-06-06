@@ -117,6 +117,10 @@ func positionalNames(group string) []string {
 		return []string{"path"}
 	case "repo_remove":
 		return []string{"id"}
+	case "daemon_token_create":
+		// All inputs are flags (--capability, --display-name, ...); a bare
+		// positional is treated as a capability name for convenience.
+		return []string{"capability"}
 	case "run_prepare":
 		return []string{"workflow"}
 	case "why":
@@ -211,5 +215,15 @@ func applyAliases(group string, result map[string]any) {
 	}
 	if value, ok := result["out"].(string); ok && result["path"] == nil && (group == "evidence_export" || group == "corpus_export" || group == "archive_create") {
 		result["path"] = value
+	}
+	if group == "daemon_token_create" {
+		// Repeated --capability flags collapse into a []any under "capability";
+		// the daemon.token.create handler expects multiple capabilities under
+		// "capabilities". Move a multi-valued capability list across so
+		// `--capability read --capability apply` issues a multi-grant token.
+		if value, ok := result["capability"].([]any); ok && result["capabilities"] == nil {
+			result["capabilities"] = value
+			delete(result, "capability")
+		}
 	}
 }

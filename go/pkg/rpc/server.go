@@ -104,7 +104,7 @@ func (s *Server) handle(ctx context.Context, envelope Envelope, connectionID str
 		if auth.RepositoryID == "" {
 			auth.RepositoryID = repositoryID(envelope.Params)
 		}
-		err = RequireAllowed(auth)
+		err = RequireAllowed(auth, envelope.Method, entry.RequiredCapability)
 		if err == nil {
 			// RFC 0096 V2 / #135: thread the resolved AuthContext onto the
 			// context so session-scoped handlers can read the caller's bound
