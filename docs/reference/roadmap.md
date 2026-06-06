@@ -1282,11 +1282,17 @@ post-burn-down (commits `f80b889` → `9fc02d6`).
 
 `striatum skills install --profile all` (which every supervisor invocation
 runs as its `lane.command` prefix) appears to occasionally regenerate the
-wrapper scripts under `.striatum/bin/`. After v1.48.1, this is no longer
-an active hazard for permission flags (they are committed to git and survive
-regeneration), but verify after any future wrapper-template change that
-`grep "claude --print" .striatum/bin/claude-supervised-wrapper.sh` shows
-the `--permission-mode acceptEdits --allowedTools "Bash"` flags.
+wrapper scripts under `.striatum/bin/`. Those wrappers (and the whole
+`.striatum/` tree) are operational scratch and are no longer tracked in git
+(#199). The historical per-packet `claude --print` wrapper is RETIRED: the
+supported path is the daemon-owned long-lived interactive PTY agent-loop
+session (RFC 0088 / D148), and `workflow validate` / `run prepare` /
+`supervise start` now REFUSE any `claude --print`/`-p` lane. `claude --print`
+must not survive in any live wrapper — beyond breaking the agent-loop, after
+the 2026-06-15 deadline it bills against API tokens (real money per packet)
+instead of Claude plan usage. There is therefore no longer any reason to
+`grep "claude --print" .striatum/bin/claude-supervised-wrapper.sh`; if such a
+string appears, treat it as a defect to remove, not a flag to verify.
 
 ### 9.4 Memory items (operator-side)
 

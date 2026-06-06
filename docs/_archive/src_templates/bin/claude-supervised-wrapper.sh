@@ -1,4 +1,28 @@
 #!/usr/bin/env bash
+# =============================================================================
+# DO NOT USE — RETIRED ARCHIVE TEMPLATE (`claude --print` is dead).
+#
+# This is a historical archive of the RFC 0009 / RFC 0010 V2 per-packet
+# `claude --print` wrapper. It is kept ONLY as provenance and MUST NOT be
+# re-instantiated, copied into `.striatum/bin/`, or run against a live lane.
+#
+# Why it is retired:
+#   * The supported path is the daemon-owned long-lived interactive PTY
+#     agent-loop session (RFC 0088 / D148). `claude --print` cannot run the
+#     work-packet loop — it prints once and exits without ever claiming, so
+#     the lane silently parks/dies (the #148 class).
+#   * COST CONSEQUENCE — HARD DEADLINE 2026-06-15: after that date,
+#     `claude --print` invocations bill against API tokens (real money per
+#     packet) instead of Claude plan/subscription usage. Any surviving live
+#     `claude --print` invocation silently costs money on every packet.
+#
+# Use instead a bare interactive command:
+#     ["claude", "--dangerously-skip-permissions"]
+# with "adapter_capabilities": {"agent_loop": true}. `workflow validate`,
+# `run prepare`, and `supervise start` now REFUSE `claude --print`/`-p` lanes
+# outright (see go/pkg/workflowauthoring/lint.go and the run.prepare /
+# supervise launch paths).
+# =============================================================================
 # RFC 0009 / RFC 0010 V2 supervised lane wrapper for Claude Code.
 #
 # Reads newline-terminated work packets from stdin (the supervisor's
