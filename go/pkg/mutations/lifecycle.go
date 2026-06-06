@@ -1109,6 +1109,18 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.completed", sessionID, jobID, messageID, nil, leaseID, map[string]any{"summary": summary}); err != nil {
 			return nil, err
 		}
+		// #175: a job that earlier reported an autonomous blocker (e.g. a
+		// write_scope_guard_conflict that was preserved/restored out-of-band) and
+		// then completed left the blocker open with no resolution path —
+		// checkpoint.resolve is human-only and recovery.resume is
+		// process-adapter-only — so a completed run kept presenting it as an
+		// active open_blocker/next_action. Resolve the completing job's open
+		// autonomous (non-human, non-escalation) blockers here, inside the same
+		// transaction. Human-checkpoint and escalation-class blockers are left
+		// untouched: they require explicit human adjudication.
+		if err := resolveAutonomousBlockersOnCompletion(ctx, tx, repositoryID, fmt.Sprint(job["run_id"]), jobID, sessionID, now); err != nil {
+			return nil, err
+		}
 		// RFC 0082 §5: an interrogable job's session does NOT close on
 		// completion. It enters the awaiting_interrogation phase — staying live
 		// with its context preserved so a reviewer can interrogate it — until
@@ -1142,6 +1154,56 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		}
 		return result, nil
 	})
+}
+
+// resolveAutonomousBlockersOnCompletion resolves the completing job's open
+// autonomous blockers (#175). An "autonomous" blocker is one that is neither a
+// human_checkpoint nor an escalation-class blocker (those require explicit human
+// adjudication and are left open). Each resolved blocker emits a
+// blocker.resolved_on_completion event so the resolution is legible in the
+// durable event chain, and any matching escalation_inbox row is resolved too so
+// status/dashboard stop presenting a completed run's stale blocker as an active
+// next action.
+func resolveAutonomousBlockersOnCompletion(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID, sessionID, now string) error {
+	openBlockers, err := queryRows(ctx, tx, `
+		SELECT blocker_id, severity, blocker_kind
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	if err != nil {
+		return err
+	}
+	for _, blocker := range openBlockers {
+		if isEscalationClassBlocker(blocker) {
+			// human_checkpoint and escalation-class blockers need a human; never
+			// auto-resolve them on completion.
+			continue
+		}
+		blockerID := fmt.Sprint(blocker["blocker_id"])
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.blockers
+			   SET state = 'resolved', resolved_at = $1
+			 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
+			return err
+		}
+		// Resolve a matching escalation_inbox row defensively (autonomous
+		// blockers normally have none, but isEscalation and the inbox insert can
+		// drift; keep state coherent if one exists).
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.escalation_inbox
+			   SET state = 'resolved', resolved_at = $1
+			 WHERE repository_id = $2 AND escalation_id = $3 AND state <> 'resolved'`, now, repositoryID, blockerID); err != nil {
+			return err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "blocker.resolved_on_completion", sessionID, jobID, nil, nil, nil, map[string]any{
+			"blocker_id":   blockerID,
+			"severity":     blocker["severity"],
+			"blocker_kind": blocker["blocker_kind"],
+			"reason":       "job_completed",
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // jobIsInterrogable reports whether the completed job's workflow definition
