@@ -621,13 +621,76 @@ func lintDeprecatedClaudePrintLane(workflow map[string]any, findings *[]map[stri
 		if !laneCommandIsClaudePrint(lane) {
 			continue
 		}
+		// #199: this lint now mirrors a HARD REFUSAL in Validate (workflow
+		// validate / run prepare) and the supervise-launch guard. A lane that
+		// records the explicit `allow_claude_print: true` override is no longer
+		// refused, so it no longer warrants the refusal finding either.
+		if laneAllowsClaudePrint(lane) {
+			continue
+		}
 		*findings = append(*findings, map[string]any{
 			"rule":     "deprecated_claude_print_lane",
-			"severity": "warning",
-			"message":  "lane '" + laneID + "' runs `claude --print`/`-p`, the retired one-shot mode (RFC 0088 / D148). It cannot run the agent-loop interactive work-packet loop — it prints once and exits without ever claiming, so the lane silently parks/dies (#148). Use a bare interactive command: [\"claude\", \"--dangerously-skip-permissions\"] with \"adapter_capabilities\": {\"agent_loop\": true}",
+			"severity": "refusal",
+			"message":  ClaudePrintRefusalMessage(laneID),
 			"lane_id":  laneID,
 		})
 	}
+}
+
+// ClaudePrintRefusalMessage builds the hard-refusal diagnostic for a
+// `claude --print`/`-p` lane. It is the single source of truth shared by
+// workflowauthoring.Validate (which backs `workflow validate` and `run
+// prepare`) and the supervise-launch guard, and it names the 2026-06-15
+// API-token-burn cost consequence so the operator understands the refusal is
+// about real money, not just a broken loop (#199).
+func ClaudePrintRefusalMessage(laneID string) string {
+	return "lane '" + laneID + "' runs `claude --print`/`-p`, the retired one-shot mode (RFC 0088 / D148) — REFUSED. " +
+		"It cannot run the agent-loop interactive work-packet loop (it prints once and exits without claiming, so the lane silently parks/dies, the #148 class), " +
+		"and after 2026-06-15 a live `claude --print` invocation bills against API tokens (real money per packet) instead of Claude plan/subscription usage. " +
+		"Use a bare interactive command: [\"claude\", \"--dangerously-skip-permissions\"] with \"adapter_capabilities\": {\"agent_loop\": true}. " +
+		"For a genuine compatibility case, set \"allow_claude_print\": true on the lane to override this refusal."
+}
+
+// laneAllowsClaudePrint reports whether a lane carries the explicit
+// `allow_claude_print: true` override that opts out of the #199 refusal.
+func laneAllowsClaudePrint(lane map[string]any) bool {
+	return lane["allow_claude_print"] == true
+}
+
+// RefuseClaudePrintLane returns a hard error for a single lane that runs
+// `claude --print`/`-p` without the explicit `allow_claude_print: true`
+// override, or nil otherwise. It is the supervise-launch guard's choke point:
+// the lane it is handed comes from a frozen workflow snapshot, so this is the
+// last line of defense before the money-burning subprocess actually launches.
+func RefuseClaudePrintLane(laneID string, lane map[string]any) error {
+	if !laneCommandIsClaudePrint(lane) || laneAllowsClaudePrint(lane) {
+		return nil
+	}
+	return errf("%s", ClaudePrintRefusalMessage(laneID))
+}
+
+// RefuseClaudePrintLanes scans every lane in a workflow and returns a hard
+// error for the first `claude --print`/`-p` lane that has not set the explicit
+// `allow_claude_print: true` override. It is the single source of truth the
+// `workflow validate` CLI and `run.prepare` call to escalate the
+// deprecated_claude_print_lane lint finding from a warning into a REFUSAL
+// (#199). Validate itself stays lint-clean so Lint can still surface the
+// finding; the entry points call this to turn it into a launch-blocking error.
+func RefuseClaudePrintLanes(workflow map[string]any) error {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := RefuseClaudePrintLane(laneID, lane); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // laneCommandIsClaudePrint reports whether a lane invokes the `claude` binary

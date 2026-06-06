@@ -1,6 +1,9 @@
 package workflowauthoring
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func lintFiresRule(t *testing.T, workflow map[string]any, rule string) bool {
 	t.Helper()
@@ -53,5 +56,49 @@ func TestLintFlagsDeprecatedClaudePrintLane(t *testing.T) {
 	// The supported shape must stay silent.
 	if lintFiresRule(t, claudeLaneWorkflow([]any{"claude", "--dangerously-skip-permissions"}, true), rule) {
 		t.Fatal("a bare interactive claude agent-loop lane must NOT be flagged")
+	}
+}
+
+// TestRefuseClaudePrintLanes proves that `claude --print`/`-p` lanes are a HARD
+// REFUSAL, not a warning. RefuseClaudePrintLanes is the choke point the
+// `workflow validate` CLI and `run.prepare` call. After the 2026-06-15 deadline
+// a live `claude --print` invocation bills API tokens instead of plan usage, so
+// the refusal error must name that cost consequence. (#199)
+func TestRefuseClaudePrintLanes(t *testing.T) {
+	for _, command := range [][]any{
+		{"claude", "--print"},
+		{"claude", "-p"},
+		{"claude", "--print", "--permission-mode", "acceptEdits"},
+	} {
+		err := RefuseClaudePrintLanes(claudeLaneWorkflow(command, true))
+		if err == nil {
+			t.Fatalf("RefuseClaudePrintLanes(%v): expected a refusal, got nil", command)
+		}
+		if !strings.Contains(err.Error(), "2026-06-15") {
+			t.Fatalf("RefuseClaudePrintLanes(%v): refusal must name the 2026-06-15 cost consequence; got %q", command, err.Error())
+		}
+	}
+}
+
+// TestRefuseClaudePrintLanesAllowsOverride proves the explicit per-lane override
+// (`allow_claude_print: true`) keeps genuine compatibility cases working. (#199)
+func TestRefuseClaudePrintLanesAllowsOverride(t *testing.T) {
+	wf := claudeLaneWorkflow([]any{"claude", "--print"}, true)
+	lane := wf["lanes"].(map[string]any)["claude"].(map[string]any)
+	lane["allow_claude_print"] = true
+	if err := RefuseClaudePrintLanes(wf); err != nil {
+		t.Fatalf("RefuseClaudePrintLanes with allow_claude_print override: %v", err)
+	}
+	// The lint finding must also fall silent once overridden.
+	if lintFiresRule(t, wf, "deprecated_claude_print_lane") {
+		t.Fatal("an overridden claude --print lane must not fire the lint finding")
+	}
+}
+
+// TestRefuseClaudePrintLanesAllowsBareInteractive proves the supported
+// agent-loop shape is not refused. (#199)
+func TestRefuseClaudePrintLanesAllowsBareInteractive(t *testing.T) {
+	if err := RefuseClaudePrintLanes(claudeLaneWorkflow([]any{"claude", "--dangerously-skip-permissions"}, true)); err != nil {
+		t.Fatalf("RefuseClaudePrintLanes(bare interactive claude): %v", err)
 	}
 }

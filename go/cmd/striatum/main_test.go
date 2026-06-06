@@ -251,6 +251,71 @@ func TestWorkflowValidateRefusesSameModelAdjudicatorPairUnlessAllowed(t *testing
 	}
 }
 
+// TestWorkflowValidateRefusesClaudePrintLane proves `workflow validate` refuses
+// a `claude --print` lane (exit 8) with a message naming the 2026-06-15
+// cost consequence, and that the inline `allow_claude_print: true` override
+// clears it. (#199)
+func TestWorkflowValidateRefusesClaudePrintLane(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, claudePrintWorkflow(false))
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldwd)
+	})
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	exitCode := run([]string{"workflow", "validate", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 8 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "2026-06-15") {
+		t.Fatalf("refusal must name the 2026-06-15 cost consequence; stderr = %s", stderr.String())
+	}
+	// Override path: the inline allow_claude_print: true clears the refusal.
+	stdout.Reset()
+	stderr.Reset()
+	overridePath := writeWorkflow(t, dir, claudePrintWorkflow(true))
+	exitCode = run([]string{"workflow", "validate", filepath.Base(overridePath)}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("override exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+}
+
+func claudePrintWorkflow(override bool) string {
+	allow := ""
+	if override {
+		allow = `, "allow_claude_print": true`
+	}
+	return `{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "go-cli-test",
+  "workflow_version": "test",
+  "name": "Go CLI Test",
+  "context_docs": [],
+  "coordinator": {"role_id": "coordinator", "lane_id": "claude"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "lanes": {"claude": {"adapter": "process", "command": ["claude", "--print"], "model": "claude"` + allow + `}},
+  "roles": {"coordinator": {"description": "Coordinator"}, "worker": {"description": "Worker"}},
+  "jobs": [{
+    "id": "build",
+    "type": "build",
+    "role_id": "worker",
+    "lane_id": "claude",
+    "task_prompt": {"inline": "do work"},
+    "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["out/"], "forbidden_paths": []},
+    "expected_artifacts": []
+  }],
+  "edges": [],
+  "cycles": []
+}`
+}
+
 func sameModelAdjudicatorWorkflow() string {
 	return `{
   "schema_version": "striatum.workflow.v1.1",
