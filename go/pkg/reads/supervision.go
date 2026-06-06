@@ -100,8 +100,16 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 		if tx, err := runner.BeginTx(ctx); err == nil {
 			_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
 			_ = tx.Commit(ctx)
-			// Re-fetch rows so that rows[0]["pointer_metadata_json"] is updated!
-			rows, _ = collectRows(ctx, runner,
+			// Re-fetch rows so that rows[0]["pointer_metadata_json"] reflects the
+			// drained pointer metadata. #180/#200: assigning the re-fetch result
+			// unconditionally clobbered the previously good `rows` with an empty
+			// slice whenever the re-fetch errored or returned no rows (e.g. the
+			// supervisor row was concurrently removed, or the daemon is stopping and
+			// rotating the MCP port out from under the read), so the rows[0] index
+			// below panicked with "index out of range [0] with length 0". Mirror the
+			// reattachStatusRows pattern: only adopt the re-fetch when it succeeded
+			// and returned a row; otherwise keep the original rows.
+			if refetched, err := collectRows(ctx, runner,
 				`SELECT ps.*, p.metadata_json AS pointer_metadata_json
 				   FROM striatumd.process_supervisors ps
 				   LEFT JOIN striatumd.process_supervisor_pointers p
@@ -111,7 +119,9 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 				  ORDER BY ps.started_at DESC, ps.supervisor_id DESC
 				  LIMIT 1`,
 				repositoryID, sessionID,
-			)
+			); err == nil && len(refetched) > 0 {
+				rows = refetched
+			}
 		}
 	}
 
