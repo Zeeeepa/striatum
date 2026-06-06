@@ -259,6 +259,57 @@ func TestRegisterSessionReplaceSupersedesPrior(t *testing.T) {
 // registering a second session on the same (run, role, lane) WITHOUT --replace
 // is refused with the exact remediation (which session id to close), and the
 // prior session is NOT implicitly superseded.
+// TestRegisterFreshReviewerRefusalNamesAuthorReleaseVerb is the #188 (text
+// half) regression: when the workflow declares reviewer_context_policy: fresh
+// and an active author session exists, refusing a non-forced reviewer must
+// suggest BOTH releasing the idle author session (`striatum session close
+// <id>`, naming the session) and the --force-non-fresh escape hatch.
+func TestRegisterFreshReviewerRefusalNamesAuthorReleaseVerb(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_fresh_reviewer_188"
+	runID := "run_fresh_reviewer_188"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles": map[string]any{
+			"author":   map[string]any{},
+			"reviewer": map[string]any{},
+		},
+		"lanes": map[string]any{
+			"author":   map[string]any{"capabilities": []any{"write"}},
+			"reviewer": map[string]any{"capabilities": []any{"write"}},
+		},
+		"jobs": []any{
+			map[string]any{"id": "review", "type": "review", "reviewer_context_policy": "fresh"},
+		},
+	})
+	authorSession := "sess_author_188"
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "author", []string{"write"}, "active")
+
+	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+		// NOT --force-non-fresh
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("error = %v, want rpc error", err)
+	}
+	if rpcErr.Code != "invalid_transition" {
+		t.Fatalf("error code = %q, want invalid_transition", rpcErr.Code)
+	}
+	if !strings.Contains(rpcErr.Message, authorSession) {
+		t.Fatalf("message must name the active author session %q: %q", authorSession, rpcErr.Message)
+	}
+	if !strings.Contains(rpcErr.Message, "session close") {
+		t.Fatalf("message must suggest releasing the author session via `session close`: %q", rpcErr.Message)
+	}
+	if !strings.Contains(rpcErr.Message, "--force-non-fresh") {
+		t.Fatalf("message must still offer the --force-non-fresh escape hatch: %q", rpcErr.Message)
+	}
+}
+
 func TestRegisterSessionWithoutReplaceRefusesDuplicate(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner

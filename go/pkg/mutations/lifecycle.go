@@ -99,14 +99,22 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 		}
 		var recordedReason any
 		if role == "reviewer" && workflowDeclaresFreshReviewer(workflow) {
-			_, err := oneRow(ctx, tx, `
-				SELECT 1 FROM striatumd.sessions
+			authorRow, err := oneRow(ctx, tx, `
+				SELECT session_id FROM striatumd.sessions
 				 WHERE repository_id = $1 AND run_id = $2
 				   AND role_id = 'author' AND state = 'active'
+				 ORDER BY registered_at
 				 LIMIT 1`, repositoryID, runID)
 			if err == nil {
 				if !forceNonFresh {
-					return nil, rpc.NewError("invalid_transition", "workflow declares reviewer_context_policy: fresh and an active author session already exists on this run; pass --force-non-fresh --reason \"...\" to register a non-fresh reviewer explicitly", nil)
+					// #188: name the active author session and suggest releasing it
+					// via session.close as the cleaner remedy, alongside the
+					// --force-non-fresh escape hatch. (Skipping authors with no
+					// active lease and no claimable jobs is deferred to RFC 0116.)
+					authorSession := strings.TrimSpace(fmt.Sprint(authorRow["session_id"]))
+					return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
+						"workflow declares reviewer_context_policy: fresh and an active author session (%s) already exists on this run; release it with `striatum session close %s --reason \"...\"` to register a fresh reviewer, or pass --force-non-fresh --reason \"...\" to register a non-fresh reviewer explicitly",
+						authorSession, authorSession), nil)
 				}
 				if strings.TrimSpace(nonFreshReason) == "" {
 					return nil, rpc.NewError("invalid_transition", "--force-non-fresh requires a non-empty --reason", nil)
