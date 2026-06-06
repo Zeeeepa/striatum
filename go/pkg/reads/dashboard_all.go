@@ -390,14 +390,20 @@ func dashboardAllStaleLeasesForRun(ctx context.Context, runner db.Runner, reposi
 		   LEFT JOIN striatumd.leases l
 		     ON l.repository_id = j.repository_id
 		    AND (l.lease_id = j.current_lease_id
-		         OR (l.resource_id = j.job_id AND l.state = 'expired'))
+		         OR (l.resource_id = j.job_id
+		             AND l.state = 'expired'
+		             AND (l.release_reason IS NULL
+		                  OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))))
 		   LEFT JOIN striatumd.queue_messages qm
 		     ON qm.repository_id = j.repository_id
 		    AND qm.message_id = j.current_message_id
 		  WHERE j.repository_id = $1
 		    AND j.run_id = $2
 		    AND (j.state = 'stale_lease'
-		         OR (l.state = 'expired' AND j.state IN ('claimed', 'running')))
+		         OR (l.state = 'expired'
+		             AND (l.release_reason IS NULL
+		                  OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))
+		             AND j.state IN ('claimed', 'running')))
 		  ORDER BY j.workflow_job_id, l.expires_at`,
 		repositoryID, runID,
 	)

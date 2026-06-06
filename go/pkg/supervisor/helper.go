@@ -177,8 +177,13 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 			// joins the progress goroutine — packetCloser.Close() above unblocks a
 			// file-backed reader so the join is prompt, and the bounded delay
 			// keeps a stdin-backed reader from hanging the exit path.
-			drainProgress(packetDone, opts.ProgressDrainDelay)
-			packetDone = nil
+			if packetDone != nil {
+				// nil when the packet stream already ended (its case above
+				// fired first); draining a nil channel never fires and would
+				// burn the full delay on every such exit.
+				drainProgress(packetDone, opts.ProgressDrainDelay)
+				packetDone = nil
+			}
 			if attachPayload, ok := attachClientExitPayload(ctx, result, err, opts.TmuxRunner); ok {
 				if emitErr := emitter.emit(newHelperEvent(HelperEventAttachExited, spec.SupervisorID, attachPayload)); emitErr != nil {
 					return emitErr
