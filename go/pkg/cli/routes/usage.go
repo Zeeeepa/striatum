@@ -217,11 +217,13 @@ var usageByGroup = map[string]Usage{
 			{Name: "parent-session-id", Help: "parent session id for derived/continued context"},
 			{Name: "operator-label", Help: "operator-visible label for the session"},
 			{Name: "force-non-fresh", Bool: true, Help: "allow a non-fresh reviewer when the workflow declares reviewer_context_policy: fresh (requires --reason)"},
-			{Name: "reason", Help: "justification recorded with --force-non-fresh"},
+			{Name: "force-live", Bool: true, Help: "with --replace, permit displacing a session that is still heartbeating within the lease heartbeat window (otherwise refused with displaced_session_live). Requires --reason (#189)."},
+			{Name: "reason", Help: "justification recorded with --force-non-fresh or --force-live"},
 		},
 		Notes: []string{
 			"Aliases: `striatum session register ...` resolves to the same method (session.register).",
 			"Parallel same-(role, lane) jobs (declared parallelism, disjoint scopes) each register their own fresh session and both stay active; the second registration no longer supersedes the first.",
+			"--replace refuses to displace a session that heartbeated within the lease heartbeat window (it may be actively driving the same packet); pass --force-live --reason \"...\" to override and record why (#189).",
 		},
 	},
 	"session_close": {

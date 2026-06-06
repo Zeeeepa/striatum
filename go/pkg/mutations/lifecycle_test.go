@@ -211,6 +211,15 @@ func TestRegisterSessionReplaceSupersedesPrior(t *testing.T) {
 		t.Fatalf("insert queue message: %v", err)
 	}
 
+	// #189: this test asserts the lease-transfer mechanics of --replace, not the
+	// liveness gate. Backdate the first session past the heartbeat window so it
+	// looks stranded and --replace proceeds without --force-live.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions SET last_heartbeat_at = NOW() - INTERVAL '2 hours', registered_at = NOW() - INTERVAL '2 hours'
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessID1); err != nil {
+		t.Fatalf("backdate first session heartbeat: %v", err)
+	}
+
 	// 2. Register second session on the same lane/role/run with --replace, which
 	// opts in to closing+superseding the prior session and transferring its lease.
 	res2, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{

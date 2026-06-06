@@ -58,6 +58,16 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 	if nonFreshReason == "" {
 		nonFreshReason = stringParam(envelope, "reason")
 	}
+	// #189/#174: --replace must not silently yank a session that is still live
+	// (heartbeating within the lease's advertised window) and possibly driving
+	// the same work packet. --force-live --reason "..." is the explicit escape
+	// hatch for a genuinely-wedged-but-heartbeating lane; it mirrors the
+	// --force-non-fresh --reason pattern and records the justification.
+	forceLive := boolParam(envelope, "force_live")
+	forceLiveReason := strings.TrimSpace(stringParam(envelope, "force_live_reason"))
+	if forceLiveReason == "" {
+		forceLiveReason = strings.TrimSpace(stringParam(envelope, "reason"))
+	}
 	operatorLabel := stringParam(envelope, "operator_label")
 
 	// #133: register-session --replace can race a concurrent claim/recovery
@@ -125,7 +135,11 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			}
 		}
 		activeSessions, err := queryRows(ctx, tx, `
-			SELECT session_id, role_id, lane_id
+			SELECT session_id, role_id, lane_id, operator_label,
+			       GREATEST(
+			         EXTRACT(EPOCH FROM (now() - COALESCE(last_heartbeat_at, registered_at)))::bigint,
+			         0
+			       ) AS heartbeat_age_seconds
 			  FROM striatumd.sessions
 			 WHERE repository_id = $1 AND run_id = $2
 			   AND role_id = $3 AND lane_id = $4
@@ -174,6 +188,48 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 		if !supersedePriorSessions {
 			activeSessions = nil
 		}
+		// #189/#174: --replace transferred leases off the displaced session(s)
+		// with no liveness check, so a wrapper could yank a session that was
+		// still heartbeating and actively driving the same packet — the silent
+		// double-drive that requeued live work in run_cbd6d74b. Before
+		// superseding, refuse when any displaced session heartbeated within the
+		// lease's advertised heartbeat window (the same window the liveness sweep
+		// uses to classify a lease as live, derived from the canonical liveness
+		// policy — not a magic literal). --force-live --reason "..." is the
+		// explicit escape hatch for a genuinely-wedged-but-heartbeating lane.
+		if supersedePriorSessions && !forceLive {
+			heartbeatWindow := sessionliveness.DefaultPolicy().LeaseHeartbeatSeconds
+			for _, oldSess := range activeSessions {
+				ageSeconds := intValue(oldSess["heartbeat_age_seconds"])
+				if ageSeconds > heartbeatWindow {
+					continue
+				}
+				oldSessID := fmt.Sprint(oldSess["session_id"])
+				label := ""
+				if value := nullable(oldSess["operator_label"]); value != nil {
+					if cleaned := strings.TrimSpace(fmt.Sprint(value)); cleaned != "" {
+						label = fmt.Sprintf(" (operator_label: %s)", cleaned)
+					}
+				}
+				return nil, rpc.NewError(
+					"displaced_session_live",
+					fmt.Sprintf(
+						"--replace would displace session %s%s, which last heartbeated %ds ago — within the %ds heartbeat window, so it is still live and may be driving this packet. Confirm it is genuinely wedged (`striatum list sessions`), then retry with --force-live --reason \"...\", or close it first with `striatum session close %s`.",
+						oldSessID, label, ageSeconds, heartbeatWindow, oldSessID,
+					),
+					map[string]any{
+						"displaced_session_id":  oldSessID,
+						"heartbeat_age_seconds": ageSeconds,
+						"heartbeat_window":      heartbeatWindow,
+						"operator_label":        nullable(oldSess["operator_label"]),
+					},
+				)
+			}
+		}
+		// --force-live, like --force-non-fresh, requires a recorded justification.
+		if supersedePriorSessions && forceLive && len(activeSessions) > 0 && forceLiveReason == "" {
+			return nil, rpc.NewError("invalid_transition", "--force-live requires a non-empty --reason", nil)
+		}
 		for _, oldSess := range activeSessions {
 			oldSessID := fmt.Sprint(oldSess["session_id"])
 			now := nowString()
@@ -184,13 +240,20 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 			if err != nil {
 				return nil, err
 			}
-			_, err = appendEvent(ctx, tx, repositoryID, runID, "session.closed", oldSessID, nil, nil, nil, nil, map[string]any{
+			supersessionPayload := map[string]any{
 				"session_id": oldSessID,
 				"role_id":    oldSess["role_id"],
 				"lane_id":    oldSess["lane_id"],
 				"reason":     "superseded",
 				"source":     "supersession",
-			})
+			}
+			// #189: when the operator force-displaced a still-live lane, record
+			// the justification on the audit event so the override is legible.
+			if forceLive && forceLiveReason != "" {
+				supersessionPayload["force_live"] = true
+				supersessionPayload["force_live_reason"] = forceLiveReason
+			}
+			_, err = appendEvent(ctx, tx, repositoryID, runID, "session.closed", oldSessID, nil, nil, nil, nil, supersessionPayload)
 			if err != nil {
 				return nil, err
 			}

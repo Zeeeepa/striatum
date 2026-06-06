@@ -157,6 +157,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Commit or revert the changes outside included_paths, then retry.",
 	},
 	{
+		Code:       "displaced_session_live",
+		Meaning:    "session.register --replace would displace a session that has heartbeated within the lease's heartbeat window, so it is still live and may be actively driving the same work packet (#189).",
+		Suggestion: "Confirm the displaced session is genuinely wedged (check `striatum list sessions` and recent heartbeats); if so, retry with --force-live --reason \"...\" to record why the live lane is being superseded, or close it first with `striatum session close <id>`.",
+	},
+	{
 		Code:       "duplicate_request",
 		Meaning:    "The RPC request_id was already used.",
 		Suggestion: "Re-issue the call with a fresh request_id.",

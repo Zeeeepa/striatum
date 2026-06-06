@@ -395,10 +395,15 @@ func buildPacket(
 		},
 		"lane_attestation": attestation,
 		"lease": map[string]any{
-			"lease_id":                leaseID,
-			"message_id":              messageID,
-			"expires_at":              leaseExpiresAt,
-			"heartbeat_after_seconds": 300,
+			"lease_id":   leaseID,
+			"message_id": messageID,
+			"expires_at": leaseExpiresAt,
+			// #174: the advertised heartbeat cadence must be the actual window the
+			// liveness sweep keys on (DefaultPolicy().LeaseHeartbeatSeconds), not a
+			// magic 300 literal decoupled from the lease TTL. An agent that
+			// heartbeats within this window keeps its lease classified live; the
+			// far-future expires_at is the hard lease TTL, not the heartbeat floor.
+			"heartbeat_after_seconds": sessionliveness.DefaultPolicy().LeaseHeartbeatSeconds,
 		},
 		"job": map[string]any{
 			"job_id":                 job["job_id"],
