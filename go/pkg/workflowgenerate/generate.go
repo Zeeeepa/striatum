@@ -255,6 +255,61 @@ func SpecFromMap(raw map[string]any) (Spec, error) {
 	}, nil
 }
 
+// ApplyGenerateOption routes a single `--option key=value` pair from the
+// `workflow generate` CLI into either the generator options map or the lanes
+// spec map (#187). Lane-spec keys are shaped `lanes.<laneID>.<field>` — the
+// vocabulary a lane set advertises in its required_options (e.g.
+// `lanes.author.command`). They route into spec.lanes so the catalog's
+// recommended lane sets are generatable from the CLI instead of forcing a
+// hand-edit. For the argv-array lane fields (`command`, `capabilities`) the
+// value is parsed as a JSON array; any other lane field, and any JSON-decodable
+// value, is decoded best-effort, otherwise the raw string is kept. Every other
+// key flows to the options map unchanged, where SpecFromMap's allowlist
+// validates it.
+func ApplyGenerateOption(options map[string]any, lanes map[string]any, key, value string) error {
+	if laneID, field, ok := parseLaneOptionKey(key); ok {
+		laneBody, _ := lanes[laneID].(map[string]any)
+		if laneBody == nil {
+			laneBody = map[string]any{}
+			lanes[laneID] = laneBody
+		}
+		laneBody[field] = decodeLaneOptionValue(value)
+		return nil
+	}
+	options[key] = value
+	return nil
+}
+
+// parseLaneOptionKey splits a `lanes.<laneID>.<field>` option key into its lane
+// id and field. It reports ok=false for any key that is not a lane-spec key, so
+// the caller routes it to the options allowlist. The bare `lanes` key (the
+// custom lane set's composite required_option) is not a per-lane field and is
+// left to the options/spec path.
+func parseLaneOptionKey(key string) (laneID string, field string, ok bool) {
+	rest, found := strings.CutPrefix(key, "lanes.")
+	if !found {
+		return "", "", false
+	}
+	laneID, field, found = strings.Cut(rest, ".")
+	if !found || laneID == "" || field == "" {
+		return "", "", false
+	}
+	return laneID, field, true
+}
+
+// decodeLaneOptionValue decodes a lane-field value. The argv-array fields
+// (command, capabilities) require a JSON array — the generator's stringList
+// validator rejects a bare string with a clear field-scoped error if the
+// operator forgets the brackets. Other fields decode any JSON scalar, falling
+// back to the raw string.
+func decodeLaneOptionValue(value string) any {
+	var decoded any
+	if err := json.Unmarshal([]byte(value), &decoded); err == nil {
+		return decoded
+	}
+	return value
+}
+
 func Generate(spec Spec) (Generated, error) {
 	warnings := []string{}
 	if err := validateModifierMatrix(spec, &warnings); err != nil {

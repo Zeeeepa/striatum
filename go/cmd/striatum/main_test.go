@@ -540,6 +540,35 @@ func TestWorkflowGenerateConversationPreview(t *testing.T) {
 	}
 }
 
+// #187: the lane sets the catalog recommends for code-change work
+// (author_reviewer, multi_review, single_agent) advertise
+// required_options like "lanes.author.command". Those keys must be
+// settable via `--option lanes.<id>.command=<JSON array>` so the
+// advertised lane sets are actually generatable from the CLI.
+func TestWorkflowGenerateRoutesLaneCommandOption(t *testing.T) {
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"--repo", dir, "--json", "workflow", "generate",
+		"--shape", "code_change", "--lane-set", "author_reviewer",
+		"--option", `lanes.author.command=["claude","--dangerously-skip-permissions"]`,
+		"--option", `lanes.reviewer.command=["codex"]`,
+		"--workflow-id", "lane-cmd-test"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("json: %v; out=%s", err, stdout.String())
+	}
+	if payload["ok"] != true {
+		t.Fatalf("ok = %#v; stderr=%s", payload["ok"], stderr.String())
+	}
+	data := payload["data"].(map[string]any)
+	if data["lane_set"] != "author_reviewer" {
+		t.Fatalf("lane_set = %#v", data["lane_set"])
+	}
+}
+
 func TestWorkflowTemplatesListIncludesConversation(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exitCode := run([]string{"--json", "workflow", "templates", "list", "--kind", "shape"}, &stdout, &stderr)

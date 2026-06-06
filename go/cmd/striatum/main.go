@@ -273,6 +273,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 	write := false
 	jsonOutput := false
 	options := map[string]any{}
+	lanes := map[string]any{}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -313,7 +314,15 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 				_, _ = fmt.Fprintf(stderr, "--option must be key=value, got %q\n", kv)
 				return 2
 			}
-			options[optKey] = optVal
+			// #187: lane-spec keys the catalog advertises in a lane set's
+			// required_options (e.g. lanes.author.command) route into spec.lanes,
+			// not the options allowlist. The value for argv-array lane keys
+			// (command/capabilities) is a JSON array; scalar lane keys take the
+			// raw string. Any other key flows to options as before.
+			if err := workflowgenerate.ApplyGenerateOption(options, lanes, optKey, optVal); err != nil {
+				_, _ = fmt.Fprintf(stderr, "%s\n", err.Error())
+				return 2
+			}
 		case "--write":
 			parsed, err := optionalBool(value, hasValue)
 			if err != nil {
@@ -367,7 +376,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/" + workflowID, "allow_dirty": false},
 		"scaffold_root":    scaffoldRoot,
 		"artifact_root":    artifactRoot,
-		"lanes":            map[string]any{},
+		"lanes":            lanes,
 		"options":          options,
 		"lane_modifiers":   []any{},
 		"context_docs":     []any{},
