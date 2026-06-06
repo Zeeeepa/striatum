@@ -271,6 +271,10 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 		repoRoot: t.TempDir(),
 		workflowLane: map[string]any{
 			"adapter_capabilities": map[string]any{"agent_loop": true},
+			// #181: an agent-loop lane must name a self-driving-capable adapter
+			// (codex / agy / claude). Use an absolute path so PATH resolution is a
+			// no-op and the wrapped-command assertion below stays stable.
+			"command": []any{"/bin/codex"},
 		},
 		txs: []*superviseControlFakeTx{{}, {}},
 	}
@@ -286,7 +290,7 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSuperviseStart: %v", err)
 	}
-	want := []string{"/bin/striatumd", "-agent-loop", "--", "/bin/cat"}
+	want := []string{"/bin/striatumd", "-agent-loop", "--", "/bin/codex"}
 	if strings.Join(launchedConfig.Command, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("launched command = %#v, want %#v", launchedConfig.Command, want)
 	}
@@ -296,8 +300,96 @@ func TestSuperviseStartWrapsAgentLoopLaneInAgentLoop(t *testing.T) {
 	if launchedConfig.Transport != supervisionTransportPTYHelper || result["transport"] != supervisionTransportPTYHelper {
 		t.Fatalf("agent-loop default transport = config:%q result:%#v, want pty_helper", launchedConfig.Transport, result["transport"])
 	}
-	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/cat" {
+	if strings.Join(launchedConfig.OriginalCommand, "\x00") != "/bin/codex" {
 		t.Fatalf("original command = %#v", launchedConfig.OriginalCommand)
+	}
+}
+
+// TestRequireSupportedAgentLoopAdapter is the #181 unit guard: only codex / agy
+// / claude (the adapters whose self-driving bootstrap delivery is wired) are
+// accepted for an agent-loop lane; any other argv0 is refused with a legible
+// error naming the offending adapter and the supported set.
+func TestRequireSupportedAgentLoopAdapter(t *testing.T) {
+	for _, ok := range [][]string{
+		{"codex", "--dangerously-bypass-approvals-and-sandbox"},
+		{"/home/u/.local/bin/claude", "--dangerously-skip-permissions"},
+		{"agy"},
+	} {
+		if err := requireSupportedAgentLoopAdapter(ok); err != nil {
+			t.Fatalf("supported adapter %v refused: %v", ok, err)
+		}
+	}
+	for _, bad := range [][]string{
+		{"/usr/bin/python3", "loop.py"},
+		{"bash", "-c", "true"},
+		{"my-home-grown-agent"},
+	} {
+		err := requireSupportedAgentLoopAdapter(bad)
+		rpcErr, isRPC := err.(*rpc.Error)
+		if !isRPC || rpcErr.Code != "invalid_transition" {
+			t.Fatalf("argv %v: err = %#v, want invalid_transition rpc.Error", bad, err)
+		}
+		argv0 := bad[0]
+		if !strings.Contains(rpcErr.Message, argv0) {
+			t.Fatalf("argv %v: message must name argv0 %q: %q", bad, argv0, rpcErr.Message)
+		}
+		for _, adapter := range []string{"codex", "agy", "claude"} {
+			if !strings.Contains(rpcErr.Message, adapter) {
+				t.Fatalf("argv %v: message must name supported adapter %q: %q", bad, adapter, rpcErr.Message)
+			}
+		}
+	}
+	if err := requireSupportedAgentLoopAdapter(nil); err == nil {
+		t.Fatalf("empty command must be refused")
+	}
+}
+
+// TestSuperviseStartRefusesUnsupportedAgentLoopAdapter is the #181 end-to-end
+// guard: supervise start refuses an agent-loop lane whose argv0 cannot run the
+// self-driving loop, BEFORE inserting any process_supervisors row (so the
+// operator gets a legible refusal instead of a wedged, healthy-looking lane).
+func TestSuperviseStartRefusesUnsupportedAgentLoopAdapter(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(_ context.Context, _ supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		t.Fatalf("#181: supervisionLaunch must not be reached for an unsupported agent-loop adapter")
+		return supervisionLaunchResult{}, nil
+	}
+
+	tx1 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		workflowLane: map[string]any{
+			"adapter_capabilities": map[string]any{"agent_loop": true},
+			"command":              []any{"/usr/bin/python3", "loop.py"},
+		},
+		txs: []*superviseControlFakeTx{tx1},
+	}
+	_, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_bad_agent_loop",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("#181: expected invalid_transition rpc error, got %#v", err)
+	}
+	if !strings.Contains(rpcErr.Message, "python3") {
+		t.Fatalf("#181: refusal must name the offending argv0: %q", rpcErr.Message)
+	}
+	if tx1.sawExec("INSERT INTO striatumd.process_supervisors") {
+		t.Fatalf("#181: refusal must happen BEFORE the supervisor row insert: %#v", tx1.execs)
 	}
 }
 
@@ -488,6 +580,7 @@ func TestSuperviseStartAgentLoopAllowsExplicitPipeTransportOverride(t *testing.T
 		repoRoot: t.TempDir(),
 		workflowLane: map[string]any{
 			"adapter_capabilities": map[string]any{"agent_loop": true},
+			"command":              []any{"/bin/codex"}, // #181: self-driving-capable adapter
 		},
 		workflowSupervision: map[string]any{
 			"transport": supervisionTransportPipe,

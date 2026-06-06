@@ -864,6 +864,17 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	}
 	config.OriginalCommand = append([]string(nil), command...)
 	if laneUsesAgentLoop(lane) {
+		// #181: an agent-loop lane is driven by the self-driving bootstrap +
+		// PTY-submit wiring, which only knows how to deliver the initial prompt
+		// to codex, agy, and claude (agentloop.bootstrapDeliveryModeFor). Any
+		// other argv0 would be wrapped by selfDrivingAgentLoopCommand and launched
+		// as a self-driver that can never receive its bootstrap, so the lane sits
+		// idle behind a healthy-looking supervisor. Refuse BEFORE inserting the
+		// supervisor row so the operator gets a legible error instead of a wedged
+		// lane (RFC 0111).
+		if err := requireSupportedAgentLoopAdapter(command); err != nil {
+			return config, err
+		}
 		config.AgentLoopMode = agentLoopModeSelfDriving
 		// RFC 0088: wrap the raw lane command in `striatumd -agent-loop -- …`
 		// so the agent-loop executor delivers the bootstrap prompt and submits
@@ -2345,6 +2356,33 @@ func laneUsesAgentLoop(lane map[string]any) bool {
 		return value
 	}
 	return false
+}
+
+// selfDrivingAgentLoopAdapters is the set of lane argv0 adapters whose
+// self-driving bootstrap delivery is wired (agentloop.bootstrapDeliveryModeFor).
+// An agent-loop lane on any other adapter cannot receive its initial prompt, so
+// supervise start refuses it instead of launching a lane that wedges (#181).
+var selfDrivingAgentLoopAdapters = map[string]struct{}{
+	"codex":  {},
+	"agy":    {},
+	"claude": {},
+}
+
+// requireSupportedAgentLoopAdapter refuses an agent-loop lane whose argv0 is not
+// a self-driving-capable adapter (codex / agy / claude). The refusal names the
+// offending argv0 and the supported adapters so the operator can fix the lane
+// command (#181, RFC 0111 legibility).
+func requireSupportedAgentLoopAdapter(command []string) error {
+	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
+		return rpc.NewError("invalid_transition", "agent-loop lane command must be non-empty", nil)
+	}
+	adapter := agentloop.LaneAdapterName(command[0])
+	if _, ok := selfDrivingAgentLoopAdapters[adapter]; ok {
+		return nil
+	}
+	return rpc.NewError("invalid_transition", fmt.Sprintf(
+		"supervise start refuses agent-loop lane: adapter %q (argv0 %q) cannot run the self-driving loop; supported agent-loop adapters are codex, agy, claude. Set the lane command to one of those, or drop adapter_capabilities.agent_loop so the lane runs as a stdin-FIFO push consumer.",
+		adapter, command[0]), nil)
 }
 
 // selfDrivingAgentLoopCommand wraps a raw lane command in the agent-loop
