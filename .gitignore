@@ -1,6 +1,4 @@
-.striatum/*
-!.striatum/bin/
-!.striatum/bin/**
+.striatum/
 .venv/
 __pycache__/
 .pytest_cache/
@@ -33,7 +31,6 @@ docs/dogfood/
 !docs/dogfood/HISTORICAL.md
 !docs/dogfood/FRICTION_LOG.md
 
-.striatum/
 .scratch/
 
 # local agent MCP config (contains tokens)
