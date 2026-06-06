@@ -169,6 +169,16 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 				_ = packetCloser.Close()
 			}
 			drainProgress(progressDone, opts.ProgressDrainDelay)
+			// #191: the forwardPacketStream goroutine spawned above can still be
+			// in flight when the child exits, and it emits packet_accepted events
+			// into the shared event buffer. Returning here without joining it
+			// races a concurrent emitter.emit against the caller (or the test)
+			// reading that buffer. Join it the same bounded way drainProgress
+			// joins the progress goroutine — packetCloser.Close() above unblocks a
+			// file-backed reader so the join is prompt, and the bounded delay
+			// keeps a stdin-backed reader from hanging the exit path.
+			drainProgress(packetDone, opts.ProgressDrainDelay)
+			packetDone = nil
 			if attachPayload, ok := attachClientExitPayload(ctx, result, err, opts.TmuxRunner); ok {
 				if emitErr := emitter.emit(newHelperEvent(HelperEventAttachExited, spec.SupervisorID, attachPayload)); emitErr != nil {
 					return emitErr
