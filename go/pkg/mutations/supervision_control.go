@@ -1619,6 +1619,29 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start, Metadata: metadata}, nil
 }
 
+// startHelperReaper harvests a supervisor-helper child's exit status so it is
+// never left as an unreapable zombie in the daemon's PID table (#204). A helper
+// is spawned detached (Setsid + context.WithoutCancel per RFC 0103 W3 / #141) and
+// is meant to outlive its launch RPC, so nothing on the request path ever called
+// cmd.Wait(); when the helper later exited (e.g. its supervisor was marked lost
+// during respawn churn) the kernel kept a <defunct> zombie until the daemon
+// itself exited. Reaping the exited child does NOT affect restart survival: the
+// reaper only collects the wait status AFTER the process has exited on its own —
+// it never cancels the (WithoutCancel) context and never signals the process.
+//
+// The returned channel closes when the helper exits, so the agent_started
+// handshake loops can detect an early helper exit deterministically instead of
+// polling cmd.ProcessState (which the reaper now owns — concurrent reads of that
+// field while cmd.Wait() writes it would be a data race).
+func startHelperReaper(cmd *exec.Cmd) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
+	return done
+}
+
 func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervisorID, scratch, pipePath, eventPath string) (supervisionLaunchResult, error) {
 	helper, err := resolveSupervisorHelper()
 	if err != nil {
@@ -1670,12 +1693,13 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if err := cmd.Start(); err != nil {
 		return supervisionLaunchResult{}, err
 	}
+	reaped := startHelperReaper(cmd)
 	if _, err := stdin.Write(append(specBody, '\n')); err != nil {
 		_ = terminateProcess(cmd.Process.Pid)
 		return supervisionLaunchResult{}, err
 	}
 	_ = stdin.Close()
-	events, offset, err := waitForHelperAgentStart(cmd, eventPath, helperStartTimeout())
+	events, offset, err := waitForHelperAgentStart(reaped, eventPath, helperStartTimeout())
 	if err != nil {
 		_ = terminateProcess(cmd.Process.Pid)
 		return supervisionLaunchResult{}, err
@@ -1773,12 +1797,13 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 	if err := cmd.Start(); err != nil {
 		return supervisionLaunchResult{}, err
 	}
+	reaped := startHelperReaper(cmd)
 	if _, err := stdin.Write(append(specBody, '\n')); err != nil {
 		_ = terminateProcess(cmd.Process.Pid)
 		return supervisionLaunchResult{}, err
 	}
 	_ = stdin.Close()
-	events, offset, err := waitForHelperAgentStartFromOffset(cmd, eventPath, helperStartTimeout(), int(startOffset))
+	events, offset, err := waitForHelperAgentStartFromOffset(reaped, eventPath, helperStartTimeout(), int(startOffset))
 	if err != nil {
 		_ = terminateProcess(cmd.Process.Pid)
 		return supervisionLaunchResult{}, err
@@ -1822,7 +1847,7 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 	}, nil
 }
 
-func waitForHelperAgentStartFromOffset(cmd *exec.Cmd, eventPath string, timeout time.Duration, startOffset int) ([]map[string]any, int, error) {
+func waitForHelperAgentStartFromOffset(reaped <-chan struct{}, eventPath string, timeout time.Duration, startOffset int) ([]map[string]any, int, error) {
 	deadline := time.Now().Add(timeout)
 	var lastEvents []map[string]any
 	lastOffset := startOffset
@@ -1845,12 +1870,29 @@ func waitForHelperAgentStartFromOffset(cmd *exec.Cmd, eventPath string, timeout 
 				}
 			}
 		}
-		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		if helperExited(reaped) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
 	return nil, 0, fmt.Errorf("PTY helper did not report rebridge agent_started before timeout (events=%d, offset=%d)", len(lastEvents), lastOffset)
+}
+
+// helperExited reports whether the reaper goroutine has already collected the
+// helper child's exit status (the channel is closed by startHelperReaper after
+// cmd.Wait() returns). A non-nil channel that has not closed means the helper is
+// still running; a nil channel (test callers that do not spawn a real process)
+// is treated as "not exited" so the handshake loop falls through to its timeout.
+func helperExited(reaped <-chan struct{}) bool {
+	if reaped == nil {
+		return false
+	}
+	select {
+	case <-reaped:
+		return true
+	default:
+		return false
+	}
 }
 
 func supervisorWorkingDir(supervisor supervisorControlRow) string {
@@ -1952,7 +1994,7 @@ func objectOrNil(value any) map[string]any {
 	return object
 }
 
-func waitForHelperAgentStart(cmd *exec.Cmd, eventPath string, timeout time.Duration) ([]map[string]any, int, error) {
+func waitForHelperAgentStart(reaped <-chan struct{}, eventPath string, timeout time.Duration) ([]map[string]any, int, error) {
 	deadline := time.Now().Add(timeout)
 	var lastEvents []map[string]any
 	lastOffset := 0
@@ -1975,7 +2017,7 @@ func waitForHelperAgentStart(cmd *exec.Cmd, eventPath string, timeout time.Durat
 				}
 			}
 		}
-		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
+		if helperExited(reaped) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
