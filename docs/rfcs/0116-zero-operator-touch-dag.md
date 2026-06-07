@@ -1,6 +1,6 @@
 # RFC 0116: Zero-operator-touch sequential DAG execution — `run drive` + fresh-reviewer policy fix
 
-Status: proposed
+Status: accepted (D175)
 Date: 2026-06-06
 author: rfc-author-claude-opus-4.8-001
 Context: GH #178 (no daemon-side session auto-spawn — the operator must

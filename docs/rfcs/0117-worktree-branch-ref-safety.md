@@ -1,6 +1,6 @@
-# RFC 0115: Per-job worktree & branch ref-safety
+# RFC 0117: Per-job worktree & branch ref-safety
 
-Status: proposed
+Status: accepted (D176)
 Date: 2026-06-06
 author: rfc-author-claude-opus-4.8-001
 Context: RFC 0008 (opt-in per-job git worktree isolation — the unfulfilled
@@ -488,12 +488,12 @@ surface.
   `worktree_head_unreachable` / `job_completed_without_anchor`.
 - `docs/reference/spec.md` (worktree lifecycle + the new problem codes),
   `docs/rfcs/0008-...` (cross-reference: the "automatic cleanup / collect back
-  to provenance" promise is now fulfilled by RFC 0115), and the decision log
+  to provenance" promise is now fulfilled by RFC 0117), and the decision log
   update only when the behavior lands.
 
 ## Proposed decision-log entry
 
-> **DXXX — Per-job worktree & branch ref-safety (RFC 0115, accepted).** A
+> **DXXX — Per-job worktree & branch ref-safety (RFC 0117, accepted).** A
 > completed repo-write job's commit stack is always reachable from a durable git
 > ref before its worktree can be released, and the daemon never moves the
 > operator's primary checkout HEAD. `work.complete` fast-forwards the run branch
