@@ -8,7 +8,14 @@ import (
 )
 
 func TestPrivilegeRevocation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// #219: the setup INSERTs are not the behavior under test (privilege
+	// revocation is) but shared a 10s deadline with them. When the full-module
+	// run executes this package in parallel with the ~16-minute pkg/mutations
+	// real-PG suite, cluster-wide CREATE/DROP DATABASE churn can stall a plain
+	// INSERT past 10s, flaking the whole gate (three consecutive false-red
+	// gates on 2026-06-07). The revocation assertions below are error-shape
+	// checks, not timing checks — give setup a generous deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	privileged, unprivileged := Pools(t)
