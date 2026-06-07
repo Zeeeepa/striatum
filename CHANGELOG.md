@@ -2,6 +2,98 @@
 
 ## Unreleased
 
+## v2.30.0 — 2026-06-07
+
+Second triage-execution wave: the 13 issues filed against 2.27.0 under
+multi-run load (#192–#198, #202–#207 minus the human-gated ones) were
+root-caused by 5 read-only triage agents and fixed by 4 parallel fix waves,
+each landing test-first with an independent review pass. Also: supervised
+token-usage telemetry (RFC 0115 implementation), RFC 0116 + RFC 0117 accepted
+(D175/D176) with companion issues #208–#217 filed.
+
+### Daemon load — the #198 convoy (parent of #197 and #193's latency)
+
+The minutes-long lock holder was the 60s recovery sweep, not supervise.report:
+per-run sweep transactions held the run advisory lock + FOR UPDATE row locks
+while shelling `tmux list-panes` / reading /proc per stuck job AND draining
+helper FIFOs. Under N lanes × M runs the subprocess calls serialized inside
+the lock window; every event append / claim / status read queued behind it
+into global SQLSTATE 57014.
+
+- **#198** lane-liveness probes are pre-probed BEFORE the sweep transaction
+  (read-only snapshot injected via context; in-tx decision logic unchanged;
+  live-probe fallback for operator RPCs) and helper-event drains moved to
+  short per-supervisor transactions before the sweep (single-drain failure
+  isolates instead of failing the sweep).
+- Review hardening: a `pid_identity_unavailable` probe verdict (PID signalable
+  — i.e. alive — but /proc momentarily unreadable) no longer confirms death;
+  treating it as dead force-expired a LIVE agent's lease (the #145/#147
+  false-requeue class), and the pre-tx oracle would have cached the transient
+  for the whole sweep window.
+- **#197** claim-next/await long-poll classifies statement-timeout (57014 +
+  class-57 teardown) as transient daemon load — lanes keep polling and see
+  `{status: no_work, reason: transient_daemon_load}` at the deadline instead
+  of a raw SQL error that parked them.
+- **#193** `status` repo-wide payload bounded: non-terminal runs + the 20 most
+  recent terminal runs by default (`--all-runs` / `--run-limit` restore
+  history); claimable/blocked enumeration excludes terminal runs (also hides
+  the orphan pending messages `run.cancel` leaks — mechanism noted on the
+  issue); the status-read helper drain takes `lock_timeout=500ms` and degrades
+  with a `helper_drain_skipped` note instead of blocking >30s.
+
+### Revision-cycle integrity
+
+- **#203** recovery.auto no longer completes a revision-cycled job with the
+  pre-revision artifact: the expired-lease scan now uses the shared
+  `db.ExpiredLeaseStillStalePredicate` (one definition; recovery.auto +
+  stale_leases + dashboard.all all routed through it) and auto-publish is
+  attempt-gated per RFC 0095 Goal 2 — on-disk content byte-identical to a
+  lower-attempt artifact is refused with a `recovery.auto_publish_refused`
+  event instead of silently discarding the reviewer's revision request.
+- **#206** re-claimed review jobs can no longer republish the prior round's
+  finding verbatim: `review.submit` refuses a finding byte-identical to the
+  same job's lower-attempt finding (new catalogued code
+  `fresh_review_byte_identical`, message tells the lane to delete the stale
+  file and review the revision), and re-opened review packets carry
+  `context.revision_context` (prior finding artifact id/path/sha + prior
+  verdict recovered from the durable `verdict.recorded` event).
+
+### Supervision & liveness
+
+- **#202** session-bound capability tokens now carry `review` — supervised
+  reviewer lanes can submit verdicts without an operator-minted token (the
+  capability-set completeness bug behind every review parking at
+  `capability_missing`).
+- **#204** exited supervisor-helper children are reaped (wait goroutine,
+  mirroring the pipe-process path) — no more unbounded zombie accumulation
+  when supervisors go lost; restart-survival (#141, context.WithoutCancel)
+  unaffected.
+- **#192** a bootstrap grace window (120s, additive to the 60s discovery
+  deadline) suppresses the `agent_mcp_discovery_stall` false positive that
+  fired on every claude lane cold-start; a genuinely wedged lane still flags
+  at 180s.
+- **#207** (with the auth half already fixed by v2.29.0/#176): claims gated by
+  a `needs_operator` run now return `ineligible_reason: run_needs_operator` +
+  the open escalation blocker id instead of bare `no_work`, and a
+  `recovery_exhausted` blocker whose job subsequently completes a genuine
+  attempt auto-closes (the run flips back to running when no other
+  escalation-class blocker remains) — human-checkpoint and human escalation
+  kinds remain untouched.
+
+### CLI / DX
+
+- **#194** `--help` for all 93 daemon-derived verbs now renders real usage:
+  the 45 uncovered ParamsGroups synthesize their positional arguments from the
+  parser's own table (cannot drift); the pointer to the unshipped
+  command-authority-matrix doc is gone.
+- **#219** the `TestPrivilegeRevocation` setup deadline no longer flakes the
+  full gate under parallel real-PG package load.
+
+Not in this wave (open, human-gated): #195/#196 (fold into accepted RFC 0117
+implementation), #201 (helper privilege-boundary decision; Option A
+recommended on the issue), #205 (superset fix in flight on
+`issue-205-supervise-liveness`).
+
 ## v2.29.0 — 2026-06-06
 
 Triage-execution wave: 17 issues fixed directly (every S/M-tier issue from the
