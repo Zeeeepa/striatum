@@ -140,6 +140,89 @@ func registeredSessionCapabilities(t *testing.T, ctx context.Context, runner any
 	return result
 }
 
+func registeredNonFreshReason(t *testing.T, ctx context.Context, runner any, repoID, sessionID string) string {
+	t.Helper()
+	row, err := oneRow(ctx, runner, `
+		SELECT non_fresh_reason
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID)
+	if err != nil {
+		t.Fatalf("select non_fresh_reason: %v", err)
+	}
+	return fmt.Sprint(row["non_fresh_reason"])
+}
+
+func seedFreshReviewerPolicyRun(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID string, freshReviewer bool) {
+	t.Helper()
+	intgSeedRepo(t, ctx, runner, repoID)
+	reviewJob := map[string]any{"id": "review", "type": "review"}
+	if freshReviewer {
+		reviewJob["reviewer_context_policy"] = "fresh"
+	} else {
+		reviewJob["reviewer_context_policy"] = "cross_round"
+	}
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles": map[string]any{
+			"author":   map[string]any{},
+			"reviewer": map[string]any{},
+		},
+		"lanes": map[string]any{
+			"codex":    map[string]any{"capabilities": []any{"write"}},
+			"reviewer": map[string]any{"capabilities": []any{"write"}},
+		},
+		"jobs": []any{reviewJob},
+	})
+}
+
+func seedAuthorJob(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, state string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  lane_selector_json, title, job_type, idempotency_key, expected_artifacts_json,
+		  created_at, completed_at
+		)
+		VALUES ($1,$2,$3,$4,1,$5,'author','{"lane_id":"codex"}'::jsonb,
+		        $4,'draft','idem_'||$2,'[]'::jsonb,NOW(),
+		        CASE WHEN $5 = 'completed' THEN NOW() ELSE NULL END)`,
+		repoID, jobID, runID, jobID+"_wf", state); err != nil {
+		t.Fatalf("insert author job %s: %v", jobID, err)
+	}
+}
+
+func seedAuthorActiveWork(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, sessionID, messageState string) {
+	t.Helper()
+	jobID := "job_work_" + sessionID
+	leaseID := "lease_work_" + sessionID
+	messageID := "msg_work_" + sessionID
+	seedAuthorJob(t, ctx, runner, repoID, runID, jobID, "running")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id,
+		  owner_session_id, state, acquired_at, expires_at, last_heartbeat_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',NOW(),NOW() + INTERVAL '1 hour',NOW())`,
+		repoID, leaseID, runID, jobID, sessionID); err != nil {
+		t.Fatalf("insert active author lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_session_id, target_role_id, target_lane_id, created_at, updated_at,
+		  current_lease_id
+		) VALUES ($1,$2,$3,$4,'work',$5,0,$6,'author','codex',NOW(),NOW(),$7)`,
+		repoID, messageID, runID, jobID, messageState, sessionID, leaseID); err != nil {
+		t.Fatalf("insert active author message: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET current_message_id = $1, current_lease_id = $2
+		 WHERE repository_id = $3 AND job_id = $4`,
+		messageID, leaseID, repoID, jobID); err != nil {
+		t.Fatalf("stamp author job current ids: %v", err)
+	}
+}
+
 // TestRegisterSessionReplaceSupersedesPrior verifies RFC 0095 §5 (#60):
 // register-session --replace atomically closes the prior active session on the
 // same (run, role, lane) slot, transfers its leases, and registers a new active
@@ -264,42 +347,41 @@ func TestRegisterSessionReplaceSupersedesPrior(t *testing.T) {
 	}
 }
 
-// TestRegisterSessionWithoutReplaceRefusesDuplicate verifies RFC 0095 §5 (#60):
-// registering a second session on the same (run, role, lane) WITHOUT --replace
-// is refused with the exact remediation (which session id to close), and the
-// prior session is NOT implicitly superseded.
-// TestRegisterFreshReviewerRefusalNamesAuthorReleaseVerb is the #188 (text
-// half) regression: when the workflow declares reviewer_context_policy: fresh
-// and an active author session exists, refusing a non-forced reviewer must
-// suggest BOTH releasing the idle author session (`striatum session close
-// <id>`, naming the session) and the --force-non-fresh escape hatch.
-func TestRegisterFreshReviewerRefusalNamesAuthorReleaseVerb(t *testing.T) {
+func TestFreshReviewerIgnoresDrainedIdleAuthor(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
-	repoID := "repo_fresh_reviewer_188"
-	runID := "run_fresh_reviewer_188"
+	repoID := "repo_fresh_drained_author"
+	runID := "run_fresh_drained_author"
+	authorSession := "sess_author_drained"
 
-	intgSeedRepo(t, ctx, runner, repoID)
-	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
-		"workflow_id": "wf",
-		"roles": map[string]any{
-			"author":   map[string]any{},
-			"reviewer": map[string]any{},
-		},
-		"lanes": map[string]any{
-			"author":   map[string]any{"capabilities": []any{"write"}},
-			"reviewer": map[string]any{"capabilities": []any{"write"}},
-		},
-		"jobs": []any{
-			map[string]any{"id": "review", "type": "review", "reviewer_context_policy": "fresh"},
-		},
-	})
-	authorSession := "sess_author_188"
-	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "author", []string{"write"}, "active")
+	seedFreshReviewerPolicyRun(t, ctx, runner, repoID, runID, true)
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "codex", []string{"write"}, "active")
+	seedAuthorJob(t, ctx, runner, repoID, runID, "job_author_done", "completed")
+
+	result, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+	}))
+	if err != nil {
+		t.Fatalf("fresh reviewer should ignore drained idle author, got %v", err)
+	}
+	if fmt.Sprint(result["session_id"]) == "" {
+		t.Fatalf("register result missing session_id: %#v", result)
+	}
+}
+
+func TestFreshReviewerStillRefusesWorkingAuthor(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_fresh_working_author"
+	runID := "run_fresh_working_author"
+	authorSession := "sess_author_working"
+
+	seedFreshReviewerPolicyRun(t, ctx, runner, repoID, runID, true)
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "codex", []string{"write"}, "active")
+	seedAuthorActiveWork(t, ctx, runner, repoID, runID, authorSession, "acked")
 
 	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
 		"run_id": runID, "role": "reviewer", "lane": "reviewer",
-		// NOT --force-non-fresh
 	}))
 	var rpcErr *rpc.Error
 	if !errors.As(err, &rpcErr) {
@@ -317,8 +399,104 @@ func TestRegisterFreshReviewerRefusalNamesAuthorReleaseVerb(t *testing.T) {
 	if !strings.Contains(rpcErr.Message, "--force-non-fresh") {
 		t.Fatalf("message must still offer the --force-non-fresh escape hatch: %q", rpcErr.Message)
 	}
+
+	result, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+		"force_non_fresh": true, "reason": "independent shell despite active author",
+	}))
+	if err != nil {
+		t.Fatalf("--force-non-fresh with reason should override genuine refusal: %v", err)
+	}
+	reason := registeredNonFreshReason(t, ctx, runner, repoID, fmt.Sprint(result["session_id"]))
+	if reason != "independent shell despite active author" {
+		t.Fatalf("non_fresh_reason = %q", reason)
+	}
 }
 
+func TestFreshReviewerStillRefusesAuthorWithPendingWork(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_fresh_pending_author"
+	runID := "run_fresh_pending_author"
+	authorSession := "sess_author_pending"
+
+	seedFreshReviewerPolicyRun(t, ctx, runner, repoID, runID, true)
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "codex", []string{"write"}, "active")
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, "job_author_pending", "author_pending", "author", "codex")
+
+	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("fresh reviewer with pending author work err = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, authorSession) {
+		t.Fatalf("message must name the active author session %q: %q", authorSession, rpcErr.Message)
+	}
+}
+
+func TestForceNonFreshUnchangedSemantics(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_force_nonfresh_semantics"
+	runID := "run_force_nonfresh_semantics"
+	authorSession := "sess_author_force_nonfresh"
+
+	seedFreshReviewerPolicyRun(t, ctx, runner, repoID, runID, true)
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "codex", []string{"write"}, "active")
+	seedAuthorActiveWork(t, ctx, runner, repoID, runID, authorSession, "claimed")
+
+	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer", "force_non_fresh": true,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("--force-non-fresh without reason err = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, "requires a non-empty --reason") {
+		t.Fatalf("message = %q, want reason requirement", rpcErr.Message)
+	}
+
+	result, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+		"force_non_fresh": true, "reason": "operator accepted context contamination",
+	}))
+	if err != nil {
+		t.Fatalf("--force-non-fresh with reason: %v", err)
+	}
+	reason := registeredNonFreshReason(t, ctx, runner, repoID, fmt.Sprint(result["session_id"]))
+	if reason != "operator accepted context contamination" {
+		t.Fatalf("non_fresh_reason = %q", reason)
+	}
+}
+
+func TestFreshReviewerPolicyParityNonFreshWorkflow(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_nonfresh_policy_parity"
+	runID := "run_nonfresh_policy_parity"
+	authorSession := "sess_author_nonfresh_policy"
+
+	seedFreshReviewerPolicyRun(t, ctx, runner, repoID, runID, false)
+	intgSeedSession(t, ctx, runner, repoID, runID, authorSession, "author", "codex", []string{"write"}, "active")
+	seedAuthorActiveWork(t, ctx, runner, repoID, runID, authorSession, "acked")
+
+	result, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID, "role": "reviewer", "lane": "reviewer",
+	}))
+	if err != nil {
+		t.Fatalf("workflow without fresh reviewer policy should not run the author blocker predicate: %v", err)
+	}
+	if fmt.Sprint(result["session_id"]) == "" {
+		t.Fatalf("register result missing session_id: %#v", result)
+	}
+}
+
+// TestRegisterSessionWithoutReplaceRefusesDuplicate verifies RFC 0095 §5 (#60):
+// registering a second session on the same (run, role, lane) WITHOUT --replace
+// is refused with the exact remediation (which session id to close), and the
+// prior session is NOT implicitly superseded.
 func TestRegisterSessionWithoutReplaceRefusesDuplicate(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
