@@ -25,8 +25,13 @@ func TestSessionBoundTokenCoversLaneLoopRPCs(t *testing.T) {
 	}
 	// The RPCs a supervised lane drives without an operator: the receiver's
 	// readiness gate (supervise.status), the work-lifecycle entrypoint
-	// (work.await_packet), and artifact publication (artifact.publish).
-	for _, method := range []string{"supervise.status", "work.await_packet", "artifact.publish"} {
+	// (work.await_packet), and artifact publication (artifact.publish). A
+	// reviewer lane additionally records its verdict (review.submit /
+	// review.verdict, CapabilityReview) — #202: without that grant every
+	// session-minted token failed review.submit with capability_missing, so a
+	// review job's only legal end-state was unreachable and each review
+	// escalated to a human checkpoint.
+	for _, method := range []string{"supervise.status", "work.await_packet", "artifact.publish", "review.submit", "review.verdict"} {
 		capability, ok := required[method]
 		if !ok {
 			t.Fatalf("method %q is not in the daemon registry (rpc.SortedMethods)", method)

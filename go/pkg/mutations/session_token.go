@@ -31,11 +31,19 @@ const sessionBoundTokenTTL = 24 * time.Hour
 //     its first packet — a silent rescue-forcing wedge that surfaced only once
 //     the #135 session-bound token was actually wired into the lane env (before
 //     that, lanes used the shared repo-scoped token, which carries read).
+//   - review because a reviewer lane records its verdict via review.submit /
+//     review.verdict (CapabilityReview). Without it (#202) every session-minted
+//     token failed review.submit with capability_missing, so a review job's only
+//     legal end-state was unreachable and each review escalated to a human
+//     checkpoint — work.complete refuses review jobs by design, leaving the lane
+//     no door out. A reviewer session that cannot record its own verdict is a
+//     designed-in failure; reviewing is a first-class lane-loop verb just like
+//     publish, so its capability belongs in the lane-loop grant set.
 //
 // All grants are bound to the registering session_id (RFC 0096 V2 / #135), so
 // the resolved AuthContext for this token reports IsSessionBound and the
 // session-scoped handlers refuse any act-as session other than this one.
-var sessionBoundCapabilities = []rpc.Capability{rpc.CapabilityClaim, rpc.CapabilityWrite, rpc.CapabilityRead}
+var sessionBoundCapabilities = []rpc.Capability{rpc.CapabilityClaim, rpc.CapabilityWrite, rpc.CapabilityRead, rpc.CapabilityReview}
 
 // mintSessionBoundToken inserts a client + per-capability grants all bound to
 // sessionID and the registering repository, returning the bearer token string
