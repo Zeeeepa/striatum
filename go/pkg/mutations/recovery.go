@@ -400,6 +400,24 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if !dryRun {
 		ctx = withLivenessOracle(ctx, buildRunLivenessOracle(ctx, runner, repositoryID, runID))
 	}
+
+	// #198: drain each supervisor's helper-event FIFO in its OWN short
+	// transaction BEFORE the main sweep transaction, instead of inside it. The
+	// drain reads files and, per event, takes `FOR UPDATE OF ps` on a supervisor
+	// row plus 3 heartbeat UPDATEs (the `process_supervisor_pointers SET updated_at`
+	// holder observed in #198). Doing that inside the lock-holding sweep tx stacked
+	// the supervisor row locks behind the per-run advisory lock for the whole
+	// sweep. Draining first, per-supervisor, keeps the writes short and OUT of the
+	// advisory-lock window — consistent with the supervise.report path, which
+	// already drains supervisor events without taking lockRun. It runs before the
+	// main tx so refreshRunLiveness still classifies on freshly-drained activity
+	// (the prior drain-before-liveness ordering is preserved). dry_run does not
+	// drain (mutating), matching the prior in-tx behavior.
+	helperEvents, err := sweepDrainHelperEvents(ctx, runner, repositoryID, runID, dryRun)
+	if err != nil {
+		return nil, err
+	}
+
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// Mark every call below as executing inside the sweep transaction (#198
 		// observability seam). Liveness probes must NOT run while this is set —
@@ -630,10 +648,6 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}
 			escalationsRaised = raised
 		}
-		helperEvents, err := drainRunHelperEvents(ctx, tx, repositoryID, runID, dryRun)
-		if err != nil {
-			return nil, err
-		}
 		liveness, err := refreshRunLiveness(ctx, tx, repositoryID, runID, dryRun)
 		if err != nil {
 			return nil, err
@@ -700,6 +714,63 @@ func drainRunHelperEvents(ctx context.Context, tx db.TxRunner, repositoryID stri
 		"drained":       drained,
 		"dry_run":       dryRun,
 	}, nil
+}
+
+// sweepDrainHelperEvents is the #198 out-of-sweep-tx form of drainRunHelperEvents:
+// it enumerates the run's active supervisors with a plain read (no tx, no
+// FOR UPDATE) and drains each supervisor's helper FIFO in its OWN short
+// transaction, so the per-supervisor `FOR UPDATE OF ps` + heartbeat UPDATEs are
+// never held inside the main sweep's per-run advisory-lock window.
+//
+// A single supervisor's drain failing is isolated (recorded as a soft error) and
+// does NOT fail the sweep — one wedged supervisor row can no longer serialize the
+// whole run's recovery. dryRun is a pure read of the supervisor list (no drain),
+// matching the prior in-tx dryRun behavior.
+func sweepDrainHelperEvents(ctx context.Context, runner db.Runner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {
+	rows, err := queryRows(ctx, runner,
+		`SELECT supervisor_id
+		   FROM striatumd.process_supervisor_pointers
+		  WHERE repository_id = $1
+		    AND run_id = $2
+		    AND state IN ('starting','attached')
+		  ORDER BY supervisor_id`,
+		repositoryID,
+		runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	drained := []string{}
+	drainErrors := []map[string]any{}
+	for _, row := range rows {
+		supervisorID := fmt.Sprint(nullable(row["supervisor_id"]))
+		if supervisorID == "" || supervisorID == "<nil>" {
+			continue
+		}
+		if dryRun {
+			continue
+		}
+		if _, derr := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			return nil, recoveryDrainHelperEvents(ctx, tx, repositoryID, supervisorID, 0)
+		}); derr != nil {
+			drainErrors = append(drainErrors, map[string]any{
+				"supervisor_id": supervisorID,
+				"error":         derr.Error(),
+			})
+			continue
+		}
+		drained = append(drained, supervisorID)
+	}
+	result := map[string]any{
+		"checked_count": len(rows),
+		"drained_count": len(drained),
+		"drained":       drained,
+		"dry_run":       dryRun,
+	}
+	if len(drainErrors) > 0 {
+		result["drain_errors"] = drainErrors
+	}
+	return result, nil
 }
 
 func refreshRunLiveness(ctx context.Context, tx db.TxRunner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {
