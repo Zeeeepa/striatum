@@ -16,6 +16,11 @@
   `principal_clients` column-gated (`principal_id` denied;
   `client_id`/`linked_at`/`unlinked_at` stay readable for the live
   `UPDATE ... WHERE` in token rotation). DML grants are preserved exactly.
+  RFC 0114 Open Question 4's contingency was taken: PostgreSQL demands
+  SELECT on the `ON CONFLICT` arbiter columns (verified live), so the
+  active-link upsert moved behind the owner-owned
+  `link_client_to_principal(p_daemon_secret, ...)` write function; the Go
+  caller is a thin dual-path wrapper and external behavior is unchanged.
 - Principal read paths in `go/pkg/admin` now route through the projections
   when daemon authority is bootstrapped, with SQLSTATE `42883` fallback to the
   direct SQL while bundle 0006 is unapplied (and permanently for secretless /

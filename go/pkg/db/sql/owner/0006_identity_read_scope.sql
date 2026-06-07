@@ -149,13 +149,43 @@ BEGIN
 END
 $$;
 
+-- link_client_to_principal: the RFC 0114 Open Question 4 contingency, taken.
+-- PostgreSQL requires SELECT on the ON CONFLICT arbiter columns (verified
+-- live: the upsert below fails 42501 without SELECT(principal_id), the exact
+-- column this bundle gates), so the active-link upsert moves behind daemon
+-- authority as an owner-owned write function. The body is the verbatim
+-- statement from admin.LinkClientToPrincipal; the existence and active-link
+-- checks stay in Go (through the read projections above), so external
+-- behavior is unchanged.
+CREATE OR REPLACE FUNCTION striatumd.link_client_to_principal(
+  p_daemon_secret text,
+  p_principal_id text,
+  p_client_id text
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = striatumd, public, pg_temp
+AS $$
+BEGIN
+  PERFORM set_config('striatum.daemon_auth', p_daemon_secret, true);
+  PERFORM striatumd.assert_daemon_authority();
+  INSERT INTO striatumd.principal_clients(principal_id, client_id, linked_at, unlinked_at)
+  VALUES (p_principal_id, p_client_id, now(), NULL)
+  ON CONFLICT (principal_id, client_id)
+  DO UPDATE SET unlinked_at = NULL, linked_at = now();
+END
+$$;
+
 REVOKE ALL ON FUNCTION striatumd.get_principal(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION striatumd.resolve_principal_for_client(text, text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION striatumd.list_principal_scopes(text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION striatumd.link_client_to_principal(text, text, text) FROM PUBLIC;
 
 GRANT EXECUTE ON FUNCTION striatumd.get_principal(text, text) TO striatumd_rw;
 GRANT EXECUTE ON FUNCTION striatumd.resolve_principal_for_client(text, text) TO striatumd_rw;
 GRANT EXECUTE ON FUNCTION striatumd.list_principal_scopes(text) TO striatumd_rw;
+GRANT EXECUTE ON FUNCTION striatumd.link_client_to_principal(text, text, text) TO striatumd_rw;
 
 -- Ownership transfer FIRST relative to the revokes: a REVOKE against a
 -- runtime-owned table is reversible by the runtime role itself. CURRENT_USER
@@ -177,7 +207,8 @@ ALTER TABLE striatumd.principal_clients OWNER TO CURRENT_USER;
 -- requires SELECT privilege on columns read by a write statement, so
 -- client_id/unlinked_at (plus linked_at) stay runtime-selectable. Without
 -- principal_id a leaked runtime credential sees client ids and timestamps,
--- not whose credentials they are.
+-- not whose credentials they are. The link upsert, whose ON CONFLICT arbiter
+-- reads principal_id, goes through link_client_to_principal above.
 REVOKE SELECT ON striatumd.client_sessions FROM striatumd_rw;
 GRANT INSERT, UPDATE, DELETE ON striatumd.client_sessions TO striatumd_rw;
 

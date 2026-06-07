@@ -687,18 +687,16 @@ func TestPrincipalProjectionsRequireDaemonAuthority(t *testing.T) {
 	calls := []struct {
 		name string
 		sql  string
-		arg  any
+		args []any
 	}{
-		{"get_principal", "SELECT principal_id FROM striatumd.get_principal($1, $2)", "prin_proj"},
-		{"resolve_principal_for_client", "SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)", "client_proj"},
+		{"get_principal", "SELECT principal_id FROM striatumd.get_principal($1, $2)", []any{"prin_proj"}},
+		{"resolve_principal_for_client", "SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)", []any{"client_proj"}},
 		{"list_principal_scopes", "SELECT striatumd.list_principal_scopes($1)", nil},
+		{"link_client_to_principal", "SELECT striatumd.link_client_to_principal($1, $2, $3)", []any{"prin_proj", "client_proj"}},
 	}
 	for _, call := range calls {
 		for _, secret := range []string{"", "wrong-secret"} {
-			args := []any{secret}
-			if call.arg != nil {
-				args = append(args, call.arg)
-			}
+			args := append([]any{secret}, call.args...)
 			var value string
 			err := runtimePool.Runner.QueryRow(ctx, call.sql, args...).Scan(&value)
 			if code := pgErrCode(err); code != "28000" {
@@ -725,6 +723,11 @@ func TestPrincipalProjectionsRequireDaemonAuthority(t *testing.T) {
 	}
 	if !strings.Contains(payload, "prin_proj") {
 		t.Fatalf("list_principal_scopes payload %q does not contain the seeded principal", payload)
+	}
+	if err := runtimePool.Runner.Exec(ctx,
+		"SELECT striatumd.link_client_to_principal($1, $2, $3)",
+		authoritySecret, "prin_proj", "client_proj"); err != nil {
+		t.Fatalf("authorized link_client_to_principal: %v", err)
 	}
 }
 

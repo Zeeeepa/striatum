@@ -62,6 +62,29 @@ func queryIdentityRow(ctx context.Context, q principalQuerier, projectionSQL, di
 	return scan(q.QueryRow(ctx, directSQL, args...))
 }
 
+// boundExecQuerier is the extended-protocol exec sibling of boundQueryRower;
+// db.PgxRunner and *db.PgxTxRunner implement it.
+type boundExecQuerier interface {
+	ExecBound(ctx context.Context, sql string, args ...any) error
+}
+
+// execIdentityWrite is queryIdentityRow's exec twin, for the one gated write:
+// the active-link upsert, whose ON CONFLICT arbiter reads the denied
+// principal_id column (the RFC 0114 Open Question 4 contingency, verified
+// live), runs through the owner-owned link_client_to_principal function under
+// daemon authority, with the same 42883 / secretless direct-SQL fallback.
+func execIdentityWrite(ctx context.Context, q principalQuerier, projectionSQL, directSQL string, args ...any) error {
+	secret := db.AuthorityFromContext(ctx).Secret
+	if bound, ok := q.(boundExecQuerier); ok && secret != "" {
+		boundArgs := append([]any{secret}, args...)
+		err := bound.ExecBound(ctx, projectionSQL, boundArgs...)
+		if err == nil || principalPgErrCode(err) != "42883" {
+			return err
+		}
+	}
+	return q.Exec(ctx, directSQL, args...)
+}
+
 // principalExists reports whether a principal row exists, through the
 // get_principal projection when daemon authority is available.
 func principalExists(ctx context.Context, q principalQuerier, principalID string) (bool, error) {
@@ -218,8 +241,12 @@ func LinkClientToPrincipal(ctx context.Context, q principalQuerier, principalID,
 		}
 		return rpc.NewError("conflict", fmt.Sprintf("client %q is already attributed to principal %q", clientID, current), nil)
 	}
-	// Insert (revive a prior unlinked row for the same pair if present).
-	if err := q.Exec(ctx,
+	// Insert (revive a prior unlinked row for the same pair if present). The
+	// ON CONFLICT arbiter reads principal_id — the bundle-0006 denied column —
+	// so under daemon authority the upsert runs through the owner-owned
+	// link_client_to_principal write function (verbatim same statement).
+	if err := execIdentityWrite(ctx, q,
+		`SELECT striatumd.link_client_to_principal($1, $2, $3)`,
 		`INSERT INTO striatumd.principal_clients(principal_id, client_id, linked_at, unlinked_at)
 		 VALUES ($1, $2, now(), NULL)
 		 ON CONFLICT (principal_id, client_id)

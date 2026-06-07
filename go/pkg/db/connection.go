@@ -151,6 +151,15 @@ func (r PgxRunner) QueryRowBound(ctx context.Context, sql string, args ...any) R
 	return r.Pool.QueryRow(ctx, sql, boundExecArgs(args...)...)
 }
 
+// ExecBound is the pool-scoped sibling of PgxTxRunner.ExecBound: an
+// extended-protocol exec for daemon-authorized SECURITY DEFINER calls (e.g.
+// the RFC 0114 link_client_to_principal write function) whose secret argument
+// must never appear in pg_stat_activity query text.
+func (r PgxRunner) ExecBound(ctx context.Context, sql string, args ...any) error {
+	_, err := r.Pool.Exec(ctx, sql, boundExecArgs(args...)...)
+	return err
+}
+
 func (r PgxRunner) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return r.Pool.Query(ctx, sql, args...)
 }
