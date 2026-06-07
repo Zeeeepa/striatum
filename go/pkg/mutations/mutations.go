@@ -321,6 +321,35 @@ func isDeadlockError(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == deadlockSQLState
 }
 
+// statementTimeoutSQLState is the Postgres SQLSTATE raised when a statement is
+// canceled for exceeding statement_timeout.
+const statementTimeoutSQLState = "57014"
+
+// isTransientDaemonLoadError reports whether err is a transient, retry-safe
+// control-plane error caused by daemon/database load rather than a real failure
+// of the requested transition (#197). The canonical case is a statement timeout
+// (SQLSTATE 57014): under concurrent multi-run claim contention a claim query can
+// be canceled for exceeding statement_timeout. That is "the daemon is busy, poll
+// again", NOT "no work" or "broken" — but it surfaced to lanes as a raw
+// `ERROR: canceling statement due to statement timeout (SQLSTATE 57014)`, which
+// models reasonably read as a hard failure and stopped retrying, orphaning the
+// job. Class 57 (operator_intervention) admin shutdown/crash codes (57P01
+// admin_shutdown, 57P02 crash_shutdown, 57P03 cannot_connect_now) are likewise
+// transient — the connection was torn down under us, and the lane's await loop
+// should poll again rather than park.
+func isTransientDaemonLoadError(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	switch pgErr.Code {
+	case statementTimeoutSQLState, "57P01", "57P02", "57P03":
+		return true
+	default:
+		return false
+	}
+}
+
 // withTxRetryOnDeadlock runs fn inside a transaction, retrying up to a small
 // bounded number of times when the transaction aborts with a Postgres deadlock
 // (SQLSTATE 40P01). The retry is intentionally tight — only the deadlock

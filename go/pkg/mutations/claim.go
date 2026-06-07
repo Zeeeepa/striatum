@@ -1339,6 +1339,20 @@ func boolValue(value any) bool {
 	return false
 }
 
+// awaitClaimNext is the await loop's claim step, indirected through a package
+// var so a test can inject a transient daemon-load error (SQLSTATE 57014) without
+// standing up real Postgres statement-timeout contention (#197). It defaults to
+// the production HandleClaimNext.
+var awaitClaimNext = HandleClaimNext
+
+// awaitPacketTimeout and awaitPacketPollInterval bound the long-poll loop. They
+// are package vars so a test can shrink the loop to exercise the deadline path
+// (e.g. the #197 transient-load classification) without a 30s wall-clock wait.
+var (
+	awaitPacketTimeout      = 30 * time.Second
+	awaitPacketPollInterval = 500 * time.Millisecond
+)
+
 func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -1365,9 +1379,10 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
 	}
 
-	timeout := 30 * time.Second
-	pollInterval := 500 * time.Millisecond
+	timeout := awaitPacketTimeout
+	pollInterval := awaitPacketPollInterval
 	deadline := time.Now().Add(timeout)
+	sawTransientLoad := false
 
 	for {
 		// RFC 0082: a worker's single subscribe loop receives either work or a
@@ -1393,8 +1408,32 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return convTurn, nil
 		}
 
-		res, err := HandleClaimNext(ctx, runner, envelope)
+		res, err := awaitClaimNext(ctx, runner, envelope)
 		if err != nil {
+			// #197: a claim query canceled for exceeding statement_timeout
+			// (SQLSTATE 57014) under concurrent multi-run load — or a transient
+			// connection teardown (class 57) — is "the daemon is busy, poll again",
+			// not a real failure. Propagating it raw surfaced
+			// `ERROR: canceling statement due to statement timeout (SQLSTATE 57014)`
+			// to the lane, which models read as broken and stopped retrying,
+			// orphaning the job. The await loop has its own deadline, so swallow the
+			// transient error and poll again; if every attempt to the deadline was
+			// transient we return a legible no_work envelope explaining why instead
+			// of an SQL error.
+			if isTransientDaemonLoadError(err) {
+				sawTransientLoad = true
+				if time.Now().After(deadline) {
+					env := awaitNoneEnvelope()
+					env["reason"] = "transient_daemon_load"
+					return env, nil
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(pollInterval):
+				}
+				continue
+			}
 			return nil, err
 		}
 
@@ -1429,7 +1468,11 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		}
 
 		if time.Now().After(deadline) {
-			return awaitNoneEnvelope(), nil
+			env := awaitNoneEnvelope()
+			if sawTransientLoad {
+				env["reason"] = "transient_daemon_load"
+			}
+			return env, nil
 		}
 
 		select {
