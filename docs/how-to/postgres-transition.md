@@ -203,9 +203,12 @@ authorization and token-admin secret reads use daemon-authorized
 `SECURITY DEFINER` functions instead. The remaining broad read surface is
 table-inventoried and guard-tested so future tables cannot silently expand it.
 The remaining read exposure is bounded by L0 rotation (a captured DSN string
-dies at the next restart) and L2 lane isolation once adopted, but the read-scope
-least-privilege successor (#164) remains open until the runtime read surface is
-reduced to a documented minimum.
+dies at the next restart) and L2 lane isolation once adopted. Owner bundles
+0005 + 0006 (#164, RFC 0113 R1 / RFC 0114) close the token-secret columns and
+the identity tables (`principals`, `principal_clients.principal_id`,
+`client_sessions`); `daemon doctor` reports `pg_read_scope.posture =
+"partial_projection_gated"` once they are applied and verified. #164 remains
+open for the R2/R3 surfaces and `client_capabilities`.
 
 ### Applying daemon migrations as the owner role (GH #22)
 
@@ -215,6 +218,14 @@ tables that are owned by the operator (peer-auth socket installs) or a
 DB owner role. The runtime role intentionally lacks `ALTER`/owner privileges
 so the append-only contract on `striatumd.audit_log` / `events` / `artifacts`
 holds at run-time.
+
+**Owner-held tables (RFC 0079 §5 trap):** after owner bundle 0006,
+`striatumd.principals`, `striatumd.principal_clients`, and
+`striatumd.client_sessions` are owner-held — exactly like `clients` /
+`client_capabilities` — and can no longer be altered by runtime-role
+migrations. Future schema changes to any owner-held table must ship as owner
+bundles (`striatum daemon owner-ddl apply`) or owner-applied
+`daemon migrate-db --admin-url` DDL.
 
 Pass `--as-owner <owner-url>` to point the migration connection at the owner
 role while keeping the runtime privilege summary on the runtime role:

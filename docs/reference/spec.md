@@ -179,21 +179,27 @@ phase nomenclature and claim-keying below are normative.
   blocking doctor problem instead of an advisory warning.
 
 Read confidentiality against a *live* runtime credential is **not** fully
-claimed by RFC 0110/#164 yet. RFC 0113 R1 has one behavior-changing reduction:
-owner bundle 0005 revokes direct runtime `SELECT` on
-`striatumd.clients.token_hash` and `striatumd.clients.token_salt`, and routes
-token authorization / token-for-update secret reads through owner-owned
-`SECURITY DEFINER` projections guarded by `assert_daemon_authority()`. Other
-sensitive tables remain directly selectable, so L0 rotation and L2 isolation
-still bound the remaining exposure. `daemon doctor` reports this separate
-posture under `pg_read_scope`; the current top-level posture remains
-`broad_runtime_select`, with `private_read_denial: false`, plus a
-`partial_projection_gates` entry for the token-secret columns. The current broad
-read surface is explicitly inventoried in `go/pkg/db/read_authority_inventory.go`
-and guarded against unclassified table growth, but this inventory is not
-private-read denial. The #164 successor remains open until the runtime read
-surface is reduced to a documented least-privilege minimum and the doctor posture
-changes accordingly.
+claimed by RFC 0110/#164 yet. Two behavior-changing reductions have landed:
+owner bundle 0005 (RFC 0113 R1) revokes direct runtime `SELECT` on
+`striatumd.clients.token_hash` and `striatumd.clients.token_salt`, and owner
+bundle 0006 (RFC 0114 / D173) transfers ownership of `striatumd.principals`,
+`striatumd.principal_clients`, and `striatumd.client_sessions` to the owner
+role and revokes direct runtime reads (`principals`, `client_sessions`: full
+deny; `principal_clients`: `principal_id` column denied). Gated reads route
+through owner-owned `SECURITY DEFINER` projections guarded by
+`assert_daemon_authority()`, with SQLSTATE-driven fallback while a database
+has not had the bundles applied. `daemon doctor` DERIVES the `pg_read_scope`
+posture from authority stamps plus live privilege/ownership probes: with
+bundles 0005+0006 applied and verified it reports `partial_projection_gated`
+(four gates: `clients` columns, `principals` table, `principal_clients`
+columns, `client_sessions` table), otherwise `broad_runtime_select`, with a
+`grant_drift` array naming any re-opened surface. `private_read_denial`
+remains `false`: prose/workflow tables (RFC 0113 R2), artifact/event metadata
+(R3), and `client_capabilities` (RFC 0114 OQ1) are still directly selectable,
+so L0 rotation and L2 lane isolation still bound that remaining exposure. The
+read surface is inventoried in `go/pkg/db/read_authority_inventory.go` and
+guarded against unclassified table growth. #164 stays open for the remaining
+surfaces.
 The decision log records each per-phase decision on landing.
 
 ## Workflow Config
