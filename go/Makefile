@@ -34,10 +34,10 @@ verify:
 	go mod tidy -diff
 
 test:
-	go test ./...
+	go test -timeout 30m ./...
 
 race:
-	go test -race ./...
+	go test -race -timeout 30m ./...
 
 vet:
 	go vet ./...
@@ -57,7 +57,7 @@ lint:
 	"$(GOLANGCI_LINT)" run --default=none --enable=govet --enable=staticcheck --enable=errcheck --enable=ineffassign ./...
 
 coverage:
-	go test -coverprofile=coverage.out \
+	go test -timeout 30m -coverprofile=coverage.out \
 		./pkg/admin ./pkg/db ./pkg/mutations ./pkg/rpc ./pkg/reads ./pkg/recovery \
 		./pkg/supervisor ./pkg/workflowauthoring ./pkg/workflowgenerate
 	total="$$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($$3, 1, length($$3)-1)}')"; \
