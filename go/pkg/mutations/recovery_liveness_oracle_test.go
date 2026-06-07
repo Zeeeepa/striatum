@@ -195,3 +195,35 @@ func (degradedRunner) BeginTx(context.Context) (db.TxRunner, error) { return nil
 func (degradedRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
 	return nil, errQueryFailed
 }
+
+// TestConfirmedDeadTreatsIdentityUnavailableAsUnknown guards the review finding
+// on the #198 oracle hoist: PIDLivenessIdentityUnavailable means kill(pid,0)
+// SUCCEEDED (the agent is alive/signalable) but /proc/<pid>/stat was
+// momentarily unreadable. Treating that as confirmed-dead force-expires a LIVE
+// agent's lease (the #145/#147 false-requeue class) — and with the pre-tx
+// oracle the transient failure would be cached for the whole sweep window. A
+// definitive not-alive verdict (PIDLivenessGone) must still confirm death.
+func TestConfirmedDeadTreatsIdentityUnavailableAsUnknown(t *testing.T) {
+	prev := probeLaneLiveness
+	defer func() { probeLaneLiveness = prev }()
+
+	row := map[string]any{
+		"supervisor_pointer_state":          "attached",
+		"supervisor_pointer_pid":            4242,
+		"supervisor_pointer_pid_start_time": "1234567",
+	}
+
+	probeLaneLiveness = func(context.Context, map[string]any, int, string) gosupervisor.LaneLiveness {
+		return gosupervisor.LaneLiveness{Alive: false, Class: gosupervisor.PIDLivenessIdentityUnavailable}
+	}
+	if supervisedAgentConfirmedDead(context.Background(), row) {
+		t.Fatal("pid_identity_unavailable (signalable but /proc unreadable) must NOT confirm death — false requeue of a live agent")
+	}
+
+	probeLaneLiveness = func(context.Context, map[string]any, int, string) gosupervisor.LaneLiveness {
+		return gosupervisor.LaneLiveness{Alive: false, Class: gosupervisor.PIDLivenessGone}
+	}
+	if !supervisedAgentConfirmedDead(context.Background(), row) {
+		t.Fatal("a definitively gone agent must still confirm death")
+	}
+}

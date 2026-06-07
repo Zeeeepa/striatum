@@ -565,8 +565,15 @@ func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool 
 	// while the sweep transaction holds the per-run advisory lock + FOR UPDATE row
 	// locks. Operator RPCs and unit tests carry no oracle and probe live.
 	live := probeLaneLivenessCached(ctx, metadata, pid, expectedStart)
-	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
-		return false // cannot determine; do not requeue a possibly-live lane
+	switch live.Class {
+	case string(gosupervisor.TmuxLivenessUnavailable), gosupervisor.PIDLivenessIdentityUnavailable:
+		// Cannot determine; do not requeue a possibly-live lane.
+		// pid_identity_unavailable means kill(pid,0) SUCCEEDED (the process is
+		// signalable, i.e. alive) but /proc/<pid>/stat was momentarily
+		// unreadable — treating that as dead force-expired a LIVE agent's lease
+		// (the #145/#147 false-requeue class), and the #198 pre-tx oracle would
+		// cache the transient failure for the whole sweep window.
+		return false
 	}
 	return !live.Alive
 }
