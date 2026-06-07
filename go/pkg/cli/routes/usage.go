@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/cli/params"
 )
 
 // Param describes one positional or flag input for a CLI verb, so `--help`
@@ -37,6 +39,13 @@ type Usage struct {
 	// Notes are extra free-form lines shown under the flag list (e.g. to call
 	// out the register-session naming history).
 	Notes []string
+	// Generated is true when this descriptor was synthesized from the params
+	// package's positional table (issue #194) rather than hand-curated. A
+	// generated descriptor enumerates positional arguments and explicitly says
+	// optional flags are derived from the daemon method, because no
+	// machine-readable schema of optional flag names exists — the daemon
+	// handlers read them imperatively.
+	Generated bool
 }
 
 // usageByGroup maps a route ParamsGroup to its discoverability descriptor.
@@ -309,11 +318,36 @@ var usageByGroup = map[string]Usage{
 	},
 }
 
-// UsageFor returns the discoverability descriptor for a route's ParamsGroup,
-// if one is registered.
+// UsageFor returns the discoverability descriptor for a route's ParamsGroup.
+// A hand-curated descriptor (which carries prose notes, optional-flag detail,
+// and enum values) always wins; for every other group it synthesizes a
+// generated descriptor from the params package's positional table so that no
+// verb's `--help` falls back to the source-repo-only command-authority matrix
+// (issue #194). The second return value reports whether a curated descriptor
+// was found; the synthesized descriptor is still usable when it is false.
 func UsageFor(group string) (Usage, bool) {
-	usage, ok := usageByGroup[group]
-	return usage, ok
+	if usage, ok := usageByGroup[group]; ok {
+		return usage, true
+	}
+	return generatedUsageFor(group), false
+}
+
+// generatedUsageFor synthesizes a usage descriptor for an un-curated group from
+// params.PositionalNames — the exact same table params.Build uses to map
+// positional arguments — so the rendered positionals can never drift from real
+// parsing behavior. Required-ness and optional flag names are NOT machine
+// readable (the daemon handlers read them imperatively), so a generated
+// descriptor lists positionals without asserting required-ness and points the
+// operator at the daemon method for the rest.
+func generatedUsageFor(group string) Usage {
+	usage := Usage{Generated: true}
+	for _, name := range params.PositionalNames(group) {
+		usage.Params = append(usage.Params, Param{
+			Name:       strings.ReplaceAll(name, "_", "-"),
+			Positional: true,
+		})
+	}
+	return usage
 }
 
 // IsHelpArg reports whether arg requests help for the verb.
@@ -333,16 +367,14 @@ func (r Route) RenderHelp() string {
 	if r.Subcommand != "" {
 		command += " " + r.Subcommand
 	}
-	usage, ok := UsageFor(r.ParamsGroup)
+	// UsageFor always returns a usable descriptor: curated when registered,
+	// otherwise synthesized from the params positional table (#194).
+	usage, _ := UsageFor(r.ParamsGroup)
 
 	var b strings.Builder
 	synopsis := "usage: striatum " + command
-	if ok {
-		for _, p := range usage.Params {
-			synopsis += " " + p.synopsisToken()
-		}
-	} else {
-		synopsis += " [args ...]"
+	for _, p := range usage.Params {
+		synopsis += " " + p.synopsisToken()
 	}
 	b.WriteString(synopsis)
 	b.WriteString("\n")
@@ -353,9 +385,8 @@ func (r Route) RenderHelp() string {
 	}
 	b.WriteString("\n")
 
-	if !ok {
-		b.WriteString("\nflags are derived from the daemon method; see docs/reference/command-authority-matrix.md\n")
-		return b.String()
+	if usage.Generated {
+		return b.String() + renderGeneratedBody(usage.Params)
 	}
 
 	required := []Param{}
@@ -384,6 +415,32 @@ func (r Route) RenderHelp() string {
 		b.WriteString(note)
 		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+// renderGeneratedBody renders the body for a generated (un-curated) verb. It
+// lists the positional arguments straight from the params table and points the
+// operator at locally-resolvable help rather than the source-repo-only
+// command-authority matrix (issue #194). For flag-only / no-argument verbs
+// (params has no positionals) it explains that the inputs are flags derived
+// from the daemon method and how to reach them without the source repo.
+func renderGeneratedBody(positionals []Param) string {
+	var b strings.Builder
+	if len(positionals) > 0 {
+		b.WriteString("\npositional arguments:\n")
+		for _, p := range positionals {
+			b.WriteString(p.helpLine())
+		}
+		b.WriteString("\nOptional flags and required-ness are derived from the daemon method; this\n")
+		b.WriteString("verb does not have curated flag help yet. Run `striatum --help` for the\n")
+		b.WriteString("verb index, and the daemon rejects a call that is missing a required input\n")
+		b.WriteString("with a `<method> requires <param>` error that names the missing flag.\n")
+		return b.String()
+	}
+	b.WriteString("\nThis verb takes flags derived from the daemon method (no positional\n")
+	b.WriteString("arguments). Run `striatum --help` for the verb index; the daemon rejects a\n")
+	b.WriteString("call that is missing a required input with a `<method> requires <param>`\n")
+	b.WriteString("error that names the missing flag.\n")
 	return b.String()
 }
 

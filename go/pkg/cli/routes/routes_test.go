@@ -146,6 +146,76 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 	}
 }
 
+// Reconcile guard (#194): EVERY ParamsGroup reachable from routes_generated.go
+// (and the runtime routes) must render non-empty `--help` that does not fall
+// back to the source-repo-only command-authority matrix. A consumer-repo
+// operator running `striatum <verb> --help` must see the verb's positional
+// arguments (or, for flag-only/no-arg verbs, locally-resolvable guidance),
+// never a pointer to a doc that is not shipped with the installed CLI.
+func TestEveryParamsGroupRendersNonEmptyHelp(t *testing.T) {
+	seen := map[string]bool{}
+	allRoutes := append(append([]Route(nil), generatedRoutes...), runtimeRoutes...)
+	for _, route := range allRoutes {
+		if seen[route.ParamsGroup] {
+			continue
+		}
+		seen[route.ParamsGroup] = true
+
+		command := route.Command
+		if route.Subcommand != "" {
+			command += " " + route.Subcommand
+		}
+		help := route.RenderHelp()
+
+		if strings.Contains(help, "command-authority-matrix.md") {
+			t.Errorf("%s (group %q) help points at the unshipped command-authority matrix:\n%s", command, route.ParamsGroup, help)
+		}
+		if strings.Contains(help, "[args ...]") {
+			t.Errorf("%s (group %q) help renders the bare generic synopsis:\n%s", command, route.ParamsGroup, help)
+		}
+		if !strings.Contains(help, "usage: striatum "+command) {
+			t.Errorf("%s (group %q) help missing usage line:\n%s", command, route.ParamsGroup, help)
+		}
+		if !strings.Contains(help, "method: "+route.Method) {
+			t.Errorf("%s (group %q) help missing method line:\n%s", command, route.ParamsGroup, help)
+		}
+	}
+}
+
+// Generated (un-curated) usage entries must enumerate the verb's positional
+// arguments straight from the params package's authoritative table, so they
+// can never drift from real parsing behavior (#194).
+func TestGeneratedUsageRendersPositionalArguments(t *testing.T) {
+	cases := []struct {
+		args []string
+		want []string
+	}{
+		// run prepare: the issue's headline pain — `<workflow>` was undocumented.
+		{[]string{"run", "prepare"}, []string{"usage: striatum run prepare", "<workflow>", "method: run.prepare"}},
+		{[]string{"run", "start"}, []string{"usage: striatum run start", "<run-id>", "method: run.start"}},
+		{[]string{"interrogation", "open"}, []string{"<session-id>", "<target-session-id>"}},
+		{[]string{"override-verdict"}, []string{"<session-id>", "<job-id>", "<verdict>"}},
+		{[]string{"trajectory", "export"}, []string{"<run-id>", "<profile>"}},
+	}
+	for _, tc := range cases {
+		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
+			route, _, ok := Lookup(tc.args)
+			if !ok {
+				t.Fatalf("route not found for %v", tc.args)
+			}
+			help := route.RenderHelp()
+			if strings.Contains(help, "command-authority-matrix.md") {
+				t.Fatalf("help fell back to the unshipped matrix pointer:\n%s", help)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(help, want) {
+					t.Fatalf("help missing %q:\n%s", want, help)
+				}
+			}
+		})
+	}
+}
+
 // Every operator verb named in issue #63 F9 must have a usage descriptor so
 // `--help` lists its flags instead of surfacing them only as runtime errors.
 func TestUsageCoversIssue63Verbs(t *testing.T) {

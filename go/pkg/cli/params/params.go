@@ -111,6 +111,15 @@ func setValue(result map[string]any, key string, value any) {
 	result[key] = value
 }
 
+// PositionalNames returns the ordered positional argument names (snake_case)
+// that params.Build maps for a route's ParamsGroup. It is the single
+// authoritative source the parser itself uses, so CLI `--help` can enumerate a
+// verb's positional arguments without drifting from real parsing behavior
+// (issue #194). It returns nil for groups that accept no positionals.
+func PositionalNames(group string) []string {
+	return positionalNames(group)
+}
+
 func positionalNames(group string) []string {
 	switch group {
 	case "repo_add":
