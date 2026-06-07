@@ -99,6 +99,8 @@ type supervisorControlRow struct {
 	PIDStartTime       string
 	DaemonSupervisorID string
 	Metadata           map[string]any
+	EndedAt            any
+	StopReason         any
 }
 
 type supervisionPacketRow struct {
@@ -128,6 +130,7 @@ var (
 	supervisionRebridgeLaunch = launchRebridgeHelper
 	supervisionWrite          = writeSupervisorPayload
 	supervisionTmuxRunner     = gosupervisor.DefaultTmuxRunner()
+	signalProcessZeroLocal    = signalProcessZero
 	errSupervisorPipeNoReader = errors.New("supervisor pipe has no reader")
 )
 
@@ -238,7 +241,8 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		launch.PIDStartTime = tmuxPaneStartTokenFromMetadata(launch.Metadata)
 	}
 	if !pidAliveLocal(launch.PID) {
-		_ = markSupervisorLost(ctx, runner, repositoryID, supervisorID, config.RunID, sessionID, "child exited before attach", launch.PID, map[string]any{"phase": "start"})
+		payload := failedAttachCleanupPayload(ctx, launch)
+		_ = markSupervisorLostWithMetadata(ctx, runner, repositoryID, supervisorID, config.RunID, sessionID, "child exited before attach", launch.PID, launch.Metadata, payload)
 		return nil, rpc.NewError("invalid_transition", "supervisor child exited before it could be attached", nil)
 	}
 
@@ -518,13 +522,18 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, err
 	}
 	if terminal != nil {
+		if terminal.State == "lost" {
+			return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+				return stopSupervisorInTx(ctx, tx, repositoryID, sessionID, reason, *terminal)
+			})
+		}
 		return map[string]any{
 			"supervisor_id": terminal.SupervisorID,
 			"session_id":    sessionID,
 			"pid":           optionalIntValue(terminal.PID, terminal.HasPID),
 			"state":         "stopped",
-			"ended_at":      terminal.Metadata["ended_at"],
-			"stop_reason":   terminal.Metadata["stop_reason"],
+			"ended_at":      terminal.EndedAt,
+			"stop_reason":   terminal.StopReason,
 			"signal":        nil,
 			"note":          "supervisor was already " + terminal.State,
 		}, nil
@@ -535,89 +544,123 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err != nil {
 			return nil, err
 		}
-		_ = drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 0)
-		var signaled any
-		eventExtra := map[string]any{}
-		stopNote := any(nil)
-		if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(supervisor.Metadata); ok {
-			signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, supervisor.Metadata, tmuxIdentity, supervisor.PID, supervisor.PIDStartTime)
-			signaled = signal
-			if note != "" {
-				stopNote = note
-			}
-			if fallbackReason != "" {
-				eventExtra["tmux_kill_fallback_reason"] = fallbackReason
-			}
-			if cleanupSkip != "" {
-				eventExtra["pane_pid_cleanup_skipped_reason"] = cleanupSkip
-			}
-		} else if supervisor.HasPID {
-			signal, cleanupSkip := terminateProcessWithStartToken(supervisor.PID, supervisor.PIDStartTime)
-			signaled = signal
-			if cleanupSkip != "" {
-				eventExtra["pid_cleanup_skipped_reason"] = cleanupSkip
-			}
+		return stopSupervisorInTx(ctx, tx, repositoryID, sessionID, reason, supervisor)
+	})
+}
+
+func stopSupervisorInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, reason string, supervisor supervisorControlRow) (map[string]any, error) {
+	_ = drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 0)
+	var signaled any
+	eventExtra := map[string]any{}
+	stopNote := any(nil)
+	if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(supervisor.Metadata); ok {
+		signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, supervisor.Metadata, tmuxIdentity, supervisor.PID, supervisor.PIDStartTime)
+		signaled = signal
+		if note != "" {
+			stopNote = note
 		}
-		if helperPID, ok := intValueOptional(supervisor.Metadata["helper_pid"]); ok && (!supervisor.HasPID || helperPID != supervisor.PID) {
-			helperSignal, cleanupSkip := terminateProcessWithStartToken(helperPID, metadataString(supervisor.Metadata["helper_pid_start_time"]))
-			if helperSignal != nil {
-				eventExtra["helper_signal"] = helperSignal
-			}
-			if cleanupSkip != "" {
-				eventExtra["helper_pid_cleanup_skipped_reason"] = cleanupSkip
-			}
+		if fallbackReason != "" {
+			eventExtra["tmux_kill_fallback_reason"] = fallbackReason
 		}
-		if supervisor.StdinPipePath != "" {
-			_ = os.Remove(supervisor.StdinPipePath)
+		if cleanupSkip != "" {
+			eventExtra["pane_pid_cleanup_skipped_reason"] = cleanupSkip
 		}
-		endedAt := nowString()
-		if err := updateSupervisorState(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.DaemonSupervisorID, "stopped", endedAt, 0, "", "", &endedAt, &reason); err != nil {
-			return nil, err
+	} else if supervisor.HasPID {
+		signal, cleanupSkip := terminateProcessWithStartToken(supervisor.PID, supervisor.PIDStartTime)
+		signaled = signal
+		if cleanupSkip != "" {
+			eventExtra["pid_cleanup_skipped_reason"] = cleanupSkip
 		}
-		// #50: a stopped supervisor must not leave its session reading as
-		// `active` — that pollutes "find the latest active <role>/<lane> session"
-		// lookups (interrogation targeting, reviewer prompts). Close the session
-		// in one guarded UPDATE: only when it is still `active` AND holds no
-		// active lease (mid-work sessions are left for explicit recovery). Done
-		// as a single conditional statement so no extra row read is required.
-		if err := tx.Exec(ctx, `
+	}
+	if helperPID, ok := intValueOptional(supervisor.Metadata["helper_pid"]); ok && (!supervisor.HasPID || helperPID != supervisor.PID) {
+		helperSignal, cleanupSkip := terminateProcessWithStartToken(helperPID, metadataString(supervisor.Metadata["helper_pid_start_time"]))
+		if helperSignal != nil {
+			eventExtra["helper_signal"] = helperSignal
+		}
+		if cleanupSkip != "" {
+			eventExtra["helper_pid_cleanup_skipped_reason"] = cleanupSkip
+		}
+	}
+	if supervisor.StdinPipePath != "" {
+		_ = os.Remove(supervisor.StdinPipePath)
+	}
+	endedAt := nowString()
+	if err := updateSupervisorState(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.DaemonSupervisorID, "stopped", endedAt, 0, "", "", &endedAt, &reason); err != nil {
+		return nil, err
+	}
+	// #50: a stopped supervisor must not leave its session reading as `active` —
+	// that pollutes "find the latest active <role>/<lane> session" lookups
+	// (interrogation targeting, reviewer prompts). Close the session in one
+	// guarded UPDATE: only when it is still `active` AND holds no active lease
+	// (mid-work sessions are left for explicit recovery). Done as a single
+	// conditional statement so no extra row read is required.
+	if err := tx.Exec(ctx, `
 			UPDATE striatumd.sessions
 			   SET state = 'closed', closed_at = $1, close_reason = $2
 			 WHERE repository_id = $3 AND session_id = $4 AND state = 'active'
 			   AND NOT EXISTS (
 				 SELECT 1 FROM striatumd.leases l
 				  WHERE l.repository_id = $3 AND l.owner_session_id = $4 AND l.state = 'active')`,
-			endedAt, "supervisor stopped: "+reason, repositoryID, sessionID); err != nil {
-			return nil, err
+		endedAt, "supervisor stopped: "+reason, repositoryID, sessionID); err != nil {
+		return nil, err
+	}
+	eventPayload := map[string]any{
+		"supervisor_id":        supervisor.SupervisorID,
+		"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
+		"pid":                  optionalIntValue(supervisor.PID, supervisor.HasPID),
+		"reason":               reason,
+		"signal":               signaled,
+	}
+	for key, value := range eventExtra {
+		eventPayload[key] = value
+	}
+	_, err := appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.stopped", sessionID, nil, nil, nil, nil, eventPayload)
+	if err != nil {
+		return nil, err
+	}
+	agentloop.CleanupGeminiSettings(supervisorWorkingDir(supervisor), supervisor.SupervisorID)
+	agentloop.CleanupClaudeScheduledTasksLock(supervisorWorkingDir(supervisor))
+	return map[string]any{
+		"supervisor_id":        supervisor.SupervisorID,
+		"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
+		"session_id":           sessionID,
+		"pid":                  optionalIntValue(supervisor.PID, supervisor.HasPID),
+		"state":                "stopped",
+		"ended_at":             endedAt,
+		"stop_reason":          reason,
+		"signal":               signaled,
+		"note":                 stopNote,
+	}, nil
+}
+
+func failedAttachCleanupPayload(ctx context.Context, launch supervisionLaunchResult) map[string]any {
+	payload := map[string]any{"phase": "start"}
+	if tmuxIdentity, ok := gosupervisor.TmuxIdentityFromMetadata(launch.Metadata); ok {
+		signal, note, fallbackReason, cleanupSkip := stopTmuxBackedLane(ctx, launch.Metadata, tmuxIdentity, launch.PID, launch.PIDStartTime)
+		if signal != nil {
+			payload["signal"] = signal
 		}
-		eventPayload := map[string]any{
-			"supervisor_id":        supervisor.SupervisorID,
-			"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
-			"pid":                  optionalIntValue(supervisor.PID, supervisor.HasPID),
-			"reason":               reason,
-			"signal":               signaled,
+		if note != "" {
+			payload["cleanup_note"] = note
 		}
-		for key, value := range eventExtra {
-			eventPayload[key] = value
+		if fallbackReason != "" {
+			payload["tmux_kill_fallback_reason"] = fallbackReason
 		}
-		_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.stopped", sessionID, nil, nil, nil, nil, eventPayload)
-		if err != nil {
-			return nil, err
+		if cleanupSkip != "" {
+			payload["pane_pid_cleanup_skipped_reason"] = cleanupSkip
 		}
-		agentloop.CleanupGeminiSettings(supervisorWorkingDir(supervisor), supervisor.SupervisorID)
-		agentloop.CleanupClaudeScheduledTasksLock(supervisorWorkingDir(supervisor))
-		return map[string]any{
-			"supervisor_id":        supervisor.SupervisorID,
-			"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
-			"session_id":           sessionID,
-			"pid":                  optionalIntValue(supervisor.PID, supervisor.HasPID),
-			"state":                "stopped",
-			"ended_at":             endedAt,
-			"stop_reason":          reason,
-			"signal":               signaled,
-			"note":                 stopNote,
-		}, nil
-	})
+		return payload
+	}
+	if launch.PID > 0 {
+		signal, cleanupSkip := terminateProcessWithStartToken(launch.PID, launch.PIDStartTime)
+		if signal != nil {
+			payload["signal"] = signal
+		}
+		if cleanupSkip != "" {
+			payload["pid_cleanup_skipped_reason"] = cleanupSkip
+		}
+	}
+	return payload
 }
 
 func HandleSuperviseRebridge(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -1120,17 +1163,25 @@ func latestTerminalSupervisor(ctx context.Context, runner any, repositoryID, ses
 	}
 	var row supervisorControlRow
 	var pid *int
-	var endedAt, stopReason any
+	var metadata any
 	err := rower.QueryRow(ctx, `
-		SELECT supervisor_id, run_id, session_id, state, COALESCE(stdin_pipe_path, ''),
-		       pid, COALESCE(pid_start_time, ''), ended_at, stop_reason
-		  FROM striatumd.process_supervisors
-		 WHERE repository_id = $1 AND session_id = $2
-		   AND state = ANY($3)
-		 ORDER BY started_at DESC, supervisor_id DESC
+		SELECT ps.supervisor_id, ps.run_id, ps.session_id, ps.state,
+		       COALESCE(ps.scratch_path, ''), COALESCE(ps.stdin_pipe_path, ''), ps.pid, COALESCE(ps.pid_start_time, ''),
+		       COALESCE(p.daemon_supervisor_id, ''), COALESCE(p.metadata_json, '{}'::jsonb),
+		       ps.ended_at, ps.stop_reason
+		  FROM striatumd.process_supervisors ps
+		  LEFT JOIN striatumd.process_supervisor_pointers p
+		    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
+		 WHERE ps.repository_id = $1 AND ps.session_id = $2
+		   AND ps.state = ANY($3)
+		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
 		 LIMIT 1`,
 		repositoryID, sessionID, []string{"lost", "stopped"},
-	).Scan(&row.SupervisorID, &row.RunID, &row.SessionID, &row.State, &row.StdinPipePath, &pid, &row.PIDStartTime, &endedAt, &stopReason)
+	).Scan(
+		&row.SupervisorID, &row.RunID, &row.SessionID, &row.State,
+		&row.ScratchPath, &row.StdinPipePath, &pid, &row.PIDStartTime,
+		&row.DaemonSupervisorID, &metadata, &row.EndedAt, &row.StopReason,
+	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -1141,7 +1192,7 @@ func latestTerminalSupervisor(ctx context.Context, runner any, repositoryID, ses
 		row.PID = *pid
 		row.HasPID = true
 	}
-	row.Metadata = map[string]any{"ended_at": timestampOrNil(endedAt), "stop_reason": stopReason}
+	row.Metadata = asMap(metadata)
 	return &row, nil
 }
 
@@ -2304,6 +2355,21 @@ func markSupervisorLost(ctx context.Context, runner db.Runner, repositoryID, sup
 	return err
 }
 
+func markSupervisorLostWithMetadata(ctx context.Context, runner db.Runner, repositoryID, supervisorID, runID, sessionID, reason string, pid int, metadata map[string]any, payload map[string]any) error {
+	_, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if len(metadata) > 0 {
+			if mergeErr := mergePointerMetadata(ctx, tx, repositoryID, supervisorID, metadata); mergeErr != nil {
+				if payload == nil {
+					payload = map[string]any{}
+				}
+				payload["metadata_persist_error"] = mergeErr.Error()
+			}
+		}
+		return nil, markSupervisorLostInTx(ctx, tx, repositoryID, supervisorID, runID, sessionID, reason, pid, payload)
+	})
+	return err
+}
+
 func markSupervisorLostInTx(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID, runID, sessionID, reason string, pid int, payload map[string]any) error {
 	now := nowString()
 	daemonSupervisorID := ""
@@ -3095,11 +3161,16 @@ func pidAliveLocal(pid int) bool {
 	if processZombieLocal(pid) {
 		return false
 	}
+	err := signalProcessZeroLocal(pid)
+	return err == nil || errors.Is(err, syscall.EPERM)
+}
+
+func signalProcessZero(pid int) error {
 	proc, err := os.FindProcess(pid)
 	if err != nil {
-		return false
+		return err
 	}
-	return proc.Signal(syscall.Signal(0)) == nil
+	return proc.Signal(syscall.Signal(0))
 }
 
 func processZombieLocal(pid int) bool {
@@ -3156,16 +3227,6 @@ func laneAttestation(pidStartTime string) string {
 		return "unattested"
 	}
 	return "attested"
-}
-
-func timestampOrNil(value any) any {
-	if value == nil {
-		return nil
-	}
-	if text := timestampString(value); text != "<nil>" {
-		return text
-	}
-	return nil
 }
 
 func nullableStringPointer(value *string) any {

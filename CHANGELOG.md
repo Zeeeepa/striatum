@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- `supervise start` no longer marks a live cross-user (run-as) agent-loop
+  lane as exited: `pidAliveLocal` treats signal-0 `EPERM` as alive (the
+  process exists but the daemon cannot signal across users) with an explicit
+  `/proc/<pid>/stat` zombie exclusion, so the EPERM-leniency cannot keep a
+  zombie "alive"; on a genuine failed attach, the orphaned lane tmux session
+  is now killed (via a run-as tmux runner) instead of leaking; supervise
+  stop/status paths use the same run-as runner so cross-user lanes can be
+  stopped and inspected. (#205)
+
 ## v2.30.0 — 2026-06-07
 
 Second triage-execution wave: the 13 issues filed against 2.27.0 under

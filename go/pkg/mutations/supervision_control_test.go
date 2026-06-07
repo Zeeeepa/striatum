@@ -95,6 +95,134 @@ func TestSuperviseStartInsertsAndAttachesProcessSupervisor(t *testing.T) {
 	}
 }
 
+func TestSuperviseStartTreatsPermissionDeniedSignalProbeAsLive(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	origSignal := signalProcessZeroLocal
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+		signalProcessZeroLocal = origSignal
+	}()
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(context.Context, supervisionStartConfig, string, string, string, string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{
+			PID:          999999,
+			PIDStartTime: "cross-user-start-token",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"session_name": "striatum-run_1-lane_1-sup_1",
+					"run_as_user":  "lane-user",
+				},
+			},
+		}, nil
+	}
+	signalProcessZeroLocal = func(pid int) error {
+		if pid != 999999 {
+			t.Fatalf("signal probe pid = %d, want launched pid", pid)
+		}
+		return syscall.EPERM
+	}
+
+	tx1 := &superviseControlFakeTx{}
+	tx2 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		txs:      []*superviseControlFakeTx{tx1, tx2},
+	}
+	result, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_cross_user",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("permission-denied signal probe should not mark child exited: %v", err)
+	}
+	if result["state"] != "attached" {
+		t.Fatalf("start result = %#v", result)
+	}
+	if tx2.sawEventType("supervisor.lost") {
+		t.Fatalf("permission-denied signal probe must not record supervisor.lost: %#v", tx2.execs)
+	}
+}
+
+func TestSuperviseStartCleansUpTmuxLaunchWhenChildDeadBeforeAttach(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	origSignal := signalProcessZeroLocal
+	origRunner := supervisionTmuxRunner
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+		signalProcessZeroLocal = origSignal
+		supervisionTmuxRunner = origRunner
+	}()
+	tmuxRunner := &mutationFakeTmuxRunner{}
+	supervisionTmuxRunner = tmuxRunner
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(context.Context, supervisionStartConfig, string, string, string, string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{
+			PID:          999998,
+			PIDStartTime: "dead-start-token",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":        "backed",
+					"session_name": "striatum-run-dead-before-attach",
+					"pane_id":      "%4",
+					"pane_pid":     999998,
+				},
+			},
+		}, nil
+	}
+	signalProcessZeroLocal = func(pid int) error {
+		if pid != 999998 {
+			t.Fatalf("signal probe pid = %d, want launched pid", pid)
+		}
+		return syscall.ESRCH
+	}
+
+	tx1 := &superviseControlFakeTx{}
+	tx2 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		txs:      []*superviseControlFakeTx{tx1, tx2},
+	}
+	_, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_dead_before_attach",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected child-dead attach gate to fail")
+	}
+	if len(tmuxRunner.calls) != 1 || strings.Join(tmuxRunner.calls[0], " ") != "kill-session -t striatum-run-dead-before-attach" {
+		t.Fatalf("tmux calls = %#v", tmuxRunner.calls)
+	}
+	event := tx2.lastEventInsert()
+	if event == nil || event.args[3] != "supervisor.lost" {
+		t.Fatalf("lost event insert = %#v", event)
+	}
+	payload := event.args[9].(map[string]any)
+	if payload["signal"] != "tmux_kill_session" {
+		t.Fatalf("lost event payload = %#v", payload)
+	}
+	if !tx2.sawExec("UPDATE striatumd.process_supervisor_pointers", "metadata_json") {
+		t.Fatalf("failed attach should persist launch metadata for later cleanup: %#v", tx2.execs)
+	}
+}
+
 // TestSuperviseStartReplaceSupersedessStaleActiveSupervisor guards #116: when
 // replace=true and a stale active supervisor row already exists for the
 // session, supervise.start must supersede (mark lost) the stale row and
@@ -1561,6 +1689,86 @@ func TestSuperviseStopUsesTmuxKillSessionForBackedLane(t *testing.T) {
 	}
 }
 
+func TestSuperviseStopCleansUpLostTmuxBackedSupervisor(t *testing.T) {
+	origRunner := supervisionTmuxRunner
+	defer func() { supervisionTmuxRunner = origRunner }()
+	tmuxRunner := &mutationFakeTmuxRunner{}
+	supervisionTmuxRunner = tmuxRunner
+
+	dir := t.TempDir()
+	pipePath := dir + "/stdin.pipe"
+	if err := os.WriteFile(pipePath, nil, 0o600); err != nil {
+		t.Fatalf("write pipe placeholder: %v", err)
+	}
+	metadata := map[string]any{
+		"stdin_delivery": stdinDeliveryPersistentFIFO,
+		"tmux": map[string]any{
+			"state":             "backed",
+			"session_name":      "striatum-run-lost",
+			"pane_id":           "%4",
+			"pane_pid":          os.Getpid(),
+			"attach_client_pid": 0,
+		},
+	}
+	terminal := &supervisorControlRow{
+		SupervisorID:       "sup_lost",
+		RunID:              "run_1",
+		SessionID:          "sess_1",
+		State:              "lost",
+		ScratchPath:        filepath.Join(dir, ".striatum", "scratch", "sup_lost"),
+		StdinPipePath:      pipePath,
+		PID:                os.Getpid(),
+		HasPID:             true,
+		DaemonSupervisorID: "dsup_1",
+		Metadata:           metadata,
+		EndedAt:            "2026-06-07T00:00:00Z",
+		StopReason:         "child exited before attach",
+	}
+	tx := &superviseControlFakeTx{
+		pipePath: pipePath,
+		pid:      os.Getpid(),
+		metadata: metadata,
+	}
+	runner := &superviseControlFakeRunner{
+		activeSupervisorMissing: true,
+		terminalSupervisor:      terminal,
+		pipePath:                pipePath,
+		txs:                     []*superviseControlFakeTx{tx},
+	}
+	result, err := HandleSuperviseStop(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_stop_lost_tmux",
+		Method:        "supervise.stop",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+			"reason":        "operator_cleanup",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleSuperviseStop: %v", err)
+	}
+	if result["signal"] != "tmux_kill_session" {
+		t.Fatalf("stop signal = %#v", result["signal"])
+	}
+	if result["note"] == "supervisor was already lost" {
+		t.Fatalf("lost supervisor must be cleaned up, not treated as already terminal: %#v", result)
+	}
+	if len(tmuxRunner.calls) != 1 || strings.Join(tmuxRunner.calls[0], " ") != "kill-session -t striatum-run-lost" {
+		t.Fatalf("tmux calls = %#v", tmuxRunner.calls)
+	}
+	if _, err := os.Stat(pipePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pipe still exists or unexpected stat err: %v", err)
+	}
+	if !tx.sawExec("UPDATE striatumd.process_supervisors", "ended_at") {
+		t.Fatalf("missing stopped update: %#v", tx.execs)
+	}
+	event := tx.lastEventInsert()
+	if event == nil || event.args[3] != "supervisor.stopped" {
+		t.Fatalf("event insert = %#v", event)
+	}
+}
+
 // TestSuperviseStopRemovesEphemeralGeminiSettings is the issue #62 regression:
 // the tmux-backed teardown path (supervise.stop -> tmux kill-session) must
 // remove the per-launch .gemini/settings.json (rotating MCP bearer token) the
@@ -1787,12 +1995,14 @@ func TestLinuxProcStatZombieDetectsDefunctProcessState(t *testing.T) {
 }
 
 type superviseControlFakeRunner struct {
-	mu                  sync.Mutex
-	repoRoot            string
-	pipePath            string
-	workflowSupervision map[string]any
-	workflowLane        map[string]any
-	txs                 []*superviseControlFakeTx
+	mu                      sync.Mutex
+	repoRoot                string
+	pipePath                string
+	workflowSupervision     map[string]any
+	workflowLane            map[string]any
+	activeSupervisorMissing bool
+	terminalSupervisor      *supervisorControlRow
+	txs                     []*superviseControlFakeTx
 }
 
 func (r *superviseControlFakeRunner) Exec(context.Context, string, ...any) error {
@@ -1847,7 +2057,25 @@ func (r *superviseControlFakeRunner) fakeRow(sql string, args ...any) db.Row {
 		return superviseControlFakeRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "SELECT session_id") && strings.Contains(sql, "FROM striatumd.sessions"):
 		return superviseControlFakeRow{values: []any{"sess_1"}}
+	case strings.Contains(sql, "FROM striatumd.process_supervisors ps") && strings.Contains(sql, "ps.ended_at"):
+		if r.terminalSupervisor == nil {
+			return superviseControlFakeRow{err: pgx.ErrNoRows}
+		}
+		supervisor := r.terminalSupervisor
+		var pid any
+		if supervisor.HasPID {
+			pid = supervisor.PID
+		}
+		return superviseControlFakeRow{values: []any{
+			supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, supervisor.State,
+			supervisor.ScratchPath, supervisor.StdinPipePath, pid, supervisor.PIDStartTime,
+			supervisor.DaemonSupervisorID, supervisor.Metadata,
+			supervisor.EndedAt, supervisor.StopReason,
+		}}
 	case strings.Contains(sql, "SELECT ps.supervisor_id"):
+		if r.activeSupervisorMissing {
+			return superviseControlFakeRow{err: pgx.ErrNoRows}
+		}
 		return superviseControlFakeRow{values: []any{"sup_1", "run_1", "sess_1", "attached", filepath.Join(r.repoRoot, ".striatum", "scratch", "sup_1"), r.pipePath, nil, "", "dsup_1", map[string]any{"stdin_delivery": stdinDeliveryPersistentFIFO}}}
 	default:
 		return superviseControlFakeRow{err: errors.New("unexpected runner query: " + sql)}
