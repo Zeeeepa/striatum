@@ -363,6 +363,7 @@ remediation is sensible for that code.
 | `duplicate_request` | The RPC request_id was already used. | Re-issue the call with a fresh request_id. |
 | `event_payload_rejected` | A durable event payload was refused by the database write boundary: it carried a transcript key (stdout/stderr/transcript/raw_output/provider_output) or exceeded the durable-event size cap (RFC 0110 §12, C-EVENT-NO-TRANSCRIPTS). | Record curated coordination state in the event, not captured agent output; transcripts belong in operator-local diagnostics, not the durable event chain. |
 | `file_read_failed` | The daemon could not read a repository file it was asked to operate on. | Verify the path exists and is readable inside the repository, then retry. |
+| `fresh_review_byte_identical` | A review.submit finding is byte-identical (content_sha256) to this job's prior-attempt finding, so it re-asserts a stale verdict against a revised target instead of a fresh review (#206). | Delete the stale finding file left at the artifact path by the prior round, read the CURRENT revision of the target, and write your own finding before resubmitting. |
 | `git_commit_apply_failed` | A git step of commit apply failed. | — |
 | `git_snapshot_failed` | Capturing the git snapshot failed. | — |
 | `git_unavailable` | The git executable is not available to the daemon. | Install git and ensure it is on the daemon's PATH. |

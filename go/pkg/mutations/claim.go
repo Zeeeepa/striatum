@@ -371,6 +371,14 @@ func buildPacket(
 	if len(targets) > 0 {
 		packetContext["interrogation_targets"] = targets
 	}
+	// RFC 0095 Goal 8 / #206: a re-opened review/verdict-capable job (attempt > 1)
+	// carries the prior round's finding + verdict so the lane reviews the CURRENT
+	// revision instead of republishing the stale finding it may find on disk.
+	if revision, rerr := revisionContextForPacket(ctx, runner, repositoryID, job); rerr != nil {
+		return nil, rerr
+	} else if revision != nil {
+		packetContext["revision_context"] = revision
+	}
 	// #105: workflow-declared paths (role definition, context docs, prompts) are
 	// relative to the workflow directory, but a lane runs from the repo root.
 	// Surface the repo-root-relative workflow_root as the explicit base, and
@@ -571,6 +579,74 @@ func workflowJobInterrogable(workflow map[string]any, workflowJobID string) bool
 		}
 	}
 	return false
+}
+
+// revisionContextForPacket builds the RFC 0095 Goal 8 revision context for a
+// re-opened verdict-capable (review) job: the prior attempt's finding artifact
+// id and the prior verdict the reviewer recorded before the re-open. A fresh
+// attempt (attempt 1) or a non-review job has no prior round and returns nil.
+//
+// Data availability (#206): the prior FINDING artifact persists (artifacts are
+// attempt-scoped and append-only), so prior_finding_artifact_id is exact. The
+// prior VERDICT row is DELETED when the job is re-opened (resetJobToBlocked frees
+// the (job, session) verdict uniqueness constraint), but the durable
+// `verdict.recorded` event survives — and since the current attempt has not yet
+// recorded a verdict, the latest such event for the job is necessarily the prior
+// round's, so prior_verdict is recovered from it. The free-text revision REASON
+// is not separately recorded anywhere durable (it lived only on the deleted
+// verdict row's rationale), so it is omitted rather than fabricated.
+func revisionContextForPacket(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {
+	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
+		return nil, nil
+	}
+	currentAttempt := intValue(job["attempt"])
+	if currentAttempt <= 1 {
+		return nil, nil
+	}
+	jobID := fmt.Sprint(job["job_id"])
+	runID := fmt.Sprint(job["run_id"])
+	revision := map[string]any{
+		"reopened_attempt": currentAttempt,
+	}
+	// Prior attempt's finding artifact (highest attempt below the current one).
+	priorFinding, err := oneRow(ctx, runner, `
+		SELECT artifact_id, logical_name, repo_path, content_sha256, attempt
+		  FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   AND attempt < $4
+		 ORDER BY attempt DESC, created_at DESC
+		 LIMIT 1`, repositoryID, runID, jobID, currentAttempt)
+	if err != nil && !errorsIsNoRows(err) {
+		return nil, err
+	}
+	if err == nil {
+		revision["prior_finding_artifact_id"] = priorFinding["artifact_id"]
+		revision["prior_finding_logical_name"] = priorFinding["logical_name"]
+		revision["prior_finding_path"] = priorFinding["repo_path"]
+		revision["prior_finding_content_sha256"] = priorFinding["content_sha256"]
+		revision["prior_finding_attempt"] = intValue(priorFinding["attempt"])
+	}
+	// Prior verdict from the durable verdict.recorded event (the verdict row was
+	// deleted on re-open; the event is append-only).
+	priorVerdictEvent, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   AND event_type = 'verdict.recorded'
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, runID, jobID)
+	if err != nil && !errorsIsNoRows(err) {
+		return nil, err
+	}
+	if err == nil {
+		if v := fmt.Sprint(asMap(priorVerdictEvent["payload_json"])["verdict"]); v != "" && v != "<nil>" {
+			revision["prior_verdict"] = v
+		}
+	}
+	// Carry the guidance the #206 daemon guard enforces so the lane self-corrects
+	// before it trips the byte-identical refusal.
+	revision["guidance"] = "This is a re-opened review round. Review the CURRENT revision of the target; do NOT republish the prior round's finding verbatim. A finding byte-identical to the prior attempt's is refused (fresh_review_byte_identical) — delete any stale finding file at prior_finding_path and write your own."
+	return revision, nil
 }
 
 func interrogationTargetsForPacket(ctx context.Context, runner any, repositoryID, runID string, workflow map[string]any, consumerWorkflowJobID string) ([]map[string]any, error) {

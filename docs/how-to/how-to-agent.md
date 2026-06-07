@@ -138,6 +138,14 @@ understand:
   declared by this job, such as a test database or fixture. Coordinate
   or serialize commands that mutate an `exclusive` resource; for
   `per_lane_namespace` resources, use the declared namespace.
+- `context.revision_context` (review/verdict-capable jobs re-opened for a
+  new round, RFC 0095 Goal 8) — when present, this is a fresh review of a
+  REVISED target. It carries `prior_finding_artifact_id`,
+  `prior_finding_path`, and `prior_verdict` from the previous round. Read
+  the CURRENT revision and write your own finding; do NOT republish the
+  prior round's finding. A finding byte-identical to the prior attempt's is
+  refused with `fresh_review_byte_identical` (#206) — delete any stale
+  finding file left at `prior_finding_path` first.
 - `worktree_required` — when `true` (RFC 0008), call `worktree.create`
   before `artifact.publish`. The packet supplies the exact CLI fallback in
   `commands.worktree_create`.

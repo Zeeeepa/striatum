@@ -2,6 +2,8 @@ package mutations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -93,6 +95,15 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			kind = "finding"
 		}
 		if err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText, verdict); err != nil {
+			return nil, err
+		}
+		// RFC 0095 Goal 8 / #206: refuse a finding byte-identical to this job's
+		// prior-attempt finding. A re-claimed review job (attempt > 1) that adopts
+		// the prior round's REVIEW.md verbatim re-asserts a stale verdict against a
+		// target that was already revised — process theater that poisons the bounded
+		// revision cycle. A fresh review of a CHANGED target producing a
+		// byte-identical document is not plausible.
+		if err := enforceFreshReviewNotByteIdentical(ctx, tx, repositoryID, job, kind, pathText); err != nil {
 			return nil, err
 		}
 		if fmt.Sprint(job["state"]) == "claimed" && nullable(job["current_message_id"]) != nil {
@@ -825,6 +836,70 @@ func prevalidateSubmitReviewArtifactVerdict(ctx context.Context, runner any, rep
 		return rpc.NewError("artifact_error", fmt.Sprintf("review.submit verdict %q must match collaboration_ledger front matter verdict %q", submittedVerdict, ledgerVerdict), nil)
 	}
 	return nil
+}
+
+// enforceFreshReviewNotByteIdentical refuses a review.submit whose finding body
+// is byte-identical (content_sha256) to a finding THIS job already published at
+// a lower attempt (#206 / RFC 0095 Goal 8). A re-opened review job runs a fresh
+// round against a revised target; adopting the prior round's REVIEW.md verbatim
+// re-asserts a stale verdict and burns the bounded revision budget on phantom
+// rejections. The guard is scoped to verdict-capable (review-class) jobs at
+// attempt > 1; attempt 1 has no prior round to collide with.
+func enforceFreshReviewNotByteIdentical(ctx context.Context, runner any, repositoryID string, job map[string]any, kind, pathText string) error {
+	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
+		return nil
+	}
+	currentAttempt := jobAttemptValue(job["attempt"])
+	if currentAttempt <= 1 {
+		return nil
+	}
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return err
+	}
+	repoRoot := fmt.Sprint(run["repo_root"])
+	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
+		// Path scoping is the publishArtifact contract's job; defer the precise
+		// error to it rather than masking it here.
+		return nil
+	}
+	activeWorktree, err := activeWorktreeForJob(ctx, runner, repositoryID, fmt.Sprint(job["job_id"]))
+	if err != nil {
+		return err
+	}
+	path, err := artifactSourcePath(repoRoot, pathText, activeWorktree)
+	if err != nil {
+		// Let publishArtifact surface the path resolution error.
+		return nil
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil || info.IsDir() {
+		// The file is missing; publishArtifact reports the precise artifact_error.
+		return nil
+	}
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		return rpc.NewError("artifact_error", "artifact file does not exist", nil)
+	}
+	sum := sha256.Sum256(payload)
+	digest := hex.EncodeToString(sum[:])
+	prior, err := oneRow(ctx, runner, `
+		SELECT attempt, artifact_id, repo_path FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   AND content_sha256 = $4 AND attempt < $5
+		 ORDER BY attempt DESC
+		 LIMIT 1`, repositoryID, job["run_id"], job["job_id"], digest, currentAttempt)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return nil
+		}
+		return err
+	}
+	priorAttempt := jobAttemptValue(prior["attempt"])
+	return rpc.NewError("fresh_review_byte_identical", fmt.Sprintf(
+		"review finding at %s is byte-identical (content_sha256=%s) to this job's attempt-%d finding (artifact %v) while the job is at attempt %d. A re-opened review job must evaluate the CURRENT revision; republishing the prior round's finding re-asserts a stale verdict. Delete the stale finding file the prior round left at %s, read the revised target, and write your own finding before resubmitting.",
+		pathText, digest, priorAttempt, prior["artifact_id"], currentAttempt, fmt.Sprint(prior["repo_path"]),
+	), nil)
 }
 
 func ackInline(ctx context.Context, runner any, repositoryID, sessionID, messageID, leaseID string) error {

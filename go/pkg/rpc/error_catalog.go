@@ -177,6 +177,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Verify the path exists and is readable inside the repository, then retry.",
 	},
 	{
+		Code:       "fresh_review_byte_identical",
+		Meaning:    "A review.submit finding is byte-identical (content_sha256) to this job's prior-attempt finding, so it re-asserts a stale verdict against a revised target instead of a fresh review (#206).",
+		Suggestion: "Delete the stale finding file left at the artifact path by the prior round, read the CURRENT revision of the target, and write your own finding before resubmitting.",
+	},
+	{
 		Code:       "git_commit_apply_failed",
 		Meaning:    "A git step of commit apply failed.",
 		Suggestion: "",
