@@ -168,6 +168,15 @@ func TestOwnerTransferClosesSelfRegrant(t *testing.T) {
 		"CREATE TABLE striatumd.owner_transfer_probe (v text)"); err != nil {
 		t.Fatalf("create probe table: %v", err)
 	}
+	// ALTER TABLE ... OWNER TO requires the NEW owner to hold CREATE on the
+	// table's schema unless the executor is superuser. The throwaway-cluster
+	// lanes ran as the initdb superuser and never hit this; on a shared
+	// cluster the pgtest pool user is a plain role, so grant it explicitly —
+	// probe scaffolding only, revoked again after the back-transfer.
+	if err := ownerPool.Runner.Exec(ctx,
+		"GRANT CREATE ON SCHEMA striatumd TO striatumd_rw"); err != nil {
+		t.Fatalf("grant schema CREATE for the probe handoff: %v", err)
+	}
 	if err := ownerPool.Runner.Exec(ctx,
 		"ALTER TABLE striatumd.owner_transfer_probe OWNER TO striatumd_rw"); err != nil {
 		t.Fatalf("hand probe table to the runtime role: %v", err)
@@ -201,6 +210,10 @@ func TestOwnerTransferClosesSelfRegrant(t *testing.T) {
 	if err := ownerPool.Runner.Exec(ctx,
 		"REVOKE SELECT ON striatumd.owner_transfer_probe FROM striatumd_rw"); err != nil {
 		t.Fatalf("re-close probe SELECT after transfer: %v", err)
+	}
+	if err := ownerPool.Runner.Exec(ctx,
+		"REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw"); err != nil {
+		t.Fatalf("revoke probe-scaffolding schema CREATE: %v", err)
 	}
 	err := runtimePool.Runner.Exec(ctx,
 		"GRANT SELECT ON striatumd.owner_transfer_probe TO striatumd_rw")
