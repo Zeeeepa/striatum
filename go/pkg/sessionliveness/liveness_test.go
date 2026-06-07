@@ -17,7 +17,9 @@ func TestClassifyDiscoveryAwaitAckLeaseAndAttention(t *testing.T) {
 	}{
 		{
 			name: "discovery",
-			in:   Activity{SessionState: "active", RegisteredAt: at(now.Add(-61 * time.Second))},
+			// #192: past DiscoverySeconds + BootstrapGraceSeconds (60+120=180s),
+			// with no MCP activity, is a genuine discovery stall.
+			in:   Activity{SessionState: "active", RegisteredAt: at(now.Add(-181 * time.Second))},
 			want: StallDiscovery,
 		},
 		{
@@ -111,7 +113,7 @@ func TestClassifyDiscoveryAwaitAckLeaseAndAttention(t *testing.T) {
 func TestClassifyDiscoverySatisfiedByOtherMCPActivity(t *testing.T) {
 	now := time.Date(2026, 5, 29, 12, 0, 0, 0, time.UTC)
 	policy := DefaultPolicy()
-	registered := at(now.Add(-2 * time.Minute)) // well past DiscoverySeconds (60s)
+	registered := at(now.Add(-4 * time.Minute)) // well past DiscoverySeconds+BootstrapGrace (180s)
 
 	tests := []struct {
 		name      string
@@ -413,7 +415,7 @@ func TestClassifyPreciseWorkingStates(t *testing.T) {
 func TestClassifyDeadAtSpawnIsNotDiscoveryStall(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	policy := DefaultPolicy()
-	registered := at(now.Add(-2 * time.Minute)) // past DiscoverySeconds (60s)
+	registered := at(now.Add(-4 * time.Minute)) // past DiscoverySeconds+BootstrapGrace (180s)
 
 	tests := []struct {
 		name          string
@@ -454,6 +456,62 @@ func TestClassifyDeadAtSpawnIsNotDiscoveryStall(t *testing.T) {
 			if got.Protocol != tc.wantProtocol {
 				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
 			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+		})
+	}
+}
+
+// TestClassifyBootstrapGraceSuppressesColdStartDiscoveryStall guards #192: an
+// agent CLI's normal cold start (model/session init before its first tools/list)
+// routinely takes longer than the bare DiscoverySeconds (60s) — ~56s was measured
+// on a HEALTHY claude lane that then proceeded normally, and claude routinely
+// exceeds 60s. A lane that has recorded NO MCP activity must therefore NOT be
+// flagged agent_mcp_discovery_stall until it misses the bootstrap grace window
+// (DiscoverySeconds + BootstrapGraceSeconds = 180s); inside that window it reads
+// quiet/working, not stalled. Past the window it still stalls (dead-at-spawn
+// detection preserved via TestClassifyDeadAtSpawnIsNotDiscoveryStall).
+func TestClassifyBootstrapGraceSuppressesColdStartDiscoveryStall(t *testing.T) {
+	now := time.Date(2026, 6, 6, 16, 46, 31, 0, time.UTC)
+	policy := DefaultPolicy()
+	tests := []struct {
+		name       string
+		registered *time.Time
+		pty        *time.Time
+		wantStall  string
+	}{
+		{
+			// The exact #192 timing: ~56s after spawn, zero MCP calls — a healthy
+			// claude lane mid cold-start. Before the grace window this read as
+			// agent_mcp_discovery_stall and killed naive watchers on first poll.
+			name:       "56s cold start with no mcp is not a stall",
+			registered: at(now.Add(-56 * time.Second)),
+			wantStall:  "",
+		},
+		{
+			// Still inside the grace window at 90s (past the bare 60s edge): a slow
+			// but healthy boot must not be flagged.
+			name:       "90s cold start still inside bootstrap grace",
+			registered: at(now.Add(-90 * time.Second)),
+			wantStall:  "",
+		},
+		{
+			// Just past the bare DiscoverySeconds but well inside the grace window.
+			name:       "61s cold start no longer trips the bare discovery edge",
+			registered: at(now.Add(-61 * time.Second)),
+			wantStall:  "",
+		},
+		{
+			// Past the full bootstrap window with no signal at all => genuine stall.
+			name:       "181s past bootstrap grace is a genuine discovery stall",
+			registered: at(now.Add(-181 * time.Second)),
+			wantStall:  StallDiscovery,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(Activity{SessionState: "active", RegisteredAt: tc.registered, LastPTYActivityAt: tc.pty}, policy, now)
 			if got.StallClass != tc.wantStall {
 				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
 			}

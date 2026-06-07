@@ -93,7 +93,19 @@ func (r DBRecorder) RecordSessionActivity(ctx context.Context, repositoryID stri
 }
 
 type Policy struct {
-	DiscoverySeconds      int
+	DiscoverySeconds int
+	// BootstrapGraceSeconds is an extra grace window, added to DiscoverySeconds,
+	// before a session that has recorded NO MCP activity at all is flagged
+	// agent_mcp_discovery_stall (#192). Real agent CLIs spend a model/session
+	// cold-start before their first tools/list — claude routinely exceeds the
+	// bare 60s DiscoverySeconds (~56s was measured on a HEALTHY lane that then
+	// proceeded normally), so every cold spawn risked a transient false positive
+	// that killed naive watchers on their first poll. The grace window only moves
+	// the pre-discovery edge; once any MCP activity is recorded the lane is past
+	// discovery and the normal (un-graced) protocol rungs apply. DiscoverySeconds
+	// itself is unchanged, so the recovery-action discovery deadline and the
+	// adapter-conformance C1/C3 budgets that anchor on it are unaffected.
+	BootstrapGraceSeconds int
 	AwaitPacketSeconds    int
 	AckSeconds            int
 	LeaseHeartbeatSeconds int
@@ -176,6 +188,7 @@ var allowedColumns = map[string]bool{
 func DefaultPolicy() Policy {
 	return Policy{
 		DiscoverySeconds:      60,
+		BootstrapGraceSeconds: 120,
 		AwaitPacketSeconds:    90,
 		AckSeconds:            60,
 		LeaseHeartbeatSeconds: 300,
@@ -297,7 +310,15 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		return stallResult(activity, StallEscalationPending, DeadlineEscalation, 0, at)
 	}
 	if !discovered(activity) {
-		if missed(activity.RegisteredAt, policy.DiscoverySeconds, now) {
+		// #192: an agent CLI's normal cold start (model/session init before its
+		// first tools/list) routinely exceeds the bare DiscoverySeconds, so the
+		// pre-discovery stall edge gets a dedicated bootstrap grace window. A lane
+		// that has recorded NO MCP activity is only flagged once it misses
+		// DiscoverySeconds + BootstrapGraceSeconds — long enough to absorb a real
+		// cold start, so a healthy spawn no longer trips a transient false positive
+		// on a watcher's first poll.
+		bootstrapDeadlineSeconds := policy.DiscoverySeconds + policy.BootstrapGraceSeconds
+		if missed(activity.RegisteredAt, bootstrapDeadlineSeconds, now) {
 			// #117: a lane that never reached the daemon over MCP AND produced no
 			// PTY output past the discovery deadline did not "stall while
 			// discovering MCP" — it never produced anything, so for an operator it
@@ -310,7 +331,7 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 			// keeping it avoids widening the migration-0012 CHECK constraint. A
 			// lane that IS producing PTY output (alive, just slow to bind MCP)
 			// keeps the plain discovery-stall classification (Protocol "stalled").
-			result := stallResult(activity, StallDiscovery, DeadlineDiscovery, policy.DiscoverySeconds, activity.RegisteredAt)
+			result := stallResult(activity, StallDiscovery, DeadlineDiscovery, bootstrapDeadlineSeconds, activity.RegisteredAt)
 			if !ptyActive(activity) {
 				result.Protocol = ProtocolDead
 			}
