@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -424,6 +425,19 @@ func TestRecoveryAutoPublishCanonicalAndDeprecatedAliasRequireRunID(t *testing.T
 }
 
 func TestAutoPublishableArtifactsRequireMatchingBylineForEveryFile(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_autopub_byline"
+	runID := "run_" + repoID
+	jobID := "job_" + repoID
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{}},
+		"jobs":        []any{map[string]any{"id": "work", "type": "synthesis", "role_id": "worker"}},
+	})
+
 	repoRoot := t.TempDir()
 	if err := os.WriteFile(repoRoot+"/notes.txt", []byte("author: worker-codex-001\n\nresult\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -431,13 +445,28 @@ func TestAutoPublishableArtifactsRequireMatchingBylineForEveryFile(t *testing.T)
 	if err := os.WriteFile(repoRoot+"/wrong.md", []byte("author: reviewer-codex-001\n\nresult\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// A real job row (attempt 1, no prior artifacts) so the #203 attempt-gate
+	// query runs and finds nothing — the byline filter is what selects the files.
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, write_scope_json,
+		  lane_selector_json, created_at
+		) VALUES ($1,$2,$3,'work',1,'running','worker','Work','synthesis','idem_'||$1,
+		          '[]'::jsonb,'{}'::jsonb,'{"lane_id":"codex"}'::jsonb,NOW())`,
+		repoID, jobID, runID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
 	job := map[string]any{
+		"run_id":  runID,
+		"job_id":  jobID,
+		"attempt": 1,
 		"expected_artifacts_json": []map[string]any{
 			{"path": "notes.txt", "kind": "other", "logical_name": "notes", "required": true},
 			{"path": "wrong.md", "kind": "other", "logical_name": "wrong", "required": true},
 		},
 	}
-	got, err := autoPublishableArtifacts(context.Background(), nil, "repo_1", repoRoot, job, "sess_1", "author: worker-codex-001")
+	got, _, err := autoPublishableArtifacts(ctx, runner, repoID, repoRoot, job, "sess_1", "author: worker-codex-001")
 	if err != nil {
 		t.Fatal(err)
 	}

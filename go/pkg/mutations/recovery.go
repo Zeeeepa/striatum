@@ -406,6 +406,14 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				return nil, err
 			}
 		}
+		// #203: the expired-lease disjuncts (both the join and the WHERE) must
+		// exclude leases that recovery already transferred or requeued away —
+		// otherwise a lease whose job has since moved to a fresh attempt is
+		// re-matched here and the auto-publish pass credits the (now re-opened)
+		// job from the PRIOR attempt's on-disk artifact, silently discarding a
+		// needs_revision verdict. This is the same NULL-safe exclusion #179 added
+		// to HandleRecoveryStaleLeases / the dashboard projection; all three share
+		// db.ExpiredLeaseStillStalePredicate so a fourth copy cannot drift.
 		rows, err := queryRows(ctx, tx, `
 			SELECT j.*, l.lease_id, l.owner_session_id,
 			       qm.message_id, qm.state AS message_state,
@@ -414,14 +422,15 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			  LEFT JOIN striatumd.leases l
 			    ON l.repository_id = j.repository_id
 			   AND (l.lease_id = j.current_lease_id
-			        OR (l.resource_id = j.job_id AND l.state = 'expired'))
+			        OR (l.resource_id = j.job_id AND l.state = 'expired'
+			            AND `+db.ExpiredLeaseStillStalePredicate+`))
 			  LEFT JOIN striatumd.queue_messages qm
 			    ON qm.repository_id = j.repository_id
 			   AND qm.message_id = j.current_message_id
 			 WHERE j.repository_id = $1
 			   AND j.run_id = $2
 			   AND j.state IN ('claimed','running','stale_lease')
-			   AND (l.state = 'expired'
+			   AND ((l.state = 'expired' AND `+db.ExpiredLeaseStillStalePredicate+`)
 			        OR (l.state = 'active' AND l.expires_at < $3::timestamptz))
 			 ORDER BY j.workflow_job_id`, repositoryID, runID, nowString())
 		if err != nil {
@@ -468,9 +477,18 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				})
 				continue
 			}
-			publishable, err := autoPublishableArtifacts(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), job, sessionID, expectedByline)
+			publishable, attemptSkipped, err := autoPublishableArtifacts(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), job, sessionID, expectedByline)
 			if err != nil {
 				return nil, err
+			}
+			// #203: surface the attempt-gate refusals (stale prior-attempt
+			// artifacts) as legible skip records and emit an event so the silent
+			// auto-publish-of-pre-revision-doc is observable in the run history.
+			for _, rec := range attemptSkipped {
+				skipped = append(skipped, rec)
+				if _, eerr := appendEvent(ctx, tx, repositoryID, runID, "recovery.auto_publish_refused", sessionID, jobID, nil, nil, leaseID, rec); eerr != nil {
+					return nil, eerr
+				}
 			}
 			if len(publishable) == 0 {
 				skipped = append(skipped, map[string]any{
@@ -881,8 +899,11 @@ func SweepRun(ctx context.Context, runner db.Runner, repositoryID string, runID 
 	return result, nil
 }
 
-func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID string, repoRoot string, job map[string]any, sessionID string, expectedByline string) ([]map[string]any, error) {
-	publishable := []map[string]any{}
+func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID string, repoRoot string, job map[string]any, sessionID string, expectedByline string) (publishable []map[string]any, skipped []map[string]any, err error) {
+	publishable = []map[string]any{}
+	skipped = []map[string]any{}
+	currentAttempt := jobAttemptValue(job["attempt"])
+	workflowJobID := fmt.Sprint(job["workflow_job_id"])
 	for _, item := range asList(job["expected_artifacts_json"]) {
 		declared := asMap(item)
 		if declared["required"] == false {
@@ -919,13 +940,60 @@ func autoPublishableArtifacts(ctx context.Context, runner any, repositoryID stri
 		if !matched {
 			continue
 		}
+		// RFC 0095 Goal 2 / #203: recovery auto-publish must only complete a job
+		// from artifacts produced by the CURRENT attempt. A re-opened (revision-
+		// cycle) job whose on-disk file is byte-identical to a PRIOR attempt's
+		// published artifact is the pre-revision document the reviewer rejected —
+		// crediting it converts the needs_revision verdict into a silent no-op.
+		// Detect it by content_sha256: a row for THIS job at a lower attempt with
+		// the same content means the on-disk file is stale prior-attempt output.
+		sum := sha256.Sum256(payload)
+		digest := hex.EncodeToString(sum[:])
+		priorAttempt, found, perr := priorAttemptArtifactByContent(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), digest, currentAttempt)
+		if perr != nil {
+			return nil, nil, perr
+		}
+		if found {
+			skipped = append(skipped, map[string]any{
+				"workflow_job_id": workflowJobID,
+				"path":            pathText,
+				"reason":          "stale_prior_attempt_artifact",
+				"detail": fmt.Sprintf(
+					"on-disk %s is byte-identical (content_sha256=%s) to this job's attempt-%d artifact while the job is at attempt %d; a re-opened (revision-cycle) attempt is never satisfied by a prior attempt's output (RFC 0095 Goal 2 / #203). A fresh lane must perform the revision.",
+					pathText, digest, priorAttempt, currentAttempt,
+				),
+			})
+			continue
+		}
 		publishable = append(publishable, map[string]any{
 			"path":         pathText,
 			"kind":         kind,
 			"logical_name": logicalName,
 		})
 	}
-	return publishable, nil
+	return publishable, skipped, nil
+}
+
+// priorAttemptArtifactByContent reports whether THIS job already published an
+// artifact with the given content_sha256 at an attempt strictly lower than the
+// job's current attempt. Used by the recovery auto-publish attempt-gate
+// (RFC 0095 Goal 2 / #203) to refuse crediting a re-opened job from its
+// pre-revision on-disk document. Returns the matched prior attempt for a legible
+// skip reason.
+func priorAttemptArtifactByContent(ctx context.Context, runner any, repositoryID, runID, jobID, contentSha256 string, currentAttempt int) (priorAttempt int, found bool, err error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT attempt FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND run_id = $2 AND job_id = $3
+		   AND content_sha256 = $4 AND attempt < $5
+		 ORDER BY attempt DESC
+		 LIMIT 1`, repositoryID, runID, jobID, contentSha256, currentAttempt)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	return jobAttemptValue(row["attempt"]), true, nil
 }
 
 // recoveredReviewVerdict extracts a verdict-bearing job's verdict from the
@@ -1167,8 +1235,7 @@ func HandleRecoveryStaleLeases(ctx context.Context, runner db.Runner, envelope r
 			   AND (l.lease_id = j.current_lease_id
 			        OR (l.resource_id = j.job_id
 			            AND l.state = 'expired'
-			            AND (l.release_reason IS NULL
-			                 OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))))
+			            AND `+db.ExpiredLeaseStillStalePredicate+`))
 			  LEFT JOIN striatumd.queue_messages qm
 			    ON qm.repository_id = j.repository_id
 			   AND qm.message_id = j.current_message_id
@@ -1176,8 +1243,7 @@ func HandleRecoveryStaleLeases(ctx context.Context, runner db.Runner, envelope r
 			   AND j.run_id = $2
 			   AND (j.state = 'stale_lease'
 			        OR (l.state = 'expired'
-			            AND (l.release_reason IS NULL
-			                 OR l.release_reason NOT IN ('recovery_transfer', 'operator_transfer', 'recovery_requeue'))))
+			            AND `+db.ExpiredLeaseStillStalePredicate+`))
 			 ORDER BY j.workflow_job_id, l.expires_at`, repositoryID, runID)
 		if err != nil {
 			return nil, err
