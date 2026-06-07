@@ -560,7 +560,11 @@ func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool 
 	if expectedStart == "<nil>" {
 		expectedStart = ""
 	}
-	live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(metadata), metadata, pid, expectedStart)
+	// #198: in the periodic sweep this reads the pre-tx liveness snapshot
+	// (probeLaneLivenessCached), so the `tmux list-panes` / /proc probe never runs
+	// while the sweep transaction holds the per-run advisory lock + FOR UPDATE row
+	// locks. Operator RPCs and unit tests carry no oracle and probe live.
+	live := probeLaneLivenessCached(ctx, metadata, pid, expectedStart)
 	if live.Class == string(gosupervisor.TmuxLivenessUnavailable) {
 		return false // cannot determine; do not requeue a possibly-live lane
 	}

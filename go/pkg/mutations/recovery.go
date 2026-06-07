@@ -389,7 +389,22 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		return nil, rpc.NewError("schema_invalid", "recovery.auto_publish_stale_artifacts requires run_id", nil)
 	}
 	dryRun := boolParam(envelope, "dry_run")
+	// #198: pre-probe every supervised agent's liveness OUTSIDE the transaction.
+	// The masked-dead-lane probe (supervisedAgentConfirmedDead) shells out to
+	// `tmux list-panes` / reads /proc; doing it inside the lock-holding sweep tx
+	// was the root of the minutes-long convoy that starved every other write
+	// (global SQLSTATE 57014). The probe is a pure read whose result only gates
+	// the in-tx decision, so taking the snapshot first and injecting it preserves
+	// the decision logic exactly while removing all subprocess IO from the lock
+	// window. Skipped on dry_run (it never requeues, so it never probes).
+	if !dryRun {
+		ctx = withLivenessOracle(ctx, buildRunLivenessOracle(ctx, runner, repositoryID, runID))
+	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// Mark every call below as executing inside the sweep transaction (#198
+		// observability seam). Liveness probes must NOT run while this is set —
+		// they were pre-probed above and read from the injected oracle.
+		ctx := withinSweepTx(ctx)
 		// RFC 0104: per-run advisory lock first — the recovery sweep is the third
 		// concurrent party on a run's rows (alongside claim and verdict-completion),
 		// so serializing it on the same per-run lock prevents the {sessions, runs}
