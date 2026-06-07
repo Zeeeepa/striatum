@@ -17,6 +17,7 @@ striatum workflow templates show
 striatum run prepare
 striatum branch confirm
 striatum run start
+striatum run drive
 striatum run summary
 striatum archive create
 striatum archive verify
@@ -27,6 +28,14 @@ striatum operator current-brief
 `run prepare` requires an explicit `--workflow <path>` and creates no runtime
 default. The generated tree uses a single `local` process lane as a valid
 placeholder; edit lanes and job `lane_id` bindings for real agent runs.
+
+`run drive --run-id <id> [--interval 15s] [--once] [--json]` is a local
+operator loop over existing daemon RPC methods. It reads `run.detail` and
+`list.sessions`, registers and supervises one fresh session per queued
+role/lane as the DAG unblocks, adopts already-active matching sessions, and
+stops terminal or superseded launched lanes before registering fresh reviewers.
+It is not a daemon RPC method and does not call rescue verbs or force non-fresh
+sessions.
 
 `workflow templates list [--kind shape|lane_set|role_pack|adversary_pack]`
 and `workflow templates show <template_id>` read the bundled local

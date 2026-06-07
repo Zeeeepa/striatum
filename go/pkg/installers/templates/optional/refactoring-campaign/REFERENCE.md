@@ -41,13 +41,14 @@ For each stage, in order:
 2. `striatum --repo <target> run prepare --workflow <workflow.json>` and
    confirm the branch (`branch.mode: confirm` — `striatum branch confirm`).
 3. `striatum --repo <target> run start --run-id <id>`
-4. Register and supervise one session per lane (`striatum-supervise`).
-   A `needs_revision` verdict auto-re-supervises attempt 2; a revision on
-   an interrogable job CLOSES the prior lane session and spawns a
-   next-ordinal lane — that lane is done, do not fight it.
-5. Block on `scripts/wait-run.sh <run-id> <interval> <target>` until the
-   run reaches `completed` / `failed` / `canceled`.
-6. Read the stage's terminal artifact from the repository tree (artifacts
+4. `striatum --repo <target> run drive --run-id <id>` blocks until the run is
+   terminal, registering/supervising one fresh session per role/lane as the DAG
+   unblocks and closing terminal or superseded launched lanes before fresh
+   reviewers.
+   Use `--json` for machine-readable progress or `--once` when an external
+   harness owns the polling. A `needs_revision` verdict still auto-spawns the
+   next attempt through daemon state; do not fight it with manual session loops.
+5. Read the stage's terminal artifact from the repository tree (artifacts
    finalize to the repo) and apply the stop matrix.
 
 ## Stage 0 skip (operator-named goal)

@@ -28,12 +28,14 @@ package adapterconformance
 // pgtest.Pool SKIPs without STRIATUM_PG_TEST_URL).
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/cli/rundrive"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -263,6 +265,54 @@ func TestRevisionLifecycleHappyPathCompletes(t *testing.T) {
 	}
 }
 
+// TestRevisionLifecycleRunDriveHappyPathCompletes is the RFC 0105 fixture driven
+// through the product `run drive` reconciler. Reads and session registration go
+// through the production RPC server; supervise.start is the only simulated edge,
+// where this test runs a deterministic in-process lane through the production
+// claim/ack/complete/verdict handlers instead of forking a real agent CLI.
+func TestRevisionLifecycleRunDriveHappyPathCompletes(t *testing.T) {
+	repoID := "repo_revlife_rundrive"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+	lc := seedRevisionLifecycleRun(t, ctx, h, repoID)
+	invoker := &revisionRunDriveInvoker{t: t, h: h, lc: lc}
+	ticks := 0
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := rundrive.Run(ctx, invoker, rundrive.Options{
+		RepositoryID: repoID,
+		RunID:        lc.fx.RunID,
+		RepoRoot:     lc.fx.RepoRoot,
+		Interval:     time.Nanosecond,
+		JSON:         true,
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		Sleep: func(_ context.Context, _ time.Duration) error {
+			ticks++
+			if ticks > 20 {
+				return fmt.Errorf("run drive did not reach terminal state within 20 ticks")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("run drive: %v\nstdout:\n%s\nstderr:\n%s\ncalls:%#v", err, stdout.String(), stderr.String(), invoker.calls)
+	}
+	if got := chaosRunState(t, ctx, h, lc.fx.RunID); got != "completed" {
+		t.Fatalf("run state = %q, want completed", got)
+	}
+	if invoker.reviewerVerdicts != 2 {
+		t.Fatalf("reviewer verdicts = %d, want needs_revision then accept", invoker.reviewerVerdicts)
+	}
+	for _, method := range invoker.calls {
+		switch method {
+		case "recovery.requeue_stale", "review.override", "run.retry_job":
+			t.Fatalf("run drive called rescue verb %s", method)
+		}
+	}
+}
+
 // TestRevisionLifecycleLaneDeathSelfRecovers is the fault-matrix self-recover
 // cell: the att2 implementer (re-working after a needs_revision) dies mid-task;
 // the production recovery sweep requeues its job on the SAME attempt (no
@@ -404,6 +454,118 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 	if got := fmt.Sprint(escs[0]["ei_state"]); got != "pending" {
 		t.Fatalf("escalation state = %q, want pending", got)
 	}
+}
+
+type revisionRunDriveInvoker struct {
+	t                *testing.T
+	h                *Harness
+	lc               *revisionLC
+	requestSeq       int
+	reviewerVerdicts int
+	calls            []string
+}
+
+func (i *revisionRunDriveInvoker) Invoke(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	i.calls = append(i.calls, method)
+	switch method {
+	case "supervise.start":
+		sessionID := fmt.Sprint(params["session_id"])
+		i.driveSession(ctx, sessionID)
+		return map[string]any{"state": "attached", "session_id": sessionID}, nil
+	case "supervise.stop":
+		sessionID := fmt.Sprint(params["session_id"])
+		reason := fmt.Sprint(params["reason"])
+		if reason == "" {
+			reason = "run drive fixture stop"
+		}
+		return mutations.HandleCloseSession(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			Method:        "session.close",
+			Params: map[string]any{
+				"repository_id": i.lc.fx.RepositoryID,
+				"session_id":    sessionID,
+				"reason":        reason,
+			},
+		})
+	default:
+		return i.invokeRPC(ctx, method, params)
+	}
+}
+
+func (i *revisionRunDriveInvoker) invokeRPC(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	i.requestSeq++
+	response := i.h.Server.HandleWithoutHandshake(ctx, rpc.Envelope{
+		SchemaVersion:   rpc.SupportedEnvelopeVersion,
+		RequestID:       fmt.Sprintf("run-drive-fixture-%03d", i.requestSeq),
+		Method:          method,
+		Params:          copyDriveParams(params),
+		CapabilityToken: i.h.Token,
+	}, "mcp")
+	if response.OK {
+		return response.Data, nil
+	}
+	code, _ := response.Data["code"].(string)
+	message, _ := response.Data["message"].(string)
+	return nil, rpc.NewError(code, message, response.Data)
+}
+
+func (i *revisionRunDriveInvoker) driveSession(ctx context.Context, sessionID string) {
+	i.t.Helper()
+	rows := chaosQuery(i.t, ctx, i.h, `
+		SELECT role_id
+		  FROM striatumd.sessions
+		 WHERE repository_id=$1 AND session_id=$2`,
+		i.lc.fx.RepositoryID, sessionID)
+	if len(rows) != 1 {
+		i.t.Fatalf("session %s rows = %d, want 1", sessionID, len(rows))
+	}
+	role := fmt.Sprint(rows[0]["role_id"])
+	leaseID := claimAndAck(i.t, ctx, i.h, i.lc.fx.RepositoryID, sessionID, "run drive "+role)
+	switch role {
+	case i.lc.fx.Role:
+		if _, err := mutations.HandleCompleteWork(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			Method:        "work.complete",
+			Params: map[string]any{
+				"repository_id": i.lc.fx.RepositoryID,
+				"session_id":    sessionID,
+				"job_id":        i.lc.fx.JobID,
+				"lease_id":      leaseID,
+				"summary":       "implemented by run drive fixture",
+			},
+		}); err != nil {
+			i.t.Fatalf("run drive implementer complete: %v", err)
+		}
+	case i.lc.reviewerRole:
+		i.reviewerVerdicts++
+		verdict := "accept"
+		if i.reviewerVerdicts == 1 {
+			verdict = "needs_revision"
+		}
+		if _, err := mutations.HandleRecordVerdict(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			Method:        "review.verdict",
+			Params: map[string]any{
+				"repository_id": i.lc.fx.RepositoryID,
+				"session_id":    sessionID,
+				"job_id":        i.lc.reviewJobID,
+				"lease_id":      leaseID,
+				"verdict":       verdict,
+			},
+		}); err != nil {
+			i.t.Fatalf("run drive reviewer verdict %q: %v", verdict, err)
+		}
+	default:
+		i.t.Fatalf("unexpected run drive session role %q for %s", role, sessionID)
+	}
+}
+
+func copyDriveParams(params map[string]any) map[string]any {
+	copied := make(map[string]any, len(params))
+	for key, value := range params {
+		copied[key] = value
+	}
+	return copied
 }
 
 // ReliabilityFixtureShapes lists the workflow-generator shape names that have a

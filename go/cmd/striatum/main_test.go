@@ -83,7 +83,7 @@ func TestTopLevelHelpAndUnknownCommand(t *testing.T) {
 	// #104: help lists the control surface (the work loop + key commands) so a
 	// self-driving lane does not have to fall back to raw MCP tools/list.
 	help := stdout.String()
-	for _, want := range []string{"work-packet loop", "work.await_packet", "claim-next", "publish-artifact", "complete", "run ", "recovery", "register-session", "--help"} {
+	for _, want := range []string{"work-packet loop", "work.await_packet", "claim-next", "publish-artifact", "complete", "run ", "drive", "recovery", "register-session", "--help"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help output missing %q; got:\n%s", want, help)
 		}
@@ -104,6 +104,51 @@ func TestTopLevelHelpAndUnknownCommand(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "unknown command: self-update") {
 		t.Fatalf("unknown command stderr = %q", stderr.String())
+	}
+}
+
+func TestRunDriveHelp(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"run", "drive", "--help"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	for _, want := range []string{"usage: striatum run drive", "--run-id", "--interval", "--once", "--json", "existing daemon RPC methods"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("help output missing %q; got:\n%s", want, stdout.String())
+		}
+	}
+}
+
+func TestRunDriveDispatchesThroughRPC(t *testing.T) {
+	t.Setenv("STRIATUM_REPOSITORY_ID", "")
+	socket := filepath.Join(t.TempDir(), "daemon.sock")
+	server := rpc.NewServer()
+	server.Register("repo.resolve", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		return map[string]any{"repository_id": "repo_1", "repo_root": t.TempDir()}, nil
+	})
+	server.Register("run.detail", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if envelope.Params["repository_id"] != "repo_1" || envelope.Params["run_id"] != "run_1" {
+			t.Fatalf("params = %#v", envelope.Params)
+		}
+		return map[string]any{
+			"run":  map[string]any{"run_id": "run_1", "state": "completed"},
+			"jobs": []any{},
+		}, nil
+	})
+	startTestRPCServer(t, socket, server)
+	tokenFile := filepath.Join(t.TempDir(), "client-token")
+	if err := os.WriteFile(tokenFile, []byte("tok.secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"--daemon-socket", socket, "--capability-token-file", tokenFile, "--repo", ".", "run", "drive", "--run-id", "run_1", "--once", "--json"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), `"action":"terminal"`) || !strings.Contains(stdout.String(), `"result":"completed"`) {
+		t.Fatalf("stdout = %s", stdout.String())
 	}
 }
 

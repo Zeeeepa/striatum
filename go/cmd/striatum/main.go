@@ -16,6 +16,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/localcommands"
 	"github.com/halbritt/striatum/go/pkg/cli/routes"
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
+	"github.com/halbritt/striatum/go/pkg/cli/rundrive"
 	cliskills "github.com/halbritt/striatum/go/pkg/cli/skills"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 	"github.com/halbritt/striatum/go/pkg/workflowgenerate"
@@ -56,6 +57,13 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	// must run before the daemon route; all trailing args pass through unchanged.
 	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "codex" {
 		return runCodex(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
+	}
+	if len(globals.CommandArgs) > 1 && globals.CommandArgs[0] == "run" && globals.CommandArgs[1] == "drive" {
+		driveArgs := append([]string(nil), globals.CommandArgs[2:]...)
+		if globals.JSONOutput && !containsFlag(driveArgs, "--json") {
+			driveArgs = append(driveArgs, "--json")
+		}
+		return runRunDrive(driveArgs, stdout, stderr, globals)
 	}
 	// #111: `workflow` (bare) and `workflow --help` carry no recognized subcommand,
 	// so localcommands.Lookup misses them and they fall to the daemon route as an
@@ -135,6 +143,10 @@ func usage(out io.Writer) {
 			subs[local] = map[string]bool{}
 		}
 	}
+	if subs["run"] == nil {
+		subs["run"] = map[string]bool{}
+	}
+	subs["run"]["drive"] = true
 	// #122: the daemon-routed workflow subcommands (accept-risk, accepted-risks)
 	// appear in routes.All() but the local authoring subcommands (validate,
 	// generate, templates) are dispatched in runWorkflow() before the daemon
@@ -181,9 +193,14 @@ func runDaemonRoute(args []string, stdout io.Writer, stderr io.Writer) int {
 }
 
 type leadingGlobals struct {
-	CommandArgs []string
-	RepoPath    string
-	JSONOutput  bool
+	CommandArgs  []string
+	RepoPath     string
+	RepositoryID string
+	SocketPath   string
+	Token        string
+	TokenFile    string
+	DeadlineMS   int
+	JSONOutput   bool
 }
 
 func parseLeadingGlobals(args []string) (leadingGlobals, error) {
@@ -214,6 +231,25 @@ func parseLeadingGlobals(args []string) (leadingGlobals, error) {
 			if key == "repo" {
 				globals.RepoPath = value
 			}
+			if key == "repository-id" {
+				globals.RepositoryID = value
+			}
+			if key == "daemon-socket" {
+				globals.SocketPath = value
+			}
+			if key == "capability-token" {
+				globals.Token = value
+			}
+			if key == "capability-token-file" {
+				globals.TokenFile = value
+			}
+			if key == "deadline-ms" {
+				parsed, err := strconv.Atoi(value)
+				if err != nil || parsed < 0 {
+					return leadingGlobals{}, fmt.Errorf("--deadline-ms must be a non-negative integer")
+				}
+				globals.DeadlineMS = parsed
+			}
 		default:
 			globals.CommandArgs = args[i:]
 			return globals, nil
@@ -229,6 +265,154 @@ func containsFlag(args []string, flag string) bool {
 		}
 	}
 	return false
+}
+
+func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals leadingGlobals) int {
+	runID := ""
+	interval := 15 * time.Second
+	once := false
+	jsonOutput := globals.JSONOutput
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if routes.IsHelpArg(arg) {
+			printRunDriveHelp(stdout)
+			return 0
+		}
+		if !strings.HasPrefix(arg, "--") {
+			if runID == "" {
+				runID = arg
+				continue
+			}
+			_, _ = fmt.Fprintf(stderr, "unexpected positional argument: %s\n", arg)
+			return 2
+		}
+		keyValue := strings.TrimPrefix(arg, "--")
+		key, value, hasValue := strings.Cut(keyValue, "=")
+		switch key {
+		case "run-id":
+			if !hasValue {
+				if i+1 >= len(args) {
+					_, _ = fmt.Fprintln(stderr, "--run-id requires a value")
+					return 2
+				}
+				value = args[i+1]
+				i++
+			}
+			runID = value
+		case "interval":
+			if !hasValue {
+				if i+1 >= len(args) {
+					_, _ = fmt.Fprintln(stderr, "--interval requires a value")
+					return 2
+				}
+				value = args[i+1]
+				i++
+			}
+			parsed, err := parseDriveInterval(value)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err.Error())
+				return 2
+			}
+			interval = parsed
+		case "once":
+			once = true
+		case "json":
+			jsonOutput = true
+		default:
+			_, _ = fmt.Fprintf(stderr, "unknown run drive flag: --%s\n", key)
+			return 2
+		}
+	}
+	if runID == "" {
+		_, _ = fmt.Fprintln(stderr, "run drive requires --run-id")
+		return 2
+	}
+	config, err := rpcclient.ResolveConfig(os.Environ(), globals.SocketPath, globals.Token, globals.TokenFile, globals.DeadlineMS)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	client := rpcclient.Client{Config: config}
+	ctx := context.Background()
+	repositoryID := globals.RepositoryID
+	repoRoot := globals.RepoPath
+	if repositoryID == "" {
+		repositoryID = envLookup(os.Environ(), "STRIATUM_REPOSITORY_ID")
+	}
+	if repositoryID == "" {
+		if repoRoot == "" {
+			if cwd, err := os.Getwd(); err == nil {
+				repoRoot = cwd
+			}
+		}
+		resolved, err := client.Invoke(ctx, "repo.resolve", map[string]any{"path": repoRoot})
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err.Error())
+			return rpcclient.ExitCode(err)
+		}
+		repositoryID, _ = resolved["repository_id"].(string)
+		if root, _ := resolved["repo_root"].(string); root != "" {
+			repoRoot = root
+		}
+	}
+	if repositoryID == "" {
+		_, _ = fmt.Fprintln(stderr, "repo.resolve response did not include repository_id")
+		return 1
+	}
+	err = rundrive.Run(ctx, client, rundrive.Options{
+		RepositoryID: repositoryID,
+		RunID:        runID,
+		RepoRoot:     repoRoot,
+		Interval:     interval,
+		Once:         once,
+		JSON:         jsonOutput,
+		Stdout:       stdout,
+		Stderr:       stderr,
+	})
+	if err == nil {
+		return 0
+	}
+	var terminal rundrive.TerminalError
+	if errors.As(err, &terminal) {
+		_, _ = fmt.Fprintln(stderr, terminal.Error())
+		return 1
+	}
+	_, _ = fmt.Fprintln(stderr, err.Error())
+	return rpcclient.ExitCode(err)
+}
+
+func parseDriveInterval(value string) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, fmt.Errorf("--interval requires a value")
+	}
+	if parsed, err := time.ParseDuration(value); err == nil {
+		if parsed <= 0 {
+			return 0, fmt.Errorf("--interval must be positive")
+		}
+		return parsed, nil
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return 0, fmt.Errorf("--interval must be a positive duration or seconds value")
+	}
+	return time.Duration(seconds) * time.Second, nil
+}
+
+func printRunDriveHelp(out io.Writer) {
+	_, _ = fmt.Fprintln(out, "usage: striatum run drive --run-id <id> [--interval 15s] [--once] [--json]")
+	_, _ = fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out, "Drive one run by registering and supervising lanes as queued jobs unblock.")
+	_, _ = fmt.Fprintln(out, "This is a local operator loop over existing daemon RPC methods; it adds no daemon method.")
+}
+
+func envLookup(env []string, key string) string {
+	for _, item := range env {
+		name, value, ok := strings.Cut(item, "=")
+		if ok && name == key {
+			return value
+		}
+	}
+	return ""
 }
 
 func runWorkflow(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {

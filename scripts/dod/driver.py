@@ -2,10 +2,9 @@
 """Unattended DoD driver: drive a multi-lane, review-gated, revision-capable run
 to completion with ZERO operator rescue, N times consecutively.
 
-"Unattended / zero rescue" = the driver only uses normal lane lifecycle verbs
-(register-session, supervise start, and closing a lane whose job already
-completed so a fresh-policy reviewer can register). It NEVER calls a rescue verb
-(requeue-stale, override-verdict, retry-job, force). A run that reaches
+"Unattended / zero rescue" = the driver delegates lane reconciliation to
+`striatum run drive`, which uses normal lane lifecycle verbs and never calls a
+rescue verb (requeue-stale, override-verdict, retry-job, force). A run that reaches
 `completed` this way is a clean pass; a run that hits needs_operator/failed (the
 daemon escalated -> a human would be needed) is a FAIL.
 
@@ -14,12 +13,10 @@ Per RFC 0105's outside-CI acceptance: the standing proof of "no human interventi
 import json
 import subprocess
 import sys
-import time
 
 REPO = sys.argv[1] if len(sys.argv) > 1 else "/tmp/striatum-floor-acceptance"
 WORKFLOW = sys.argv[2] if len(sys.argv) > 2 else "workflow.json"
 N = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-LANE = "claude"
 RUN_TIMEOUT = 1500   # 25 min per run (draft -> review -> optional revision cycle)
 POLL = 15
 
@@ -44,95 +41,31 @@ def run_state(summary):
     return summary.get("state")
 
 
-def jobs_of(summary):
-    return summary.get("jobs", []) or []
-
-
 def drive_run(run_id):
-    """Drive one run to terminal state using only lifecycle verbs. Returns
-    (ok, reason). ok=True iff the run reached `completed` with no escalation."""
-    launched = {}   # (workflow_job_id, attempt) -> session_id
+    """Drive one run to terminal state through the product run-drive loop.
+    Returns (ok, reason). ok=True iff the run reached `completed`."""
+    cmd = [
+        "striatum", "--repo", REPO,
+        "run", "drive",
+        "--run-id", run_id,
+        "--interval", str(POLL),
+        "--json",
+    ]
     try:
-        return _drive_loop(run_id, launched)
-    finally:
-        # Close any lane still open at exit so idle claude processes do not pile
-        # up across the N consecutive runs.
-        for sid in launched.values():
-            cli("supervise", "stop", "--session-id", sid,
-                "--reason", "DoD run finished; closing lane", check=False)
-
-
-def _drive_loop(run_id, launched):
-    deadline = time.time() + RUN_TIMEOUT
-    while time.time() < deadline:
-        s = cli("run", "summary", "--run-id", run_id, check=False)
-        if not isinstance(s, dict) or "_raw" in s:
-            time.sleep(POLL); continue
-        st = run_state(s)
-        if st == "completed":
-            return True, "completed"
-        if st in ("needs_operator", "failed", "canceled"):
-            return False, f"run state={st} (escalation / would need rescue)"
-        if st in ("waiting_human", "blocked_human"):
-            return False, f"run state={st} (human checkpoint — revision budget exhausted)"
-        jobs = jobs_of(s)
-        if jobs and all(j.get("state") == "completed" for j in jobs):
-            return True, "all jobs completed"
-        # 1) Close any lane whose job already completed, so a fresh-policy
-        #    reviewer can register (mirrors the manual close-author-before-reviewer).
-        for j in jobs:
-            key = (j.get("workflow_job_id"), j.get("attempt"))
-            if j.get("state") == "completed" and key in launched:
-                sid = launched.pop(key)
-                cli("supervise", "stop", "--session-id", sid,
-                    "--reason", "lane completed its job; closing for fresh-policy", check=False)
-        # 2) Launch a lane for each claimable job without one.
-        for j in jobs:
-            key = (j.get("workflow_job_id"), j.get("attempt"))
-            if j.get("state") == "queued" and key not in launched:
-                role = j.get("role_id") or ""
-                sid = register_lane(run_id, role)
-                if sid:
-                    sup = cli("supervise", "start", "--session-id", sid, check=False)
-                    if isinstance(sup, dict) and sup.get("state") in ("attached", "starting"):
-                        launched[key] = sid
-                        print(f"    launched {role} lane for {key} -> {sid}", flush=True)
-                    else:
-                        print(f"    supervise start failed for {key}: {sup}", flush=True)
-        time.sleep(POLL)
-    return False, "run timeout"
-
-
-def register_lane(run_id, role):
-    """register-session for role/LANE, handling the fresh-policy: if an active
-    same-run session blocks a fresh registration, close completed sessions and
-    retry once. Never uses --force-non-fresh (that would bypass the contract)."""
-    for attempt in range(2):
-        res = cli("register-session", "--run-id", run_id, "--role", role, "--lane", LANE, check=False)
-        if isinstance(res, dict) and res.get("session_id"):
-            return res["session_id"]
-        msg = json.dumps(res)
-        if "fresh" in msg and attempt == 0:
-            # close any active session whose job is done, then retry
-            close_completed_sessions(run_id)
-            time.sleep(2)
-            continue
-        print(f"    register-session({role}) failed: {res}", flush=True)
-        return None
-    return None
-
-
-def close_completed_sessions(run_id):
-    """Close active sessions whose role's job already completed, freeing the
-    fresh-policy for a downstream reviewer. `list sessions` returns {items:[...]}."""
-    s = cli("run", "summary", "--run-id", run_id, check=False)
-    done_roles = {j.get("role_id") for j in jobs_of(s) if j.get("state") == "completed"}
-    listing = cli("list", "sessions", "--run-id", run_id, check=False)
-    items = listing.get("items", []) if isinstance(listing, dict) else []
-    for sess in items:
-        if sess.get("state") == "active" and sess.get("role_id") in done_roles:
-            cli("supervise", "stop", "--session-id", sess.get("session_id"),
-                "--reason", "completed-job lane closed for fresh-policy", check=False)
+        result = subprocess.run(cmd, text=True, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False, "run timeout"
+    if result.returncode == 0:
+        return True, "completed"
+    summary = cli("run", "summary", "--run-id", run_id, check=False)
+    st = run_state(summary) if isinstance(summary, dict) else None
+    if st in ("needs_operator", "failed", "canceled"):
+        return False, f"run state={st} (escalation / would need rescue)"
+    if st in ("waiting_human", "blocked_human"):
+        return False, f"run state={st} (human checkpoint / revision budget exhausted)"
+    if st:
+        return False, f"run state={st}; run drive exit={result.returncode}"
+    return False, f"run drive exit={result.returncode}"
 
 
 def main():

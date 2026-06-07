@@ -1293,6 +1293,7 @@ striatum workflow templates
 striatum run prepare
 striatum branch confirm
 striatum run start
+striatum run drive
 striatum run summary
 striatum run graph
 
@@ -1347,6 +1348,14 @@ striatum adapter run
 
 Human read commands can pretty-print. `--json` returns stable machine-readable
 JSON. Mutation commands support JSON output for agent use.
+
+`striatum run drive --run-id <id> [--interval 15s] [--once] [--json]` is a
+CLI-local operator loop over existing daemon RPC methods. It re-reads run
+detail and sessions, registers/supervises fresh role-lane sessions as queued
+jobs unblock, adopts already-active matching sessions, and stops terminal or
+superseded launched lanes before fresh-reviewer registration. It is
+not a new daemon RPC method and does not use recovery, retry, override, or
+force-non-fresh verbs.
 
 ## Introspection
 
