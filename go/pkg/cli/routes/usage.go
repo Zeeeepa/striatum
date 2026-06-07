@@ -43,6 +43,16 @@ type Usage struct {
 // Only groups with an entry here render a full `--help`; others fall back to a
 // generic synopsis derived from the route metadata.
 var usageByGroup = map[string]Usage{
+	"status": {
+		Params: []Param{
+			{Name: "run-id", Help: "scope the snapshot to a single run; omit for the repo-wide view"},
+			{Name: "all-runs", Bool: true, Help: "include every historical run in the repo-wide view (default: active runs + the most recent terminal runs)"},
+			{Name: "run-limit", Help: "cap on recent terminal runs in the repo-wide default (default: 20; ignored with --all-runs or --run-id)"},
+		},
+		Notes: []string{
+			"By default the repo-wide view returns every active run plus the most recent terminal runs, and claimable_jobs / blocked_downstream_jobs exclude terminal runs (#193). Use --all-runs for the full history or --run-limit N to widen the terminal-run window.",
+		},
+	},
 	"why": {
 		Params: []Param{
 			{Name: "target-id", Positional: true, Required: true, Help: "id to explain — a run_id, job_id, session_id, message_id, lease_id, or blocker_id"},

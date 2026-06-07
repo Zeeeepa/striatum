@@ -42,8 +42,16 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			return nil, rpc.NewError("not_found", "run not found: "+runID, nil)
 		}
 	}
+	// #193: repo-wide status used to assemble every historical run, returning a
+	// 353KB payload no operator (human or agent) can scan and costing the daemon a
+	// full-history walk on the obvious first diagnostic command. Default the
+	// repo-wide view to the runs an operator actually acts on — every non-terminal
+	// run plus the most recent N terminal runs — and let --all-runs / --run-limit
+	// override. A run_id-scoped call is already bounded to that one run and ignores
+	// the window.
+	scope := resolveStatusRunScope(envelope, runID)
 
-	runs, err := statusRuns(ctx, runner, repositoryID, runID)
+	runs, err := statusRuns(ctx, runner, repositoryID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -72,11 +80,11 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	if err != nil {
 		return nil, err
 	}
-	claimable, err := statusClaimableJobs(ctx, runner, repositoryID, runID)
+	claimable, err := statusClaimableJobs(ctx, runner, repositoryID, scope)
 	if err != nil {
 		return nil, err
 	}
-	blockedDownstream, err := statusBlockedDownstreamJobs(ctx, runner, repositoryID, runID)
+	blockedDownstream, err := statusBlockedDownstreamJobs(ctx, runner, repositoryID, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -151,20 +159,114 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	return result, nil
 }
 
-func statusRuns(ctx context.Context, runner db.Runner, repositoryID, runID string) ([]map[string]any, error) {
-	where := "r.repository_id = $1"
-	args := []any{repositoryID}
-	if runID != "" {
-		where += " AND r.run_id = $2"
-		args = append(args, runID)
+// statusTerminalRunStatesSQL is the SQL list literal of terminal run states.
+// A run in one of these can never grow new claimable/blocked work, so it is
+// excluded from claimable_jobs / blocked_downstream_jobs and from the repo-wide
+// recent-runs default (#193). run.cancel refuses to cancel a completed/failed
+// run and produces 'canceled'; pause/resume refuse on completed/failed. Kept as
+// a single source of truth so the run-window and the claimable/blocked filters
+// agree.
+const statusTerminalRunStatesSQL = "('completed', 'failed', 'canceled')"
+
+// defaultStatusTerminalRunLimit bounds how many recent TERMINAL runs the
+// repo-wide default surfaces (non-terminal runs are always included in full).
+const defaultStatusTerminalRunLimit = 20
+
+// statusRunScope describes which runs a repo-wide status read should cover.
+type statusRunScope struct {
+	runID    string // non-empty: scoped to exactly this run (window ignored)
+	allRuns  bool   // --all-runs: no bounding (the legacy full-history behavior)
+	runLimit int    // recent-terminal-run cap for the repo-wide default
+}
+
+func resolveStatusRunScope(envelope rpc.Envelope, runID string) statusRunScope {
+	scope := statusRunScope{runID: runID, runLimit: defaultStatusTerminalRunLimit}
+	if statusBoolFlag(envelope, "all_runs") {
+		scope.allRuns = true
 	}
-	rows, err := collectRows(ctx, runner,
-		`SELECT r.run_id, r.state, r.branch_name, r.repo_root
-		   FROM striatumd.runs r
-		  WHERE `+where+`
-		  ORDER BY r.created_at, r.run_id`,
-		args...,
-	)
+	if v, ok := statusIntFlag(envelope, "run_limit"); ok && v >= 0 {
+		scope.runLimit = v
+	}
+	return scope
+}
+
+// statusBoolFlag reads an advisory boolean status flag. Status is a read path,
+// so a malformed flag falls back to the default rather than failing the whole
+// snapshot.
+func statusBoolFlag(envelope rpc.Envelope, key string) bool {
+	value, _ := envelope.Params[key].(bool)
+	return value
+}
+
+// statusIntFlag reads an advisory integer status flag, tolerating the int /
+// int64 / float64 forms the JSON/CLI param plumbing can produce. ok=false when
+// the flag is absent or not a number (the caller keeps its default).
+func statusIntFlag(envelope rpc.Envelope, key string) (int, bool) {
+	raw, ok := envelope.Params[key]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case int:
+		return v, true
+	case int32:
+		return int(v), true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
+}
+
+// repoWideBounded reports whether the scope is the bounded repo-wide default
+// (no run_id, not --all-runs).
+func (s statusRunScope) repoWideBounded() bool {
+	return s.runID == "" && !s.allRuns
+}
+
+func statusRuns(ctx context.Context, runner db.Runner, repositoryID string, scope statusRunScope) ([]map[string]any, error) {
+	args := []any{repositoryID}
+	var query string
+	switch {
+	case scope.runID != "":
+		args = append(args, scope.runID)
+		query = `SELECT r.run_id, r.state, r.branch_name, r.repo_root
+		           FROM striatumd.runs r
+		          WHERE r.repository_id = $1 AND r.run_id = $2
+		          ORDER BY r.created_at, r.run_id`
+	case scope.repoWideBounded():
+		// Every non-terminal run, plus the most recent N terminal runs. The LIMIT
+		// is scoped to the terminal arm (its own subquery) so it never truncates
+		// the always-included non-terminal runs.
+		args = append(args, scope.runLimit)
+		query = `WITH bounded AS (
+		            SELECT r.run_id, r.state, r.branch_name, r.repo_root, r.created_at
+		              FROM striatumd.runs r
+		             WHERE r.repository_id = $1
+		               AND r.state NOT IN ` + statusTerminalRunStatesSQL + `
+		             UNION ALL
+		            SELECT t.run_id, t.state, t.branch_name, t.repo_root, t.created_at
+		              FROM (
+		                SELECT r.run_id, r.state, r.branch_name, r.repo_root, r.created_at
+		                  FROM striatumd.runs r
+		                 WHERE r.repository_id = $1
+		                   AND r.state IN ` + statusTerminalRunStatesSQL + `
+		                 ORDER BY r.created_at DESC, r.run_id DESC
+		                 LIMIT $2
+		              ) t
+		          )
+		          SELECT run_id, state, branch_name, repo_root
+		            FROM bounded
+		           ORDER BY created_at, run_id`
+	default: // --all-runs: legacy full-history behavior
+		query = `SELECT r.run_id, r.state, r.branch_name, r.repo_root
+		           FROM striatumd.runs r
+		          WHERE r.repository_id = $1
+		          ORDER BY r.created_at, r.run_id`
+	}
+	rows, err := collectRows(ctx, runner, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -307,18 +409,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		sessionliveness.RemoveProjectionSourceFields(row)
 		supervisorID := stringFrom(row, "supervisor_id")
 		if supervisorID != "" && DrainHelperEventsHook != nil {
-			if tx, err := runner.BeginTx(ctx); err == nil {
-				_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
-				_ = tx.Commit(ctx)
-				metaRows, err := collectRows(ctx, runner,
-					`SELECT metadata_json FROM striatumd.process_supervisor_pointers
-					  WHERE repository_id = $1 AND supervisor_id = $2`,
-					repositoryID, supervisorID,
-				)
-				if err == nil && len(metaRows) > 0 {
-					row["supervisor_metadata_json"] = metaRows[0]["metadata_json"]
-				}
-			}
+			drainStatusHelperEvents(ctx, runner, repositoryID, supervisorID, row)
 		}
 		metadata := superviseObject(row["supervisor_metadata_json"])
 		attachSupervisorTmux(row, "supervisor_metadata_json")
@@ -347,6 +438,55 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		}
 	}
 	return rows, nil
+}
+
+// statusHelperDrainLockTimeout bounds how long the status read path will wait on
+// a supervisor row lock while opportunistically draining helper events (#193).
+const statusHelperDrainLockTimeout = "500ms"
+
+// drainStatusHelperEvents opportunistically drains a supervisor's helper FIFO
+// from the status READ path so the freshest PTY metadata shows up in the
+// snapshot. The drain takes `FOR UPDATE OF ps` on the supervisor row and writes
+// heartbeats, so under recovery/report contention it could otherwise block the
+// (read-only) status call for the full statement timeout — the >30s spike in
+// #193. A short SET LOCAL lock_timeout makes a contended lock fail fast (55P03);
+// the drain is then skipped, the transaction rolled back, and a
+// `helper_drain_skipped` note recorded on the session row. Status is advisory —
+// stale-by-one-cycle helper metadata is fine, a 30s+ stall is not — so degrading
+// gracefully here is strictly better than blocking.
+func drainStatusHelperEvents(ctx context.Context, runner db.Runner, repositoryID, supervisorID string, row map[string]any) {
+	tx, err := runner.BeginTx(ctx)
+	if err != nil {
+		return
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	// Bound the lock wait so a contended supervisor row cannot stall the read.
+	if err := tx.Exec(ctx, `SET LOCAL lock_timeout = '`+statusHelperDrainLockTimeout+`'`); err != nil {
+		return
+	}
+	if err := DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID); err != nil {
+		// Lock-timeout (or any drain error): skip without failing the read, and
+		// note it so a poller can tell the metadata may be one cycle stale.
+		row["helper_drain_skipped"] = true
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return
+	}
+	committed = true
+	metaRows, err := collectRows(ctx, runner,
+		`SELECT metadata_json FROM striatumd.process_supervisor_pointers
+		  WHERE repository_id = $1 AND supervisor_id = $2`,
+		repositoryID, supervisorID,
+	)
+	if err == nil && len(metaRows) > 0 {
+		row["supervisor_metadata_json"] = metaRows[0]["metadata_json"]
+	}
 }
 
 // decorateCheckpointResolveActions advertises the checkpoint.resolve actions
@@ -445,12 +585,20 @@ func statusVerdictsByPosture(ctx context.Context, runner db.Runner, repositoryID
 	return out, nil
 }
 
-func statusClaimableJobs(ctx context.Context, runner db.Runner, repositoryID, runID string) ([]map[string]any, error) {
+func statusClaimableJobs(ctx context.Context, runner db.Runner, repositoryID string, scope statusRunScope) ([]map[string]any, error) {
 	where := "q.repository_id = $1"
 	args := []any{repositoryID}
-	if runID != "" {
+	if scope.runID != "" {
 		where += " AND q.run_id = $2"
-		args = append(args, runID)
+		args = append(args, scope.runID)
+	} else {
+		// #193: a pending queue_message on a TERMINAL run (e.g. an orphan message
+		// left when run.cancel canceled the jobs but did not cancel the message) is
+		// not actionable work — no one should claim work for a completed/failed/
+		// canceled run. Exclude terminal runs so claimable_jobs never enumerates
+		// historical runs forever. The run_id-scoped call is left as-is (an explicit
+		// ask for one run, terminal or not).
+		where += " AND r.state NOT IN " + statusTerminalRunStatesSQL
 	}
 	return collectRows(ctx, runner,
 		`SELECT q.run_id, q.job_id, j.workflow_job_id,
@@ -460,6 +608,9 @@ func statusClaimableJobs(ctx context.Context, runner db.Runner, repositoryID, ru
 		   JOIN striatumd.jobs j
 		     ON j.repository_id = q.repository_id
 		    AND j.job_id = q.job_id
+		   JOIN striatumd.runs r
+		     ON r.repository_id = q.repository_id
+		    AND r.run_id = q.run_id
 		  WHERE `+where+`
 		    AND q.state = 'pending'
 		    AND (q.visible_after IS NULL OR q.visible_after <= now())
@@ -470,16 +621,23 @@ func statusClaimableJobs(ctx context.Context, runner db.Runner, repositoryID, ru
 	)
 }
 
-func statusBlockedDownstreamJobs(ctx context.Context, runner db.Runner, repositoryID, runID string) ([]map[string]any, error) {
+func statusBlockedDownstreamJobs(ctx context.Context, runner db.Runner, repositoryID string, scope statusRunScope) ([]map[string]any, error) {
 	where := "j.repository_id = $1 AND j.state = 'blocked'"
 	args := []any{repositoryID}
-	if runID != "" {
+	if scope.runID != "" {
 		where += " AND j.run_id = $2"
-		args = append(args, runID)
+		args = append(args, scope.runID)
+	} else {
+		// #193: a blocked job on a terminal run cannot become actionable; exclude
+		// terminal runs from the repo-wide enumeration.
+		where += " AND r.state NOT IN " + statusTerminalRunStatesSQL
 	}
 	return collectRows(ctx, runner,
 		`SELECT j.run_id, j.job_id, j.workflow_job_id, j.state
 		   FROM striatumd.jobs j
+		   JOIN striatumd.runs r
+		     ON r.repository_id = j.repository_id
+		    AND r.run_id = j.run_id
 		  WHERE `+where+`
 		  ORDER BY j.created_at, j.workflow_job_id`,
 		args...,
