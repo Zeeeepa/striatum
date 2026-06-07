@@ -1172,11 +1172,23 @@ func resolveAutonomousBlockersOnCompletion(ctx context.Context, tx db.TxRunner, 
 	if err != nil {
 		return err
 	}
+	resolvedRecoveryExhausted := false
 	for _, blocker := range openBlockers {
+		reason := "job_completed"
 		if isEscalationClassBlocker(blocker) {
-			// human_checkpoint and escalation-class blockers need a human; never
-			// auto-resolve them on completion.
-			continue
+			// #207 (part C): a recovery_exhausted blocker means "autonomous recovery
+			// could not reclaim THIS job". When the same job subsequently completes a
+			// genuine attempt, that premise is moot — the recovery exhaustion was a
+			// false alarm the job itself just disproved — so auto-close ONLY this
+			// escalation-by-exhaustion blocker against the completing job. Every other
+			// escalation-class kind (human_checkpoint and the genuinely-human kinds:
+			// ambiguous_goal, missing_authority, contradicting_decisions, etc.) still
+			// needs human adjudication and is left untouched.
+			if fmt.Sprint(blocker["blocker_kind"]) != recoveryExhaustedBlockerKind {
+				continue
+			}
+			reason = "recovery_exhausted_moot_after_job_completed"
+			resolvedRecoveryExhausted = true
 		}
 		blockerID := fmt.Sprint(blocker["blocker_id"])
 		if err := tx.Exec(ctx, `
@@ -1185,9 +1197,10 @@ func resolveAutonomousBlockersOnCompletion(ctx context.Context, tx db.TxRunner, 
 			 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
 			return err
 		}
-		// Resolve a matching escalation_inbox row defensively (autonomous
-		// blockers normally have none, but isEscalation and the inbox insert can
-		// drift; keep state coherent if one exists).
+		// Resolve a matching escalation_inbox row. Plain autonomous blockers
+		// normally have none (defensive), but a recovery_exhausted blocker DOES
+		// have one (escalateExhaustedJobs inserts it with the same id), so this is
+		// load-bearing for the #207 case.
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.escalation_inbox
 			   SET state = 'resolved', resolved_at = $1
@@ -1198,10 +1211,57 @@ func resolveAutonomousBlockersOnCompletion(ctx context.Context, tx db.TxRunner, 
 			"blocker_id":   blockerID,
 			"severity":     blocker["severity"],
 			"blocker_kind": blocker["blocker_kind"],
-			"reason":       "job_completed",
+			"reason":       reason,
 		}); err != nil {
 			return err
 		}
+	}
+
+	// #207 (part C): if we just cleared the completing job's moot recovery_exhausted
+	// escalation, restore the run from needs_operator to running — but ONLY when no
+	// OTHER open escalation-class blocker remains anywhere in the run. A genuine
+	// human_checkpoint or human escalation on a sibling job must keep the run
+	// frozen; this only unfreezes a run whose sole reason for being needs_operator
+	// was the now-disproven recovery exhaustion. Mirrors escalation.resolve's
+	// needs_operator -> running restore (reads/escalation_resolve.go).
+	if !resolvedRecoveryExhausted {
+		return nil
+	}
+	remaining, err := queryRows(ctx, tx, `
+		SELECT blocker_id, severity, blocker_kind
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND run_id = $2 AND state = 'open'`, repositoryID, runID)
+	if err != nil {
+		return err
+	}
+	for _, blocker := range remaining {
+		if isEscalationClassBlocker(blocker) {
+			// Another escalation still needs a human; leave the run needs_operator.
+			return nil
+		}
+	}
+	// Only flip + emit run.resumed when the run is actually needs_operator (a run
+	// already running, or terminal/canceled, must not be revived). striatumd.runs
+	// has no updated_at column, so the state flip is the only mutation.
+	run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+	if err != nil {
+		return err
+	}
+	if fmt.Sprint(run["state"]) != "needs_operator" {
+		return nil
+	}
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET state = 'running'
+		 WHERE repository_id = $1 AND run_id = $2 AND state = 'needs_operator'`,
+		repositoryID, runID); err != nil {
+		return err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.resumed", sessionID, jobID, nil, nil, nil, map[string]any{
+		"reason":     "recovery_exhausted_moot_after_job_completed",
+		"from_state": "needs_operator",
+	}); err != nil {
+		return err
 	}
 	return nil
 }

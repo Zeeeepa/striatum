@@ -86,6 +86,23 @@ func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID 
 		return nil, rpc.NewError("branch_confirmation_required", "branch confirmation and run start are required before claims", nil)
 	}
 	if state != "running" {
+		// #207 (part A): a bare no_work when the run is needs_operator is an
+		// invisible gate — a fresh, eligible session polls a pending, immediately
+		// visible message and gets no_work forever, with no signal that the run is
+		// frozen pending an operator. Surface the reason (mirroring the #107
+		// fresh_session ineligibility pattern) and, when cheaply queryable, the open
+		// escalation/blocker id so the operator knows exactly what to resolve.
+		if state == "needs_operator" {
+			res := map[string]any{
+				"status":            "no_work",
+				"ineligible_reason": "run_needs_operator",
+				"hint":              "the run is frozen pending an operator; resolve the open escalation (striatum escalation resolve <id>) or otherwise return the run to running before this session can claim work.",
+			}
+			if blockerID := openEscalationBlockerForRun(ctx, tx, repositoryID, runID); blockerID != "" {
+				res["blocker_id"] = blockerID
+			}
+			return res, nil
+		}
 		return map[string]any{"status": "no_work"}, nil
 	}
 	if nullable(run["paused_at"]) != nil {
@@ -1453,6 +1470,9 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			if v, ok := res["workflow_job_id"]; ok {
 				env["workflow_job_id"] = v
 			}
+			if v, ok := res["blocker_id"]; ok {
+				env["blocker_id"] = v
+			}
 			if v, ok := res["hint"]; ok {
 				env["hint"] = v
 			}
@@ -1527,6 +1547,23 @@ func freshSessionBlockedWorkflowJob(ctx context.Context, runner any, repositoryI
 		return ""
 	}
 	return fmt.Sprint(row["workflow_job_id"])
+}
+
+// openEscalationBlockerForRun returns the id of an open escalation-inbox row for
+// the run (the thing an operator resolves to clear needs_operator), best-effort:
+// empty string on any error or when none exists. Used to enrich the #207 part A
+// run_needs_operator claim response so the operator knows exactly what to resolve.
+func openEscalationBlockerForRun(ctx context.Context, runner any, repositoryID, runID string) string {
+	row, err := oneRow(ctx, runner, `
+		SELECT escalation_id
+		  FROM striatumd.escalation_inbox
+		 WHERE repository_id = $1 AND run_id = $2 AND state <> 'resolved'
+		 ORDER BY created_at DESC
+		 LIMIT 1`, repositoryID, runID)
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprint(row["escalation_id"])
 }
 
 func awaitNoneEnvelope() map[string]any {
