@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.31.0 — 2026-06-07
+
 ### Runtime read-scope least privilege — identity surfaces (#164, RFC 0114 / D173)
 
 - **Owner bundle 0006** (`go/pkg/db/sql/owner/0006_identity_read_scope.sql`,
