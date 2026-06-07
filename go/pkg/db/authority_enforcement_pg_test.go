@@ -653,6 +653,133 @@ func TestTokenSecretColumnsUseAuthorityProjection(t *testing.T) {
 	}
 }
 
+// TestPrincipalProjectionsRequireDaemonAuthority pins the RFC 0114 projection
+// gate: each owner bundle 0006 SECURITY DEFINER projection raises through
+// striatumd.assert_daemon_authority() under a wrong or absent secret (SQLSTATE
+// 28000) and returns rows under the correct one, called as the runtime role.
+func TestPrincipalProjectionsRequireDaemonAuthority(t *testing.T) {
+	ownerPool, runtimePool := pgtest.Pools(t)
+	ctx := context.Background()
+	if _, _, err := db.ApplyOwnerBundles(ctx, ownerPool.Runner, "test"); err != nil {
+		t.Fatalf("apply owner bundle: %v", err)
+	}
+
+	const authoritySecret = "identity-projection-secret"
+	const authoritySalt = "identity-projection-salt"
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-identity', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		authoritySecret, authoritySalt); err != nil {
+		t.Fatalf("register authority secret: %v", err)
+	}
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.principals(principal_id, principal_kind, display_name, created_at)
+		VALUES ('prin_proj', 'human', 'projection person', now())`); err != nil {
+		t.Fatalf("seed principal: %v", err)
+	}
+	if err := ownerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.principal_clients(principal_id, client_id, linked_at)
+		VALUES ('prin_proj', 'client_proj', now())`); err != nil {
+		t.Fatalf("seed principal link: %v", err)
+	}
+
+	calls := []struct {
+		name string
+		sql  string
+		arg  any
+	}{
+		{"get_principal", "SELECT principal_id FROM striatumd.get_principal($1, $2)", "prin_proj"},
+		{"resolve_principal_for_client", "SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)", "client_proj"},
+		{"list_principal_scopes", "SELECT striatumd.list_principal_scopes($1)", nil},
+	}
+	for _, call := range calls {
+		for _, secret := range []string{"", "wrong-secret"} {
+			args := []any{secret}
+			if call.arg != nil {
+				args = append(args, call.arg)
+			}
+			var value string
+			err := runtimePool.Runner.QueryRow(ctx, call.sql, args...).Scan(&value)
+			if code := pgErrCode(err); code != "28000" {
+				t.Fatalf("%s with secret %q got err=%v code=%q, want SQLSTATE 28000", call.name, secret, err, code)
+			}
+		}
+	}
+
+	var principalID string
+	if err := runtimePool.Runner.QueryRow(ctx,
+		"SELECT principal_id FROM striatumd.get_principal($1, $2)",
+		authoritySecret, "prin_proj").Scan(&principalID); err != nil || principalID != "prin_proj" {
+		t.Fatalf("authorized get_principal = (%q, %v), want prin_proj", principalID, err)
+	}
+	if err := runtimePool.Runner.QueryRow(ctx,
+		"SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)",
+		authoritySecret, "client_proj").Scan(&principalID); err != nil || principalID != "prin_proj" {
+		t.Fatalf("authorized resolve_principal_for_client = (%q, %v), want prin_proj", principalID, err)
+	}
+	var payload string
+	if err := runtimePool.Runner.QueryRow(ctx,
+		"SELECT striatumd.list_principal_scopes($1)", authoritySecret).Scan(&payload); err != nil {
+		t.Fatalf("authorized list_principal_scopes: %v", err)
+	}
+	if !strings.Contains(payload, "prin_proj") {
+		t.Fatalf("list_principal_scopes payload %q does not contain the seeded principal", payload)
+	}
+}
+
+// TestReassertReadRevokesReclosesIdentitySelect extends the bundle 0005 drift
+// test to the RFC 0114 surfaces: an owner re-grant of broad SELECT on
+// principals / principal_clients / client_sessions is re-closed by
+// ReassertReadRevokes — which still re-closes the 0005 clients columns too.
+func TestReassertReadRevokesReclosesIdentitySelect(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+
+	for _, stmt := range []string{
+		"GRANT SELECT ON striatumd.principals TO striatumd_rw",
+		"GRANT SELECT ON striatumd.principal_clients TO striatumd_rw",
+		"GRANT SELECT ON striatumd.client_sessions TO striatumd_rw",
+		"GRANT SELECT (token_hash, token_salt) ON striatumd.clients TO striatumd_rw",
+	} {
+		if err := pool.Runner.Exec(ctx, stmt); err != nil {
+			t.Fatalf("simulate read grant drift (%q): %v", stmt, err)
+		}
+	}
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.principals', 'SELECT')::text") != "true" {
+		t.Fatal("read grant drift setup failed: principals SELECT did not reopen")
+	}
+
+	if err := db.ReassertReadRevokes(ctx, pool.Runner); err != nil {
+		t.Fatalf("reassert read revokes: %v", err)
+	}
+
+	for _, table := range []string{"principals", "client_sessions"} {
+		if scalar(t, ctx, pool.Runner,
+			"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, 'SELECT')::text", table) != "false" {
+			t.Fatalf("ReassertReadRevokes did not re-close %s SELECT", table)
+		}
+	}
+	if hasColumnSelect(t, ctx, pool.Runner, "principal_clients", "principal_id") {
+		t.Fatal("ReassertReadRevokes did not re-close principal_clients.principal_id")
+	}
+	if !hasColumnSelect(t, ctx, pool.Runner, "principal_clients", "client_id") {
+		t.Fatal("ReassertReadRevokes stranded the principal_clients.client_id grant-back")
+	}
+	if hasColumnSelect(t, ctx, pool.Runner, "clients", "token_hash") ||
+		hasColumnSelect(t, ctx, pool.Runner, "clients", "token_salt") {
+		t.Fatal("ReassertReadRevokes no longer re-closes the bundle 0005 clients token columns")
+	}
+	for _, table := range []string{"principals", "principal_clients", "client_sessions"} {
+		for _, privilege := range []string{"INSERT", "UPDATE", "DELETE"} {
+			if scalar(t, ctx, pool.Runner,
+				"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, $2)::text", table, privilege) != "true" {
+				t.Fatalf("ReassertReadRevokes stranded %s %s; the DML grant-backs must be restated", table, privilege)
+			}
+		}
+	}
+}
+
 // TestSDHardening is T-SD-HARDEN: the owner-owned write functions are SECURITY
 // DEFINER with a pinned search_path and no PUBLIC execute.
 func TestSDHardening(t *testing.T) {

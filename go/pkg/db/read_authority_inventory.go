@@ -23,6 +23,10 @@ const (
 	ReadClassRuntimeParity ReadAuthorityClass = "runtime_parity_select"
 	// ReadClassRuntimeDenied: the runtime role must not hold SELECT.
 	ReadClassRuntimeDenied ReadAuthorityClass = "runtime_select_denied"
+	// ReadClassRuntimeProjection: the table is readable by the daemon only
+	// through daemon-authorized SECURITY DEFINER projections; the runtime role
+	// holds no table SELECT (RFC 0114, owner bundle 0006).
+	ReadClassRuntimeProjection ReadAuthorityClass = "runtime_projection_read"
 )
 
 var readAuthorityInventory = map[string]ReadAuthorityClass{
@@ -30,6 +34,17 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"daemon_auth_registry": ReadClassRuntimeDenied,
 	"daemon_auth_log":      ReadClassRuntimeDenied,
 	"owner_bundle_meta":    ReadClassRuntimeDenied,
+
+	// RFC 0114 / owner bundle 0006: session↔credential linkage, denied with no
+	// projection — nothing in go/ consumes it (the table is vestigial since the
+	// Python runtime retired; any future session-tracking consumer must read
+	// through a new daemon-authorized projection, never via a re-grant).
+	"client_sessions": ReadClassRuntimeDenied,
+
+	// RFC 0114 / owner bundle 0006: identity prose readable only through the
+	// daemon-authorized projections (get_principal,
+	// resolve_principal_for_client, list_principal_scopes).
+	"principals": ReadClassRuntimeProjection,
 
 	// Startup parity: owner-maintained, intentionally runtime-readable.
 	"schema_authority": ReadClassRuntimeParity,
@@ -39,7 +54,6 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"artifacts":                   ReadClassRuntimeSensitive,
 	"blockers":                    ReadClassRuntimeSensitive,
 	"client_capabilities":         ReadClassRuntimeSensitive,
-	"client_sessions":             ReadClassRuntimeSensitive,
 	"clients":                     ReadClassRuntimeSensitive,
 	"command_requests":            ReadClassRuntimeSensitive,
 	"conversations":               ReadClassRuntimeSensitive,
@@ -55,7 +69,6 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"jobs":                        ReadClassRuntimeSensitive,
 	"leases":                      ReadClassRuntimeSensitive,
 	"principal_clients":           ReadClassRuntimeSensitive,
-	"principals":                  ReadClassRuntimeSensitive,
 	"process_executions":          ReadClassRuntimeSensitive,
 	"process_supervisor_pointers": ReadClassRuntimeSensitive,
 	"process_supervisors":         ReadClassRuntimeSensitive,
@@ -118,9 +131,14 @@ func RuntimeSensitiveReadTables() []string {
 }
 
 // RuntimeDeniedReadColumns returns the narrow column-level denials that have
-// landed ahead of the full #164 table/projection split.
+// landed ahead of the full #164 table/projection split. principal_clients
+// stays runtime_sensitive_select with a column gate (the clients precedent):
+// principal_id — the column that makes the linkage an attribution graph — is
+// denied, while client_id/linked_at/unlinked_at remain selectable for the
+// live UPDATE ... WHERE in admin/tokens.go (RFC 0114).
 func RuntimeDeniedReadColumns() map[string][]string {
 	return map[string][]string{
-		"clients": {"token_hash", "token_salt"},
+		"clients":           {"token_hash", "token_salt"},
+		"principal_clients": {"principal_id"},
 	}
 }

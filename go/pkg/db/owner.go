@@ -17,7 +17,7 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 5
+const LatestOwnerBundleVersion = 6
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
@@ -28,6 +28,7 @@ var ownerBundleLabels = map[int]string{
 	3: "phase 1 audit_artifacts: append_artifact_row SD fn + artifacts INSERT revoke (RFC 0110 §7)",
 	4: "phase 2 full: append_event_row SD fn (in-DB v3 hash + transcript exclusion) + events INSERT revoke (RFC 0110 §7)",
 	5: "runtime read scope R1: token-secret projections + clients secret-column SELECT revoke (RFC 0113)",
+	6: "runtime read scope R1 step 2: principal/session identity projections + SELECT revokes + ownership transfer (RFC 0114)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -167,28 +168,63 @@ func ReassertWriteRevokes(ctx context.Context, runner Runner) error {
 	return nil
 }
 
-// ReassertReadRevokes re-applies read-scope revokes for authority-protected
-// read projections stamped by owner bundles. It is intentionally narrower than
-// the final #164 read split: bundle 0005 closes only the token secret columns
-// on clients while leaving non-secret client metadata directly readable for
-// existing daemon operations.
-func ReassertReadRevokes(ctx context.Context, runner Runner) error {
-	stamped, present, err := readStampedCapabilities(ctx, runner)
-	if err != nil {
-		return err
-	}
-	if !present || !toSet(stamped)["auth_projection_read"] {
-		return nil
-	}
-	for _, stmt := range []string{
+// readScopeReasserts maps each read-projection capability stamp to the revoke
+// + grant-back statements its owner bundle uses to close the surface (the read
+// analog of capabilityProtectedTable). Stamps drive re-assertion, so a
+// deployment re-closes exactly the surfaces its applied bundles closed — never
+// a surface whose bundle is unapplied. The statement lists restate the bundle
+// SQL verbatim; the bundle and this map together fully determine the
+// post-close ACL.
+var readScopeReasserts = map[string][]string{
+	// Bundle 0005 (RFC 0113 R1): only the token secret columns on clients are
+	// closed; non-secret client metadata stays directly readable.
+	"auth_projection_read": {
 		"REVOKE SELECT ON striatumd.clients FROM striatumd_rw",
 		`GRANT SELECT (
 		  client_id, client_kind, display_name, token_id,
 		  created_at, expires_at, revoked_at, last_used_at
 		) ON striatumd.clients TO striatumd_rw`,
-	} {
-		if err := runner.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("reassert read revoke on clients: %w", err)
+	},
+	// Bundle 0006 (RFC 0114): principals and client_sessions are fully read
+	// denied; principal_clients keeps the column gate (principal_id denied,
+	// client_id/linked_at/unlinked_at preserved for the live UPDATE ... WHERE
+	// in admin/tokens.go). DML grant-backs are restated so a drift repair
+	// cannot strand the write surface.
+	"identity_projection_read": {
+		"REVOKE SELECT ON striatumd.client_sessions FROM striatumd_rw",
+		"GRANT INSERT, UPDATE, DELETE ON striatumd.client_sessions TO striatumd_rw",
+		"REVOKE SELECT ON striatumd.principals FROM striatumd_rw",
+		"GRANT INSERT, UPDATE, DELETE ON striatumd.principals TO striatumd_rw",
+		"REVOKE SELECT ON striatumd.principal_clients FROM striatumd_rw",
+		`GRANT SELECT (client_id, linked_at, unlinked_at)
+		  ON striatumd.principal_clients TO striatumd_rw`,
+		"GRANT INSERT, UPDATE, DELETE ON striatumd.principal_clients TO striatumd_rw",
+	},
+}
+
+// ReassertReadRevokes re-applies read-scope revokes for authority-protected
+// read projections stamped by owner bundles. Like ReassertWriteRevokes it is
+// map-driven from the stamps, so it re-closes exactly the read surfaces the
+// applied bundles closed. Run as the owner; a no-op when no authority schema
+// is present. `striatum daemon owner-ddl apply` calls it after
+// ApplyOwnerBundles, making a re-run the documented grant-drift repair.
+func ReassertReadRevokes(ctx context.Context, runner Runner) error {
+	stamped, present, err := readStampedCapabilities(ctx, runner)
+	if err != nil {
+		return err
+	}
+	if !present {
+		return nil
+	}
+	for _, capability := range stamped {
+		stmts, ok := readScopeReasserts[capability]
+		if !ok {
+			continue
+		}
+		for _, stmt := range stmts {
+			if err := runner.Exec(ctx, stmt); err != nil {
+				return fmt.Errorf("reassert read revokes for %s: %w", capability, err)
+			}
 		}
 	}
 	return nil

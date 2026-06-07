@@ -174,8 +174,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 
 	// RFC 0110 / #164: report the separate read-scope posture. This is not part
 	// of pg_write_boundary because current phases intentionally do not claim
-	// private-read denial for a live runtime credential.
-	pgReadScopeBlock := pgReadScopeDoctorBlock()
+	// private-read denial for a live runtime credential. Since RFC 0114 the
+	// posture is derived from schema_authority stamps + live privilege and
+	// ownership probes rather than hard-coded.
+	pgReadScopeBlock := pgReadScopeDoctorBlock(ctx, runner)
 
 	skillsBlock := map[string]any{"checked": false}
 	if repoRoot := doctorRepoRoot(ctx, runner, repositoryID); repoRoot != "" {

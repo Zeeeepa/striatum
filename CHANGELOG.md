@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+### Runtime read-scope least privilege — identity surfaces (#164, RFC 0114 / D173)
+
+- **Owner bundle 0006** (`go/pkg/db/sql/owner/0006_identity_read_scope.sql`,
+  owner-applied out-of-band via `striatum daemon owner-ddl apply`): transfers
+  ownership of `striatumd.principals`, `striatumd.principal_clients`, and
+  `striatumd.client_sessions` to the owner role FIRST (a `REVOKE` against a
+  runtime-owned table is not a boundary — the owning role can self-re-grant),
+  then installs owner-owned `SECURITY DEFINER` projections gated by
+  `assert_daemon_authority()` (`get_principal`,
+  `resolve_principal_for_client`, `list_principal_scopes`) and revokes direct
+  runtime `SELECT`: `principals` and `client_sessions` fully denied;
+  `principal_clients` column-gated (`principal_id` denied;
+  `client_id`/`linked_at`/`unlinked_at` stay readable for the live
+  `UPDATE ... WHERE` in token rotation). DML grants are preserved exactly.
+- Principal read paths in `go/pkg/admin` now route through the projections
+  when daemon authority is bootstrapped, with SQLSTATE `42883` fallback to the
+  direct SQL while bundle 0006 is unapplied (and permanently for secretless /
+  un-adopted databases). DTO shapes are byte-identical (projection bodies are
+  verbatim transplants).
+- `ReassertReadRevokes` is map-driven from the capability stamps
+  (`auth_projection_read`, `identity_projection_read`), and
+  `striatum daemon owner-ddl apply` now re-runs the write + read reasserts
+  after the bundles — re-running it is the documented grant-drift repair.
+- `daemon doctor` `pg_read_scope.posture` is now DERIVED from
+  `schema_authority` stamps + live privilege/ownership probes instead of
+  hard-coded: `partial_projection_gated` once bundle 0006 is stamped and
+  verified, `broad_runtime_select` otherwise, with a `grant_drift` array
+  naming failing surfaces. `private_read_denial` stays `false` (RFC 0113
+  R2/R3 remain open). Per-surface gates report
+  `stamped`/`verified`/`owner_ok`.
+- Read-authority inventory: new class `runtime_projection_read`
+  (`principals`); `client_sessions` reclassified `runtime_select_denied`;
+  `principal_clients.principal_id` added to the denied-columns map. PG-gated
+  guards cover column denial, direct-read `42501`, unauthorized projection
+  `28000`, projection parity, ownership-transfer self-re-grant refutation,
+  grant-drift repair, post-close principal/link/rotation semantics, and the
+  doctor posture derivation in both states.
+
 ### Fixed
 
 - `supervise start` no longer marks a live cross-user (run-as) agent-loop

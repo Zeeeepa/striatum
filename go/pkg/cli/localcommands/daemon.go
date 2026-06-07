@@ -114,6 +114,18 @@ func runDaemonOwnerDDL(args []string, stdout, stderr io.Writer, version string) 
 		_, _ = fmt.Fprintf(stderr, "daemon owner-ddl apply failed: %v\n", err)
 		return 1
 	}
+	// Re-applying a stamped bundle is a no-op, so grant-drift repair needs an
+	// explicit re-assert: after the bundles, re-close every stamped write and
+	// read surface (RFC 0110 §6 C-GRANT-DRIFT, RFC 0114). Re-running
+	// `striatum daemon owner-ddl apply` is the documented drift-repair action.
+	if err := db.ReassertWriteRevokes(context.Background(), pool.Runner); err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon owner-ddl reassert write revokes failed: %v\n", err)
+		return 1
+	}
+	if err := db.ReassertReadRevokes(context.Background(), pool.Runner); err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon owner-ddl reassert read revokes failed: %v\n", err)
+		return 1
+	}
 	if jsonOutput {
 		return writeDaemonJSON(stdout, stderr, map[string]any{"ok": true, "data": map[string]any{
 			"applied_versions": applied, "owner_bundle_version": bundleVersion, "dsn_source": cfg.Source,

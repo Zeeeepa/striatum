@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -21,6 +23,70 @@ type principalQuerier interface {
 	Exec(ctx context.Context, sql string, args ...any) error
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 	QueryScalar(ctx context.Context, sql string, args ...any) (string, error)
+}
+
+// boundQueryRower is the optional extended-protocol single-row query surface
+// (C-EXTENDED-AUTH-PRELUDE). Both db.PgxRunner and *db.PgxTxRunner implement
+// it; canned test fakes do not, and take the direct-SQL path below.
+type boundQueryRower interface {
+	QueryRowBound(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// queryIdentityRow reads one row from an RFC 0114 gated identity surface
+// (principals / principal_clients) through the dual path that combines the two
+// landed precedents (PostgresAuthorizer.authorizeWithProjection's 42883
+// fallback, loadTokenForUpdate's secret gate):
+//
+//   - With a bootstrapped authority secret and a bound-capable querier, call
+//     the owner-owned SECURITY DEFINER projection via QueryRowBound — extended
+//     protocol, so the secret travels in Bind messages and never appears in
+//     pg_stat_activity query text — passing the secret as the first argument.
+//   - On SQLSTATE 42883 (function absent: authority bootstrapped but owner
+//     bundle 0006 not yet applied) fall back to today's direct SQL, preserving
+//     pre-bundle behavior.
+//   - Secretless daemons (un-adopted database, direct handler unit tests) run
+//     the direct SQL permanently; nothing changes there.
+//
+// Any other error surfaces: after bundle 0006 a direct read by a secretless
+// daemon fails 42501, which is a real misconfiguration and must be visible,
+// not masked — the same posture loadTokenForUpdate takes.
+func queryIdentityRow(ctx context.Context, q principalQuerier, projectionSQL, directSQL string, scan func(row db.Row) error, args ...any) error {
+	secret := db.AuthorityFromContext(ctx).Secret
+	if bound, ok := q.(boundQueryRower); ok && secret != "" {
+		boundArgs := append([]any{secret}, args...)
+		err := scan(bound.QueryRowBound(ctx, projectionSQL, boundArgs...))
+		if err == nil || principalPgErrCode(err) != "42883" {
+			return err
+		}
+	}
+	return scan(q.QueryRow(ctx, directSQL, args...))
+}
+
+// principalExists reports whether a principal row exists, through the
+// get_principal projection when daemon authority is available.
+func principalExists(ctx context.Context, q principalQuerier, principalID string) (bool, error) {
+	var one string
+	err := queryIdentityRow(ctx, q,
+		`SELECT '1' FROM striatumd.get_principal($1, $2)`,
+		`SELECT '1' FROM striatumd.principals WHERE principal_id = $1`,
+		func(row db.Row) error { return row.Scan(&one) },
+		principalID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func principalPgErrCode(err error) string {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code
+	}
+	return ""
 }
 
 // principalKinds enumerates the RFC 0107 principal kinds. `human` generalizes
@@ -87,10 +153,12 @@ func CreatePrincipal(ctx context.Context, q principalQuerier, principalID, kind,
 	}
 	now := time.Now().UTC()
 	var existingKind, existingName string
-	err := q.QueryRow(ctx,
+	err := queryIdentityRow(ctx, q,
+		`SELECT principal_kind, display_name FROM striatumd.get_principal($1, $2)`,
 		`SELECT principal_kind, display_name FROM striatumd.principals WHERE principal_id = $1`,
+		func(row db.Row) error { return row.Scan(&existingKind, &existingName) },
 		principalID,
-	).Scan(&existingKind, &existingName)
+	)
 	switch {
 	case err == nil:
 		if existingKind != kind || existingName != displayName {
@@ -118,19 +186,30 @@ func LinkClientToPrincipal(ctx context.Context, q principalQuerier, principalID,
 	if principalID == "" || clientID == "" {
 		return rpc.NewError("schema_invalid", "principal_id and client_id must be non-empty", nil)
 	}
-	exists, err := q.QueryScalar(ctx,
-		`SELECT '1' FROM striatumd.principals WHERE principal_id = $1`, principalID)
+	exists, err := principalExists(ctx, q, principalID)
 	if err != nil {
 		return err
 	}
-	if exists == "" {
+	if !exists {
 		return rpc.NewError("not_found", fmt.Sprintf("unknown principal %q", principalID), nil)
 	}
 	// Already actively linked? Same principal => idempotent; different => refuse.
-	current, err := q.QueryScalar(ctx,
+	// principal_id is the bundle-0006 gated column, so the active-link check
+	// reads through the resolve_principal_for_client projection; the direct
+	// fallback is the pre-bundle query. The projection's join to principals
+	// cannot change the result: principal_clients.principal_id carries a real
+	// FK to principals, so an active link always joins.
+	var current string
+	err = queryIdentityRow(ctx, q,
+		`SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)`,
 		`SELECT principal_id FROM striatumd.principal_clients
-		  WHERE client_id = $1 AND unlinked_at IS NULL`, clientID)
-	if err != nil {
+		  WHERE client_id = $1 AND unlinked_at IS NULL`,
+		func(row db.Row) error { return row.Scan(&current) },
+		clientID,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		current = ""
+	} else if err != nil {
 		return err
 	}
 	if current != "" {
@@ -163,13 +242,18 @@ func ResolvePrincipalForClient(ctx context.Context, q principalQuerier, clientID
 	}
 	var ref PrincipalRef
 	var disabledAt pgtype.Timestamptz
-	err := q.QueryRow(ctx,
+	err := queryIdentityRow(ctx, q,
+		`SELECT principal_id, principal_kind, display_name, disabled_at
+		   FROM striatumd.resolve_principal_for_client($1, $2)`,
 		`SELECT p.principal_id, p.principal_kind, p.display_name, p.disabled_at
 		   FROM striatumd.principal_clients pc
 		   JOIN striatumd.principals p ON p.principal_id = pc.principal_id
 		  WHERE pc.client_id = $1 AND pc.unlinked_at IS NULL`,
+		func(row db.Row) error {
+			return row.Scan(&ref.PrincipalID, &ref.Kind, &ref.DisplayName, &disabledAt)
+		},
 		clientID,
-	).Scan(&ref.PrincipalID, &ref.Kind, &ref.DisplayName, &disabledAt)
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return PrincipalRef{}, false, nil
@@ -187,7 +271,12 @@ func ResolvePrincipalForClient(ctx context.Context, q principalQuerier, clientID
 // grant on a repository it was not granted, which is the cross-principal +
 // cross-repo isolation the operator must be able to inspect.
 func ListPrincipals(ctx context.Context, q principalQuerier) ([]PrincipalScope, error) {
-	payload, err := q.QueryScalar(ctx, `
+	// The projection body is a verbatim transplant of the direct aggregate, so
+	// the JSON payload — and therefore the PrincipalScope decode — is
+	// bit-identical on both paths.
+	var payload string
+	err := queryIdentityRow(ctx, q,
+		`SELECT striatumd.list_principal_scopes($1)`, `
 		WITH grants AS (
 		  SELECT pc.principal_id,
 		         cc.capability,
@@ -241,6 +330,7 @@ func ListPrincipals(ctx context.Context, q principalQuerier) ([]PrincipalScope, 
 		)::text
 		  FROM striatumd.principals p
 		  LEFT JOIN client_counts cc ON cc.principal_id = p.principal_id`,
+		func(row db.Row) error { return row.Scan(&payload) },
 	)
 	if err != nil {
 		return nil, err
@@ -275,13 +365,12 @@ func attributeClientToPrincipal(ctx context.Context, q principalQuerier, params 
 	if principalID == "" {
 		return nil
 	}
-	exists, err := q.QueryScalar(ctx,
-		`SELECT '1' FROM striatumd.principals WHERE principal_id = $1`, principalID)
+	exists, err := principalExists(ctx, q, principalID)
 	if err != nil {
 		return err
 	}
 	switch {
-	case exists == "":
+	case !exists:
 		if principalKind == "" || principalDisplayName == "" {
 			return rpc.NewError("not_found", fmt.Sprintf("unknown principal %q; supply principal_kind and principal_display_name to create it", principalID), nil)
 		}
