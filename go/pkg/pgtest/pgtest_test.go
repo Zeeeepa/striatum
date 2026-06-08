@@ -2,10 +2,46 @@ package pgtest
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestParsePgtestDatabaseName(t *testing.T) {
+	created := time.Unix(0, 123456789)
+	name := fmt.Sprintf("striatum_pgtest_%d_%d", created.UnixNano(), 4242)
+	gotCreated, gotPID, ok := parsePgtestDatabaseName(name)
+	if !ok {
+		t.Fatalf("parsePgtestDatabaseName(%q) returned !ok", name)
+	}
+	if !gotCreated.Equal(created) || gotPID != 4242 {
+		t.Fatalf("parse = (%s, %d), want (%s, 4242)", gotCreated, gotPID, created)
+	}
+	for _, bad := range []string{
+		"striatum_pgtest",
+		"striatum_pgtest_abc_123",
+		"striatum_pgtest_123_0",
+		"other_pgtest_123_456",
+	} {
+		if _, _, ok := parsePgtestDatabaseName(bad); ok {
+			t.Fatalf("parsePgtestDatabaseName(%q) returned ok", bad)
+		}
+	}
+}
+
+func TestShouldSweepPgtestDatabaseClassifiesExpiredDatabases(t *testing.T) {
+	now := time.Unix(0, 10*int64(time.Hour))
+	fresh := fmt.Sprintf("striatum_pgtest_%d_%d", now.Add(-time.Minute).UnixNano(), os.Getpid())
+	expired := fmt.Sprintf("striatum_pgtest_%d_%d", now.Add(-7*time.Hour).UnixNano(), os.Getpid())
+	if shouldSweepPgtestDatabase(fresh, now, 6*time.Hour) {
+		t.Fatalf("fresh live database classified stale")
+	}
+	if !shouldSweepPgtestDatabase(expired, now, 6*time.Hour) {
+		t.Fatalf("expired database was not classified stale")
+	}
+}
 
 func TestPrivilegeRevocation(t *testing.T) {
 	// #219: the setup INSERTs are not the behavior under test (privilege

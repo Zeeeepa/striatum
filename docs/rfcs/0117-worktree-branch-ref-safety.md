@@ -21,6 +21,8 @@ only the artifact-body read path); `go/pkg/mutations/worktree.go`,
 
 ## Problem
 
+This section describes the pre-implementation behavior that motivated the RFC.
+
 A `code_change` (or any repo-write) job that runs under
 `worktree_isolation: per_job` does its work — slice commits, the published
 artifact's source commit — on the **detached HEAD** of a per-job git worktree.
@@ -78,18 +80,16 @@ DB and emits `worktree.abandoned`, but performs **no git operation** — the
 detached worktree (and its commit stack) is left on disk with no ref and no
 custodian, the #184 shape produced by recovery rather than by completion.
 
-Finally, `#183` is the *create-side* corollary of the same ref-unsafety: in
-`confirm` mode, `branch.confirm` records the confirmed branch name but **never
-creates the git ref** (`run.go:599-659`: the default `mode = "records_only"`
-path; only `--create` creates a ref, and it does so with `git checkout -b`,
-`run.go:613` → `gitCreateOrCheckoutBranch`, `run.go:681-702`). So when the
-author lane runs `worktree create`, `validatedWorktreeCreateInputs`
-(`worktree.go:267-273`) accepts the recorded branch name, but
-`git worktree add --detach <target> <base_branch>` (`worktree.go:84`) fails with
-`invalid reference` because the base ref doesn't exist. The lane had to create
-the branch by hand at the run's recorded base. **`#183` is being fixed
-independently in a parallel batch as a narrow stopgap; this RFC names the
-durable shape that subsumes it** (see §"Subsuming #183").
+Finally, `#183` was the *create-side* corollary of the same ref-unsafety:
+before this RFC, `branch.confirm` in default confirm mode recorded the confirmed
+branch name but **never created the git ref**; only `--create` created a ref,
+and it did so with checkout-based branch creation that moved the operator's
+primary HEAD. So when the author lane ran `worktree create`,
+`validatedWorktreeCreateInputs` accepted the recorded branch name, but
+`git worktree add --detach <target> <base_branch>` failed with `invalid
+reference` because the base ref did not exist. The lane had to create the branch
+by hand at the run's recorded base. **`#183` was subsumed by this RFC's ref-only
+branch creation path** (see §"Subsuming #183").
 
 The through-line: **the daemon creates detached worktree state and ref-naming
 records, but never closes the loop to a durable git ref — neither at create
@@ -280,19 +280,19 @@ The daemon must be able to guarantee the run branch ref exists (so `work.complet
 can FF it and `worktree create` can base off it) **without ever moving the
 operator's primary HEAD.** Replace the checkout-based paths:
 
-- **`branch.confirm`**: today, `confirm` mode is `records_only` and creates no
-  ref (`run.go:599`, #183's root); `--create` mode uses `git checkout -b`
-  (`run.go:613`/`gitCreateOrCheckoutBranch`), which moves primary HEAD (#184's
-  root). Replace both ref-creating effects with **`git branch <name> <base>`**
-  (or `update-ref refs/heads/<name> <base>` when `<name>` may already exist),
-  where `<base>` is the run's recorded starting commit. `git branch` creates the
-  ref **without checking it out** — primary HEAD is untouched. The decision:
+- **`branch.confirm`**: pre-implementation, default `confirm` mode was
+  `records_only` and created no ref (#183's root), while `--create` mode used
+  checkout-based branch creation that moved primary HEAD (#184's root). Replace
+  both ref-creating effects with **`git branch <name> <base>`** (or `update-ref
+  refs/heads/<name> <base>` when `<name>` may already exist), where `<base>` is
+  the run's recorded starting commit. `git branch` creates the ref **without
+  checking it out** — primary HEAD is untouched. The decision:
   - `confirm` mode (the default, #183): create the ref at the run's recorded base
     if it does not yet exist; if it exists, validate it (or accept it). The
-    response's `records_only` flag — today hardcoded `true` at `run.go:654` even
-    in `--create` — becomes **honest**: `records_only` is `true` only when no ref
-    was created, `false` (with `created: true`) when this call created the ref.
-    (#184 noted the hardcoded `records_only:true` masks ref creation.)
+    response's `records_only` flag becomes **honest**: `records_only` is `true`
+    only when no ref was created, `false` (with `created: true`) when this call
+    created the ref. (#184 noted the older hardcoded `records_only:true` masked
+    ref creation.)
   - `--create` mode: keep the create-if-absent semantics but via `git branch`,
     not `checkout -b`. The `use_current` / `strict` modes (which validate
     against the *operator's* current branch and intentionally read HEAD) are
@@ -412,6 +412,14 @@ property rather than a point-patch:
   adopts it. Either way #183 closes as part of this lifecycle, not beside it.
 
 ## Implementation plan (gate-first, phased)
+
+Implementation status: phases 1-4 are now implemented in source. `work.complete`
+anchors active per-job worktree commits with fast-forward-or-pin and emits
+`job.commits_anchored`; `worktree.release` refuses unreachable HEADs unless
+`--force` records `worktree.force_released`; `branch.confirm` / `worktree
+create` use ref-only branch creation; and stale-lease recovery anchors before
+marking worktrees `abandoned`. Phase 5 (`daemon doctor` / `worktree list`
+ref-safety projection) remains follow-up work.
 
 Each phase lands alone, behind a named regression gate. **The RED gate is
 written first and must fail on `origin/main` before the fix.**

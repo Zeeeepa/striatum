@@ -222,6 +222,16 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Rebase or resolve the run branch against the target on a branch a maintainer merges, then re-run run.integrate; the conflicting paths are in the error details.",
 	},
 	{
+		Code:       "worktree_head_unreachable",
+		Meaning:    "worktree.release refused because the worktree HEAD is not reachable from the run branch or a refs/striatum pin.",
+		Suggestion: "Complete the job so work.complete anchors the commits, or rerun worktree release with --force only if discarding that HEAD is intentional.",
+	},
+	{
+		Code:       "worktree_required",
+		Meaning:    "A repo-write job on a lane with worktree_isolation: per_job tried to publish, write, run, or complete without an active job worktree.",
+		Suggestion: "Run worktree.create using the active session, job, and lease from the work packet, then retry the operation.",
+	},
+	{
 		Code:       "method_unknown",
 		Meaning:    "The method has no registered handler.",
 		Suggestion: "Call tools/list and use a method the daemon actually exposes.",

@@ -2,10 +2,14 @@ package pgtest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +19,9 @@ import (
 )
 
 const EnvPGTestURL = "STRIATUM_PG_TEST_URL"
+const staleDatabaseMaxAge = 6 * time.Hour
+
+var pgtestDatabaseNameRE = regexp.MustCompile(`^striatum_pgtest_([0-9]+)_([0-9]+)$`)
 
 // DB returns a migrated Runner wrapped in a rollback transaction.
 func DB(t *testing.T) db.Runner {
@@ -142,6 +149,7 @@ func createDatabase(t *testing.T, ctx context.Context, baseURL string) (string, 
 	if err != nil {
 		t.Fatalf("connect pgtest admin database: %v", err)
 	}
+	sweepStaleDatabases(t, ctx, adminPool, time.Now())
 	if _, err := adminPool.Exec(ctx, "CREATE DATABASE "+quoteIdent(name)); err != nil {
 		adminPool.Close()
 		t.Fatalf("create pgtest database: %v", err)
@@ -159,6 +167,85 @@ func createDatabase(t *testing.T, ctx context.Context, baseURL string) (string, 
 		adminPool.Close()
 	}
 	return testURL.String(), drop
+}
+
+func sweepStaleDatabases(t *testing.T, ctx context.Context, adminPool *pgxpool.Pool, now time.Time) {
+	t.Helper()
+	rows, err := adminPool.Query(ctx, `
+		SELECT datname
+		  FROM pg_database
+		 WHERE datname LIKE 'striatum_pgtest_%'`)
+	if err != nil {
+		t.Logf("pgtest stale database sweep skipped: %v", err)
+		return
+	}
+	defer rows.Close()
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Logf("pgtest stale database sweep row skipped: %v", err)
+			continue
+		}
+		names = append(names, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Logf("pgtest stale database sweep rows failed: %v", err)
+		return
+	}
+	for _, name := range names {
+		if !shouldSweepPgtestDatabase(name, now, staleDatabaseMaxAge) {
+			continue
+		}
+		_, _ = adminPool.Exec(ctx, `
+			SELECT pg_terminate_backend(pid)
+			  FROM pg_stat_activity
+			 WHERE datname = $1 AND pid <> pg_backend_pid()`, name)
+		if _, err := adminPool.Exec(ctx, "DROP DATABASE IF EXISTS "+quoteIdent(name)); err != nil {
+			t.Logf("pgtest stale database sweep could not drop %s: %v", name, err)
+		}
+	}
+}
+
+func shouldSweepPgtestDatabase(name string, now time.Time, maxAge time.Duration) bool {
+	createdAt, pid, ok := parsePgtestDatabaseName(name)
+	if !ok {
+		return false
+	}
+	if maxAge > 0 && now.Sub(createdAt) > maxAge {
+		return true
+	}
+	return !pidAlive(pid)
+}
+
+func parsePgtestDatabaseName(name string) (time.Time, int, bool) {
+	match := pgtestDatabaseNameRE.FindStringSubmatch(name)
+	if match == nil {
+		return time.Time{}, 0, false
+	}
+	nanos, err := strconv.ParseInt(match[1], 10, 64)
+	if err != nil || nanos <= 0 {
+		return time.Time{}, 0, false
+	}
+	pid64, err := strconv.ParseInt(match[2], 10, 64)
+	if err != nil || pid64 <= 0 || pid64 > int64(^uint(0)>>1) {
+		return time.Time{}, 0, false
+	}
+	return time.Unix(0, nanos), int(pid64), true
+}
+
+func pidAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	err := syscall.Kill(pid, 0)
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, syscall.EPERM) {
+		return true
+	}
+	return false
 }
 
 // ensureRuntimeRole creates the canonical, cluster-wide striatumd_rw role if it

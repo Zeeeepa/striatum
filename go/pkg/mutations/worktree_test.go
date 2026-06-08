@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
@@ -178,6 +181,603 @@ func gitSymbolicHead(t *testing.T, repoRoot string) string {
 		t.Fatalf("git symbolic-ref HEAD: %v\n%s", err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func gitRun(t *testing.T, repoRoot string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repoRoot
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, repoRoot, err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestAnchorWorktreeCommitStackFastForwardsRunBranchWithoutCheckout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_git_anchor"
+	jobID := "job_git_anchor"
+	runBranch := "wf/git-anchor"
+	worktreeID := "wt_git_anchor"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "docs", "out.txt"), []byte("anchored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "docs/out.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
+
+	reachability, err := worktreeHeadReachability(ctx, repoRoot, worktreeRoot, map[string]any{
+		"run_id":      runID,
+		"job_id":      jobID,
+		"base_branch": runBranch,
+	})
+	if err != nil {
+		t.Fatalf("reachability before anchor: %v", err)
+	}
+	if reachability.Reachable {
+		t.Fatalf("worktree HEAD should not be reachable before anchor: %#v", reachability)
+	}
+
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktreeRel,
+	})
+	if err != nil {
+		t.Fatalf("anchor worktree commit stack: %v", err)
+	}
+	if payload["anchor"] != "run_branch_ff" {
+		t.Fatalf("anchor payload = %#v, want run_branch_ff", payload)
+	}
+	if got := gitRevParse(t, repoRoot, "refs/heads/"+runBranch); got != worktreeHead {
+		t.Fatalf("run branch = %s, want worktree head %s", got, worktreeHead)
+	}
+	if head := gitSymbolicHead(t, repoRoot); head != "main" {
+		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+
+	reachability, err = worktreeHeadReachability(ctx, repoRoot, worktreeRoot, map[string]any{
+		"run_id":      runID,
+		"job_id":      jobID,
+		"base_branch": runBranch,
+	})
+	if err != nil {
+		t.Fatalf("reachability after anchor: %v", err)
+	}
+	if !reachability.Reachable {
+		t.Fatalf("worktree HEAD should be reachable after anchor: %#v", reachability)
+	}
+}
+
+func TestAnchorWorktreeCommitStackPinsDivergedHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_git_pin"
+	jobID := "job_git_pin"
+	runBranch := "wf/git-pin"
+	worktreeID := "wt_git_pin"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "worktree.txt"), []byte("worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "worktree.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
+
+	if err := os.WriteFile(filepath.Join(repoRoot, "mainline.txt"), []byte("mainline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "mainline.txt")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "sibling run branch change")
+	siblingHead := gitRevParse(t, repoRoot, "HEAD")
+	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, siblingHead)
+
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktreeRel,
+	})
+	if err != nil {
+		t.Fatalf("anchor diverged worktree: %v", err)
+	}
+	pinRef := "refs/striatum/" + runID + "/" + jobID
+	if payload["anchor"] != "job_pin" || payload["pin_ref"] != pinRef {
+		t.Fatalf("anchor payload = %#v, want job_pin at %s", payload, pinRef)
+	}
+	if got := gitRevParse(t, repoRoot, pinRef); got != worktreeHead {
+		t.Fatalf("pin ref = %s, want worktree head %s", got, worktreeHead)
+	}
+	if got := gitRevParse(t, repoRoot, "refs/heads/"+runBranch); got != siblingHead {
+		t.Fatalf("run branch was clobbered: got %s want sibling %s", got, siblingHead)
+	}
+	reachability, err := worktreeHeadReachability(ctx, repoRoot, worktreeRoot, map[string]any{
+		"run_id":      runID,
+		"job_id":      jobID,
+		"base_branch": runBranch,
+	})
+	if err != nil {
+		t.Fatalf("reachability after pin: %v", err)
+	}
+	if !reachability.Reachable {
+		t.Fatalf("pinned worktree HEAD should be reachable: %#v", reachability)
+	}
+	if head := gitSymbolicHead(t, repoRoot); head != "main" {
+		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+}
+
+func TestAnchorWorktreeCommitStackPinsWhenRunBranchMissing(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_git_missing"
+	jobID := "job_git_missing"
+	runBranch := "wf/git-missing"
+	worktreeID := "wt_git_missing"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "worktree.txt"), []byte("worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "worktree.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
+	gitRun(t, repoRoot, "update-ref", "-d", "refs/heads/"+runBranch)
+
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktreeRel,
+	})
+	if err != nil {
+		t.Fatalf("anchor missing run branch: %v", err)
+	}
+	pinRef := "refs/striatum/" + runID + "/" + jobID
+	if payload["anchor"] != "job_pin" || payload["pin_ref"] != pinRef || payload["run_branch_missing"] != true {
+		t.Fatalf("anchor payload = %#v, want missing-branch job_pin at %s", payload, pinRef)
+	}
+	if got := gitRevParse(t, repoRoot, pinRef); got != worktreeHead {
+		t.Fatalf("pin ref = %s, want worktree head %s", got, worktreeHead)
+	}
+	if got := mustGitExit(t, repoRoot, "rev-parse", "--verify", "--quiet", "refs/heads/"+runBranch+"^{commit}"); got == 0 {
+		t.Fatalf("run branch %q was recreated; completion should pin instead", runBranch)
+	}
+	if head := gitSymbolicHead(t, repoRoot); head != "main" {
+		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+}
+
+func TestWorktreeCompleteAnchorsCommitStack(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_anchor"
+	jobID := "job_anchor"
+	sessionID := "sess_anchor"
+	leaseID := "lease_anchor"
+	messageID := "msg_anchor"
+	worktreeID := "wt_anchor"
+	runBranch := "wf/anchor"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.MkdirAll(filepath.Join(worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "docs", "out.txt"), []byte("anchored\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "docs/out.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
+
+	now := time.Now().UTC()
+	workflowArg, err := db.JSONBArg(runner, map[string]any{
+		"workflow_id": "wf_anchor",
+		"lanes": map[string]any{
+			"codex": map[string]any{"worktree_isolation": "per_job"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":       "repo_write",
+		"repo_write": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyJSONArg, err := db.JSONBArg(runner, []any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_anchor','ident_anchor',$1,$2,'repo',$3,16,'active')`,
+		repoRoot, filepath.Join(repoRoot, ".striatum"), now); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ('repo_anchor','snap_anchor','wf_anchor','sha',$1::jsonb,$2)`, workflowArg, now); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		  branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at
+		) VALUES ('repo_anchor',$1,'snap_anchor',$2,'running',$3,$4,$5,'human',$5)`,
+		runID, repoRoot, runBranch, baseSHA, now); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal, state, registered_at
+		) VALUES ('repo_anchor',$1,$2,'author','codex','author-codex-1',1,'active',$3)`,
+		sessionID, runID, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  lane_selector_json, title, job_type, idempotency_key, expected_artifacts_json,
+		  write_scope_json, current_message_id, created_at, started_at, current_lease_id
+		) VALUES ('repo_anchor',$1,$2,'author_draft',1,'running','author',
+		  $3::jsonb,'Author draft','build','idem_anchor',$4::jsonb,$5::jsonb,$6,$7,$7,$8)`,
+		jobID, runID, laneArg, emptyJSONArg, writeScopeArg, messageID, now, leaseID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_session_id, target_role_id, target_lane_id, current_lease_id,
+		  created_at, updated_at
+		) VALUES ('repo_anchor',$1,$2,$3,'work','acked',0,$4,'author','codex',$5,$6,$6)`,
+		messageID, runID, jobID, sessionID, leaseID, now); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ('repo_anchor',$1,$2,'job',$3,$4,'active',$5,$6)`,
+		leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_worktrees (
+		  repository_id, worktree_id, run_id, job_id, lease_id,
+		  base_branch, worktree_path, state, created_at
+		) VALUES ('repo_anchor',$1,$2,$3,$4,$5,$6,'active',$7)`,
+		worktreeID, runID, jobID, leaseID, runBranch, worktreeRel, now); err != nil {
+		t.Fatalf("insert worktree: %v", err)
+	}
+
+	result, err := HandleCompleteWork(ctx, runner, intgEnv("repo_anchor", map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"summary":    "done",
+	}))
+	if err != nil {
+		t.Fatalf("complete work: %v", err)
+	}
+	if result["status"] != "completed" {
+		t.Fatalf("complete result = %#v", result)
+	}
+	if got := gitRevParse(t, repoRoot, "refs/heads/"+runBranch); got != worktreeHead {
+		t.Fatalf("run branch was not fast-forwarded to worktree HEAD: got %s want %s", got, worktreeHead)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = 'repo_anchor'
+		   AND run_id = $1
+		   AND job_id = $2
+		   AND event_type = 'job.commits_anchored'`,
+		runID, jobID)
+	if err != nil {
+		t.Fatalf("missing job.commits_anchored event: %v", err)
+	}
+	payload := asMap(row["payload_json"])
+	if payload["anchor"] != "run_branch_ff" || payload["head"] != worktreeHead {
+		t.Fatalf("anchor payload = %#v, want run_branch_ff at %s", payload, worktreeHead)
+	}
+	if head := gitSymbolicHead(t, repoRoot); head != "main" {
+		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+}
+
+func TestWorktreeRequiredJobRefusesPrimaryCheckoutSurfacesWithoutActiveWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "missing_wt", false)
+
+	check := func(name string, err error) {
+		t.Helper()
+		var rpcErr *rpc.Error
+		if !errors.As(err, &rpcErr) || rpcErr.Code != "worktree_required" {
+			t.Fatalf("%s error = %v, want worktree_required", name, err)
+		}
+	}
+
+	_, err := HandlePublishArtifact(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id":   ids.sessionID,
+		"job_id":       ids.jobID,
+		"lease_id":     ids.leaseID,
+		"kind":         "handoff",
+		"logical_name": "handoff",
+		"path":         "docs/out.md",
+	}))
+	check("artifact.publish", err)
+
+	_, err = HandleRepoWrite(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"path":       "docs/out.md",
+		"content":    "body\n",
+	}))
+	check("repo.write", err)
+
+	_, err = HandleProcessRun(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id":   ids.sessionID,
+		"job_id":       ids.jobID,
+		"lease_id":     ids.leaseID,
+		"command_json": []any{"true"},
+	}))
+	check("process.run", err)
+
+	_, err = HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"summary":    "done",
+	}))
+	check("work.complete", err)
+}
+
+func TestWorktreeCompletionDirtyCheckUsesActiveWorktreeNotPrimaryCheckout(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "dirty_root", true)
+	if err := os.WriteFile(filepath.Join(repoRoot, "outside-root.txt"), []byte("operator dirt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"summary":    "done",
+	}))
+	if err != nil {
+		t.Fatalf("complete with dirty primary checkout: %v", err)
+	}
+	if result["status"] != "completed" {
+		t.Fatalf("complete result = %#v", result)
+	}
+}
+
+func TestWorktreeCompletionStillRejectsOutOfScopeDirtInsideActiveWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "dirty_worktree", true)
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, "outside-worktree.txt"), []byte("bad dirt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"summary":    "done",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "outside-worktree.txt") {
+		t.Fatalf("complete error = %v, want write_scope violation for outside-worktree.txt", err)
+	}
+}
+
+type worktreeRequiredFixtureIDs struct {
+	repoID       string
+	runID        string
+	jobID        string
+	sessionID    string
+	leaseID      string
+	messageID    string
+	worktreeID   string
+	worktreeRel  string
+	worktreeRoot string
+	runBranch    string
+}
+
+func seedWorktreeRequiredJob(t *testing.T, ctx context.Context, runner db.Runner, repoRoot, suffix string, withWorktree bool) worktreeRequiredFixtureIDs {
+	t.Helper()
+	baseSHA := gitInit(t, repoRoot)
+	ids := worktreeRequiredFixtureIDs{
+		repoID:      "repo_" + suffix,
+		runID:       "run_" + suffix,
+		jobID:       "job_" + suffix,
+		sessionID:   "sess_" + suffix,
+		leaseID:     "lease_" + suffix,
+		messageID:   "msg_" + suffix,
+		worktreeID:  "wt_" + suffix,
+		runBranch:   "wf/" + suffix,
+		worktreeRel: filepath.ToSlash(filepath.Join(".striatum", "worktrees", "wt_"+suffix)),
+	}
+	ids.worktreeRoot = filepath.Join(repoRoot, filepath.FromSlash(ids.worktreeRel))
+	gitRun(t, repoRoot, "branch", ids.runBranch, baseSHA)
+	if withWorktree {
+		gitRun(t, repoRoot, "worktree", "add", "--detach", ids.worktreeRoot, ids.runBranch)
+	}
+
+	now := time.Now().UTC()
+	workflowArg, err := db.JSONBArg(runner, map[string]any{
+		"workflow_id": "wf_" + suffix,
+		"lanes": map[string]any{
+			"codex": map[string]any{"worktree_isolation": "per_job"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":            "repo_write",
+		"repo_write":      true,
+		"allowed_paths":   []any{"docs/"},
+		"forbidden_paths": []any{".striatum/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedArg, err := db.JSONBArg(runner, []any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capReqArg, err := db.JSONBArg(runner, map[string]any{"process_execution": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packetArg, err := db.JSONBArg(runner, map[string]any{"packet_id": "wp_" + suffix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ($1,$2,$3,$4,'repo',$5,16,'active')`,
+		ids.repoID, "ident_"+suffix, repoRoot, filepath.Join(repoRoot, ".striatum"), now); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ($1,$2,$3,'sha',$4::jsonb,$5)`, ids.repoID, "snap_"+suffix, "wf_"+suffix, workflowArg, now); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		  branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at
+		) VALUES ($1,$2,$3,$4,'running',$5,$6,$7,'human',$7)`,
+		ids.repoID, ids.runID, "snap_"+suffix, repoRoot, ids.runBranch, baseSHA, now); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal, state, registered_at
+		) VALUES ($1,$2,$3,'author','codex','author-codex-1',1,'active',$4)`,
+		ids.repoID, ids.sessionID, ids.runID, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  lane_selector_json, title, job_type, idempotency_key, expected_artifacts_json,
+		  capability_requirements_json, write_scope_json, current_message_id,
+		  created_at, started_at, current_lease_id
+		) VALUES ($1,$2,$3,'author_draft',1,'running','author',
+		  $4::jsonb,'Author draft','build',$5,$6::jsonb,$7::jsonb,$8::jsonb,$9,$10,$10,$11)`,
+		ids.repoID, ids.jobID, ids.runID, laneArg, "idem_"+suffix, expectedArg, capReqArg, writeScopeArg, ids.messageID, now, ids.leaseID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_session_id, target_role_id, target_lane_id, current_lease_id,
+		  created_at, updated_at
+		) VALUES ($1,$2,$3,$4,'work','acked',0,$5,'author','codex',$6,$7,$7)`,
+		ids.repoID, ids.messageID, ids.runID, ids.jobID, ids.sessionID, ids.leaseID, now); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7)`,
+		ids.repoID, ids.leaseID, ids.runID, ids.jobID, ids.sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.work_packets (
+		  repository_id, packet_id, run_id, job_id, message_id, lease_id,
+		  session_id, packet_json, packet_sha256, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'packet-sha',$9)`,
+		ids.repoID, "wp_"+suffix, ids.runID, ids.jobID, ids.messageID, ids.leaseID, ids.sessionID, packetArg, now); err != nil {
+		t.Fatalf("insert packet: %v", err)
+	}
+	if withWorktree {
+		if err := runner.Exec(ctx, `
+			INSERT INTO striatumd.job_worktrees (
+			  repository_id, worktree_id, run_id, job_id, lease_id,
+			  base_branch, worktree_path, state, created_at
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,'active',$8)`,
+			ids.repoID, ids.worktreeID, ids.runID, ids.jobID, ids.leaseID, ids.runBranch, ids.worktreeRel, now); err != nil {
+			t.Fatalf("insert worktree: %v", err)
+		}
+	}
+	return ids
 }
 
 // TestWorktreeCreateCreatesMissingConfirmedBranchRef is the #183 regression:

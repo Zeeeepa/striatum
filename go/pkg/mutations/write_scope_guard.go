@@ -32,7 +32,11 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 		return err
 	}
 	repoRoot := fmt.Sprint(repo["repo_root"])
-	current, err := gitChangedPathSnapshots(ctx, repoRoot)
+	sourceRoot, baseline, err := writeScopeCheckSource(ctx, runner, repositoryID, repoRoot, job)
+	if err != nil {
+		return err
+	}
+	current, err := gitChangedPathSnapshots(ctx, sourceRoot)
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
@@ -44,11 +48,11 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 	// land outside this job's allowed_paths; when the dirty path matches a
 	// sibling-published artifact's content digest, it is that lane's write, not a
 	// violation of this job's scope.
-	ignoredPaths, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, repoRoot, job, currentPaths)
+	ignoredPaths, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, sourceRoot, job, currentPaths)
 	if err != nil {
 		return rpc.NewError("invalid_transition", "write_scope check failed: "+err.Error(), nil)
 	}
-	violations := writeScopeViolationsSinceBaseline(current, gitBaselineFromJob(job), allowed, forbidden, ignoredPaths)
+	violations := writeScopeViolationsSinceBaseline(current, baseline, allowed, forbidden, ignoredPaths)
 	if len(violations) == 0 {
 		return nil
 	}
@@ -59,6 +63,25 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 		"allowed_paths":   allowed,
 		"forbidden_paths": forbidden,
 	})
+}
+
+func writeScopeCheckSource(ctx context.Context, runner any, repositoryID, repoRoot string, job map[string]any) (string, map[string]string, error) {
+	activeWorktree, err := requireActiveWorktreeForJob(ctx, runner, repositoryID, job, "work.complete")
+	if err != nil {
+		return "", nil, err
+	}
+	if activeWorktree == nil {
+		return repoRoot, gitBaselineFromJob(job), nil
+	}
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(activeWorktree["worktree_path"]))
+	if err != nil {
+		return "", nil, err
+	}
+	// The packet baseline was captured at claim time from the registered checkout,
+	// before the per-job worktree exists. For isolated jobs, the clean detached
+	// worktree itself is the baseline; repo-root dirt must not mask new worktree
+	// dirt with the same path.
+	return target, nil, nil
 }
 
 // writeScopeViolationMessage names the offending paths inline and explains the

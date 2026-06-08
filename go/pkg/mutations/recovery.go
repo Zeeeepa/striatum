@@ -1897,7 +1897,7 @@ func expireLeases(ctx context.Context, runner any, repositoryID, runID string) (
 			return nil, err
 		}
 		worktrees, err := queryRows(ctx, runner, `
-			SELECT worktree_id, lease_id, base_branch
+			SELECT *
 			  FROM striatumd.job_worktrees
 			 WHERE repository_id = $1
 			   AND job_id = $2
@@ -1910,6 +1910,14 @@ func expireLeases(ctx context.Context, runner any, repositoryID, runID string) (
 			if fmt.Sprint(worktree["lease_id"]) != fmt.Sprint(lease["lease_id"]) {
 				continue
 			}
+			repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+			if err != nil {
+				return nil, err
+			}
+			anchorPayload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(job["job_id"]), fmt.Sprint(worktree["base_branch"]), worktree)
+			if err != nil {
+				return nil, err
+			}
 			if err := exec.Exec(ctx, `
 				UPDATE striatumd.job_worktrees
 				   SET state = 'abandoned'
@@ -1919,6 +1927,7 @@ func expireLeases(ctx context.Context, runner any, repositoryID, runID string) (
 			if _, err := appendEvent(ctx, runner, repositoryID, runID, "worktree.abandoned", nil, job["job_id"], nil, nil, lease["lease_id"], map[string]any{
 				"worktree_id": fmt.Sprint(worktree["worktree_id"]),
 				"base_branch": worktree["base_branch"],
+				"anchor":      anchorPayload,
 			}); err != nil {
 				return nil, err
 			}

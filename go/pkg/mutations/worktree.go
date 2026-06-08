@@ -25,8 +25,8 @@ type worktreeCreateInputs struct {
 	RunID      string
 	BaseBranch string
 	// BranchBase is the run's recorded branch_base (the commit/ref the confirmed
-	// branch should fork from). It may be empty when the branch was confirmed in
-	// records_only mode; the ref-ensure path then falls back to HEAD (#183).
+	// branch should fork from). It may be empty for pre-RFC 0117 runs; the
+	// ref-ensure path then falls back to HEAD (#183 compatibility).
 	BranchBase string
 }
 
@@ -140,16 +140,9 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 }
 
 // ensureWorktreeBaseBranchRef makes the confirmed branch ref exist before
-// `git worktree add --detach <branch>` resolves it. `branch confirm` in its
-// default records_only mode never creates the git ref (run.go HandleBranchConfirm),
-// so a per-job worktree create against a confirmed-but-refless branch failed with
-// "invalid reference: <branch>" (#183). When the ref is missing, create it with
-// `git branch <name> <base>` at the run's recorded branch_base (or HEAD when
-// branch_base was not recorded) — NEVER `git checkout -b`: the daemon must never
-// move the operator's primary checkout HEAD. A later RFC (0117, per-job worktree
-// & branch ref-safety) will supersede the broader branch-confirmation lifecycle;
-// this is an independently-safe standalone fix that only adds the missing ref and
-// leaves HEAD untouched.
+// `git worktree add --detach <branch>` resolves it. Pre-RFC 0117 runs may have
+// a confirmed branch name but no actual ref (#183), so the create path repairs
+// that state with `git branch <name> <base>` and never `git checkout -b`.
 func ensureWorktreeBaseBranchRef(ctx context.Context, repoRoot, branch, branchBase string) error {
 	branch = strings.TrimSpace(branch)
 	if branch == "" {
@@ -193,6 +186,7 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	if err != nil {
 		return nil, err
 	}
+	force := boolParam(envelope, "force")
 	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
 	if err != nil {
 		return nil, err
@@ -220,6 +214,23 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	target, err := worktreeTarget(repoRoot, fmt.Sprint(row["worktree_path"]))
 	if err != nil {
 		return nil, err
+	}
+	reachability := worktreeReachability{Reachable: true}
+	if pathExists(target) {
+		reachability, err = worktreeHeadReachability(ctx, repoRoot, target, row)
+		if err != nil {
+			return nil, err
+		}
+		if !reachability.Reachable && !force {
+			return nil, rpc.NewError("worktree_head_unreachable", fmt.Sprintf(
+				"worktree %s HEAD %s is not reachable from the run branch or refs/striatum pins; re-run work.complete to anchor it, or pass --force to discard it explicitly",
+				worktreeID, reachability.Head,
+			), map[string]any{
+				"worktree_id":  worktreeID,
+				"head":         reachability.Head,
+				"checked_refs": reachability.CheckedRefs,
+			})
+		}
 	}
 	result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "remove", "--force", target)
 	if err != nil {
@@ -255,14 +266,23 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 		); err != nil {
 			return nil, err
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, loaded["run_id"], "worktree.released", nil, loaded["job_id"], nil, nil, loaded["lease_id"], map[string]any{
+		eventType := "worktree.released"
+		status := "released"
+		if force && !reachability.Reachable {
+			eventType = "worktree.force_released"
+			status = "force_released"
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, loaded["run_id"], eventType, nil, loaded["job_id"], nil, nil, loaded["lease_id"], map[string]any{
 			"worktree_id":   worktreeID,
 			"worktree_path": fmt.Sprint(loaded["worktree_path"]),
+			"head":          nullableString(reachability.Head),
+			"reachable":     reachability.Reachable,
+			"checked_refs":  reachability.CheckedRefs,
 		}); err != nil {
 			return nil, err
 		}
 		releaseResult = map[string]any{
-			"status":      "released",
+			"status":      status,
 			"worktree_id": worktreeID,
 			"state":       "removed",
 		}
@@ -271,6 +291,242 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 		return nil, err
 	}
 	return releaseResult, nil
+}
+
+func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {
+	if !isRepoWrite(job) {
+		return nil, nil
+	}
+	required, worktree, err := worktreeRequirementForJob(ctx, runner, repositoryID, job)
+	if err != nil {
+		return nil, err
+	}
+	if required && worktree == nil {
+		return nil, worktreeRequiredError(job, "work.complete")
+	}
+	if worktree == nil {
+		return nil, err
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return nil, err
+	}
+	runBranch := strings.TrimSpace(fmt.Sprint(run["branch_name"]))
+	if runBranch == "" || runBranch == "<nil>" || nullable(run["branch_confirmed_at"]) == nil {
+		return nil, rpc.NewError("invalid_transition", "repo-write worktree commits require a confirmed run branch before completion", nil)
+	}
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), runBranch, worktree)
+	if err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
+func requireActiveWorktreeForJob(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) (map[string]any, error) {
+	required, worktree, err := worktreeRequirementForJob(ctx, runner, repositoryID, job)
+	if err != nil {
+		return nil, err
+	}
+	if required && worktree == nil {
+		return nil, worktreeRequiredError(job, surface)
+	}
+	return worktree, nil
+}
+
+func worktreeRequirementForJob(ctx context.Context, runner any, repositoryID string, job map[string]any) (bool, map[string]any, error) {
+	if !isRepoWrite(job) {
+		return false, nil, nil
+	}
+	worktree, err := activeWorktreeForJob(ctx, runner, repositoryID, fmt.Sprint(job["job_id"]))
+	if err != nil {
+		return false, nil, err
+	}
+	laneID := jobLaneID(job)
+	if strings.TrimSpace(laneID) == "" {
+		return false, worktree, nil
+	}
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return false, nil, err
+	}
+	snapshotID := strings.TrimSpace(fmt.Sprint(run["workflow_snapshot_id"]))
+	if snapshotID == "" || snapshotID == "<nil>" {
+		return false, worktree, nil
+	}
+	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", snapshotID, false)
+	if err != nil {
+		return false, nil, err
+	}
+	workflow := asMap(snapshot["workflow_json"])
+	required := laneWorktreeIsolation(workflow, laneID) == "per_job"
+	return required, worktree, nil
+}
+
+func worktreeRequiredError(job map[string]any, surface string) error {
+	jobID := strings.TrimSpace(fmt.Sprint(job["job_id"]))
+	workflowJobID := strings.TrimSpace(fmt.Sprint(job["workflow_job_id"]))
+	laneID := strings.TrimSpace(jobLaneID(job))
+	message := fmt.Sprintf("%s requires an active per-job worktree for repo-write job %s before touching repository files", surface, jobID)
+	if workflowJobID != "" && workflowJobID != "<nil>" {
+		message += fmt.Sprintf(" (%s)", workflowJobID)
+	}
+	message += "; run worktree.create with the active session/job/lease from the work packet, then retry"
+	return rpc.NewError("worktree_required", message, map[string]any{
+		"job_id":          jobID,
+		"workflow_job_id": nullableString(workflowJobID),
+		"lane_id":         nullableString(laneID),
+		"surface":         surface,
+		"required_action": "worktree.create",
+	})
+}
+
+func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runBranch string, worktree map[string]any) (map[string]any, error) {
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(worktree["worktree_path"]))
+	if err != nil {
+		return nil, err
+	}
+	head, err := gitRevParseCommit(ctx, target, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	runRef := "refs/heads/" + runBranch
+	payload := map[string]any{
+		"anchor":        "none",
+		"head":          head,
+		"worktree_id":   worktree["worktree_id"],
+		"worktree_path": worktree["worktree_path"],
+		"run_branch":    runBranch,
+		"run_ref":       runRef,
+	}
+	runTip, err := gitRevParseCommit(ctx, repoRoot, runRef)
+	if err != nil {
+		payload["run_branch_missing"] = true
+		return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload)
+	}
+	if head == runTip {
+		payload["reason"] = "head_already_at_run_branch"
+		return payload, nil
+	}
+	if ok, err := gitIsAncestor(ctx, repoRoot, runTip, head); err != nil {
+		return nil, err
+	} else if ok {
+		out, exit, err := integrateGit(ctx, repoRoot, "update-ref", runRef, head, runTip)
+		if err != nil {
+			return nil, err
+		}
+		if exit == 0 {
+			payload["anchor"] = "run_branch_ff"
+			payload["from"] = runTip
+			payload["to"] = head
+			return payload, nil
+		}
+		payload["ff_failed"] = strings.TrimSpace(out)
+	}
+	return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload)
+}
+
+func pinWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, head string, payload map[string]any) (map[string]any, error) {
+	pinRef := "refs/striatum/" + runID + "/" + jobID
+	out, exit, err := integrateGit(ctx, repoRoot, "update-ref", pinRef, head)
+	if err != nil {
+		return nil, err
+	}
+	if exit != 0 {
+		return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("update-ref of %q failed while anchoring worktree commits: %s", pinRef, strings.TrimSpace(out)), nil)
+	}
+	payload["anchor"] = "job_pin"
+	payload["pin_ref"] = pinRef
+	return payload, nil
+}
+
+type worktreeReachability struct {
+	Head        string
+	Reachable   bool
+	CheckedRefs []string
+}
+
+func worktreeHeadReachability(ctx context.Context, repoRoot, worktreeRoot string, row map[string]any) (worktreeReachability, error) {
+	head, err := gitRevParseCommit(ctx, worktreeRoot, "HEAD")
+	if err != nil {
+		return worktreeReachability{}, err
+	}
+	refs := durableWorktreeRefs(ctx, repoRoot, row)
+	for _, ref := range refs {
+		ok, err := gitIsAncestor(ctx, repoRoot, head, ref)
+		if err != nil {
+			return worktreeReachability{}, err
+		}
+		if ok {
+			return worktreeReachability{Head: head, Reachable: true, CheckedRefs: refs}, nil
+		}
+	}
+	return worktreeReachability{Head: head, Reachable: false, CheckedRefs: refs}, nil
+}
+
+func durableWorktreeRefs(ctx context.Context, repoRoot string, row map[string]any) []string {
+	seen := map[string]bool{}
+	refs := []string{}
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			return
+		}
+		if _, err := gitRevParseCommit(ctx, repoRoot, ref); err == nil {
+			refs = append(refs, ref)
+			seen[ref] = true
+		}
+	}
+	if branch := strings.TrimSpace(fmt.Sprint(row["base_branch"])); branch != "" && branch != "<nil>" {
+		add("refs/heads/" + branch)
+	}
+	runID := strings.TrimSpace(fmt.Sprint(row["run_id"]))
+	jobID := strings.TrimSpace(fmt.Sprint(row["job_id"]))
+	if runID != "" && runID != "<nil>" && jobID != "" && jobID != "<nil>" {
+		add("refs/striatum/" + runID + "/" + jobID)
+	}
+	if runID != "" && runID != "<nil>" {
+		out, exit, err := integrateGit(ctx, repoRoot, "for-each-ref", "--format=%(refname)", "refs/striatum/"+runID+"/")
+		if err == nil && exit == 0 {
+			for _, line := range strings.Split(out, "\n") {
+				add(line)
+			}
+		}
+	}
+	return refs
+}
+
+func gitRevParseCommit(ctx context.Context, repoRoot, rev string) (string, error) {
+	out, exit, err := integrateGit(ctx, repoRoot, "rev-parse", "--verify", rev+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	if exit != 0 {
+		return "", rpc.NewError("invalid_transition", fmt.Sprintf("git commit %q does not resolve", rev), nil)
+	}
+	sha := firstLine(out)
+	if !isFullGitSHA(sha) {
+		return "", rpc.NewError("invalid_transition", fmt.Sprintf("git commit %q resolved to invalid sha %q", rev, sha), nil)
+	}
+	return sha, nil
+}
+
+func gitIsAncestor(ctx context.Context, repoRoot, ancestor, descendant string) (bool, error) {
+	_, exit, err := integrateGit(ctx, repoRoot, "merge-base", "--is-ancestor", ancestor, descendant)
+	if err != nil {
+		return false, err
+	}
+	switch exit {
+	case 0:
+		return true, nil
+	case 1:
+		return false, nil
+	default:
+		return false, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("merge-base --is-ancestor failed for %s -> %s", ancestor, descendant), nil)
+	}
 }
 
 func validatedWorktreeCreateInputs(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID string) (worktreeCreateInputs, error) {

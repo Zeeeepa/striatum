@@ -1208,14 +1208,14 @@ Workflow startup is gated by the workflow's `branch.mode` setting.
 or omits the `mode` field, `run prepare` atomically:
 
 1. Validates and snapshots workflow JSON.
-2. Calls `git checkout -b <suggested_name>` (idempotent fallback to
-   `git checkout <suggested_name>` if the branch already exists).
+2. Ensures the local branch ref `<suggested_name>` exists at the run's recorded
+   base commit using `git branch`, without checking it out.
 3. Records the branch and transitions the run to state `ready`.
 
 The response includes `branch_mode: "auto"`, the resolved `branch`,
 `branch_created` (true only when a new branch was created), and the
-`current_git_branch` for cross-check. If git checkout fails (dirty
-working tree, conflicting branch), the run remains in
+`current_git_branch` for cross-check. If git ref creation fails (conflicting
+branch name, invalid base, invalid branch name), the run remains in
 `needs_branch_confirmation` and the operator can resolve the issue and
 run `striatum branch confirm` manually. Auto mode requires
 `branch.suggested_name` to be set.
@@ -1238,16 +1238,17 @@ spec reviews where the branch is part of the deliberation).
 No job is claimable before branch confirmation. Branch confirmation itself
 does not commit, push, merge, or rebase.
 
-`branch confirm --json` is records-only by default: it includes the requested
-branch and detected current git branch, warns when they differ, and reports
-`records_only: true`. Three opt-in flags promote the gate from advisory to
-git-enforcing:
+`branch confirm --json` includes the requested branch and detected current git
+branch, warns when they differ, and reports whether the confirmation was
+`records_only`. The default confirm path ensures the branch ref exists at the
+run's recorded base using `git branch` without checking it out; `records_only`
+is `false` only when that call creates a missing ref. Three flags adjust the
+confirmation gate:
 
-- `--create`: run `git checkout -b <branch>` (idempotent fallback to
-  `git checkout <branch>` if the branch already exists). If git refuses, the
-  runner exits with `WorkflowError` (code 8) and does NOT record the
-  confirmation. The response field `created` is `true` only when a new
-  branch was created.
+- `--create`: explicitly run the same ref-only create-if-absent operation. If
+  git refuses, the runner exits with `WorkflowError` (code 8) and does NOT
+  record the confirmation. The response field `created` is `true` only when a
+  new branch ref was created.
 - `--use-current`: ignore `--branch` as a target and record the current git
   branch instead. If `--branch` is also given and disagrees with the
   current branch, exit with code 8.
@@ -1257,7 +1258,8 @@ git-enforcing:
 
 The response also includes a `mode` field
 (`"records_only" | "create" | "use_current" | "strict"`). The default
-records-only mode preserves backwards compatibility for existing callers.
+mode name preserves backwards compatibility for existing callers, but the
+`records_only` boolean is authoritative.
 
 `git snapshot --json` is a daemon read-only local Git projection for the
 registered target repository. It reports branch, HEAD metadata, dirty counts,
@@ -2432,12 +2434,27 @@ validates the active lease, requires the lane to declare `per_job` isolation,
 requires the job to be repo-write, and rejects requests when an active
 worktree already exists for the job. It runs
 `git worktree add --detach .striatum/worktrees/<worktree_id> <base_branch>`
-based on the run's confirmed branch and records a row in the new
-`job_worktrees` table with state `active`. `striatum worktree release
---worktree-id <id>` runs `git worktree remove --force` and marks the row
-`removed`; releasing an already-terminal row is a no-op. `striatum worktree
-list [--run-id <id>]` returns the rows verbatim plus each job's
-`workflow_job_id`.
+based on the run's confirmed branch and records a row in the
+`job_worktrees` table with state `active`. If a pre-RFC 0117 run recorded a
+confirmed branch name but the git ref is missing, worktree creation creates
+the branch ref at the run's recorded base using ref plumbing; it never moves
+the operator's primary checkout.
+
+When `work.complete` completes a repo-write job with an active per-job
+worktree, the daemon first makes that worktree HEAD reachable from a durable
+git ref. It fast-forwards the run branch with compare-and-swap `update-ref`
+when the run branch is an ancestor of the worktree HEAD; otherwise it pins
+the worktree HEAD at `refs/striatum/<run_id>/<job_id>`. The completion emits
+`job.commits_anchored` with the anchor kind.
+
+`striatum worktree release --worktree-id <id>` refuses to remove a worktree
+whose HEAD is not reachable from the run branch or a `refs/striatum/` pin,
+returning `worktree_head_unreachable`. Passing `--force` performs the
+discarding removal and emits `worktree.force_released`; otherwise a
+reachable release runs `git worktree remove --force`, emits
+`worktree.released`, and marks the row `removed`. Releasing an
+already-terminal row is a no-op. `striatum worktree list [--run-id <id>]`
+returns the rows plus each job's `workflow_job_id`.
 
 `publish-artifact` continues to validate write scope and content against the
 logical repo-relative path, but when an active worktree exists for the job it
@@ -2446,11 +2463,18 @@ artifact's `repo_path` as the logical path. Artifacts remain durable
 provenance for the main branch regardless of which worktree the work
 happened in.
 
+For repo-write jobs whose lane declares `worktree_isolation: per_job`, the
+repository-touching surfaces `artifact.publish`, `repo.write`,
+`repo.patch-preview`, `repo.patch-apply`, `process.run`, and `work.complete`
+require an active job worktree and refuse with `worktree_required` if the
+agent has not called `worktree.create`.
+
 Lazy lease expiry preserves the worktree directory for operator inspection.
-The `job_worktrees` row is marked `abandoned` and an event is emitted, but
-`git worktree remove` is not run. `striatum doctor` flags active worktrees
-whose lease is no longer active and active worktrees whose path no longer
-exists on disk.
+Before the `job_worktrees` row is marked `abandoned`, recovery anchors the
+worktree HEAD through the same fast-forward-or-pin helper and records the
+anchor in `worktree.abandoned`; `git worktree remove` is not run.
+`striatum doctor` flags active worktrees whose lease is no longer active and
+active worktrees whose path no longer exists on disk.
 
 ## First Validation Fixture
 

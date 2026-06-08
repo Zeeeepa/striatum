@@ -80,8 +80,11 @@ the refusal side). This RFC owns both: the policy predicate fix (small,
 shippable now) and the driver verb (the bigger ergonomics change), and it
 argues the boundary question that #178's "either/or" ask raises.
 
-This RFC is design-only. The dogfood run that produces it changes no `go/`
-source. Implementation is later, phased PRs.
+This RFC was authored as design-only. Phase 1 is now implemented in source:
+`striatum run drive` is wired as a local CLI operator loop over existing daemon
+RPC methods, `scripts/dod/driver.py` delegates to it, and the fresh-reviewer
+predicate ignores idle, lease-less, drained author sessions while preserving
+`--force-non-fresh` semantics.
 
 ## The product-boundary question, stated honestly
 

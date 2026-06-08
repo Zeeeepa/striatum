@@ -122,7 +122,7 @@ func repoPatchConfigFor(ctx context.Context, runner any, repositoryID, sessionID
 		return repoPatchConfig{}, err
 	}
 	repoRoot := fmt.Sprint(run["repo_root"])
-	cwd, err := processRunCwd(ctx, runner, repositoryID, jobID, repoRoot)
+	cwd, err := processRunCwd(ctx, runner, repositoryID, job, repoRoot, "repo.patch")
 	if err != nil {
 		return repoPatchConfig{}, err
 	}

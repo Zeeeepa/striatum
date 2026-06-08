@@ -76,6 +76,20 @@ var usageByGroup = map[string]Usage{
 			{Name: "lease-seconds", Help: "lease duration for the claim; defaults to 3600 seconds"},
 		},
 	},
+	"work_packet_show": {
+		Params: []Param{
+			{Name: "packet-id", Positional: true, Help: "specific work packet id to inspect"},
+			{Name: "message-id", Help: "filter packets by queue message id"},
+			{Name: "job-id", Help: "filter packets by job id"},
+			{Name: "session-id", Help: "filter packets by receiving session id"},
+			{Name: "run-id", Help: "filter packets by run id"},
+			{Name: "limit", Help: "maximum packet rows to return; defaults to 20 and caps at 200"},
+			{Name: "raw", Bool: true, Help: "include packet_json in the response; omitted by default to avoid leaking task prose"},
+		},
+		Notes: []string{
+			"At least one selector is required. Without --raw, this returns metadata and packet_sha256 only.",
+		},
+	},
 	"ack": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session that claimed the packet"},
@@ -214,6 +228,7 @@ var usageByGroup = map[string]Usage{
 	"worktree_release": {
 		Params: []Param{
 			{Name: "worktree-id", Positional: true, Required: true, Help: "worktree id returned by worktree create"},
+			{Name: "force", Bool: true, Help: "remove even when the worktree HEAD is not reachable from the run branch or refs/striatum pins; records worktree.force_released"},
 		},
 	},
 	"repo_add": {

@@ -20,9 +20,9 @@ This is **not wishful — ~70% of the substrate already exists:**
 
 - **Cross-run concurrency is lock-free by design** once RFC 0104 lands: the
   per-run advisory lock serializes *within* a run, never across runs.
-- **Branch-per-run already exists**: `HandleBranchConfirm` (`run.go:314`) +
-  `gitCreateOrCheckoutBranch` (`run.go:356`) pin each run to a branch before
-  start (`run.go:55` requires it).
+- **Branch-per-run already exists**: `HandleBranchConfirm` plus the ref-only
+  branch ensure path pin each run to a branch before start (`run.go:55` requires
+  it), without moving the operator's primary checkout.
 - **Per-job worktree isolation already exists** (RFC 0008): the lane field
   `worktree_isolation: off|per_job` (`workflowauthoring/workflow.go:28`),
   `laneWorktreeIsolation`/`worktreeRequired` (`claim.go:346`),

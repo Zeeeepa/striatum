@@ -1102,6 +1102,15 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		}
 		now := nowString()
 		messageID := nullable(job["current_message_id"])
+		anchorPayload, err := anchorActiveWorktreeForJob(ctx, tx, repositoryID, job)
+		if err != nil {
+			return nil, err
+		}
+		if anchorPayload != nil {
+			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.commits_anchored", sessionID, jobID, messageID, nil, leaseID, anchorPayload); err != nil {
+				return nil, err
+			}
+		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.jobs
 			   SET state = 'completed', completed_at = $1, current_lease_id = NULL
@@ -1168,6 +1177,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			return nil, err
 		}
 		result := map[string]any{"status": "completed", "job_id": jobID}
+		if anchorPayload != nil {
+			result["commit_anchor"] = anchorPayload
+		}
 		if interrogable {
 			result["interrogable"] = true
 			result["session_phase"] = "awaiting_interrogation"

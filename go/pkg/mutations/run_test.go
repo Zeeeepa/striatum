@@ -2,6 +2,7 @@ package mutations
 
 import (
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -36,10 +37,10 @@ func TestGitBranchExists(t *testing.T) {
 	}
 }
 
-// TestAutoConfirmBranchCreatesOrChecksOut exercises the git helpers used by the
-// auto branch-confirm path in runPrepare: when the suggested branch does not
-// exist, gitCreateOrCheckoutBranch must create it.
-func TestAutoConfirmBranchCreatesOrChecksOut(t *testing.T) {
+// TestAutoConfirmBranchEnsuresRefWithoutCheckout exercises the git helper used
+// by branch.confirm/run.prepare: when the suggested branch does not exist, the
+// daemon creates the ref without moving the operator's primary checkout.
+func TestAutoConfirmBranchEnsuresRefWithoutCheckout(t *testing.T) {
 	dir := t.TempDir()
 	run := func(args ...string) {
 		t.Helper()
@@ -48,6 +49,16 @@ func TestAutoConfirmBranchCreatesOrChecksOut(t *testing.T) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}
+	}
+	currentBranch := func() string {
+		t.Helper()
+		cmd := exec.Command("git", "branch", "--show-current")
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git branch --show-current: %v\n%s", err, out)
+		}
+		return string(out)
 	}
 	run("init", "-b", "main")
 	run("config", "user.email", "test@test")
@@ -59,9 +70,9 @@ func TestAutoConfirmBranchCreatesOrChecksOut(t *testing.T) {
 	if gitBranchExists(dir, suggested) {
 		t.Fatalf("branch %q must not exist before test", suggested)
 	}
-	branch, created, err := gitCreateOrCheckoutBranch(dir, suggested)
+	branch, created, err := gitEnsureBranchRef(dir, suggested, "")
 	if err != nil {
-		t.Fatalf("gitCreateOrCheckoutBranch: %v", err)
+		t.Fatalf("gitEnsureBranchRef: %v", err)
 	}
 	if branch != suggested {
 		t.Errorf("branch = %q, want %q", branch, suggested)
@@ -72,14 +83,20 @@ func TestAutoConfirmBranchCreatesOrChecksOut(t *testing.T) {
 	if !gitBranchExists(dir, suggested) {
 		t.Error("branch must exist after creation")
 	}
+	if got := strings.TrimSpace(currentBranch()); got != "main" {
+		t.Fatalf("current branch moved to %q, want main", got)
+	}
 
-	// Second call to the same branch: checkout (already exists), not create.
-	_, created2, err := gitCreateOrCheckoutBranch(dir, suggested)
+	// Second call to the same branch: ref already exists, still no checkout.
+	_, created2, err := gitEnsureBranchRef(dir, suggested, "")
 	if err != nil {
-		t.Fatalf("gitCreateOrCheckoutBranch (second call): %v", err)
+		t.Fatalf("gitEnsureBranchRef (second call): %v", err)
 	}
 	if created2 {
 		t.Error("second call must not re-create; expected created=false")
+	}
+	if got := strings.TrimSpace(currentBranch()); got != "main" {
+		t.Fatalf("second call moved current branch to %q, want main", got)
 	}
 }
 

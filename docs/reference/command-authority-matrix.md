@@ -147,14 +147,14 @@ causes `supervise.send` to fail closed until `supervise.rebridge` rebuilds the
 delivery bridge or the supervisor is restarted.
 | `work.send_message` | `send` | write | single_repo | pg | real | no | no | stable |
 | `work.block` | `block` | write | single_repo | pg | real | no | no | stable |
-| `work.complete` | `complete` | write | single_repo | pg | real | no | no | stable |
+| `work.complete` | `complete` | write | single_repo | pg + git refs | real | no | no | repo-write jobs with active per-job worktrees anchor their HEAD by fast-forwarding the run branch or pinning `refs/striatum/<run_id>/<job_id>` before completion |
 | `artifact.publish` | `publish-artifact` | write | single_repo | pg | real | no | no | stable |
 | `repo.write` | `repo write` | write | single_repo | pg + local_file_authoring | real | no | no | exact-content mediated repository write; validates active session/lease and job write_scope before any filesystem mutation |
 | `repo.patch_preview` | `repo patch-preview` | write | single_repo | pg + local_file_authoring | real | no | no | mediated unified-patch preview; validates active session/lease, `git apply --check`, and all changed paths against job write_scope without mutating files |
 | `repo.patch_apply` | `repo patch-apply` | write | single_repo | pg + local_file_authoring | real | no | no | mediated unified-patch apply; repeats preview validation before applying and records changed-path metadata without patch text |
 | `process.run` | `process run` | write | single_repo | pg + process execution | real | no | no | mediated command-array execution; requires active session/lease plus job `capability_requirements.process_execution=true` or a matching escape decision; records `process_executions` evidence and process events without durable stdout/stderr transcripts |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
-| `worktree.release` | `worktree release` | write | single_repo | pg | real | no | no | Go shells out to `git worktree remove --force` and records release state |
+| `worktree.release` | `worktree release` | write | single_repo | pg + git refs | real | no | no | refuses non-`--force` release while worktree HEAD is unreachable from the run branch or `refs/striatum/`; `--force` records `worktree.force_released` |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
 | `workflow.accept_risk` | `workflow accept-risk` / MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
@@ -399,5 +399,7 @@ remediation is sensible for that code.
 | `token_scope_ambiguous` | The token carries duplicate active capability scopes, so the daemon cannot pick one. | — |
 | `token_unavailable` | The CLI could not load a capability token from its configured token file. | Run inside a workflow lane (which provides the token) or point the CLI at a readable capability-token file. |
 | `version_incompatible` | The client and daemon share no supported envelope version. | Upgrade so client and daemon match (`make install`, then restart striatumd so the running image is the new build). |
+| `worktree_head_unreachable` | worktree.release refused because the worktree HEAD is not reachable from the run branch or a refs/striatum pin. | Complete the job so work.complete anchors the commits, or rerun worktree release with --force only if discarding that HEAD is intentional. |
+| `worktree_required` | A repo-write job on a lane with `worktree_isolation: per_job` tried to publish, write, patch, run a process, or complete without an active job worktree. | Run worktree.create using the active session, job, and lease from the work packet, then retry the operation. |
 | `workflow_error` | Workflow validation, preparation, or run orchestration failed. | — |
 | `workflow_snapshot_not_found` | The workflow_snapshot_id was not found. | Read the run's workflow_snapshot_id from run.detail and re-issue with it. |

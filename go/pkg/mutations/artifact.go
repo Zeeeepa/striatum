@@ -102,7 +102,7 @@ func publishArtifact(
 	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
 		return nil, rpc.NewError("artifact_error", "artifact path is outside the job write scope", nil)
 	}
-	activeWorktree, err := activeWorktreeForJob(ctx, runner, repositoryID, jobID)
+	activeWorktree, err := requireActiveWorktreeForJob(ctx, runner, repositoryID, job, "artifact.publish")
 	if err != nil {
 		return nil, err
 	}

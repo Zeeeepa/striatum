@@ -157,7 +157,7 @@ func processRunInsertStarting(ctx context.Context, runner any, repositoryID, ses
 		return processRunStartConfig{}, err
 	}
 	repoRoot := fmt.Sprint(run["repo_root"])
-	cwd, err := processRunCwd(ctx, runner, repositoryID, jobID, repoRoot)
+	cwd, err := processRunCwd(ctx, runner, repositoryID, job, repoRoot, "process.run")
 	if err != nil {
 		return processRunStartConfig{}, err
 	}
@@ -255,8 +255,8 @@ func processRunPacketID(ctx context.Context, runner any, repositoryID, sessionID
 	return fmt.Sprint(rows[0]["packet_id"]), nil
 }
 
-func processRunCwd(ctx context.Context, runner any, repositoryID, jobID, repoRoot string) (string, error) {
-	activeWorktree, err := activeWorktreeForJob(ctx, runner, repositoryID, jobID)
+func processRunCwd(ctx context.Context, runner any, repositoryID string, job map[string]any, repoRoot string, surface string) (string, error) {
+	activeWorktree, err := requireActiveWorktreeForJob(ctx, runner, repositoryID, job, surface)
 	if err != nil {
 		return "", err
 	}

@@ -82,7 +82,7 @@ func repoWrite(
 			},
 		)
 	}
-	activeWorktree, err := activeWorktreeForJob(ctx, runner, repositoryID, jobID)
+	activeWorktree, err := requireActiveWorktreeForJob(ctx, runner, repositoryID, job, "repo.write")
 	if err != nil {
 		return nil, err
 	}
