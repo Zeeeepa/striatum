@@ -23,7 +23,9 @@ In V1, multiple agents working on the same branch share the same repository root
 1.  **Git Worktree Integration:** When a job with a "write" capability is claimed, the runner can optionally create a `git worktree` in a temporary directory (e.g., `.striatum/worktrees/job_<id>`).
 2.  **Isolated Execution:** The work packet provided to the agent includes the path to this isolated worktree as the `cwd`.
 3.  **Artifact Retrieval:** Upon job completion, `publish-artifact` validates paths against the worktree, and the runner manages the collection of artifacts back to the main repository provenance area.
-4.  **Automatic Cleanup:** Worktrees are removed after job completion or cancellation.
+4.  **Safe Cleanup:** Operators can remove completed or abandoned on-disk
+    worktrees after the daemon proves their HEAD is reachable from a durable
+    ref.
 
 ## Acceptance Criteria
 
@@ -57,31 +59,47 @@ V1 ships opt-in per-lane worktree isolation. The actual behavior:
 - **Detached HEAD checkout.** `striatum worktree create` runs
   `git worktree add --detach .striatum/worktrees/<worktree_id> <base_branch>`.
   Detached HEAD avoids conflict with the branch already checked out in the
-  main worktree; V1 does not commit, push, or merge, so a writable branch
-  reference inside the worktree is unnecessary.
-- **State table.** A new SQLite table `job_worktrees` tracks `worktree_id`,
-  `run_id`, `job_id`, `lease_id`, `base_branch`, `worktree_path`, and `state`
-  (`active`, `released`, `removed`, `abandoned`). A partial unique index
-  enforces "at most one active worktree per job"; previous rows in terminal
-  states are preserved as historical context. Migration version 2 adds the
-  table; the migration is the single source of truth.
+  main worktree; the isolated worktree itself does not need a checked-out
+  writable branch ref because RFC 0117 anchors completed commits through ref
+  plumbing.
+- **State table.** The daemon-owned PostgreSQL `job_worktrees` table tracks
+  `worktree_id`, `run_id`, `job_id`, `lease_id`, `base_branch`,
+  `worktree_path`, and `state` (`active`, `released`, `removed`,
+  `abandoned`). A partial unique index enforces "at most one active worktree
+  per job"; previous rows in terminal states are preserved as historical
+  context.
 - **Artifact publication.** When a job has an active worktree, `publish-artifact`
   validates file existence at `<worktree_path>/<logical_path>` but records the
   `repo_path` as the logical (repo-relative) path. Artifacts remain durable
   provenance for the main branch, and the same artifact rows are valid before,
   during, and after worktree-isolated execution.
-- **Recovery on lease expiry.** If a job with an active worktree has its lease
-  lazily expired (`db.expire_leases`), the worktree row is marked
-  `abandoned` and an event is emitted. The directory is left on disk so an
-  operator can inspect uncommitted work, mirroring the existing repo-write
-  stale-lease policy.
+- **Commit custody (RFC 0117).** When `work.complete` completes a repo-write
+  job with an active per-job worktree, the daemon makes the worktree HEAD
+  reachable from a durable git ref before completing the job: it
+  fast-forwards the run branch when ancestry permits and otherwise pins the
+  HEAD at `refs/striatum/<run_id>/<job_id>`. Branch creation is ref-only and
+  never moves the operator's primary checkout.
+- **Recovery on lease expiry.** Before a worktree row is marked `abandoned`,
+  recovery anchors the worktree HEAD through the same fast-forward-or-pin
+  helper and records the anchor in `worktree.abandoned`. The directory is left
+  on disk so an operator can inspect uncommitted work, mirroring the existing
+  repo-write stale-lease policy.
 - **Doctor.** `striatum doctor` flags worktrees in `state = 'active'` whose
-  lease is no longer active (orphaned), and worktrees in `state = 'active'`
-  whose `worktree_path` no longer exists on disk (filesystem drift).
-- **Inspection.** `striatum worktree list` returns the rows verbatim with the
-  job's `workflow_job_id` joined in. `striatum worktree release` removes the
-  directory via `git worktree remove --force` and marks the row `removed`;
-  releasing an already-terminal row is a no-op.
+  lease is no longer active (orphaned), active worktrees whose
+  `worktree_path` no longer exists on disk (filesystem drift), and active or
+  abandoned worktrees whose HEAD is not reachable from the run branch or a
+  `refs/striatum/` pin (`worktree_head_unreachable`; completed jobs also
+  surface `job_completed_without_anchor`).
+- **Inspection.** `striatum worktree list` returns the rows with the job's
+  `workflow_job_id` plus ref-safety fields (`head`, `reachable`, `anchor`,
+  `anchored_ref`, `checked_refs`). `striatum worktree release` removes the
+  directory via `git worktree remove --force` only after the worktree HEAD is
+  reachable from the run branch or a `refs/striatum/` pin; `--force` is the
+  explicit audited discard path. Releasing an already-terminal row is a no-op.
+- **Garbage collection.** `striatum worktree gc [--run-id <id>]` removes only
+  on-disk worktree directories for terminal jobs whose HEAD is reachable from
+  the run branch or a `refs/striatum/` pin. It reports skipped rows with
+  reasons and emits `worktree.gc_removed` for removals.
 
 The first three open questions in this RFC are now resolved as: per-lane
 configuration; large-repository performance is left for an operator-level

@@ -78,7 +78,7 @@ above.
 | `daemon.describe` | n/a | read | daemon_global | direct | real | no | no | stable |
 | `status` | `status` | read | single_repo | pg | real | no | no | stable |
 | `why` | `why` | read | single_repo | pg | real | no | no | stable |
-| `doctor` | `doctor` | read | single_repo | pg | real | no | no | stable |
+| `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor` |
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
@@ -112,7 +112,7 @@ above.
 | `list.artifacts` | `list artifacts` | read | single_repo | pg | real | no | no | stable |
 | `artifact.show` | web artifact raw/detail DTO | read | single_repo | pg | real | no | no | stable |
 | `list.workflows` | `list workflows` | read | single_repo | pg | real | no | no | stable |
-| `worktree.list` | `worktree list` | read | single_repo | pg | real | no | no | stable |
+| `worktree.list` | `worktree list` | read | single_repo | pg + git refs | real | no | no | read-only row projection includes worktree HEAD reachability, anchor kind, anchored ref, and checked refs |
 | `dashboard.all` | `dashboard --all` | read | daemon_global | direct | real | no | no | Go/PostgreSQL read-only projection with per-active-run `run_progress` parity; remaining TODO 62 gaps are outside the dashboard-all run-progress slice |
 | `repo.list` | `repo list` | read | daemon_global | pg repo registrar | real | no | no | bootstrap/admin |
 | `repo.resolve` | client repository resolution | read | daemon_global | pg repo resolver | real | no | no | daemon-global bootstrap read for path -> repository_id resolution |
@@ -155,6 +155,7 @@ delivery bridge or the supervisor is restarted.
 | `process.run` | `process run` | write | single_repo | pg + process execution | real | no | no | mediated command-array execution; requires active session/lease plus job `capability_requirements.process_execution=true` or a matching escape decision; records `process_executions` evidence and process events without durable stdout/stderr transcripts |
 | `worktree.create` | `worktree create` | write | single_repo | pg | real | no | no | Go shells out to `git worktree add --detach` after PG lease/workflow validation |
 | `worktree.release` | `worktree release` | write | single_repo | pg + git refs | real | no | no | refuses non-`--force` release while worktree HEAD is unreachable from the run branch or `refs/striatum/`; `--force` records `worktree.force_released` |
+| `worktree.gc` | `worktree gc` | write | single_repo | pg + git refs + git worktrees | real | no | no | removes only on-disk worktrees for terminal jobs whose HEAD is reachable from the run branch or `refs/striatum/`; skipped rows are reported and removals emit `worktree.gc_removed` |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
 | `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
 | `workflow.accept_risk` | `workflow accept-risk` / MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |

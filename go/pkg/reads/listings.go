@@ -209,17 +209,24 @@ func HandleWorktreeList(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	rows, err := collectRows(ctx, runner,
 		`SELECT w.worktree_id, w.run_id, w.job_id, w.lease_id,
 		        w.base_branch, w.worktree_path, w.state, w.created_at,
-		        w.released_at, w.removed_at, j.workflow_job_id
+		        w.released_at, w.removed_at, j.workflow_job_id,
+		        j.state AS job_state, r.repo_root, r.branch_name
 		   FROM striatumd.job_worktrees w
 		   JOIN striatumd.jobs j
 		     ON j.repository_id = w.repository_id
 		    AND j.job_id = w.job_id
+		   JOIN striatumd.runs r
+		     ON r.repository_id = w.repository_id
+		    AND r.run_id = w.run_id
 		  `+where+`
 		  ORDER BY w.created_at, w.worktree_id`,
 		args...,
 	)
 	if err != nil {
 		return nil, err
+	}
+	for _, row := range rows {
+		addWorktreeAnchorProjection(ctx, row)
 	}
 	return map[string]any{"worktrees": rows}, nil
 }

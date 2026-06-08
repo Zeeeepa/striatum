@@ -65,6 +65,7 @@
     {"command": "branch", "subcommand": "confirm", "method": "branch.confirm", "params": "branch_confirm"},
     {"command": "worktree", "subcommand": "create", "method": "worktree.create", "params": "worktree_create"},
     {"command": "worktree", "subcommand": "release", "method": "worktree.release", "params": "worktree_release"},
+    {"command": "worktree", "subcommand": "gc", "method": "worktree.gc", "params": "worktree_gc"},
     {"command": "worktree", "subcommand": "list", "method": "worktree.list", "params": "worktree_list"},
     {"command": "supervise", "subcommand": "start", "method": "supervise.start", "params": "supervise_start"},
     {"command": "supervise", "subcommand": "send", "method": "supervise.send", "params": "supervise_send"},
@@ -849,6 +850,15 @@
     },
     {
       "method": "worktree.release",
+      "required_capability": "write",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "worktree.gc",
       "required_capability": "write",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -121,5 +122,82 @@ func TestHandleDoctorWarnsOnStaleGeneratedSkills(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(target, ".claude", "skills", "striatum-workflow", "SKILL.md")); err != nil {
 		t.Fatalf("stale skill should remain for doctor-only warning: %v", err)
+	}
+}
+
+type doctorWorktreeAnchorFakeRunner struct {
+	doctorFakeRunner
+	rows []map[string]any
+}
+
+func (r *doctorWorktreeAnchorFakeRunner) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "FROM striatumd.job_worktrees"):
+		return dashboardAllRowsFromMaps(r.rows), nil
+	case strings.Contains(sql, "COUNT(*) AS c"):
+		return dashboardAllRowsFromMaps([]map[string]any{{"c": int64(0)}}), nil
+	default:
+		return dashboardAllRowsFromMaps(nil), nil
+	}
+}
+
+func TestDoctorFlagsUnreachableWorktreeHead(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	repoRoot := t.TempDir()
+	baseSHA := readsGitInit(t, repoRoot)
+	runID := "run_doctor_anchor"
+	jobID := "job_doctor_anchor"
+	worktreeID := "wt_doctor_anchor"
+	runBranch := "wf/doctor-anchor"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	readsGitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	readsGitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "worktree.txt"), []byte("worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, worktreeRoot, "add", "worktree.txt")
+	readsGitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := readsGitRevParse(t, worktreeRoot, "HEAD")
+
+	runner := &doctorWorktreeAnchorFakeRunner{rows: []map[string]any{{
+		"worktree_id":     worktreeID,
+		"run_id":          runID,
+		"job_id":          jobID,
+		"lease_id":        "lease_doctor_anchor",
+		"base_branch":     runBranch,
+		"branch_name":     runBranch,
+		"repo_root":       repoRoot,
+		"worktree_path":   worktreeRel,
+		"state":           "active",
+		"workflow_job_id": "author_draft",
+		"job_state":       "completed",
+	}}}
+
+	result, err := HandleDoctor(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_doctor_anchor", "verbose": true},
+	})
+	if err != nil {
+		t.Fatalf("HandleDoctor: %v", err)
+	}
+	if result["ok"] == true {
+		t.Fatalf("doctor ok = true, want false")
+	}
+	problems := strings.Join(result["problems"].([]string), "\n")
+	for _, want := range []string{"worktree_head_unreachable." + worktreeID, "job_completed_without_anchor." + jobID, worktreeHead} {
+		if !strings.Contains(problems, want) {
+			t.Fatalf("doctor problems missing %q:\n%s", want, problems)
+		}
+	}
+	records := result["problem_records"].([]map[string]any)
+	checks := map[string]bool{}
+	for _, record := range records {
+		checks[stringFrom(record, "check")] = true
+	}
+	if !checks["worktree_head_unreachable"] || !checks["job_completed_without_anchor"] {
+		t.Fatalf("problem_records = %#v", records)
 	}
 }

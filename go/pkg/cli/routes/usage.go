@@ -231,6 +231,14 @@ var usageByGroup = map[string]Usage{
 			{Name: "force", Bool: true, Help: "remove even when the worktree HEAD is not reachable from the run branch or refs/striatum pins; records worktree.force_released"},
 		},
 	},
+	"worktree_gc": {
+		Params: []Param{
+			{Name: "run-id", Help: "limit garbage collection to a single run"},
+		},
+		Notes: []string{
+			"Removes only on-disk job worktrees whose jobs are terminal and whose HEAD is reachable from the run branch or refs/striatum pins; skipped rows are reported with reasons.",
+		},
+	},
 	"repo_add": {
 		Params: []Param{
 			{Name: "path", Positional: true, Required: true, Help: "target repository path to register"},

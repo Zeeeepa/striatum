@@ -89,6 +89,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("git.commit_apply", makeHandler(runner, HandleGitCommitApply))
 	server.Register("worktree.create", makeHandler(runner, HandleWorktreeCreate))
 	server.Register("worktree.release", makeHandler(runner, HandleWorktreeRelease))
+	server.Register("worktree.gc", makeHandler(runner, HandleWorktreeGC))
 	rpc.MethodRegistry["supervise.rebridge"] = rpc.NewMethod("supervise.rebridge", rpc.CapPtr(rpc.CapabilityClaim), true, rpc.ScopeSingleRepo)
 	server.Register("supervise.start", makeHandler(runner, HandleSuperviseStart))
 	server.Register("supervise.send", makeHandler(runner, HandleSuperviseSend))

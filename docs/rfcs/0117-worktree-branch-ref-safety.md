@@ -162,10 +162,11 @@ Everything below is mechanism in service of that invariant.
   mainline stays RFC 0108's serialized, gated, human-surfaced `run.integrate`.
   This RFC strictly *feeds* `run.integrate` a complete, ref-reachable run
   branch; it never bypasses it.
-- **No new daemon method.** All behavior attaches to existing verbs
+- **No new core daemon method.** All invariant behavior attaches to existing verbs
   (`work.complete`, `worktree.release`, `branch.confirm`, recovery sweep,
-  `worktree create`) plus doctor/list read surfaces. No new RPC route, no
-  command-authority-matrix row beyond an audit-class note.
+  `worktree create`) plus doctor/list read surfaces. The follow-up cleanup
+  companion (#213) adds `worktree.gc` as a guarded operator verb after the
+  invariant is in place.
 - **No change to write-scope / artifact-contract enforcement.** The fast-forward
   runs *after* the existing `enforceWriteScopeClean` / `verifyRequiredArtifacts`
   gates in `work.complete`; it is a strictly additional, last step.
@@ -413,13 +414,16 @@ property rather than a point-patch:
 
 ## Implementation plan (gate-first, phased)
 
-Implementation status: phases 1-4 are now implemented in source. `work.complete`
+Implementation status: phases 1-5 are now implemented in source. `work.complete`
 anchors active per-job worktree commits with fast-forward-or-pin and emits
 `job.commits_anchored`; `worktree.release` refuses unreachable HEADs unless
 `--force` records `worktree.force_released`; `branch.confirm` / `worktree
 create` use ref-only branch creation; and stale-lease recovery anchors before
-marking worktrees `abandoned`. Phase 5 (`daemon doctor` / `worktree list`
-ref-safety projection) remains follow-up work.
+marking worktrees `abandoned`. `daemon doctor` and `worktree list` now surface
+the ref-safety projection and flag `worktree_head_unreachable` /
+`job_completed_without_anchor`. The #213 companion `worktree.gc` verb removes
+only anchored on-disk worktrees for terminal jobs and reports skipped rows with
+reasons.
 
 Each phase lands alone, behind a named regression gate. **The RED gate is
 written first and must fail on `origin/main` before the fix.**
@@ -533,10 +537,10 @@ surface.
    `commit_anchor_failed` event and let the doctor probe + release guard catch
    it? Proposal: **fail-closed** — a job that cannot guarantee its commits are
    saved has not safely completed; the invariant is the point. Confirm.
-3. **On-disk gc of anchored-abandoned worktrees.** Recovery anchors but doesn't
-   remove the abandoned worktree dir; over a long campaign these accumulate.
-   Worth a `worktree gc` verb (force-remove worktrees whose HEAD is anchored and
-   whose job is terminal)? Candidate follow-up; out of scope here.
+3. **On-disk gc of anchored-abandoned worktrees.** Resolved by the #213
+   companion `worktree.gc` verb, which force-removes only terminal-job
+   worktrees whose HEAD is reachable from the run branch or `refs/striatum/`
+   pins and reports skipped rows with reasons.
 4. **Pin namespace collisions across run retries.** `run.retry_job` bumps the job
    attempt (RFC 0095) but the `job_id` is stable; should the pin be
    `refs/striatum/<run_id>/<job_id>/<attempt>` so a retried attempt's commits
@@ -554,13 +558,13 @@ surface.
    cross-check that an anchored commit's artifact blob matches `content_sha256`.
    Worth a doctor cross-check? Low priority; note for the implementer.
 
-## Companion issues to file (at acceptance — do not file pre-acceptance)
+## Companion issues
 
-1. **`worktree gc` verb** — force-remove on-disk worktree directories whose HEAD
+1. **`worktree gc` verb** — implemented by #213. It force-removes on-disk
+   worktree directories whose HEAD
    is anchored and whose job is terminal, so anchored-abandoned worktrees from
    recovery and never-released completed worktrees don't accumulate over long
-   campaigns (Open Question 3). Currently nothing removes an `abandoned`
-   worktree's directory.
+   campaigns (Open Question 3).
 2. **Pin lifecycle / sweep policy** — implement the Open Question 1 retention
    decision (`run.archive`/closeout prunes integrated pins, retains divergent
    ones). Without it, `refs/striatum/` grows unbounded over a repo's lifetime.
@@ -586,7 +590,9 @@ of, and asserts that the operator's working checkout is *outside* the daemon's
 write boundary. The new durable artifacts are **domain events** —
 `job.commits_anchored`, `worktree.force_released`, and the anchor fields on the
 existing `worktree.abandoned` / `worktree.released` events — which record, in the
-hash-chained event log, exactly where each job's commits became reachable. No new
-aggregate root, value object, or daemon method; the run branch ref and the
-`refs/striatum/<run>/<job>` pin are the **Run** aggregate's externally-visible
-git projection, the same way `job_worktrees` rows are its internal one.
+hash-chained event log, exactly where each job's commits became reachable. The
+core invariant adds no new aggregate root or value object; the run branch ref
+and the `refs/striatum/<run>/<job>` pin are the **Run** aggregate's
+externally-visible git projection, the same way `job_worktrees` rows are its
+internal one. The companion `worktree.gc` method is an operator cleanup surface
+over that projection, not a new aggregate.

@@ -293,6 +293,147 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	return releaseResult, nil
 }
 
+type worktreeGCCheck struct {
+	Remove       bool
+	Reason       string
+	Target       string
+	Reachability worktreeReachability
+}
+
+func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	runID := strings.TrimSpace(stringParam(envelope, "run_id"))
+
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if err := lockRepo(ctx, tx, repositoryID); err != nil {
+			return nil, err
+		}
+		args := []any{repositoryID}
+		where := "WHERE w.repository_id = $1 AND w.state IN ('active', 'abandoned')"
+		if runID != "" {
+			args = append(args, runID)
+			where += " AND w.run_id = $2"
+		}
+		rows, err := queryRows(ctx, tx, `
+			SELECT w.worktree_id, w.run_id, w.job_id, w.lease_id,
+			       w.base_branch, w.worktree_path, w.state,
+			       j.state AS job_state, j.workflow_job_id,
+			       r.repo_root, r.branch_name
+			  FROM striatumd.job_worktrees w
+			  JOIN striatumd.jobs j
+			    ON j.repository_id = w.repository_id
+			   AND j.job_id = w.job_id
+			  JOIN striatumd.runs r
+			    ON r.repository_id = w.repository_id
+			   AND r.run_id = w.run_id
+			  `+where+`
+			 ORDER BY w.created_at, w.worktree_id
+			 FOR UPDATE OF w`, args...)
+		if err != nil {
+			return nil, err
+		}
+
+		removed := []map[string]any{}
+		skipped := []map[string]any{}
+		for _, row := range rows {
+			repoRoot := strings.TrimSpace(fmt.Sprint(row["repo_root"]))
+			check, err := worktreeGCDecision(ctx, repoRoot, row)
+			base := map[string]any{
+				"worktree_id":     row["worktree_id"],
+				"worktree_path":   row["worktree_path"],
+				"run_id":          row["run_id"],
+				"job_id":          row["job_id"],
+				"workflow_job_id": row["workflow_job_id"],
+				"state":           row["state"],
+				"job_state":       row["job_state"],
+			}
+			if err != nil {
+				base["reason"] = check.Reason
+				if check.Reason == "" {
+					base["reason"] = "probe_failed"
+				}
+				base["error"] = err.Error()
+				skipped = append(skipped, base)
+				continue
+			}
+			if !check.Remove {
+				base["reason"] = check.Reason
+				base["head"] = nullableString(check.Reachability.Head)
+				base["reachable"] = check.Reachability.Reachable
+				base["checked_refs"] = check.Reachability.CheckedRefs
+				skipped = append(skipped, base)
+				continue
+			}
+
+			result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "remove", "--force", check.Target)
+			if err != nil {
+				return nil, err
+			}
+			if result.ExitCode != 0 && pathExists(check.Target) {
+				return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+			}
+			now := nowString()
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.job_worktrees
+				   SET state = 'removed',
+				       released_at = COALESCE(released_at, $1),
+				       removed_at = $2
+				 WHERE repository_id = $3
+				   AND worktree_id = $4
+				   AND state IN ('active', 'abandoned')`,
+				now, now, repositoryID, row["worktree_id"]); err != nil {
+				return nil, err
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, row["run_id"], "worktree.gc_removed", nil, row["job_id"], nil, nil, row["lease_id"], map[string]any{
+				"worktree_id":   row["worktree_id"],
+				"worktree_path": row["worktree_path"],
+				"head":          nullableString(check.Reachability.Head),
+				"reachable":     check.Reachability.Reachable,
+				"checked_refs":  check.Reachability.CheckedRefs,
+				"job_state":     row["job_state"],
+			}); err != nil {
+				return nil, err
+			}
+			base["status"] = "removed"
+			base["head"] = nullableString(check.Reachability.Head)
+			base["reachable"] = check.Reachability.Reachable
+			base["checked_refs"] = check.Reachability.CheckedRefs
+			removed = append(removed, base)
+		}
+		return map[string]any{
+			"status":        "ok",
+			"removed_count": len(removed),
+			"skipped_count": len(skipped),
+			"removed":       removed,
+			"skipped":       skipped,
+		}, nil
+	})
+}
+
+func worktreeGCDecision(ctx context.Context, repoRoot string, row map[string]any) (worktreeGCCheck, error) {
+	if !terminalJobStates[fmt.Sprint(row["job_state"])] {
+		return worktreeGCCheck{Reason: "job_not_terminal"}, nil
+	}
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(row["worktree_path"]))
+	if err != nil {
+		return worktreeGCCheck{Reason: "invalid_path"}, err
+	}
+	if !pathExists(target) {
+		return worktreeGCCheck{Reason: "missing_on_disk", Target: target}, nil
+	}
+	reachability, err := worktreeHeadReachability(ctx, repoRoot, target, row)
+	if err != nil {
+		return worktreeGCCheck{Reason: "probe_failed", Target: target}, err
+	}
+	if !reachability.Reachable {
+		return worktreeGCCheck{Reason: "head_unreachable", Target: target, Reachability: reachability}, nil
+	}
+	return worktreeGCCheck{Remove: true, Target: target, Reachability: reachability}, nil
+}
+
 func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {
 	if !isRepoWrite(job) {
 		return nil, nil

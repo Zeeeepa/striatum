@@ -88,6 +88,7 @@ var methodEntries = []MethodEntry{
 	{Method: "process.run", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "worktree.create", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "worktree.release", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "worktree.gc", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "workflow.init", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "workflow.generate", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "workflow.upgrade", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

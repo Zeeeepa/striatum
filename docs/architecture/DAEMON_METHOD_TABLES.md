@@ -91,6 +91,7 @@
 | `process.run` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.create` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.release` | `write` | `single_repo` | 1 | 1 | no |
+| `worktree.gc` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.init` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.generate` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.upgrade` | `write` | `single_repo` | 1 | 1 | no |
@@ -210,6 +211,7 @@
 | `branch confirm` | `branch.confirm` | `admin` | `single_repo` |
 | `worktree create` | `worktree.create` | `write` | `single_repo` |
 | `worktree release` | `worktree.release` | `write` | `single_repo` |
+| `worktree gc` | `worktree.gc` | `write` | `single_repo` |
 | `worktree list` | `worktree.list` | `read` | `single_repo` |
 | `supervise start` | `supervise.start` | `claim` | `single_repo` |
 | `supervise send` | `supervise.send` | `claim` | `single_repo` |

@@ -127,8 +127,13 @@ row and in the provenance event.
 ```text
 striatum worktree create
 striatum worktree release
+striatum worktree gc [--run-id <id>]
 striatum worktree list
 ```
+
+`worktree gc` removes only on-disk job worktrees whose jobs are terminal and
+whose HEAD is reachable from the run branch or a `refs/striatum/` pin; skipped
+rows are reported with reasons.
 
 ## Supervisor (RFC 0009)
 
@@ -162,7 +167,7 @@ striatum daemon status
 striatum daemon uninstall
 striatum daemon migrate-db [--admin-url <dsn>] [--json]
 striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]
-striatum doctor [--first-run] [--json]
+striatum doctor [--first-run] [--verbose] [--json]
 striatumd [daemon-start options]
 systemctl --user start|stop|restart|status striatumd
 striatum repo add <path> [--init] [--no-migrate compatibility flag]
@@ -222,6 +227,8 @@ distributions are deferred.
 `striatum doctor` is the daemon-backed health check. `doctor --first-run`
 verifies daemon socket reachability, PostgreSQL posture, runtime-token
 presence, repo registration, MCP visibility, and a sample daemon read route.
+`doctor --verbose` includes structured `problem_records` alongside the stable
+string `problems` list.
 `striatum daemon status` is the local bootstrap summary for unit state and
 runtime paths; it folds in read-only doctor information when the daemon is
 reachable.

@@ -1316,6 +1316,7 @@ striatum decision record
 # Worktree (opt-in per lane)
 striatum worktree create
 striatum worktree release
+striatum worktree gc
 striatum worktree list
 
 # Supervisor (RFC 0009)
@@ -1376,9 +1377,12 @@ human-checkpoint context when relevant, and next actions.
 `--verbose` the payload also carries a `problem_records` list of structured
 records with stable `check` names (e.g. `active_job_without_active_lease`,
 `stale_queue_message_claim`, `worktree_path_missing_on_disk`,
+`worktree_head_unreachable`, `job_completed_without_anchor`,
 `supervisor_pid_missing`, `supervisor_stdin_pipe_missing`), the affected `id`,
-and a small `context` map. The string list is preserved verbatim so callers
-that already grep `problems` keep working.
+and a small `context` map. The Go CLI passes `--verbose` through to daemon
+doctor; without it, the string list remains the stable compatibility surface.
+The string list is preserved verbatim so callers that already grep `problems`
+keep working.
 
 ### Dashboard
 
@@ -2402,7 +2406,15 @@ discarding removal and emits `worktree.force_released`; otherwise a
 reachable release runs `git worktree remove --force`, emits
 `worktree.released`, and marks the row `removed`. Releasing an
 already-terminal row is a no-op. `striatum worktree list [--run-id <id>]`
-returns the rows plus each job's `workflow_job_id`.
+returns the rows plus each job's `workflow_job_id` and a read-only ref-safety
+projection: `head`, `reachable`, `anchor` (`run_branch`, `job_pin`, `none`, or
+`unreachable`), `anchored_ref`, and `checked_refs`.
+
+`striatum worktree gc [--run-id <id>]` removes only on-disk worktree
+directories for terminal jobs whose HEAD is already reachable from the run
+branch or a `refs/striatum/` pin. It skips non-terminal jobs, missing on-disk
+paths, probe failures, and unreachable HEADs, returns skipped rows with typed
+reasons, marks removed rows `removed`, and emits `worktree.gc_removed`.
 
 `publish-artifact` continues to validate write scope and content against the
 logical repo-relative path, but when an active worktree exists for the job it
@@ -2422,7 +2434,11 @@ Before the `job_worktrees` row is marked `abandoned`, recovery anchors the
 worktree HEAD through the same fast-forward-or-pin helper and records the
 anchor in `worktree.abandoned`; `git worktree remove` is not run.
 `striatum doctor` flags active worktrees whose lease is no longer active and
-active worktrees whose path no longer exists on disk.
+active worktrees whose path no longer exists on disk. It also reports
+`worktree_ref_safety` and flags `worktree_head_unreachable` when an active or
+abandoned worktree HEAD is not reachable from the run branch or a
+`refs/striatum/` pin; completed jobs in that state also surface
+`job_completed_without_anchor`.
 
 ## First Validation Fixture
 

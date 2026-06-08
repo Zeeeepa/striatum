@@ -19,7 +19,9 @@ const doctorSupervisorProbeTimeout = 5 * time.Second
 // detected via probe queries, stale-lease + waiting-human counts.
 func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, _ := envelope.Params["repository_id"].(string)
+	verbose := boolValue(envelope.Params["verbose"])
 	problems := []string{}
+	problemRecords := []map[string]any{}
 
 	schemaVersion, err := db.ReadSchemaVersion(ctx, runner)
 	if err != nil {
@@ -179,6 +181,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// ownership probes rather than hard-coded.
 	pgReadScopeBlock := pgReadScopeDoctorBlock(ctx, runner)
 
+	worktreeRefSafetyBlock, worktreeProblems, worktreeProblemRecords := doctorWorktreeRefSafety(ctx, runner, repositoryID)
+	problems = append(problems, worktreeProblems...)
+	problemRecords = append(problemRecords, worktreeProblemRecords...)
+
 	skillsBlock := map[string]any{"checked": false}
 	if repoRoot := doctorRepoRoot(ctx, runner, repositoryID); repoRoot != "" {
 		home, _ := os.UserHomeDir()
@@ -199,7 +205,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		}
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"ok":                  len(problems) == 0,
 		"schema_version":      schemaVersion,
 		"stale_leases":        staleLeases,
@@ -214,9 +220,14 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"principals":          principalsBlock,
 		"pg_write_boundary":   pgWriteBoundaryBlock,
 		"pg_read_scope":       pgReadScopeBlock,
+		"worktree_ref_safety": worktreeRefSafetyBlock,
 		"skills":              skillsBlock,
 		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
-	}, nil
+	}
+	if verbose {
+		result["problem_records"] = problemRecords
+	}
+	return result, nil
 }
 
 func doctorRepoRoot(ctx context.Context, runner any, repositoryID string) string {
