@@ -13,17 +13,12 @@ package adapterconformance
 // be orphaned. When the installed-CLI runner goes green for a seat, add it here AND
 // graduate it in workflowtemplates.supportedSeats — the guard fails if they drift.
 //
+//   - agy: TestInstalledCLISeatAgyTwoTurn is green against the real agy CLI.
 //   - codex: TestInstalledCLISeatCodexTwoTurn is green against the hermetic
 //     httptest MCP harness once codex's workspace-trust prompt is answered and
 //     the PTY-side daemon receiver is left off so codex's own MCP receive loop
 //     owns every work.await_packet call.
-//
-// #190 (D174): agy was REMOVED. Its fixture (TestInstalledCLISeatAgyTwoTurn) can no
-// longer go green because agy CLI 1.0.6 (Antigravity) is OAuth-only and the gate
-// stalls on an interactive login picker at the conformance step; the fixture now
-// detects that picker and skips-with-reason. agy's seat is reclassified `degraded`
-// in workflowtemplates; the reconcile guard (TestSupportedSeatsHaveInstalledCLIFixture)
-// requires both this registry and supportedSeats to drop agy together.
 var InstalledCLISeatFixtures = map[string]bool{
+	"agy":   true,
 	"codex": true,
 }

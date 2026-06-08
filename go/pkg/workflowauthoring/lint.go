@@ -451,11 +451,11 @@ func lintExperimentalShape(workflow map[string]any, findings *[]map[string]any) 
 // makes that degradation a recorded, surfaced event instead.
 //
 // It does NOT block (yolo may opt in knowingly) and it does NOT warn on
-// `experimental` seats (claude/codex: they hold a seat, just ungated by an
-// installed-CLI fixture) — faithful to RFC 0109's acceptance, which surfaces
-// `degraded`/`unsupported` seats specifically. The seat may only graduate to
-// `supported` once its RFC 0109 P3 installed-CLI conformance fixture is green
-// (#149), enforced by the adapterconformance graduation guard.
+// `experimental` seats (for example claude today: it holds a seat, just ungated
+// by an installed-CLI fixture) — faithful to RFC 0109's acceptance, which
+// surfaces `degraded`/`unsupported` seats specifically. The seat may only
+// graduate to `supported` once its RFC 0109 P3 installed-CLI conformance fixture
+// is green (#149), enforced by the adapterconformance graduation guard.
 func lintDegradedSeatLane(workflow map[string]any, findings *[]map[string]any) {
 	lanes, ok := workflow["lanes"].(map[string]any)
 	if !ok {

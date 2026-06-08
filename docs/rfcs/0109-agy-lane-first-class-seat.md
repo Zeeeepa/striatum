@@ -187,12 +187,22 @@ P3 landed alongside P1; the scope guard is satisfied.
   lease) and the interrogable presenter resumed post-restart (interrogation
   round-trip + `accept` verdict + `run.completed` after the restart;
   `daemon.recovery_sweep` re-bridged the lanes). agy had completed its cycle before
-  the restart, so agy-specific restart-survival is inferred from the shared
-  supervision path — a direct agy-restart-while-leased leg is the one follow-up.
+  that live restart.
+- **[installed-CLI restart stress gate] mixed** `TestInstalledCLISeatAgyRestartWhileLeased`
+  drives the real agy CLI through a claimed packet, restarts the daemon-facing
+  HTTP + unix-socket harness surfaces while the packet is leased, then expects
+  agy to publish/complete the packet and continue to turn 2 under the same
+  attested session. It passed once against agy 1.0.6 in the current operator
+  environment, but a rerun failed when agy stopped at the "How's the CLI
+  experience so far?" survey prompt before claiming work. Treat it as an
+  explicit restart/prompt-robustness target, not as today's support-tier proof.
 
-codex remains `experimental`: it does not reach `work.claim` against the
-in-process httptest harness (works live; its hermetic MCP path is a follow-up), so
-it holds no installed-CLI fixture.
+Current seat posture after later decisions: `agy` and `codex` are both
+`supported`. D174/#190 briefly demoted agy after a stale/auth-sensitive local
+observation; D177 supersedes that demotion after the direct smoke, two-turn
+installed-CLI gate, and a narrowed login-picker detector passed against the
+current installed agy CLI. The direct agy restart-while-leased stress gate remains
+mixed because of the survey prompt caveat above.
 
 ## Non-goals
 

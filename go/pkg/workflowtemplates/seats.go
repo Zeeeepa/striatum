@@ -21,7 +21,7 @@ import (
 //     nothing catches the day a CLI version bump / trust-prompt change /
 //     config-format shift breaks it (the precise re-rot RFC 0109 P3 closes).
 //   - `degraded`     — a known, tracked defect prevents a reliable supervised
-//     multi-turn seat. agy is here (#95/#85/#76/#139).
+//     multi-turn seat.
 //   - `unsupported`  — declared but not viable at all.
 //
 // The deferral RFC 0109 §B names ("two seats suffice, defer the third") is what
@@ -38,18 +38,11 @@ const (
 // degradedSeats maps an adapter name to the operator-facing reason its supervised
 // seat is degraded. The reason is surfaced verbatim in the lint warning so an
 // operator reading a `run prepare` knows exactly which gap they are accepting.
-// Keep entries tied to a tracked issue so "agy is broken" is never tribal
-// knowledge that resets every umbrella (RFC 0109 §B).
-//
-// #190 (D174): agy is demoted `supported → degraded` again. The installed agy CLI
-// (Antigravity 1.0.6) is OAuth-only — it has no headless/--login/API-key path — so
-// the RFC 0109 P3 Installed CLI Gate stalls on an interactive login picker at the
-// conformance step and the green fixture can no longer be produced. A seat returns
-// to `supported` only via the RFC 0109 graduation gate once a headless auth path
-// returns.
-var degradedSeats = map[string]string{
-	"agy": "agy CLI 1.0.6 (Antigravity) is OAuth-only with no headless/--login/API-key path; the RFC 0109 P3 installed-CLI gate stalls on an interactive login picker, so the supported seat fixture cannot be produced (#190)",
-}
+// Keep entries tied to a tracked issue so "seat X is broken" is never tribal
+// knowledge that resets every umbrella (RFC 0109 §B). No production seat is
+// currently degraded; tests use RegisterDegradedSeatForTest to keep this warning
+// path covered.
+var degradedSeats = map[string]string{}
 
 // supportedSeats are adapters with a green RFC 0109 P3 installed-CLI conformance
 // fixture (adapterconformance.InstalledCLISeatFixtures). The graduation guard
@@ -57,24 +50,22 @@ var degradedSeats = map[string]string{
 // cannot be added here without its fixture, and a fixture cannot exist without
 // graduating the seat — "the tier cannot lie."
 //
+//   - agy: green RFC 0109 P3 installed-CLI fixture
+//     (TestInstalledCLISeatAgyTwoTurn: two-turn claim→publish→claim under one
+//     attested session).
 //   - codex: green RFC 0109 P3 installed-CLI fixture
 //     (TestInstalledCLISeatCodexTwoTurn: two-turn claim→publish→claim under one
 //     attested session against the hermetic MCP harness).
-//
-// #190 (D174): agy was REMOVED from this set — its installed-CLI fixture can no
-// longer go green because agy CLI 1.0.6 is OAuth-only and the gate stalls on a
-// login picker. It is now `degraded` (degradedSeats); re-promotion is the RFC 0109
-// graduation gate once a headless auth path returns.
 var supportedSeats = map[string]struct{}{
+	"agy":   {},
 	"codex": {},
 }
 
 // RegisterDegradedSeatForTest registers a degraded seat + reason for the lifetime
 // of a test and returns a cleanup that restores the prior state. It is the seam
 // that keeps the degraded_seat_lane lint's warning path under test independent of
-// which seats happen to be production-degraded at the time (agy graduated in
-// RFC 0109 Phase B, then was re-demoted by D174/#190). Test-only; never call from
-// production code.
+// which seats happen to be production-degraded at the time. Test-only; never call
+// from production code.
 func RegisterDegradedSeatForTest(adapter, reason string) func() {
 	name := normalizeAdapterName(adapter)
 	prev, had := degradedSeats[name]

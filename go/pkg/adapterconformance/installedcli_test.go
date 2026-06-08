@@ -63,12 +63,10 @@ func tailLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// agyLoginPickerMarkers are substrings the agy CLI emits when it cannot proceed
-// without an interactive OAuth login. agy 1.0.6 (Antigravity) is OAuth-only — it
-// has no headless/--login/API-key path — so under the non-interactive conformance
-// harness it prints a login/account picker and blocks instead of reaching
-// work.claim (#190). Detecting any of these lets the gate skip-with-reason rather
-// than burning the whole RunTimeout and reporting a false seat failure.
+// agyLoginPickerMarkers are substrings the agy CLI emits when the current
+// operator environment is not authenticated enough for a non-interactive
+// installed-CLI gate. Detecting one lets local/scheduled runs skip with an
+// environment-specific reason instead of burning the whole RunTimeout.
 var agyLoginPickerMarkers = []string{
 	"sign in",
 	"sign-in",
@@ -76,7 +74,6 @@ var agyLoginPickerMarkers = []string{
 	"log in with",
 	"select an account",
 	"choose an account",
-	"authenticate",
 	"authentication required",
 	"oauth",
 	"open this url",
@@ -100,26 +97,23 @@ func TestInstalledCLISeatAgyTwoTurn(t *testing.T) {
 	h := NewHarness(t, "repo_conf_agy_seat")
 	report := RunInstalledCLI(t, h, "agy", InstalledCLIOptions{RunTimeout: installedCLITimeout(t)})
 	logInstalledCLIReport(t, report)
-	// #190: agy CLI 1.0.6 (Antigravity) is OAuth-only and stalls on an
-	// interactive login picker at the conformance step, so the seat never
-	// reaches work.claim. When the lane output shows that picker, this is an
-	// environment limitation (no headless auth path), not a seat regression:
-	// skip-with-reason instead of failing. The seat is classified `degraded`
-	// (workflowtemplates), so no green fixture is owed; re-promotion is the
-	// RFC 0109 graduation gate once a headless auth path returns.
+	// An unauthenticated local agy install can still show an interactive login
+	// picker. That is an environment setup gap for this on-demand gate, not a
+	// supervised-seat regression in the authenticated environments where the gate
+	// is expected to run green.
 	if !report.Passed() && outputLooksLikeAgyLoginPicker(report.Output) {
-		t.Skipf("agy CLI 1.0.6 is OAuth-only and stalled on an interactive login picker (no headless/--login/API-key path); cannot run the RFC 0109 P3 conformance step — agy seat is degraded (#190)")
+		t.Skipf("agy CLI displayed an interactive login picker in this environment; authenticate agy before running the RFC 0109 P3 installed-CLI gate locally")
 	}
 	if !report.Passed() {
 		t.Fatalf("agy installed-CLI seat gate (RFC 0109 P3 / #95) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
 	}
 }
 
-// TestInstalledCLISeatAgyRestartWhileLeased is the #151 direct proof: the real
-// agy CLI receives a work packet, the harness confirms the pre-seeded agy
-// session owns an active job lease, then the daemon-facing HTTP + unix-socket
-// surfaces are dropped, rebuilt, and rebound at the same addresses before agy
-// publishes/completes the packet and continues to turn 2.
+// TestInstalledCLISeatAgyRestartWhileLeased is the #151 stress gate: the real agy
+// CLI receives a work packet, the harness confirms the pre-seeded agy session
+// owns an active job lease, then the daemon-facing HTTP + unix-socket surfaces
+// are dropped, rebuilt, and rebound at the same addresses before agy is expected
+// to publish/complete the packet and continue to turn 2.
 func TestInstalledCLISeatAgyRestartWhileLeased(t *testing.T) {
 	requireInstalledCLIGate(t)
 	h := NewHarness(t, "repo_conf_agy_restart")
@@ -141,9 +135,9 @@ func TestInstalledCLISeatAgyRestartWhileLeased(t *testing.T) {
 		},
 	})
 	logInstalledCLIReport(t, report)
-	// #190: same OAuth-only login-picker stall as TestInstalledCLISeatAgyTwoTurn.
+	// Same unauthenticated-environment skip as TestInstalledCLISeatAgyTwoTurn.
 	if !report.Passed() && outputLooksLikeAgyLoginPicker(report.Output) {
-		t.Skipf("agy CLI 1.0.6 is OAuth-only and stalled on an interactive login picker; cannot run the #151 restart-while-leased step — agy seat is degraded (#190)")
+		t.Skipf("agy CLI displayed an interactive login picker in this environment; authenticate agy before running the #151 restart-while-leased gate locally")
 	}
 	if !report.Passed() {
 		t.Fatalf("agy restart-while-leased installed-CLI gate (#151) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
