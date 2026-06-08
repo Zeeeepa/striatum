@@ -32,20 +32,8 @@ The AI operator escalates to you in one of two shapes:
    linked to existing escalation-class blockers; publishing one enriches
    the escalation inbox projection but does not create a new live blocker.
 
-Either way the escalation appears in your inbox alongside
+Either way the escalation appears in your daemon-backed inbox alongside
 ordinary state. Check it whenever you sit down at the runner:
-
-```bash
-striatum --repo "$TARGET_REPO" serve --web --allow-mutations
-```
-
-Then open `/escalations` in the local web UI. The page lists open
-principal items, links to each detail view, and resolves escalation-class
-blockers through the daemon-backed `escalation.resolve` path when
-mutations are enabled.
-
-The CLI remains available as a daemon-backed compatibility and debugging
-surface:
 
 ```bash
 striatum --repo "$TARGET_REPO" inbox --json
@@ -58,11 +46,12 @@ session id.
 
 ### Inspect
 
-For a blocker, open its `/escalations/<escalation_id>` detail page. The CLI
-diagnostic equivalents are:
+For an escalation, inspect the projected escalation row and the live state it
+references:
 
 ```bash
-striatum --repo "$TARGET_REPO" why <session_id> --json
+striatum --repo "$TARGET_REPO" escalation show --escalation-id <escalation_id> --json
+striatum --repo "$TARGET_REPO" why <blocker_or_job_or_session_id> --json
 striatum --repo "$TARGET_REPO" run summary --run-id <run_id> --json
 ```
 
@@ -120,11 +109,8 @@ striatum --repo "$TARGET_REPO" decision record \
   --json
 ```
 
-If the decision resolves an escalation-class blocker, use the detail page's
-Resolve form. It records the resolution through daemon `escalation.resolve`
-so the AI operator can proceed.
-
-The CLI equivalent remains available for compatibility and debugging:
+If the decision resolves an escalation-class blocker, record the resolution
+through daemon `escalation.resolve` so the AI operator can proceed:
 
 ```bash
 striatum --repo "$TARGET_REPO" escalation resolve \
@@ -332,33 +318,30 @@ duplicate the workflow if the active run should be left alone. The
 verb is scoped to harness-profile fragments in V1; other corrections
 will land as separate verbs.
 
-## Drive a dogfood through the MCP chat surface (RFC 0040 V1)
+## Drive a dogfood through daemon MCP
 
-When the operator's AI session is connected to `striatum serve --web
---allow-mutations`, the chat surface exposes the dogfood-lifecycle
-verbs as structured tool calls (see
-[`docs/MCP.md`](../explanation/mcp.md#dogfood-lifecycle-tools)) so the operator no
-longer has to copy session/lease/message ids between bash
-invocations:
+The retired Python `striatum serve --web --allow-mutations` chat surface no
+longer exists. Current operator agents should use daemon MCP tools directly
+when a capability token and endpoint are available, with the daemon-backed CLI
+commands as the compatibility fallback. The lifecycle remains the same even
+though the old composite dogfood chat tool names are gone:
 
-```text
-run_prepare(workflow_path="…/workflow.json")
-run_start(run_id=…)
-register_session(run_id=…, role="implementer", lane="claude_code")
-supervise_start(session_id=…)
-claim_next(session_id=…)
-ack(session_id=…, message_id=…, lease_id=…)
-publish_artifact(session_id=…, job_id=…, lease_id=…, kind=…, logical_name=…, path=…)
-complete(session_id=…, job_id=…, lease_id=…, summary="…")
-supervise_stop(session_id=…, reason="…")
-run_summary(run_id=…, path="…")
-evidence_export(run_id=…, path="…")
+```bash
+"$RUNNER" --repo "$TARGET_REPO" run prepare --workflow "$WORKFLOW" --json
+"$RUNNER" --repo "$TARGET_REPO" run start --run-id <run_id> --json
+"$RUNNER" --repo "$TARGET_REPO" register-session --run-id <run_id> --role <role> --lane <lane> --json
+"$RUNNER" --repo "$TARGET_REPO" supervise start --session-id <session_id> --json
+"$RUNNER" --repo "$TARGET_REPO" claim-next <session_id> --json
+"$RUNNER" --repo "$TARGET_REPO" ack <session_id> <message_id> <lease_id> --json
+"$RUNNER" --repo "$TARGET_REPO" publish-artifact <session_id> <job_id> <lease_id> <kind> <logical_name> <path> --json
+"$RUNNER" --repo "$TARGET_REPO" complete <session_id> <job_id> <lease_id> --summary "..." --json
+"$RUNNER" --repo "$TARGET_REPO" supervise stop --session-id <session_id> --reason "done" --json
+"$RUNNER" --repo "$TARGET_REPO" run summary --run-id <run_id> --path "$OUTPUT_DIR/RUN_SUMMARY.md"
+"$RUNNER" --repo "$TARGET_REPO" evidence export --run-id <run_id> --path "$OUTPUT_DIR/RUN_EVIDENCE.md" --json
 ```
 
-Daemon MCP/chat tools and the local web UI are the normal live-control
-surfaces. The bash CLI remains a daemon-backed compatibility and debugging
-client. Anything the chat tools do is also available as a
-bash CLI command.
+Daemon MCP and the local web UI are the normal live-control surfaces. The bash
+CLI remains a daemon-backed compatibility and debugging client.
 
 For deeper authoring guidance, see
 [WRITING_WORKFLOWS.md](writing-workflows.md).
@@ -589,11 +572,11 @@ with `--cascade` to cancel them transitively in the same
 transaction. Terminal-state jobs (`completed`, `failed`,
 `canceled`, `skipped`) cannot be canceled.
 
-For unattended runs across **multiple** registered repositories,
-prefer `striatum daemon start` (RFC 0028 V1) which sweeps recovery
-across every active run in every registered repo from one
-foreground process — see "Daemon / multi-repo coordination"
-below.
+For unattended runs across **multiple** registered repositories, keep
+`striatumd` running as the local daemon (normally through the systemd user
+unit installed by `striatum daemon install`). The resident daemon sweeps
+recovery across active runs in every registered repo from one process; see
+"Daemon / multi-repo coordination" below.
 
 ### Doctor triage and recovery
 
@@ -625,7 +608,7 @@ Common recovery paths are:
 | Stale lease or no heartbeat. | `recovery stale-leases --run-id <run_id> --json` | `recovery requeue-stale` only for review-safe or force-justified work. |
 | Process exited, outputs missing, or supervisor mismatch. | `recovery process-reconcile --run-id <run_id> --json` | `recovery resume --blocker-id <id>` after the artifact/verdict issue is fixed. |
 | Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue\|cancel`. For a `revision_routing` checkpoint you can instead `--action override --decision-id <id>` to accept the verdict as superseded without re-running the review. |
-| Escalation artifact or principal inbox item. | `/escalations`, or `inbox --json` and `escalation show --escalation-id <id> --json` for CLI diagnostics. | `/escalations/<id>` Resolve form, or `decision record` then `escalation resolve --escalation-id <id> --decision-id <decision_id>` for CLI compatibility. |
+| Escalation artifact or principal inbox item. | `inbox --json` and `escalation show --escalation-id <id> --json`. | `decision record`, then `escalation resolve --escalation-id <id> --decision-id <decision_id>`. |
 | Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json`. | `session close --session-id <session_id> --reason terminal-run-cleanup`. |
 
 For unattended runs against a **single** repo, `recovery watch`
@@ -682,10 +665,12 @@ next to a target repo is operational scratch only.
 Start the daemon and register two target repos:
 
 ```bash
-# Foreground daemon process (also exposed as `striatumd`).
-"$RUNNER" daemon start --json &
+# Render and start the systemd user unit. On non-systemd hosts, run
+# `striatumd -socket "$XDG_RUNTIME_DIR/striatum/daemon-go.sock"` directly.
+"$RUNNER" daemon install
+"$RUNNER" daemon status
 
-# Register repos. `daemon start` bootstraps one admin token
+# Register repos. `striatumd` bootstraps one admin token on first startup
 # and writes an owner-only client-token file under the runtime directory;
 # treat that file as degraded storage compared with an OS keyring.
 "$RUNNER" repo add /path/to/repo-a --init --json
@@ -733,7 +718,7 @@ Audit shape:
   result, client/repository ids when known, payload hash,
   and a continuous hash chain across retained rows.
 - Closed segment manifests are SQL-guarded against
-  daemon-API rewrites and checked by `daemon doctor`.
+  daemon-API rewrites and checked by `striatum doctor`.
 - Audit deliberately excludes transcripts, request/response
   bodies, artifact text, blocker prose, token secrets, and
   tracebacks. It is per-machine daemon evidence, not
@@ -803,7 +788,7 @@ tool arguments cannot escalate beyond the token's grants.
 
 ### Mint a capability token (`apply`, `recovery`, …)
 
-`daemon start` bootstraps a single admin client token and writes it to the
+`striatumd` bootstraps a single admin client token and writes it to the
 owner-only client-token file under the runtime directory. Current bootstrap
 also grants `apply` (and every other capability) to that token, so
 `run integrate` (capability `apply`) works out of the box. But a token minted
@@ -845,12 +830,11 @@ refuses, do not hand-resolve — mint an apply token and use the serialized
 `run integrate` instead. Record the manual fast-forward in the target repo's
 commit message so the provenance trail stays honest.
 
-For chat-assisted workflow generation, start the web service with
-`--allow-mutations` only when you want the browser to be able to write
-generated workflow files. The model may call `generate_workflow_preview`
-freely. `generate_workflow_write` is hidden without the mutation flag and,
-when enabled, still pauses for your browser confirmation before Striatum
-writes files.
+For chat-assisted workflow generation over the daemon-mounted web service, set
+`STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` on the daemon process before startup
+only when you want the web surface to write generated workflow files.
+`POST /workflows/generate/preview` remains read-only; `POST
+/workflows/generate` fails closed unless web mutations are enabled.
 - It is not a replacement for `recovery watch` against a
   single repo, only for multi-repo sweeping.
 
@@ -880,13 +864,13 @@ daemon/Postgres-backed and fail closed without daemon authority.
 The paired `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`
 escape is for subprocess compatibility fixtures only.
 
-The old SQLite cutover commands are retired compatibility spellings.
-`daemon migrate` and `daemon migrate-repo-local` now refuse with exit code 12
-before importing or opening SQLite migration code. To inspect registration and
-any historical cutover evidence for a repository, use:
+The old SQLite cutover commands are fully removed.
+`daemon migrate` and `daemon migrate-repo-local` are no longer parseable
+compatibility spellings. To inspect current daemon reachability, registration,
+and first-run posture, use:
 
 ```bash
-"$RUNNER" daemon doctor --repo "$TARGET_REPO" --authority --json
+"$RUNNER" --repo "$TARGET_REPO" doctor --first-run --json
 ```
 
 CLI verbs against an unregistered repo refuse with exit code 12
@@ -930,8 +914,8 @@ deferred.
 > Status: current production daemon path. D109 made the Go daemon the default,
 > D111 retired the Python daemon selector, and D112 removed
 > `apply.reviewed_patch` from the production daemon RPC contract.
-> `striatum daemon start` launches the Go daemon; `--core go` is a
-> deprecated no-op compatibility flag.
+> `striatumd` is the Go daemon; `striatum daemon install` renders the service
+> unit and `systemctl --user start|stop|restart striatumd` manages it.
 
 RFC 0039 produced a Go `go/cmd/striatumd` prototype that speaks the
 RFC 0030 envelope-v1 wire protocol over the RFC 0033 PostgreSQL
@@ -991,121 +975,37 @@ harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")
 
 ## Web UI
 
-Start the local web UI with:
+The local web service is mounted by `striatumd` on the daemon's loopback HTTP
+listener. Discover the base URL from the daemon endpoint file and strip the
+MCP suffix:
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" serve --web
+BASE_URL=$(sed 's#/mcp$##' "${XDG_RUNTIME_DIR}/striatum/mcp-http-endpoint")
+TOKEN=$(cat "${XDG_RUNTIME_DIR}/striatum/client-token")
+curl -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/v1/health"
 ```
 
-The startup envelope prints the bound URL. The UI is
-server-rendered HTML with vanilla-JS enhancements and the same
-localhost-first mutation gate as the service API. Important routes:
-`/` for runs, `/run/<run_id>` for a run, `/run/<run_id>/job/<id>`
-for a job, `/run/<run_id>/artifact/<id>` for an artifact,
-`/workflows` for workflow files, `/chat` for configured chat
-sessions, and `/doctor` for health checks.
+The loopback service requires `Authorization: Bearer <client-token>`, and web
+mutations are disabled unless `STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` was set
+on the daemon process before startup. For browser access without bearer-header
+tooling, use the read-only tailnet identity listener:
 
-The run list supports free-text search over run id, branch, and
-workflow id; state filters; date ranges; and a duration column. The
-workflow list supports path/workflow-id search, valid/invalid
-filters, and a last-modified column. Filter preferences are stored
-in browser `localStorage`, not in the repository or SQLite.
+```bash
+STRIATUM_DAEMON_WEB_TAILSCALE=1 systemctl --user restart striatumd
+tailscale serve --bg unix:${XDG_RUNTIME_DIR}/striatum/web-ui.sock
+```
 
-### Repository file browser (`/view/`)
+The Go web surface currently exposes daemon-backed run/status JSON and a small
+server-rendered run list/status page. Important routes: `/` for the run list,
+`/run?run_id=<id>` for a run status page, `/v1/runs/<run_id>/events` for SSE,
+`/v1/runs/<run_id>/dashboard` for the dashboard DTO, `/v1/runs/<run_id>/why`
+for explanations, `/v1/artifacts/<id>/raw` for raw artifacts, and
+`/workflow-templates` / `/workflows/generate` for generator surfaces.
 
-Visit `/view/` (no path) for a tree-style repository file browser.
-Click a directory to expand or collapse it; click a file to open it
-in the single-file viewer at `/view/<path>`. The browser uses
-`GET /v1/repo/tree?path=<rel>` for lazy directory expansion, sorts
-directories before files, hides `.git/` and `.striatum/`, and refuses
-paths that try to escape the repository root. The breadcrumb at the
-top of the page links to every ancestor; the filter input narrows
-the visible rows by fuzzy subsequence match. Keyboard navigation:
-ArrowUp/Down move between rows, ArrowRight/Left expand/collapse a
-directory, Enter opens a file or toggles a directory, Home/End jump
-to the first/last loaded row.
-
-### Workflow chooser wizard (`/workflows/new`)
-
-Visit `/workflows/new` to scaffold a new workflow with the
-step-by-step chooser. Step 1 picks the workflow shape (radio cards
-of the bundled RFC 0034 V1 catalog). Step 2 picks a lane set filtered
-by the selected shape's recommendations. Step 3 selects optional
-modifiers; mutually incompatible modifiers self-disable. Step 4 fills
-the required fields (`workflow_id`, `name`, `scaffold_root`,
-`artifact_root`, `branch_suggestion`, optional per-lane commands).
-Step 5 calls `POST /workflows/generate/preview` and renders the
-generated workflow JSON, file list, and any warnings; the preview
-writes nothing on disk and re-runs whenever you edit a step 1–4
-field. Step 6 opens a `<dialog>`-driven operator confirmation; only
-after you accept does the wizard call `POST /workflows/generate` with
-`confirm_write: true`. The local service must be running with
-`--allow-mutations` for the confirm step to succeed.
-
-### Drag-drop workflow graph editor
-
-The Edit affordance on a workflow detail page (now a button next to
-"Run this workflow now", not the muted text link) opens
-`/workflows/edit/<path>`. The page renders a React Flow drag-drop
-graph editor. The left palette adds new jobs from the closed RFC 0034
-block vocabulary (`draft`, `review`, `synthesis`, `implementation`,
-`test`, `human_checkpoint`, `support_ledger`, `evidence_audit`,
-`final_review`). The canvas centre shows the workflow as nodes and
-edges; cycles render with dashed styling. Click a node to select it;
-the right inspector edits the selected job with structured widgets:
-dropdowns for role/lane/type/access scope/context policy, radio sets
-for posture and write-scope mode, multi-select chips for
-`required_review_postures`, repeating-row editors for allowed and
-forbidden paths, and a structured per-row editor for
-`expected_artifacts`. Save calls the existing
-`POST /workflows/edit/<path>` endpoint with the same `If-Match`
-sha256 semantics as before; server-side `validate_workflow()` remains
-authoritative.
-
-### Syntax-highlighted code viewer (`/view/<path>`)
-
-Visiting `/view/<path>` for non-Markdown text files renders a
-syntax-highlighted view via Shiki. Toolbar buttons: Copy (writes the
-file contents to the clipboard, announces "Copied" via a polite live
-region), Wrap (toggles soft wrap; default is no-wrap with internal
-horizontal scroll), and Raw (opens the unhighlighted bytes in a new
-tab with `rel="noopener"`). Files over 500 lines collapse by default
-with an Expand banner. Files over 5 MB skip Shiki entirely and render
-escaped plain text. Markdown files (`.md`) continue to render
-server-side as before; other file types fall through to a
-`<pre>`-fallback when Shiki fails to load.
-
-The doctor page groups structured problem records by kind. Use the
-`Hide problems on terminal runs` toggle to suppress completed,
-failed, or canceled run noise when you are focused on active work.
-The toggle is also stored in browser `localStorage`.
-
-The header timestamp toggle switches visible `<time>` elements
-between raw UTC and the browser's local timezone. Keyboard
-shortcuts are available when focus is not inside an editable
-control:
-
-| Shortcut | Destination |
-|---|---|
-| `g r` | Runs |
-| `g w` | Workflows |
-| `g c` | Chat |
-| `g d` | Doctor |
-| `?` | Shortcut help |
-| `Esc` | Close shortcut help |
-
-On a run detail page, non-terminal runs show deterministic next
-actions immediately below the run header. Graph nodes are clickable
-and expose job id, role, state, and duration on hover or keyboard
-focus. The graph viewport supports drag-to-pan, arrow-key panning,
-zoom in/out (`+` / `-`), fit (`f`), and reset (`0`) through the
-visible graph controls.
-
-The run list's Workflow column uses the snapshotted workflow identity:
-the visible label is the workflow `name` when available, the metadata
-shows `workflow_id` and version, the local link opens the workflow
-detail page, and repositories with a GitHub `origin` also get a
-default-branch source-directory link.
+Retired Python-era pages such as `/view/`, `/workflows/new`,
+`/workflows/edit/<path>`, `/chat`, and `/doctor` are no longer advertised as
+current Go routes. Use the CLI or daemon MCP for those workflows until a new Go
+route is documented.
 
 ## Dashboards and graphs
 

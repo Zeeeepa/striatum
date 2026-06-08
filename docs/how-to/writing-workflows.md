@@ -152,8 +152,8 @@ Common lane sets:
   mutable database, device, or fixture should declare `shared_resources`. Use
   string entries for exclusive resources, or object entries with
   `mode: "per_lane_namespace"` and a distinct `namespace` when the workflow
-  provisions separate fixtures. `workflow lint` warns when parallel jobs share
-  an exclusive resource or reuse a namespace, and work packets surface the
+  provisions separate fixtures. `workflow validate --json` reports a warning
+  when parallel jobs share an exclusive resource or reuse a namespace, and work packets surface the
   hazard under `context.shared_resources`.
 - **constrained lane**: a lane with `constraints` and
   `required_enforcement` when network, transcript, or repo-scope policy
@@ -408,14 +408,35 @@ stdin shim). Supervised push lanes now receive one automatic claim/send at
 `supervise start`, but the one-shot pipe path still lacks the agent-loop MCP
 configuration and preserved interactive context that make `agy` autonomous.
 The agent-loop submit driver landed in #51/#52 and is the viable autonomous
-shape for agy. `workflow lint` emits an
+shape for agy. `workflow validate --json` reports an
 `agy_one_shot_pipe_lane` warning when it detects a one-shot `agy --print`
-lane that is missing `adapter_capabilities.agent_loop`. `claude` and `codex`
-one-shot pipe lanes are unaffected — they self-claim on the one-shot path, so
-the check only fires when the command invokes the `agy` binary with `--print`.
+lane that is missing `adapter_capabilities.agent_loop`. This agy-specific
+warning is separate from the `claude --print` hard refusal below.
 Agent-loop lanes use the PTY helper; when `tmux` is available they are
 tmux-backed and operator-attachable by default, and status/doctor expose the
 local diagnostic log under `trajectory_log`.
+
+### `claude --print` lanes are refused
+
+`claude --print` and `claude -p` are retired one-shot modes. `workflow
+validate`, `run prepare`, and `supervise start` hard-refuse a lane whose
+command invokes `claude` with `--print` or `-p`, because it cannot run the
+agent-loop work-packet protocol and now risks billing API tokens per packet.
+Use an interactive agent-loop lane instead:
+
+```json
+"claude_code": {
+  "adapter": "process",
+  "display_model": "Claude",
+  "command": ["claude", "--dangerously-skip-permissions"],
+  "adapter_capabilities": {"agent_loop": true},
+  "capabilities": ["write", "review"]
+}
+```
+
+For a deliberate compatibility fixture only, set `allow_claude_print: true` on
+that lane. The override is explicit so live workflows do not accidentally
+reintroduce the retired one-shot path.
 
 For the full harness-profile schema (recognised tool families,
 required fields, accountability rules), see
@@ -427,22 +448,22 @@ Before preparing a run, check the scaffold:
 
 ```bash
 striatum --repo "$TARGET_REPO" workflow validate path/to/workflow.json --json
-striatum --repo "$TARGET_REPO" workflow plan path/to/workflow.json --json
-striatum --repo "$TARGET_REPO" workflow graph path/to/workflow.json
 ```
 
-Review the plan for the intended branch name, job order, write
-scopes, required artifacts, and any principal escalations. Avoid
+Review the validation output for warnings about lane commands, graph
+structure, write scopes, required artifacts, and any principal escalations. Avoid
 absolute home-directory paths in workflow fixtures; use
 repo-relative paths and operator-local environment variables
 instead.
 
 ## View a rendered graph
 
-Mermaid-capable Markdown renderers display `workflow graph`
-output as a visual diagram. For example,
-`examples/code-change-flow/workflow.json` renders as (your own
-workflow renders similarly with its own jobs and edges):
+Offline workflow-file graphing was a Python-era authoring command and is not
+part of the current Go CLI. Use `striatum run graph --run-id <id>` after
+`run prepare` / `run start` when you need a state-annotated graph from live
+daemon state.
+
+For example, `examples/code-change-flow/workflow.json` has this static shape:
 
 ```mermaid
 flowchart TD
@@ -452,21 +473,6 @@ flowchart TD
   n0 -->|completed| n1
   n1 -->|accepted review| n2
   n1 -.->|needs_revision max 1| n0
-```
-
-Generate the same source from the striatum checkout with:
-
-```bash
-striatum --repo . workflow graph examples/code-change-flow/workflow.json
-```
-
-`--format` accepts `mermaid` (default), `dot` (Graphviz source),
-or `json` (machine-readable graph data). When Graphviz is
-installed, render an SVG with:
-
-```bash
-striatum --repo . workflow graph examples/code-change-flow/workflow.json --format dot \
-  | dot -Tsvg -o workflow-graph.svg
 ```
 
 For state-annotated graphs of a *running* run, see

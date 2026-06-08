@@ -151,28 +151,20 @@ striatum dashboard --all
 `dashboard --all` (RFC 0028 V1) groups registered repositories and
 reports daemon/Postgres-backed per-repository runs, blockers, claimable jobs,
 stale leases, and degraded repositories. It uses daemon-owned repository
-registration state and requires a daemon `read` capability token
-(bootstrapped by `daemon start`) even when `--daemon` is not passed.
+registration state and requires a daemon `read` capability token from the
+runtime `client-token` file.
 
 ## Daemon and multi-repo registry (RFC 0028 V1)
 
 ```text
-striatum daemon start [--core go]
+striatum daemon install [--no-start] [--print-unit]
 striatum daemon status
-striatum daemon stop
-striatum daemon sweep
-striatum daemon service install [--manager auto|systemd|launchd] [--dry-run]
-striatum daemon service start [--manager auto|systemd|launchd] [--dry-run]
-striatum daemon service status [--manager auto|systemd|launchd]
-striatum daemon doctor [--postgres-url <url>] [--apply-migrations]
-                       [--as-owner <owner-url>]
-                       [--provision-rw-role] [--repair-grants]
-                       [--explain] [--authority] [--repo <path>] [--json]
+striatum daemon uninstall
 striatum daemon migrate-db [--admin-url <dsn>] [--json]
-striatum daemon migrate --from sqlite --to pg [retired compatibility refusal]
-striatum daemon migrate-repo-local --from sqlite --to pg
-                         [--repo <path>] [retired compatibility refusal]
+striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]
+striatum doctor [--first-run] [--json]
 striatumd [daemon-start options]
+systemctl --user start|stop|restart|status striatumd
 striatum repo add <path> [--init] [--no-migrate compatibility flag]
 striatum repo list
 striatum repo remove <id>
@@ -182,18 +174,22 @@ striatum cross-repo why <cross_repo_run_id>
 striatum cross-repo cancel <cross_repo_run_id> [--reason <text>]
 ```
 
-`striatum daemon start` / `striatumd` runs the supported foreground daemon
-process. It launches the Go daemon; `--core go` is a deprecated no-op
-compatibility flag, `--core python` is no longer accepted, and
-`striatumd --foreground` is accepted only as a legacy spelling for
-`striatumd`. Per D094 / RFC 0043 the daemon is a hard prerequisite for every
-Striatum verb; CLI verbs without a reachable daemon refuse with exit code 11
-(`daemon_unreachable`) and do not fall back to direct mode.
+`striatum daemon install` renders the systemd user unit, scaffolds
+`daemon.toml` when absent, and enables/starts `striatumd` unless `--no-start`
+is passed. Use `systemctl --user start|stop|restart striatumd` for service
+lifecycle after installation. On hosts without systemd user services, run
+`striatumd -socket "${XDG_RUNTIME_DIR}/striatum/daemon-go.sock"` directly as
+described in the daemon runbook.
 
-The first `daemon start` bootstraps a single admin token when
-daemon-owned Postgres has no clients and writes a `0600`
-runtime `client-token` file. Token secrets are never read from environment
-variables, never logged to audit, and never stored in the registry.
+`striatumd` is the supported foreground daemon process. Per D094 / RFC 0043 the
+daemon is a hard prerequisite for every Striatum verb; CLI verbs without a
+reachable daemon refuse with exit code 11 (`daemon_unreachable`) and do not
+fall back to direct mode.
+
+On first successful startup, `striatumd` bootstraps a single admin token when
+daemon-owned Postgres has no clients and writes a `0600` runtime
+`client-token` file. Token secrets are never read from environment variables,
+never logged to audit, and never stored in the registry.
 Authorization uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
@@ -211,14 +207,9 @@ the legacy SQLite file before registering.
 capabilities, preserves audit rows, and never reuses
 `repository_id`; re-adding allocates a fresh id.
 
-`daemon sweep` is admin-gated and runs the sweep loop manually
-across registered active runs; the normal recovery sweep also
-runs from the foreground daemon process.
-
-`daemon service install|start|status` renders and controls a user
-service for the local daemon. `--manager auto` chooses systemd user
-units on Linux and launchd agents on macOS; explicit `systemd` and
-`launchd` choices are available for testing or non-standard hosts.
+The resident recovery sweep runs inside `striatumd`. Use the daemon-backed
+`recovery auto` / `recovery watch` family for explicit recovery diagnostics
+where applicable; there is no `striatum daemon sweep` CLI command.
 
 RFC 0033 V2 accepts system PostgreSQL as the daemon-owned
 storage substrate for daemon-global state. Configure it with
@@ -228,36 +219,12 @@ migrations and roles, but it does not install, start, stop, or
 upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
 distributions are deferred.
 
-`daemon doctor` reports daemon DB connectivity, substrate version,
-schema version, audit-chain status, segment-manifest verification,
-repository registration status, and retired SQLite evidence. It runs
-even when the daemon process is down (it reads configuration directly)
-and emits the remediation list operators need to bring the daemon online.
-`--apply-migrations` brings the daemon-owned schema forward
-in-place; without it, doctor reports the required version and
-exits so operators can review before applying.
-`--as-owner <owner-url>` (GH #22) is the supported owner-role migration
-path: when set together with `--apply-migrations` (and/or
-`--provision-rw-role` / `--repair-grants`), doctor opens a second
-connection against the owner URL and runs migration application,
-role provisioning, and grant repair through it, while the
-`unsafe_privileges` runtime guardrail still evaluates the runtime role
-resolved from `--postgres-url` / `STRIATUM_DAEMON_DB_URL`. Local Linux
-installs typically use a peer-auth socket URL such as
-`postgresql:///striatum_daemon`. If the owner URL is unreachable, doctor
-returns `status: "as_owner_unreachable"` with the redacted URL and the
-scrubbed error.
-`--provision-rw-role` creates the local `striatumd_rw` runtime role
-when the current Postgres connection can create roles. `--repair-grants`
-applies the runtime grants and append-only revokes; when privileges are
-insufficient, doctor returns pasteable SQL for an admin session.
-`--authority` adds a cutover report that names PostgreSQL live-state
-authority, legacy SQLite registry status, method fallback counts, and
-remaining migration/test-only SQLite exceptions.
-`--repo <path>` adds the verify-only
-`striatum.repo_cutover_report.v1` for that target repository to the doctor
-output without opening SQLite; with `--authority`, the authority report also
-summarizes whether that repository cutover is healthy.
+`striatum doctor` is the daemon-backed health check. `doctor --first-run`
+verifies daemon socket reachability, PostgreSQL posture, runtime-token
+presence, repo registration, MCP visibility, and a sample daemon read route.
+`striatum daemon status` is the local bootstrap summary for unit state and
+runtime paths; it folds in read-only doctor information when the daemon is
+reachable.
 
 `daemon migrate-db [--admin-url <dsn>] [--json]` (RFC 0079 §5) applies pending
 daemon PostgreSQL schema migrations using an owner/admin DSN, so DDL the runtime
@@ -269,12 +236,11 @@ runtime role can apply itself. This is distinct from the retired SQLite-era
 `daemon migrate` below.
 
 `daemon migrate --from sqlite --to pg` and
-`daemon migrate-repo-local --from sqlite --to pg --repo <path>` are retired
-compatibility spellings (the SQLite→PostgreSQL import, not schema migration).
-They remain parseable so old automation receives a
-clear error, but they refuse with exit code 12 before importing or opening
-SQLite migration code. `daemon doctor --repo <path> --authority --json` is the
-supported cutover-evidence diagnostic and does not open SQLite as a database.
+`daemon migrate-repo-local --from sqlite --to pg --repo <path>` are fully
+removed SQLite-era import spellings. They are no longer parseable compatibility
+commands; stale automation receives an unknown-command parse failure. Use
+`striatum doctor --first-run --json` and `striatum repo add <path> --init` for
+current registration/cutover diagnostics.
 CLI verbs against an unregistered repo refuse with exit code 12
 (`repo_not_migrated`) and point operators to archive/remove legacy SQLite
 files, then register with `repo add --init`.
@@ -292,16 +258,15 @@ tests under `STRIATUM_DAEMON_REQUIRED=0 STRIATUM_TEST_HARNESS=1`.
 
 ## Daemon-required runtime
 
-Production commands route through the daemon authority boundary. Some
-read verbs still accept `--daemon` (or `STRIATUM_DAEMON=1`) as an
-explicit compatibility spelling, but it is no longer the switch that
-turns daemon mode on:
+Production commands route through the daemon authority boundary by default.
+There is no global `--daemon` flag in the Go CLI; daemon connectivity is
+required and assumed.
 
 ```text
-striatum --daemon status [--run-id <id>]
-striatum --daemon doctor
-striatum --daemon why <job-id>
-striatum --daemon dashboard --all
+striatum status [--run-id <id>]
+striatum doctor
+striatum why <job-id>
+striatum dashboard --all
 striatum doctor --first-run
 ```
 
@@ -351,36 +316,46 @@ generation uses the existing local service and RFC 0034 generator paths.
 striatum skills install
 ```
 
-## Service (RFC 0012 / 0013)
+## Daemon-Mounted HTTP Service (RFC 0012 / 0013 / 0085)
 
 ```text
-striatum serve
+striatumd -mcp-http-addr 127.0.0.1:0
+BASE_URL=$(sed 's#/mcp$##' "$XDG_RUNTIME_DIR/striatum/mcp-http-endpoint")
+TOKEN=$(cat "$XDG_RUNTIME_DIR/striatum/client-token")
+curl -H "Authorization: Bearer $TOKEN" "$BASE_URL/v1/health"
 ```
 
 ### Web routes (RFC 0013 / 0022 / 0024 / 0038)
 
-`striatum serve --web` exposes the legacy server-rendered operator UI on the
-same localhost-only origin as the JSON API. RFC 0038 V1 mounts React
-"frontend islands" into specific page slots; the rest of every page remains
-server-rendered. RFC 0078 has begun the Go web-service cutover, but full route
-parity and daemon startup wiring remain deletion blockers. There are no new
-CLI verbs; the routes below are reachable in any browser pointed at the bound
-URL.
+`striatumd` mounts the Go web service on the same localhost-only HTTP listener
+as daemon MCP. The endpoint file includes `/mcp`; strip that suffix for web
+routes. The loopback service requires `Authorization: Bearer <client-token>`;
+there is no separate `striatum serve` command and no `serve --web` flag.
+Mutations are read-only by default and require
+`STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` on the daemon process before startup.
+
+For ordinary browser access without bearer-header tooling, run the optional
+read-only tailnet identity listener (`striatumd -web-tailscale` or
+`STRIATUM_DAEMON_WEB_TAILSCALE=1`) and point
+`tailscale serve --bg unix:$XDG_RUNTIME_DIR/striatum/web-ui.sock` at the
+owner-only socket.
 
 | Route | Surface |
 | --- | --- |
 | `/` | Run list (RFC 0013/0022/0037). |
-| `/run/<id>` | Run detail with state-coloured dependency graph. |
-| `/run/<id>/job/<id>` | Job detail. |
-| `/run/<id>/artifact/<id>` | Artifact viewer with inline Markdown. |
-| `/workflows/` | Workflow file browser (RFC 0024 V1). |
-| `/workflows/<path>` | Workflow detail with graph thumbnail and the promoted Edit button (RFC 0038 V1). |
-| `/workflows/edit/<path>` | Drag-drop graph editor island (RFC 0038 V1) over the existing `POST /workflows/edit/<path>` endpoint with `If-Match` semantics. |
-| `/workflows/new` | Chooser-wizard island that calls `POST /workflows/generate/preview` then `POST /workflows/generate` with a `<dialog>`-driven operator confirmation (RFC 0038 V1; requires `--allow-mutations`). |
-| `/view/` | Tree-browser island over `GET /v1/repo/tree?path=<rel>` (RFC 0038 V1). |
-| `/view/<path>` | Single-file viewer; Markdown renders server-side, other text files mount the Shiki code-viewer island (RFC 0038 V1). |
-| `/chat` | Chat surface (RFC 0023 / RFC 0036 / RFC 0040). |
-| `/doctor` | Grouped doctor problems with terminal-run filter (RFC 0037). |
+| `/run?run_id=<id>` | Server-rendered run detail/status page. |
+| `/v1/health` | Service health and mutation posture. |
+| `/v1/runs` | Daemon `status` JSON. |
+| `/v1/runs/<id>` | Daemon `status --run-id` JSON. |
+| `/v1/runs/<id>/events` | Server-Sent Events over daemon `run.events`. |
+| `/v1/runs/<id>/dashboard` | Dashboard DTO for the run. |
+| `/v1/runs/<id>/why?id=<entity>` | Daemon `why` JSON. |
+| `/v1/runs/<id>/artifacts` | Artifact list for the run. |
+| `/v1/artifacts/<id>/raw` | Raw artifact content. |
+| `/workflow-templates` | Workflow template catalog list. |
+| `/workflow-templates/<id>` | Workflow template catalog entry. |
+| `/workflows/generate/preview` | Workflow generator preview (`POST`). |
+| `/workflows/generate` | Workflow generator write (`POST`; requires web mutations). |
 
 ## List (read-only enumeration)
 

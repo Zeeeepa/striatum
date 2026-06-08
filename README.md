@@ -12,7 +12,7 @@ Striatum is the coordinator that was missing. It gives your AI agents — Codex,
 
 - **Coordinates multi-agent work** across parallel implement → review → repair → synthesize loops, with deterministic state tracked in a local daemon-owned Postgres database
 - **Eliminates reviewer co-blindness** by making lane assignment first-class: a `codex` implementer can be reviewed by `claude` and synthesized by `gemini`; a `needs_revision` verdict is recorded, not papered over
-- **Chains every event** with a SHA-256 anchor linked to its predecessor — per-repository for events, daemon-global for the RPC audit log; `daemon doctor` verifies both chains
+- **Chains every event** with a SHA-256 anchor linked to its predecessor — per-repository for events, daemon-global for the RPC audit log; `striatum doctor` verifies both chains
 - **Keeps providers portable** by wrapping any model whose runtime is a terminal command; core scheduling never imports a model vendor or parses terminal output
 - **Produces replayable evidence** via `corpus export`: a redacted JSONL bundle with stable hashes for sharing provenance without sharing live state
 
@@ -227,11 +227,14 @@ curl -fsSL https://raw.githubusercontent.com/halbritt/striatum/main/install.sh |
 tar -xzf striatum_2.15.0_linux-amd64.tar.gz
 export PATH="$PWD/striatum_2.15.0_linux-amd64/bin:$PATH"
 
-# Check/provision the daemon's Postgres substrate.
-striatum daemon doctor --apply-migrations
+# Render the daemon unit and config scaffold. Set postgres_url in
+# ~/.config/striatum/daemon.toml, or export STRIATUM_DAEMON_DB_URL.
+striatum daemon install --no-start
 
-# Start the Go daemon in a separate terminal and keep it running.
-striatum daemon start
+# Check/provision the daemon's Postgres substrate, then start the service.
+striatum daemon migrate-db --json
+systemctl --user start striatumd
+striatum daemon status
 
 # Register a target repo and install the operator skill bundle.
 TARGET_REPO=/path/to/your/repo
@@ -278,13 +281,19 @@ skills lives in [`skills/optional/`](skills/optional/README.md).
 ### Use the local web UI
 
 ```bash
-striatum --repo "$TARGET_REPO" serve --web --allow-mutations
+BASE_URL=$(sed 's#/mcp$##' "${XDG_RUNTIME_DIR}/striatum/mcp-http-endpoint")
+TOKEN=$(cat "${XDG_RUNTIME_DIR}/striatum/client-token")
+curl -H "Authorization: Bearer ${TOKEN}" "${BASE_URL}/v1/health"
 ```
 
-The current operator UI is being ported to Go (RFC 0078). It provides a
-live SVG dependency graph, state-colored job nodes, artifact browsing,
-verdict recording, and recovery actions. Loopback-only; non-loopback bind is
-refused at startup.
+The web service is mounted by `striatumd` on the daemon's loopback HTTP
+listener; there is no separate `striatum serve` command. Set
+`STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` on the daemon process before starting
+it when local web mutations are intentionally allowed. For browser access
+without pasting bearer headers, use the read-only tailnet identity listener:
+start `striatumd` with `STRIATUM_DAEMON_WEB_TAILSCALE=1` and point
+`tailscale serve --bg unix:${XDG_RUNTIME_DIR}/striatum/web-ui.sock` at the
+owner-only socket.
 
 ---
 

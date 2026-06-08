@@ -100,7 +100,7 @@ revoked from the daemon read-write role). Mutations use short
 serializable Postgres transactions and emit structured events.
 
 Schema upgrades are forward-only, daemon-owned, and applied at
-daemon startup; `daemon doctor` reports the on-disk substrate
+daemon startup; `striatum doctor` reports the on-disk substrate
 version. A database whose schema version is higher than the daemon
 binary supports is refused; client/daemon version skew refuses with
 exit code 10. The pre-D094 repo-local migration implementation is deleted;
@@ -154,7 +154,7 @@ phase nomenclature and claim-keying below are normative.
   in Go and PL/pgSQL; the prior Go-only v2 hash remains the permanent reader of
   pre-cutover rows, and the cutover is a single operator-gated release step.
 - **Phased write closure (claim-keyed).** Closure lands in fixed phases, each
-  reported by the `daemon doctor` `pg_write_boundary` posture string, and every
+  reported by the `striatum doctor` `pg_write_boundary` posture string, and every
   operator-facing claim is keyed to it: **P0 `audit_only`** (`audit_log`
   DB-enforced) → **P1 `audit_artifacts`** (+ `artifacts`) → **P2 `full`**
   (+ `events`). The claim "the daemon's durable write paths are DB-enforced" is
@@ -188,7 +188,7 @@ role and revokes direct runtime reads (`principals`, `client_sessions`: full
 deny; `principal_clients`: `principal_id` column denied). Gated reads route
 through owner-owned `SECURITY DEFINER` projections guarded by
 `assert_daemon_authority()`, with SQLSTATE-driven fallback while a database
-has not had the bundles applied. `daemon doctor` DERIVES the `pg_read_scope`
+has not had the bundles applied. `striatum doctor` DERIVES the `pg_read_scope`
 posture from authority stamps plus live privilege/ownership probes: with
 bundles 0005+0006 applied and verified it reports `partial_projection_gated`
 (four gates: `clients` columns, `principals` table, `principal_clients`
@@ -252,32 +252,30 @@ attestation for manually registered sessions. `shape:
 cross-examiner jobs declare explicit interrogation consumers targeting
 `convener_draft`; the shape remains experimental until a later graduation
 decision changes the support tier. Other built-in shapes emit V1.
-Generator preview envelopes also include the same advisory workflow lint
-payload exposed by `workflow lint`, including warning count and coverage
-summary; lint remains informational and does not change validation
-status.
+Generator preview and `workflow validate --json` envelopes include the advisory
+lint payload, including warning count and coverage summary; lint
+remains informational except where a later rule explicitly promotes a finding
+to a hard refusal.
 
-The bundled template catalog is package data under
-`striatum.workflow_templates/catalog.json`; V1 does not fetch remote
-templates and does not load target-repository catalog extensions.
-`workflow templates list/show` expose catalog metadata, and `workflow
-templates render-md` writes or prints a Markdown catalog summary with
-Mermaid graph-preview diagrams for shape entries.
+The bundled template catalog is package data under `go/pkg/workflowtemplates`;
+V1 does not fetch remote templates and does not load target-repository catalog
+extensions. `workflow templates list/show` expose catalog metadata.
 `workflow generate` writes the generated tree only after the same
 immediate validation pass and refuses to overwrite existing generated
 files. The local service exposes read endpoints
 `GET /workflow-templates` and `GET /workflow-templates/<id>`, plus
 generation endpoints `POST /workflows/generate/preview` and
-`POST /workflows/generate`. Preview writes nothing and is not mutation
-gated; generation requires `--allow-mutations` and
-`confirm_write: true`. No database migration is part of RFC 0034 V1.
+`POST /workflows/generate`. Preview writes nothing and is not mutation gated;
+generation requires the daemon web service to have
+`STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` at startup. No database migration is
+part of RFC 0034 V1.
 
 RFC 0036 V1 adds the chat-assisted scaffolding harness over the same
 generator path. The chat closed set includes `generate_workflow_preview`
-at all times and includes `generate_workflow_write` only when the local
-service was started with `--allow-mutations`. The write tool still fails
-closed unless `confirm_write: true` is present and a separate operator
-confirmation gesture is recorded by the web UI.
+at all times and includes `generate_workflow_write` only when the daemon web
+service was started with `STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1`. The write
+tool still fails closed unless a separate operator confirmation gesture is
+recorded by the web UI.
 
 The validator enforces unique job ids, resolved role/lane references, valid
 edges, bounded cycles, repo-relative artifact paths, valid shared-resource
@@ -352,8 +350,8 @@ V1 validation rules:
 - A lane's `harness_profile_id`, when set, must reference a profile
   declared in `harness_profiles`. Unknown references are rejected.
 - Unknown sibling fields on a profile body are accepted as lint
-  warnings, surfaced in `striatum workflow validate --json` and
-  `workflow plan --json` under the `warnings` key. They are not
+  warnings, surfaced in `striatum workflow validate --json` under
+  the `warnings` key. They are not
   errors in V1; future versions may tighten this.
 - (V1.5) Repo-relative process-lane command paths that do not exist on
   disk surface as lint warnings under the same `warnings` key. The
@@ -419,11 +417,12 @@ for an exclusive resource, or objects:
 
 Object entries require a non-empty `id`. `mode` defaults to `exclusive` and may
 be `exclusive` or `per_lane_namespace`. Namespace mode requires a non-empty
-`namespace`. The validator rejects malformed declarations. `workflow plan` and
-graph JSON include declared resources on each planned job.
+`namespace`. The validator rejects malformed declarations. Validation/generator
+envelopes and live `run graph` JSON include declared resources on each planned
+job.
 
-`workflow lint` warns with `parallel_shared_resource_contention` when jobs in
-the same `parallel_group` share an exclusive resource id, or when
+`workflow validate --json` reports `parallel_shared_resource_contention` when
+jobs in the same `parallel_group` share an exclusive resource id, or when
 `per_lane_namespace` jobs reuse the same namespace. The warning is
 informational; V1 does not create daemon-owned scheduler locks for external
 resources.
@@ -457,9 +456,9 @@ self-targeting, unknown target jobs, targets that are not `interrogable: true`,
 targets that are not upstream of the consumer in the workflow graph, and chained
 consumers (a job that is itself `interrogable: true` may not declare
 `interrogation_targets` in V1). Unknown target-entry fields are lint warnings,
-not validation errors. `workflow lint` also warns when a job declares more than
-three targets, when its lane does not advertise `interrogate`, or when a target
-is already a direct dependency and the declaration is redundant.
+not validation errors. `workflow validate --json` also warns when a job declares
+more than three targets, when its lane does not advertise `interrogate`, or when
+a target is already a direct dependency and the declaration is redundant.
 
 The resolver is snapshot-derived: it reads the frozen workflow snapshot and live
 `jobs` rows for the run. Striatum does not materialize interrogation consumers in
@@ -1580,18 +1579,13 @@ it.
 
 ## Workflow Authoring Tools
 
-`workflow plan --json` validates a workflow and returns a dry-run plan with
-claim waves, review gates, declared revision cycles, and graph nodes/edges.
-
-`workflow graph <workflow.json>` validates a workflow and exports graph data
-for authoring review. The default output is Mermaid `flowchart TD`, including
-declared dependency edges, accepting-review gates, bounded revision-cycle
-edges, and declared parallel groups. `--format json --json` returns stable
-machine-readable graph data with nodes, edges, and cycles. `--format dot`
-emits a Graphviz `digraph striatum_workflow { ... }` with the same nodes
-and edges, parallel groups rendered as `subgraph cluster_<group>` blocks,
-and `needs_revision` cycle edges rendered as dashed arrows; pipe through
-`dot -Tsvg` to render.
+The current Go CLI keeps offline workflow authoring deliberately small:
+`workflow validate`, `workflow generate`, and `workflow templates list/show`.
+The Python-era `workflow plan`, `workflow graph`, `workflow lint`,
+`workflow upgrade`, and `workflow templates render-md` commands are retired.
+Advisory lint is surfaced through `workflow validate --json` and generator
+preview envelopes; hard validation failures and promoted refusals block
+`run prepare`.
 
 `run graph --run-id <id> [--format mermaid|json]` renders the same graph for
 a live run, annotated with current job state. The Mermaid output appends a
@@ -1640,21 +1634,28 @@ for the wire shape and tool list.
 
 > Design rationale: [RFC 0012](../rfcs/0012-local-service-api.md).
 
+The standalone Python `striatum serve` process is retired. The Go daemon
+(`striatumd`) mounts the local HTTP service on the same loopback listener as
+daemon MCP; the current endpoint is written to the daemon runtime directory as
+`mcp-http-endpoint` and includes the `/mcp` suffix. Web/API clients strip that
+suffix for service routes. The listener is loopback-only by default, and the
+handler rejects non-loopback `Host` headers.
 
-`striatum serve` runs a `ThreadingHTTPServer` on TCP loopback (default
-`127.0.0.1`) or a Unix-domain socket. Non-loopback hosts (`0.0.0.0`, public
-IPs, hostnames that resolve outside loopback) are refused at startup with
-exit 8 — the no-hosted-services boundary (D020) is preserved by
-construction.
+The loopback service requires `Authorization: Bearer <client-token>` using the
+runtime token from the daemon runtime directory. It is read-only by default;
+mutating HTTP routes require `STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1` to be set
+on the daemon process before startup. A separate opt-in tailnet identity UI
+listener (`striatumd -web-tailscale` or `STRIATUM_DAEMON_WEB_TAILSCALE=1`)
+serves read-only allowed routes from `web-ui.sock` for `tailscale serve`; it is
+not a public or hosted surface.
 
 Endpoints return the same `{ok, data | error}` envelope used by Striatum's
-CLI/API clients:
+daemon clients:
 
-- `GET /v1/health` — `{started_at, version, mode}`. No DB hit.
+- `GET /v1/health` — `{started_at, mode, allow_mutations}`. No DB hit.
 - `POST /v1/invoke` — body `{argv: [...]}`; daemon-mapped production reads
-  and mutations route through daemon RPC. Explicit CLI-local authoring and
-  test/fixture surfaces may still use `api.invoke`. Returns 405 when the argv
-  falls outside the read-verb whitelist and `--allow-mutations` is off.
+  and mutations route through daemon RPC. Returns 405 when the method is
+  mutating and daemon web mutations are disabled.
 - `GET /v1/runs` — daemon `status`.
 - `GET /v1/runs/<id>` — daemon `status` scoped to the run.
 - `GET /v1/runs/<id>/why?id=<entity>` — daemon `why`.
@@ -1663,34 +1664,26 @@ CLI/API clients:
   `run.events` in production. Honors `?since=<event_id>` and
   `Last-Event-ID` for replay. Emits a `striatum.run_terminal` event and
   closes when the run reaches a terminal state.
-- `GET /v1/doctor` — daemon `doctor` with verbose problem records.
+- `GET /v1/runs/<id>/artifacts` — daemon `list.artifacts`.
+- `GET /v1/artifacts/<id>/raw` — raw artifact content.
+- `GET /workflow-templates` and `GET /workflow-templates/<id>` — daemon
+  template-catalog reads.
+- `POST /workflows/generate/preview` — workflow generator preview.
+- `POST /workflows/generate` — workflow generator write; requires daemon web
+  mutations.
 
-The daemon-backed service endpoints above retain legacy CLI invoke fallback
-only for subprocess compatibility tests (`STRIATUM_TEST_HARNESS=1` and
-`STRIATUM_DAEMON_REQUIRED=0`); production service reads and mutations fail
-closed when the daemon or repository registration is unavailable.
-Production service startup also calls daemon `doctor` before binding, so a
-missing daemon or unregistered repository is reported before the HTTP/Unix
-socket listener starts.
-
-Auth: Unix sockets bind `0o600` (filesystem permissions are the
-boundary); HTTP loopback supports an optional `--token` validated by
-length-safe constant-time compare. Single-instance enforcement via a
-PID file; stale PID files are overwritten. Graceful shutdown on SIGTERM /
-SIGINT. Mutations gate behind `--allow-mutations`; daemon-routed commands
-are classified as read-only only when the daemon method contract has
-`required_capability: "read"`. CLI-local workflow authoring reads
-(`workflow validate`, `workflow lint`, `workflow plan`, `workflow graph`,
-`workflow templates list/show`) remain explicitly allowed without mutation
-mode; `workflow templates render-md` is a CLI file writer, not a local
-service mutation endpoint.
+The daemon-backed service fails closed when daemon RPC authorization or
+repository registration is unavailable. Daemon-routed commands are classified
+as read-only only when the daemon method contract has `required_capability:
+"read"`.
 
 ### Registry-Backed Multi-Repo Coordination
 
 > Design rationale: [RFC 0028](../rfcs/0028-long-running-daemon-and-multi-repository-control-plane.md).
 
-`striatum daemon start` (also exposed as the `striatumd` console
-script) is the supported foreground entry point. Per D094 / RFC 0043
+`striatumd` is the supported foreground daemon entry point, and
+`striatum daemon install` is the bootstrap helper that renders and starts the
+systemd user service when available. Per D094 / RFC 0043
 the daemon is a hard prerequisite for every Striatum CLI verb;
 clients route through the daemon RPC envelope under token/capability
 checks. The V1 `--no-daemon` direct-CLI path is retired and parsing
@@ -1721,7 +1714,7 @@ deferred product choices.
 
 Daemon DB migrations are forward-only and daemon-owned. Startup
 applies pending migrations and refuses to run when the on-disk
-daemon schema is newer than the daemon binary. `daemon doctor`
+daemon schema is newer than the daemon binary. `striatum doctor`
 reports substrate version, schema version, audit-chain status,
 and segment-manifest verification.
 
@@ -1768,7 +1761,7 @@ repository id when scoped, command, authorization result, denial reason
 when safe, transport, request id when supplied, exit code when known,
 payload hash, and a continuous hash chain across retained rows. Audit
 segment manifests record row ranges and hash anchors; closed segment rows
-are SQL-guarded against daemon-API updates/deletes, and `daemon doctor`
+are SQL-guarded against daemon-API updates/deletes, and `striatum doctor`
 checks retained segment manifests against retained rows. Audit does not
 contain request bodies, response bodies, artifact text, blocker prose,
 model rationales, terminal output, token secrets, salts, or tracebacks.
@@ -1835,7 +1828,7 @@ token's capability, repository scope, and production-support visibility
 filter, while `tools/call` re-authorizes every request even if the tool was
 listed earlier. Denials are metadata-audited with transport `mcp`; hidden
 tools are not treated as authorized. There is no V2 daemon MCP equivalent of
-`serve --allow-mutations`. Per D103, this daemon MCP surface is mandatory for
+the daemon web mutation gate. Per D103, this daemon MCP surface is mandatory for
 operator-driven workflow mutation, not an optional convenience wrapper.
 
 RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
@@ -1855,8 +1848,8 @@ infrastructure, not a public operator API.
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
 process per run. The running process uses internal authority for its
-periodic sweep. The manual `striatum daemon sweep` CLI verb is admin-gated
-and audited. The sweep does not auto-resolve human checkpoints, requeue
+periodic sweep. The manual `striatum recovery auto` CLI verb routes to the
+daemon `recovery.sweep` method. The sweep does not auto-resolve human checkpoints, requeue
 repo-write stale work, or substitute for daemon-owned process supervision.
 Each per-run sweep writes a daemon `daemon.recovery_sweep` event with
 payload `author: striatumd-<instance-id>`; review-only stale requeue
@@ -1866,7 +1859,7 @@ deferred to a follow-up RFC. The first sweep iteration is in registration
 order; later iterations order repositories by last sweep time where cursor
 data is available. Per-run ordering inside one repository remains
 `runs.created_at` order. A per-run timeout marks the scheduler cursor
-`sweep_degraded`, and `daemon doctor` surfaces degraded cursors and an
+`sweep_degraded`, and `striatum doctor` surfaces degraded cursors and an
 active `recovery watch` pidfile for the same registered run as duplicate
 recovery scheduling.
 
@@ -1886,8 +1879,8 @@ PG-less lane-user profile.
 The Python daemon is no longer a selectable production core. RFC 0039
 introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol
 and RFC 0033 PostgreSQL substrate. RFC 0068 and D111 make that Go daemon the
-only supported daemon implementation launched by `striatum daemon start`;
-`--core go` is a deprecated no-op compatibility flag. The legacy `--core python` option is completely retired. Current Go handler
+only supported daemon implementation; lifecycle is managed by `striatumd`
+directly or by the unit installed through `striatum daemon install`. Current Go handler
 coverage has no missing or generic
 `not_implemented` active contract methods. D110 deliberately removed the
 SQLite-bound
@@ -1970,7 +1963,7 @@ Durable Markdown artifacts continue to carry the lowercase privacy-safe byline
 linkage is the control-plane attribution that complements that on-disk
 provenance.
 
-**Inspection.** `daemon doctor` surfaces a `principals` block listing each
+**Inspection.** `striatum doctor` surfaces a `principals` block listing each
 configured principal with its kind, display name, active client count, granted
 repositories, and effective capability scope (per capability, per repository,
 and whether session-bound). The block never reads or returns token material.
@@ -1990,83 +1983,32 @@ out of scope and would require an explicit, separate product decision.
 > server-rendered redesign + SVG dependency graph).
 
 
-`striatum serve --web` activates the bundled UI. The current UI is a
-Go-served multi-page app from the RFC 0022 V1 line; the prior
-hash-routed SPA is superseded. RFC 0078 has completed the Go web
-service and route parity.
+`striatumd` activates the bundled Go web service on the daemon's loopback HTTP
+listener; there is no `striatum serve --web` command. Loopback requests require
+the runtime bearer token. The optional RFC 0085 tailnet listener serves a
+read-only browser surface from `web-ui.sock` behind `tailscale serve`.
 
-Routes:
+Current Go routes:
 
-- `GET /` → server-rendered `run_list.html`.
-- `GET /run/<run_id>` → `run_detail.html`. Includes an inline
-  SVG dependency graph (RFC 0022 step 3) — layered top-down
-  layout, state-colored nodes via CSS custom properties, click
-  to navigate to a job's detail page, SVG `<title>` tooltip on
-  hover for accessibility. Production page-state reads use daemon
-  `run.detail`; the web service keeps HTML/SVG rendering local.
-- `GET /run/<run_id>/posture/<posture>` →
-  `run_posture_verdicts.html`. Production reads use daemon
-  `run.posture_verdicts`.
-- `GET /run/<run_id>/job/<job_id>` → `job_detail.html`. Job
-  metadata + verdict + posture chip + artifacts list. Production
-  page-state reads use daemon `job.detail`; override-verdict context-token
-  minting remains local to the web service.
-- `GET /run/<run_id>/artifact/<artifact_id>` →
-  `artifact_view.html`. Metadata + sha256 + raw-API pointer.
-  Production metadata reads use daemon `artifact.show` with optional
-  web context for run scoping, expected author line, and provenance trail
-  rows.
-- `GET /doctor` → `doctor.html`. Production page state comes from daemon
-  `doctor` with verbose problem records.
-- `GET /static/<path>` → bundled asset (CSS / JS islands).
-- All HTML responses set `Content-Security-Policy: default-src 'self';
-  script-src 'self'; style-src 'self'; img-src 'self' data:;
-  connect-src 'self'` — byte-identical to v1.10.0.
-- Path traversal (`..`, leading `/`, null bytes) on
-  `/run/<id>/...` paths is rejected with HTTP 400.
-- `GET /v1/artifacts/<artifact_id>/raw` streams the raw bytes of a
-  published artifact; read-only, no mutation gate. The endpoint uses the
-  default daemon `artifact.show` metadata shape and does not request web
-  context.
-- `GET /v1/health` includes an `allow_mutations: bool` field
-  (RFC 0013 step 7); the page reads this on load to decide
-  whether to render mutation buttons.
-- `GET /v1/runs/<id>/artifacts` returns the run's full artifact
-  rollup from daemon `list.artifacts`.
+- `GET /` and `GET /run?run_id=<id>` → server-rendered status pages backed by
+  daemon `status`.
+- `GET /static/<path>` → bundled static asset.
+- `GET /v1/health` → service health plus `allow_mutations`.
+- `GET /v1/runs`, `GET /v1/runs/<id>`, `GET /v1/runs/<id>/why`,
+  `GET /v1/runs/<id>/dashboard`, `GET /v1/runs/<id>/events`, and
+  `GET /v1/runs/<id>/artifacts` → daemon-backed JSON/SSE reads.
+- `GET /v1/artifacts/<artifact_id>/raw` → raw artifact bytes.
+- `GET /workflow-templates` and `GET /workflow-templates/<id>` → bundled
+  workflow template reads.
+- `POST /v1/invoke`, `POST /workflows/generate/preview`, and
+  `POST /workflows/generate` → daemon-backed mutation-capable endpoints;
+  mutating calls fail closed unless `STRIATUM_DAEMON_WEB_ALLOW_MUTATIONS=1`
+  was set on the daemon process before startup.
 
-A small JS island (`/static/legacy_hash_redirect.js`) loaded by
-`base.html` reads `window.location.hash` on page load and
-rewrites legacy `#/run/<id>` SPA URLs to `/run/<id>` so
-bookmarked SPA URLs still reach the right page.
-
-Visual styling: CSS custom-property palette in `base.css` with
-`@media (prefers-color-scheme: dark)` overrides (no toggle
-button — the OS preference is the source of truth). System font
-stack, 4px-grid spacing scale. State-colored status pills and
-posture chips reuse the same CSS variables as the SVG graph
-nodes, so dark-mode rendering inherits consistently.
-
-When the service was started with `--allow-mutations`, the SPA
-also renders five click-driven mutation buttons that POST to
-`/v1/invoke` with the same argv shapes the CLI accepts:
-
-- **Continue blocker** / **Cancel blocker** (job-detail view,
-  open blocker present) → `striatum checkpoint resolve
-  --blocker-id <id> --action {continue, cancel}`.
-- **Record verdict** (review-job detail, state = running) →
-  `striatum verdict --session-id <s> --job-id <j> --lease-id <l>
-  --verdict <v> [--rationale <text>]`.
-- **Record decision** (run-detail view; no lease required) →
-  `striatum decision record --run-id <r> --path <p> --outcome <o>
-  --title <t>`.
-- **Requeue stale review** (job-detail, state = stale_lease,
-  review-only) → `striatum recovery requeue-stale --run-id <r>
-  --job-id <j>`.
-
-Each button opens a confirmation modal showing the literal argv
-before firing. Destructive actions (cancel job, reject verdict)
-get red confirm buttons. The runner-side `--allow-mutations` gate
-remains authoritative; SPA-side hiding is only a UX hint.
+The richer Python-era pages (`/run/<id>/job/<id>`,
+`/run/<id>/artifact/<id>`, `/doctor`, `/view`, `/workflows/new`,
+`/workflows/edit`, `/chat`) are retired unless a future Go route reintroduces
+and documents them.
 
 ## Adapter Boundary
 
@@ -2373,7 +2315,13 @@ fails to advance and `doctor` surfaces
 
 1. **Persistent PTY Interactive Model.** All process lanes run natively in
    persistent interactive PTY sessions owned by the daemon. One-shot per-turn
-   wrappers and `--print` configurations are completely retired.
+   wrappers and `--print` configurations are retired for live agent-loop lanes.
+   A lane invoking `claude` with `--print` or `-p` is hard-refused by
+   `workflow validate`, `run prepare`, and `supervise start` unless the lane
+   explicitly declares `allow_claude_print: true`. The override is reserved for
+   genuine compatibility fixtures; normal Claude lanes should use an
+   interactive command such as `["claude", "--dangerously-skip-permissions"]`
+   with `adapter_capabilities.agent_loop: true`.
 2. **Submit Prompts via stdin-submit.** Per-turn prompt payloads are delivered
    directly to the PTY master of the long-lived process using the per-adapter
    submit key-sequence (Enter / `\r`), preserving agent context across turns.
