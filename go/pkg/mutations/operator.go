@@ -32,11 +32,15 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 	followUp := stringParam(envelope, "follow_up")
 	escapeSurface := strings.TrimSpace(stringParam(envelope, "escape_surface"))
 	escapeAction := strings.TrimSpace(stringParam(envelope, "escape_action"))
+	markRunCompromised := boolParam(envelope, "mark_run_compromised")
 	if runID == "" || pathText == "" || outcome == "" || title == "" {
 		return nil, rpc.NewError("schema_invalid", "decision.record requires run_id, path, outcome, and title", nil)
 	}
 	if outcome == "accepted_with_follow_up" && strings.TrimSpace(followUp) == "" {
 		return nil, rpc.NewError("artifact_error", "accepted_with_follow_up decisions require --follow-up", nil)
+	}
+	if markRunCompromised && outcome != "accepted" && outcome != "accepted_with_follow_up" {
+		return nil, rpc.NewError("invalid_transition", "--mark-run-compromised requires an accepting decision outcome", nil)
 	}
 	escape := escapeDecision{}
 	if escapeSurface != "" || escapeAction != "" {
@@ -60,9 +64,18 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 		}
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
-		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+		if markRunCompromised {
+			if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+				return nil, err
+			}
+		}
+		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, markRunCompromised)
 		if err != nil {
 			return nil, err
+		}
+		previousRunState := fmt.Sprint(run["state"])
+		if markRunCompromised && previousRunState != "completed" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("only completed runs can be marked compromised (state=%q)", previousRunState), nil)
 		}
 		_, err = oneRow(ctx, tx, `
 			SELECT artifact_id FROM striatumd.artifacts
@@ -127,6 +140,29 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, payload); err != nil {
 			return nil, err
 		}
+		var runTransition any
+		if markRunCompromised {
+			if err := tx.Exec(ctx, `
+				UPDATE striatumd.runs
+				   SET state = 'compromised',
+				       stop_reason = 'provenance_compromised'
+				 WHERE repository_id = $1 AND run_id = $2`,
+				repositoryID, runID); err != nil {
+				return nil, err
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.compromised", nil, nil, nil, artifactID, nil, map[string]any{
+				"decision_id":    decisionID,
+				"artifact_id":    artifactID,
+				"previous_state": previousRunState,
+				"stop_reason":    "provenance_compromised",
+			}); err != nil {
+				return nil, err
+			}
+			runTransition = map[string]any{
+				"from": previousRunState,
+				"to":   "compromised",
+			}
+		}
 		result := map[string]any{
 			"status":                   "recorded",
 			"run_id":                   runID,
@@ -135,7 +171,7 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 			"path":                     pathText,
 			"outcome":                  outcome,
 			"sha256":                   digest,
-			"run_state_transition":     nil,
+			"run_state_transition":     runTransition,
 			"superseded_verdict_count": 0,
 		}
 		if escape.Enabled {

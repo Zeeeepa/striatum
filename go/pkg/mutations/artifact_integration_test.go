@@ -2,8 +2,10 @@ package mutations
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +140,119 @@ func TestPublishArtifactUsesLaneAttestedAuthorLine(t *testing.T) {
 	}
 	if result["status"] != "published" {
 		t.Fatalf("publish result = %#v", result)
+	}
+}
+
+func TestPublishArtifactRequiresAttestedLaneForReviewJob(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "docs", "review.txt"), []byte("review artifact\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	workflowArg, err := db.JSONBArg(runner, map[string]any{
+		"workflow_id": "wf_review_attested",
+		"jobs": []any{
+			map[string]any{
+				"id":                    "final_review",
+				"type":                  "review",
+				"require_attested_lane": true,
+			},
+		},
+		"lanes": map[string]any{
+			"codex": map[string]any{"display_model": "Codex GPT-5"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeScopeArg, err := db.JSONBArg(runner, map[string]any{
+		"mode":          "repo_write",
+		"repo_write":    true,
+		"allowed_paths": []string{"docs/"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_artifact_review_attested','ident_artifact_review_attested',$1,$2,'repo',$3,16,'active')`,
+		repoRoot, filepath.Join(repoRoot, ".striatum"), now); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ('repo_artifact_review_attested','snap_1','wf_review_attested','sha',$1::jsonb,$2)`, workflowArg, now); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at
+		) VALUES ('repo_artifact_review_attested','run_1','snap_1',$1,'running',$2)`, repoRoot, now); err != nil {
+		t.Fatalf("insert run: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal,
+		  state, registered_at
+		) VALUES ('repo_artifact_review_attested','sess_1','run_1','reviewer','codex','reviewer-codex-1',1,'active',$1)`, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  lane_selector_json, state, write_scope_json, idempotency_key, created_at
+		) VALUES ('repo_artifact_review_attested','job_1','run_1','final_review','Final review','review','reviewer',
+		  $1::jsonb,'running',$2::jsonb,'idem_1',$3)`, laneSelectorArg, writeScopeArg, now); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ('repo_artifact_review_attested','lease_1','run_1','job','job_1','sess_1','active',$1,$2)`,
+		now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+
+	_, err = HandlePublishArtifact(ctx, runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_publish_review_attested",
+		Method:        "artifact.publish",
+		Params: map[string]any{
+			"repository_id": "repo_artifact_review_attested",
+			"session_id":    "sess_1",
+			"job_id":        "job_1",
+			"lease_id":      "lease_1",
+			"kind":          "handoff",
+			"logical_name":  "review_artifact",
+			"path":          "docs/review.txt",
+		},
+	})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
+		!strings.Contains(rpcErr.Message, "requires an attached lane supervisor") {
+		t.Fatalf("publish error = %v, want attestation refusal", err)
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT artifact_id FROM striatumd.artifacts
+		 WHERE repository_id = 'repo_artifact_review_attested'`)
+	if err != nil {
+		t.Fatalf("query artifacts: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("artifact rows = %#v, want none", rows)
 	}
 }
 

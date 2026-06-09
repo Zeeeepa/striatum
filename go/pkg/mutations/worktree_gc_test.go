@@ -233,6 +233,42 @@ func TestWorktreeGCRemovesAnchoredTerminalWorktree(t *testing.T) {
 	}
 }
 
+func TestWorktreeGCSkipsPublishedArtifactOnlyInUncommittedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "gc_artifact_uncommitted", true)
+	payload := []byte("published gc artifact\n")
+	if err := os.MkdirAll(filepath.Join(ids.worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, "docs", "out.txt"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPublishedArtifact(t, ctx, runner, ids, "art_gc_uncommitted", "out", "docs/out.txt", payload, nil)
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'completed', completed_at = $1, current_lease_id = NULL
+		 WHERE repository_id = $2 AND job_id = $3`, now, ids.repoID, ids.jobID); err != nil {
+		t.Fatalf("complete job fixture: %v", err)
+	}
+
+	result, err := HandleWorktreeGC(ctx, runner, intgEnv(ids.repoID, map[string]any{"run_id": ids.runID}))
+	if err != nil {
+		t.Fatalf("HandleWorktreeGC: %v", err)
+	}
+	if result["removed_count"] != 0 || result["skipped_count"] != 1 {
+		t.Fatalf("gc result = %#v, want one durability skip", result)
+	}
+	if _, err := os.Stat(ids.worktreeRoot); err != nil {
+		t.Fatalf("worktree path should remain after refused gc: %v", err)
+	}
+}
+
 func seedGCWorktreeCommit(t *testing.T, repoRoot, runBranch, baseSHA, worktreeID string) (string, string, string) {
 	t.Helper()
 	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))

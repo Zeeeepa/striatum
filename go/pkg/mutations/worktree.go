@@ -193,12 +193,18 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	}
 
 	var row map[string]any
+	var job map[string]any
 	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		loaded, err := worktreeRow(ctx, tx, repositoryID, worktreeID, false)
 		if err != nil {
 			return nil, err
 		}
 		row = loaded
+		loadedJob, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(row["job_id"]), false)
+		if err != nil {
+			return nil, err
+		}
+		job = loadedJob
 		return map[string]any{}, nil
 	}); err != nil {
 		return nil, err
@@ -215,22 +221,40 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	if err != nil {
 		return nil, err
 	}
-	reachability := worktreeReachability{Reachable: true}
-	if pathExists(target) {
-		reachability, err = worktreeHeadReachability(ctx, repoRoot, target, row)
-		if err != nil {
-			return nil, err
-		}
-		if !reachability.Reachable && !force {
-			return nil, rpc.NewError("worktree_head_unreachable", fmt.Sprintf(
-				"worktree %s HEAD %s is not reachable from the run branch or refs/striatum pins; re-run work.complete to anchor it, or pass --force to discard it explicitly",
-				worktreeID, reachability.Head,
-			), map[string]any{
-				"worktree_id":  worktreeID,
-				"head":         reachability.Head,
-				"checked_refs": reachability.CheckedRefs,
-			})
-		}
+	if !pathExists(target) {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree %s path is missing on disk; active row left intact so artifact durability can be inspected",
+			worktreeID,
+		), map[string]any{
+			"worktree_id":   worktreeID,
+			"worktree_path": row["worktree_path"],
+		})
+	}
+	reachability, err := worktreeHeadReachability(ctx, repoRoot, target, row)
+	if err != nil {
+		return nil, err
+	}
+	if !reachability.Reachable && !force {
+		return nil, rpc.NewError("worktree_head_unreachable", fmt.Sprintf(
+			"worktree %s HEAD %s is not reachable from the run branch or refs/striatum pins; re-run work.complete to anchor it, or pass --force to discard it explicitly",
+			worktreeID, reachability.Head,
+		), map[string]any{
+			"worktree_id":  worktreeID,
+			"head":         reachability.Head,
+			"checked_refs": reachability.CheckedRefs,
+		})
+	}
+	problems, err := publishedArtifactDurabilityProblems(ctx, runner, artifactDurabilityCheck{
+		RepositoryID: repositoryID,
+		RepoRoot:     repoRoot,
+		Job:          job,
+		Worktree:     row,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(problems) > 0 {
+		return nil, publishedArtifactsNotDurableError("worktree.release", job, problems)
 	}
 	result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "remove", "--force", target)
 	if err != nil {
@@ -320,7 +344,7 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		rows, err := queryRows(ctx, tx, `
 			SELECT w.worktree_id, w.run_id, w.job_id, w.lease_id,
 			       w.base_branch, w.worktree_path, w.state,
-			       j.state AS job_state, j.workflow_job_id,
+			       j.state AS job_state, j.workflow_job_id, j.attempt,
 			       r.repo_root, r.branch_name
 			  FROM striatumd.job_worktrees w
 			  JOIN striatumd.jobs j
@@ -364,6 +388,24 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 				base["head"] = nullableString(check.Reachability.Head)
 				base["reachable"] = check.Reachability.Reachable
 				base["checked_refs"] = check.Reachability.CheckedRefs
+				skipped = append(skipped, base)
+				continue
+			}
+			problems, err := publishedArtifactDurabilityProblems(ctx, tx, artifactDurabilityCheck{
+				RepositoryID: repositoryID,
+				RepoRoot:     repoRoot,
+				Job:          row,
+				Worktree:     row,
+			})
+			if err != nil {
+				return nil, err
+			}
+			if len(problems) > 0 {
+				base["reason"] = "published_artifact_not_durable"
+				base["head"] = nullableString(check.Reachability.Head)
+				base["reachable"] = check.Reachability.Reachable
+				base["checked_refs"] = check.Reachability.CheckedRefs
+				base["artifacts"] = publishedArtifactDurabilityProblemMaps(problems)
 				skipped = append(skipped, base)
 				continue
 			}

@@ -94,6 +94,9 @@ func publishArtifact(
 	if !allowedArtifactKinds[kind] {
 		return nil, rpc.NewError("artifact_error", fmt.Sprintf("artifact kind %q is not in the allowed kinds list", kind), nil)
 	}
+	if err := enforceRequiredAttestationForArtifactPublish(ctx, runner, repositoryID, job, sessionID); err != nil {
+		return nil, err
+	}
 	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
 	if err != nil {
 		return nil, err

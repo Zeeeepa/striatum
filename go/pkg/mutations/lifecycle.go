@@ -1100,6 +1100,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err := verifyRequiredArtifacts(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}
+		if err := ensurePerJobPublishedArtifactsDurable(ctx, tx, repositoryID, job, "work.complete"); err != nil {
+			return nil, err
+		}
 		now := nowString()
 		messageID := nullable(job["current_message_id"])
 		anchorPayload, err := anchorActiveWorktreeForJob(ctx, tx, repositoryID, job)

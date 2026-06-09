@@ -43,6 +43,11 @@ var processExitBlockerKinds = map[string]bool{
 	"process_timeout_exceeded": true,
 }
 
+var writeScopeResumeBlockerKinds = map[string]bool{
+	"write_scope.out_of_scope_dirty": true,
+	"write_scope_guard_conflict":     true,
+}
+
 var recoveryDrainHelperEvents = drainHelperEvents
 
 var terminalJobStates = map[string]bool{
@@ -218,6 +223,16 @@ func HandleRecoveryResume(ctx context.Context, runner db.Runner, envelope rpc.En
 		}
 		blockerKind := fmt.Sprint(blocker["blocker_kind"])
 		if !processAdapterBlockerKinds[blockerKind] {
+			if writeScopeResumeBlockerKinds[blockerKind] {
+				return resumeWriteScopeBlocker(ctx, tx, writeScopeResumeRequest{
+					RepositoryID:      repositoryID,
+					Blocker:           blocker,
+					BlockerKind:       blockerKind,
+					SessionID:         sessionID,
+					Summary:           summary,
+					CompleteRequested: complete,
+				})
+			}
 			return nil, rpc.NewError("invalid_transition", "recovery resume supports only process-adapter blockers", nil)
 		}
 		if nullable(blocker["job_id"]) == nil {
@@ -377,6 +392,117 @@ func HandleRecoveryResume(ctx context.Context, runner db.Runner, envelope rpc.En
 		result["next_actions"] = []string{"monitor_run_progress", "export_run_evidence"}
 		return result, nil
 	})
+}
+
+type writeScopeResumeRequest struct {
+	RepositoryID      string
+	Blocker           map[string]any
+	BlockerKind       string
+	SessionID         string
+	Summary           string
+	CompleteRequested bool
+}
+
+type writeScopeResumeTarget struct {
+	JobID string
+	RunID string
+	Job   map[string]any
+}
+
+func resumeWriteScopeBlocker(ctx context.Context, tx db.TxRunner, request writeScopeResumeRequest) (map[string]any, error) {
+	if nullable(request.Blocker["job_id"]) == nil {
+		return nil, rpc.NewError("invalid_transition", "write-scope blocker is not job-bound", nil)
+	}
+	if fmt.Sprint(request.Blocker["state"]) != "open" {
+		return alreadyResolvedWriteScopeResumeResult(request), nil
+	}
+	target, err := validateWriteScopeResumeTarget(ctx, tx, request)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceWriteScopeClean(ctx, tx, request.RepositoryID, target.Job); err != nil {
+		return nil, err
+	}
+	if err := resolveWriteScopeBlocker(ctx, tx, request, target); err != nil {
+		return nil, err
+	}
+	requeue, err := requeueJobSameAttempt(ctx, tx, request.RepositoryID, target.Job, requeueSameAttemptOptions{
+		operatorOverride: true,
+		justification:    request.Summary,
+		author:           request.SessionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return writeScopeResumeResult(request, target, requeue), nil
+}
+
+func alreadyResolvedWriteScopeResumeResult(request writeScopeResumeRequest) map[string]any {
+	return map[string]any{
+		"status":           "already_resolved",
+		"run_id":           request.Blocker["run_id"],
+		"job_id":           request.Blocker["job_id"],
+		"blocker_id":       request.Blocker["blocker_id"],
+		"blocker_kind":     request.BlockerKind,
+		"completed_inline": false,
+		"next_actions":     []string{"inspect_job_state"},
+	}
+}
+
+func validateWriteScopeResumeTarget(ctx context.Context, tx db.TxRunner, request writeScopeResumeRequest) (writeScopeResumeTarget, error) {
+	jobID := fmt.Sprint(request.Blocker["job_id"])
+	job, err := rowByID(ctx, tx, request.RepositoryID, "jobs", "job_id", jobID, true)
+	if err != nil {
+		return writeScopeResumeTarget{}, err
+	}
+	runID := fmt.Sprint(job["run_id"])
+	if fmt.Sprint(request.Blocker["run_id"]) != runID {
+		return writeScopeResumeTarget{}, rpc.NewError("invalid_transition", "blocker does not belong to the job run", nil)
+	}
+	if fmt.Sprint(job["state"]) != "blocked" {
+		return writeScopeResumeTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf("job must be blocked before write-scope recovery resume (state=%q)", job["state"]), nil)
+	}
+	return writeScopeResumeTarget{JobID: jobID, RunID: runID, Job: job}, nil
+}
+
+func resolveWriteScopeBlocker(ctx context.Context, tx db.TxRunner, request writeScopeResumeRequest, target writeScopeResumeTarget) error {
+	now := nowString()
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.blockers
+		   SET state = 'resolved', resolved_at = $1
+		 WHERE repository_id = $2 AND blocker_id = $3`, now, request.RepositoryID, request.Blocker["blocker_id"]); err != nil {
+		return err
+	}
+	_, err := appendEvent(ctx, tx, request.RepositoryID, target.RunID, "recovery.write_scope_blocker_resolved", nullable(request.SessionID), target.JobID, nil, nil, nil, map[string]any{
+		"blocker_id":         request.Blocker["blocker_id"],
+		"blocker_kind":       request.BlockerKind,
+		"verb":               "recovery resume",
+		"complete_requested": request.CompleteRequested,
+		"summary":            request.Summary,
+		"original_envelope":  asMap(request.Blocker["payload_json"]),
+	})
+	return err
+}
+
+func writeScopeResumeResult(request writeScopeResumeRequest, target writeScopeResumeTarget, requeue requeueSameAttemptResult) map[string]any {
+	nextActions := []string{"claim_available_work", "complete_job"}
+	if request.CompleteRequested {
+		nextActions = []string{"claim_available_work", "complete_job_after_claim"}
+	}
+	return map[string]any{
+		"status":              "resumed_requeued",
+		"run_id":              target.RunID,
+		"job_id":              target.JobID,
+		"workflow_job_id":     target.Job["workflow_job_id"],
+		"blocker_id":          request.Blocker["blocker_id"],
+		"blocker_kind":        request.BlockerKind,
+		"message_id":          requeue.messageID,
+		"already_reclaimable": requeue.alreadyReclaimable,
+		"completed_inline":    false,
+		"complete_requested":  request.CompleteRequested,
+		"note":                "write-scope blockers release their lease when blocked; recovery.resume resolves the clean blocker and requeues the same attempt for a fresh claim before completion",
+		"next_actions":        nextActions,
+	}
 }
 
 func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -2080,7 +2206,13 @@ func completeRecoveredJob(ctx context.Context, runner any, repositoryID, jobID, 
 	if fmt.Sprint(job["state"]) != "running" {
 		return nil, rpc.NewError("invalid_transition", "job must be running before completion", nil)
 	}
+	if err := enforceWriteScopeClean(ctx, runner, repositoryID, job); err != nil {
+		return nil, err
+	}
 	if err := verifyRequiredArtifacts(ctx, runner, repositoryID, jobID); err != nil {
+		return nil, err
+	}
+	if err := ensurePerJobPublishedArtifactsDurable(ctx, runner, repositoryID, job, "recovery.resume --complete"); err != nil {
 		return nil, err
 	}
 	now := nowString()

@@ -293,6 +293,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "follow-up", Help: "required follow-up text for accepted_with_follow_up"},
 			{Name: "escape-surface", Help: "constrained-operator surface being escaped, e.g. shell_command or raw_file_write"},
 			{Name: "escape-action", Help: "specific action authorized outside the constrained surface"},
+			{Name: "mark-run-compromised", Bool: true, Help: "with an accepting decision, transition a completed run to compromised for provenance invalidation"},
 		},
 	},
 	"supervise_start": {

@@ -1,9 +1,16 @@
 package mutations
 
 import (
+	"context"
+	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // #123: gitBranchExists must correctly report whether a local branch exists.
@@ -124,5 +131,100 @@ func TestEdgeRequiresClearingVerdictExemptsAdjudicatorInbound(t *testing.T) {
 		if got := edgeRequiresClearingVerdict(wf, tc.from, tc.to); got != tc.want {
 			t.Errorf("edgeRequiresClearingVerdict(%s->%s) = %v, want %v", tc.from, tc.to, got, tc.want)
 		}
+	}
+}
+
+func TestDecisionRecordCanMarkCompletedRunCompromised(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	repoID := "repo_compromise_decision"
+	runID := "run_compromise_decision"
+	seedCompletedRunForDecision(t, ctx, runner, repoID, runID, repoRoot)
+
+	result, err := HandleDecisionRecord(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id":               runID,
+		"path":                 "docs/decisions/compromised.md",
+		"outcome":              "accepted",
+		"title":                "Invalidate compromised provenance",
+		"decision_id":          "dec_compromised",
+		"rationale":            "Review provenance was compromised; replacement run required.",
+		"mark_run_compromised": true,
+	}))
+	if err != nil {
+		t.Fatalf("decision.record: %v", err)
+	}
+	transition := asMap(result["run_state_transition"])
+	if transition["from"] != "completed" || transition["to"] != "compromised" {
+		t.Fatalf("run_state_transition = %#v, want completed -> compromised", result["run_state_transition"])
+	}
+	run, err := oneRow(ctx, runner, `
+		SELECT state, stop_reason
+		  FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read run: %v", err)
+	}
+	if run["state"] != "compromised" || run["stop_reason"] != "provenance_compromised" {
+		t.Fatalf("run row = %#v, want compromised provenance stop", run)
+	}
+	if _, err := oneRow(ctx, runner, `
+		SELECT event_id
+		  FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'run.compromised'`, repoID, runID); err != nil {
+		t.Fatalf("run.compromised event not recorded: %v", err)
+	}
+}
+
+func TestRunResumeCompletedRunGivesCompromiseGuidance(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	repoID := "repo_resume_completed_guidance"
+	runID := "run_resume_completed_guidance"
+	seedCompletedRunForDecision(t, ctx, runner, repoID, runID, repoRoot)
+
+	_, err := HandleRunResume(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("run.resume error = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, "--mark-run-compromised") {
+		t.Fatalf("run.resume message = %q, want compromised-run guidance", rpcErr.Message)
+	}
+	if strings.Contains(rpcErr.Message, "retry_job") {
+		t.Fatalf("run.resume message = %q, must not point completed runs at retry_job", rpcErr.Message)
+	}
+}
+
+func seedCompletedRunForDecision(t *testing.T, ctx context.Context, runner any, repoID, runID, repoRoot string) {
+	t.Helper()
+	now := time.Now().UTC()
+	execer, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		t.Fatalf("runner does not support Exec")
+	}
+	if err := execer.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ($1,$2,$3,$4,'repo',$5,16,'active')`,
+		repoID, "ident_"+repoID, repoRoot, filepath.Join(repoRoot, ".striatum"), now); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	if err := execer.Exec(ctx, `
+		INSERT INTO striatumd.workflow_snapshots (
+		  repository_id, workflow_snapshot_id, workflow_id, content_sha256, workflow_json, loaded_at
+		) VALUES ($1,$2,'wf','sha','{}'::jsonb,$3)`, repoID, "snap_"+runID, now); err != nil {
+		t.Fatalf("insert snapshot: %v", err)
+	}
+	if err := execer.Exec(ctx, `
+		INSERT INTO striatumd.runs (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state, created_at, completed_at
+		) VALUES ($1,$2,$3,$4,'completed',$5,$5)`,
+		repoID, runID, "snap_"+runID, repoRoot, now); err != nil {
+		t.Fatalf("insert run: %v", err)
 	}
 }

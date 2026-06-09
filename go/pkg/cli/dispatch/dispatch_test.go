@@ -156,7 +156,7 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 		"repo write":           {"session-id", "job-id", "lease-id", "--content", "repo.write"},
 		"repo patch-preview":   {"session-id", "job-id", "lease-id", "--patch", "repo.patch_preview"},
 		"process run":          {"session-id", "job-id", "lease-id", "--command-json", "process.run"},
-		"decision record":      {"run-id", "outcome", "--escape-surface", "decision.record"},
+		"decision record":      {"run-id", "outcome", "--escape-surface", "--mark-run-compromised", "decision.record"},
 	}
 	for cmd, wants := range cases {
 		invoker := &fakeInvoker{}
@@ -175,6 +175,33 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 				t.Fatalf("%s --help output missing %q:\n%s", cmd, want, out)
 			}
 		}
+	}
+}
+
+func TestDispatchDecisionRecordPassesCompromiseMarker(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{
+		"--repository-id", "repo_1",
+		"decision", "record",
+		"run_1", "docs/decisions/compromised.md", "accepted", "Invalidate compromised provenance",
+		"--rationale", "Review provenance was compromised; replacement run required.",
+		"--mark-run-compromised",
+	}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "decision.record" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["repository_id"] != "repo_1" ||
+		params["run_id"] != "run_1" ||
+		params["path"] != "docs/decisions/compromised.md" ||
+		params["outcome"] != "accepted" ||
+		params["title"] != "Invalidate compromised provenance" ||
+		params["mark_run_compromised"] != true {
+		t.Fatalf("params = %#v", params)
 	}
 }
 

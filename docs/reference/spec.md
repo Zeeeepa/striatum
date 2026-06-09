@@ -813,6 +813,11 @@ text. For constrained-operator escape hatches, `decision record` accepts
 `--rationale`. Escape decisions add `escape_decision: true`, `escape_surface`,
 and `escape_action` to the decision front matter and event payload, turning an
 ambient escape into a durable audited run-level decision.
+For completed runs whose provenance is later found compromised, an accepting
+decision can pass `--mark-run-compromised`; the daemon records the decision
+artifact, emits `run.compromised`, and transitions the run from `completed` to
+`compromised` so operators can start a replacement run without silently reviving
+finished work.
 
 Durable Markdown artifacts should include the work packet's privacy-safe
 `author:` line in their title block when one is provided. For unattested
@@ -1461,6 +1466,13 @@ remaining gap is the verdict can then use the normal `verdict --verdict
 accept_with_findings` path. `--complete --session-id <id>` additionally
 completes remediated non-review work after validation; nonzero-exit and
 timeout blockers require `--force`.
+
+`recovery resume` also accepts write-scope blocker kinds
+`write_scope.out_of_scope_dirty` and `write_scope_guard_conflict`. Because
+`work.block` releases the job lease when such blockers are recorded, recovery
+does not complete them inline. It re-runs the write-scope cleanliness check,
+resolves the blocker only if the dirty path has been cleared, and requeues the
+same attempt for a fresh claim/complete cycle.
 
 `recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
 sweeper composable with cron / systemd timer. In daemon RPC the

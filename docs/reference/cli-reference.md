@@ -120,6 +120,10 @@ clean `process_executions` fallback. Operators can explicitly bypass
 missing lane evidence with `--allow-no-process-execution
 --override-rationale <text>`; the rationale is stored on the artifact
 row and in the provenance event.
+For review jobs declaring `require_attested_lane: true`, `publish-artifact`
+also refuses publication unless the session has an attached lane supervisor.
+`decision record --mark-run-compromised` records an accepting decision and
+transitions a completed run to `compromised` for provenance invalidation.
 
 ## Worktree (opt-in per lane via `worktree_isolation: per_job`)
 
@@ -132,7 +136,9 @@ striatum worktree list
 
 `worktree gc` removes only on-disk job worktrees whose jobs are terminal and
 whose HEAD is reachable from the run branch or a `refs/striatum/` pin; skipped
-rows are reported with reasons.
+rows are reported with reasons. Worktrees with no-blob published artifacts that
+are not present in the worktree `HEAD` are skipped until the artifact content is
+durable outside the per-job worktree.
 
 ## Supervisor (RFC 0009)
 
@@ -407,6 +413,11 @@ colored by current job state. Mermaid output appends
 `classDef`/`class` lines; JSON adds `current_state`, `attempt`,
 and a `latest_verdict` block on review nodes; `ascii` reuses the
 dashboard's graph panel renderer (RFC 0016).
+
+`recovery resume` resolves remediated process-adapter blockers with the
+preserved lease. For remediated write-scope dirty-path blockers, it validates
+that the tree is clean, resolves the blocker, and requeues the same attempt for
+a fresh claim before completion.
 
 `git snapshot --json [--ancestry-limit N] [--no-ancestry]` emits the
 daemon read-only `git.snapshot` projection for the registered target

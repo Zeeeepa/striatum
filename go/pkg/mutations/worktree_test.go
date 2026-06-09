@@ -2,6 +2,8 @@ package mutations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"os/exec"
@@ -610,6 +612,153 @@ func TestWorktreeCompletionDirtyCheckUsesActiveWorktreeNotPrimaryCheckout(t *tes
 	}
 }
 
+func TestWorktreeCompleteRefusesPublishedArtifactOnlyInUncommittedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "artifact_uncommitted", true)
+	payload := []byte("published but not committed\n")
+	if err := os.MkdirAll(filepath.Join(ids.worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, "docs", "out.txt"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPublishedArtifact(t, ctx, runner, ids, "art_uncommitted", "out", "docs/out.txt", payload, nil)
+
+	_, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"summary":    "done",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
+		!strings.Contains(rpcErr.Message, "published artifact content is not durable") {
+		t.Fatalf("complete error = %v, want artifact durability refusal", err)
+	}
+	if got := jobState(t, ctx, runner, ids.repoID, ids.jobID); got != "running" {
+		t.Fatalf("job state = %q, want running after refused completion", got)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT state FROM striatumd.job_worktrees
+		 WHERE repository_id = $1 AND worktree_id = $2`, ids.repoID, ids.worktreeID)
+	if err != nil {
+		t.Fatalf("read worktree row: %v", err)
+	}
+	if row["state"] != "active" {
+		t.Fatalf("worktree state = %#v, want active", row["state"])
+	}
+}
+
+func TestWorktreeCompleteAllowsPublishedArtifactCommittedInWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "artifact_committed", true)
+	payload := []byte("published and committed\n")
+	if err := os.MkdirAll(filepath.Join(ids.worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, "docs", "out.txt"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, ids.worktreeRoot, "add", "docs/out.txt")
+	gitRun(t, ids.worktreeRoot, "commit", "-q", "-m", "artifact")
+	seedPublishedArtifact(t, ctx, runner, ids, "art_committed", "out", "docs/out.txt", payload, nil)
+
+	result, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+		"summary":    "done",
+	}))
+	if err != nil {
+		t.Fatalf("complete with committed published artifact: %v", err)
+	}
+	if result["status"] != "completed" {
+		t.Fatalf("complete result = %#v", result)
+	}
+}
+
+func TestWorktreeReleaseRefusesPublishedArtifactOnlyInUncommittedWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "release_artifact_uncommitted", true)
+	payload := []byte("published release artifact\n")
+	if err := os.MkdirAll(filepath.Join(ids.worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, "docs", "out.txt"), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedPublishedArtifact(t, ctx, runner, ids, "art_release_uncommitted", "out", "docs/out.txt", payload, nil)
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'completed', completed_at = $1, current_lease_id = NULL
+		 WHERE repository_id = $2 AND job_id = $3`, now, ids.repoID, ids.jobID); err != nil {
+		t.Fatalf("complete job fixture: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = $1, release_reason = 'completed'
+		 WHERE repository_id = $2 AND lease_id = $3`, now, ids.repoID, ids.leaseID); err != nil {
+		t.Fatalf("release lease fixture: %v", err)
+	}
+
+	_, err := HandleWorktreeRelease(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"worktree_id": ids.worktreeID,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
+		!strings.Contains(rpcErr.Message, "published artifact content is not durable") {
+		t.Fatalf("release error = %v, want artifact durability refusal", err)
+	}
+	if _, err := os.Stat(ids.worktreeRoot); err != nil {
+		t.Fatalf("worktree path should remain after refused release: %v", err)
+	}
+}
+
+func TestWorktreeReleaseRefusesMissingActiveWorktreePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "release_missing_path", true)
+	gitRun(t, repoRoot, "worktree", "remove", "--force", ids.worktreeRoot)
+
+	_, err := HandleWorktreeRelease(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"worktree_id": ids.worktreeID,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
+		!strings.Contains(rpcErr.Message, "path is missing on disk") {
+		t.Fatalf("release error = %v, want missing path refusal", err)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT state FROM striatumd.job_worktrees
+		 WHERE repository_id = $1 AND worktree_id = $2`, ids.repoID, ids.worktreeID)
+	if err != nil {
+		t.Fatalf("read worktree row: %v", err)
+	}
+	if row["state"] != "active" {
+		t.Fatalf("worktree state = %#v, want active", row["state"])
+	}
+}
+
 func TestWorktreeCompletionStillRejectsOutOfScopeDirtInsideActiveWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
@@ -645,6 +794,22 @@ type worktreeRequiredFixtureIDs struct {
 	worktreeRel  string
 	worktreeRoot string
 	runBranch    string
+}
+
+func seedPublishedArtifact(t *testing.T, ctx context.Context, runner db.Runner, ids worktreeRequiredFixtureIDs, artifactID, logicalName, repoPath string, payload []byte, blobKey any) {
+	t.Helper()
+	sum := sha256.Sum256(payload)
+	digest := hex.EncodeToString(sum[:])
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, job_id, session_id, logical_name,
+		  artifact_kind, repo_path, content_sha256, size_bytes, publish_mode,
+		  created_at, author_line, blob_key, attempt
+		) VALUES ($1,$2,$3,$4,$5,$6,'handoff',$7,$8,$9,'create',$10,NULL,$11,1)`,
+		ids.repoID, artifactID, ids.runID, ids.jobID, ids.sessionID, logicalName,
+		repoPath, digest, len(payload), time.Now().UTC(), blobKey); err != nil {
+		t.Fatalf("insert artifact: %v", err)
+	}
 }
 
 func seedWorktreeRequiredJob(t *testing.T, ctx context.Context, runner db.Runner, repoRoot, suffix string, withWorktree bool) worktreeRequiredFixtureIDs {

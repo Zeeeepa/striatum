@@ -1096,6 +1096,14 @@ func resolveReviewPosture(ctx context.Context, runner any, repositoryID string, 
 }
 
 func enforceRequiredAttestationForVerdict(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string) error {
+	return enforceRequiredAttestationForReviewAction(ctx, runner, repositoryID, job, sessionID, "recording a verdict")
+}
+
+func enforceRequiredAttestationForArtifactPublish(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string) error {
+	return enforceRequiredAttestationForReviewAction(ctx, runner, repositoryID, job, sessionID, "publishing review artifacts")
+}
+
+func enforceRequiredAttestationForReviewAction(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, action string) error {
 	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
 	if err != nil {
 		return err
@@ -1120,7 +1128,7 @@ func enforceRequiredAttestationForVerdict(ctx context.Context, runner any, repos
 		if attestation["reason"] != nil {
 			reason = fmt.Sprintf(" (%v)", attestation["reason"])
 		}
-		return rpc.NewError("invalid_transition", "review job requires an attached lane supervisor before recording a verdict"+reason+"; recovery: striatum supervise start --session-id "+sessionID, nil)
+		return rpc.NewError("invalid_transition", "review job requires an attached lane supervisor before "+action+reason+"; recovery: striatum supervise start --session-id "+sessionID, nil)
 	}
 	return nil
 }

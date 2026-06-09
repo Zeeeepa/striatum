@@ -357,7 +357,7 @@ func HandleRunPause(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 			return nil, err
 		}
 		state := fmt.Sprint(run["state"])
-		if state == "completed" || state == "failed" || state == "canceled" {
+		if state == "completed" || state == "failed" || state == "canceled" || state == "compromised" {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q and cannot be paused", state), nil)
 		}
 		if nullable(run["paused_at"]) != nil {
@@ -392,8 +392,11 @@ func HandleRunResume(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			return nil, err
 		}
 		state := fmt.Sprint(run["state"])
-		if state == "completed" || state == "failed" || state == "canceled" {
-			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q; use retry_job to revive", state), nil)
+		if state == "completed" || state == "compromised" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q; completed/compromised runs cannot be resumed. To correct compromised provenance, record a human decision with --mark-run-compromised and start a replacement run.", state), nil)
+		}
+		if state == "failed" || state == "canceled" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q; use retry_job to revive failed or canceled work", state), nil)
 		}
 		if nullable(run["paused_at"]) == nil {
 			return map[string]any{"run_id": runID, "state": state, "paused_at": nil, "status": "not_paused"}, nil
@@ -438,7 +441,7 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if state == "canceled" {
 			return map[string]any{"run_id": runID, "state": "canceled", "status": "already_canceled"}, nil
 		}
-		if state == "completed" || state == "failed" {
+		if state == "completed" || state == "failed" || state == "compromised" {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q and cannot be canceled", state), nil)
 		}
 		now := nowString()
@@ -495,8 +498,9 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		if err != nil {
 			return nil, err
 		}
-		if fmt.Sprint(run["state"]) == "completed" {
-			return nil, rpc.NewError("invalid_transition", "run is completed; retry would revive a finished run", nil)
+		runState := fmt.Sprint(run["state"])
+		if runState == "completed" || runState == "compromised" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is %s; retry would revive a finished run. Start a replacement run after recording any invalidation decision.", runState), nil)
 		}
 		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
 		if err != nil {
