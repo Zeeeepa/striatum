@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/admin"
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 )
 
 func TestWriteDaemonDiscoveryFile(t *testing.T) {
@@ -66,5 +67,26 @@ func TestWriteDaemonDiscoveryFile(t *testing.T) {
 	}
 	if parsed["client_token"] != "secret_token_123" {
 		t.Fatalf("expected client_token secret_token_123, got %v", parsed["client_token"])
+	}
+}
+
+func TestDefaultSocketPathHonorsExplicitDaemonSocketEnv(t *testing.T) {
+	t.Setenv(agentloop.EnvDaemonSocket, "/tmp/live-striatum.sock")
+	t.Setenv(admin.EnvRuntimeDir, filepath.Join(t.TempDir(), "runtime"))
+
+	if got := defaultSocketPath(); got != "/tmp/live-striatum.sock" {
+		t.Fatalf("defaultSocketPath() = %q, want explicit daemon socket env", got)
+	}
+}
+
+func TestDefaultSocketPathHonorsDaemonRuntimeDir(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+	t.Setenv(agentloop.EnvDaemonSocket, "")
+	t.Setenv(admin.EnvRuntimeDir, runtimeDir)
+	t.Setenv("XDG_RUNTIME_DIR", filepath.Join(t.TempDir(), "xdg"))
+
+	want := filepath.Join(runtimeDir, "daemon-go.sock")
+	if got := defaultSocketPath(); got != want {
+		t.Fatalf("defaultSocketPath() = %q, want %q", got, want)
 	}
 }

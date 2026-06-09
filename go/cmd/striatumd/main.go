@@ -122,6 +122,9 @@ func main() {
 	flag.Float64Var(&sweepIntervalSeconds, "sweep-interval-seconds", 60.0, "seconds between resident recovery sweeps")
 	flag.Var(&maxSweeps, "max-sweeps", "maximum resident recovery sweeps before exiting; when set to 0, one startup sweep still runs")
 	flag.Parse()
+	if socketPath != "" {
+		_ = os.Setenv(agentloop.EnvDaemonSocket, socketPath)
+	}
 
 	if describe {
 		migrationSHAs, err := db.MigrationSHASet()
@@ -302,9 +305,10 @@ func main() {
 		log.Printf("blob storage configured")
 	}
 	registerHandlers(server, runner, handlerOptions{
-		ShutdownHook:  shutdownHook,
-		KeyRotateHook: daemonapply.RotateFallbackSigningKey,
-		BlobClient:    blobClient,
+		ShutdownHook:     shutdownHook,
+		KeyRotateHook:    daemonapply.RotateFallbackSigningKey,
+		BlobClient:       blobClient,
+		DaemonSocketPath: socketPath,
 	})
 
 	listener, err := rpc.ListenUnix(socketPath)
@@ -320,8 +324,9 @@ func main() {
 	if stopMCPHTTP != nil {
 		defer stopMCPHTTP()
 	}
+	var stopWebUI func()
 	if webTailscale {
-		stopWebUI, err := startWebUISocket(ctx, server, resolveWebUIOptions(webServiceToken))
+		stopWebUI, err = startWebUISocket(ctx, server, resolveWebUIOptions(webServiceToken))
 		if err != nil {
 			_ = listener.Close()
 			if stopMCPHTTP != nil {
@@ -332,6 +337,16 @@ func main() {
 		if stopWebUI != nil {
 			defer stopWebUI()
 		}
+	}
+	if err := grantDaemonSocketAccessToLaneUser(socketPath); err != nil {
+		_ = listener.Close()
+		if stopMCPHTTP != nil {
+			stopMCPHTTP()
+		}
+		if stopWebUI != nil {
+			stopWebUI()
+		}
+		fatalf("grant lane access to daemon socket: %v", err)
 	}
 	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
 	go func() {
@@ -714,9 +729,10 @@ func (f *optionalIntFlag) String() string {
 }
 
 type handlerOptions struct {
-	ShutdownHook  admin.ShutdownFunc
-	KeyRotateHook admin.KeyRotateFunc
-	BlobClient    *blob.Client
+	ShutdownHook     admin.ShutdownFunc
+	KeyRotateHook    admin.KeyRotateFunc
+	BlobClient       *blob.Client
+	DaemonSocketPath string
 }
 
 // loadBlobClient builds the daemon's S3 client from environment
@@ -755,7 +771,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
 	// Python; same response shapes.
 	reads.Register(server, runner, reads.Options{BlobClient: options.BlobClient, StriatumVersion: daemonVersion})
-	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient})
+	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath})
 	repositories.Service{Runner: runner}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",
@@ -895,6 +911,12 @@ func param(params map[string]any, key string) string {
 }
 
 func defaultSocketPath() string {
+	if socket := strings.TrimSpace(os.Getenv(agentloop.EnvDaemonSocket)); socket != "" {
+		return socket
+	}
+	if runtimeDir := strings.TrimSpace(os.Getenv(admin.EnvRuntimeDir)); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "daemon-go.sock")
+	}
 	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 	if runtimeDir == "" {
 		runtimeDir = os.TempDir()

@@ -32,12 +32,11 @@ type queryer interface {
 type handlerFn func(context.Context, db.Runner, rpc.Envelope) (map[string]any, error)
 
 // Options carries handler-construction dependencies that not all
-// mutation handlers share. Today only the artifact.publish handler
-// reads BlobClient; future handlers (e.g. corpus.migrate) may consume
-// it too. BlobClient may be nil when the daemon is started without
-// STRIATUM_BLOB_ENDPOINT.
+// mutation handlers share. BlobClient may be nil when the daemon is
+// started without STRIATUM_BLOB_ENDPOINT.
 type Options struct {
-	BlobClient *blob.Client
+	BlobClient       *blob.Client
+	DaemonSocketPath string
 }
 
 // packageBlobClient is the daemon's blob client, set by Register and
@@ -47,6 +46,7 @@ type Options struct {
 // configured; publishArtifact then skips the S3 upload step and the
 // artifact body stays in the working tree.
 var packageBlobClient *blob.Client
+var packageDaemonSocketPath string
 
 // Register wires the mutation RPC handlers onto server. Optional opts
 // inject extra dependencies; today only Options.BlobClient is
@@ -63,6 +63,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 		o = opts[0]
 	}
 	packageBlobClient = o.BlobClient
+	packageDaemonSocketPath = strings.TrimSpace(o.DaemonSocketPath)
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))
 	server.Register("session.report", makeHandler(runner, HandleSessionReport))

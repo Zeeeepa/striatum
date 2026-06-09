@@ -79,6 +79,7 @@ func supervisedRunAsPassThrough(base []string, runAsUser string) []string {
 			"STRIATUM_DAEMON_MCP_HTTP_ADDR",
 			"STRIATUM_DAEMON_MCP_HTTP_PORT",
 			"STRIATUM_DAEMON_RUNTIME_DIR",
+			"STRIATUM_DAEMON_SOCKET",
 			"TERM",
 			"COLORTERM",
 			"LANG",
@@ -199,6 +200,9 @@ func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, sup
 		"STRIATUM_REPO=" + repoRoot,
 		"STRIATUM_LANE_ID=" + laneID,
 	}
+	if socketPath := supervisedDaemonSocketPath(os.Environ()); socketPath != "" {
+		entries = append(entries, agentloop.EnvDaemonSocket+"="+socketPath)
+	}
 	// RFC 0096 V2 / #135: inject the lane's OWN session-bound capability token as
 	// STRIATUM_MCP_TOKEN. It is set as an explicit entry (winning over any
 	// inherited value via mergeEnvReplacing) and is the FIRST source
@@ -211,6 +215,34 @@ func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, sup
 		entries = append(entries, "STRIATUM_MCP_TOKEN="+boundToken)
 	}
 	return append(entries, supervisedAdapterEnvEntries(adapter)...)
+}
+
+func supervisedDaemonSocketPath(env []string) string {
+	if socket := strings.TrimSpace(packageDaemonSocketPath); socket != "" {
+		return socket
+	}
+	values := envValues(env)
+	if socket := strings.TrimSpace(values[agentloop.EnvDaemonSocket]); socket != "" {
+		return socket
+	}
+	if runtimeDir := strings.TrimSpace(values["STRIATUM_DAEMON_RUNTIME_DIR"]); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "daemon-go.sock")
+	}
+	if runtimeDir := strings.TrimSpace(values["XDG_RUNTIME_DIR"]); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "striatum", "daemon-go.sock")
+	}
+	return ""
+}
+
+func envValues(env []string) map[string]string {
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 // supervisedAdapterEnvEntries returns the per-adapter, non-secret operational

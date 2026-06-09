@@ -117,6 +117,14 @@ STRIATUM_LANE_OS_USER=striatum-lane
 reports `daemon_launch_enforced=true` with
 `daemon_launch_mechanism="sudo -n -u striatum-lane"` when the posture is adopted.
 
+On daemon startup, Striatum grants the lane user only the ACL entries needed to
+reach the daemon MCP/RPC socket: execute on the socket parent directory, execute
+on the daemon runtime directory, and read/write on `daemon-go.sock`. The daemon
+still refuses permissive runtime-directory permissions before it binds the
+socket; on POSIX ACL systems, the displayed mode may include the ACL mask bit
+after startup. This ACL is what lets the dedicated lane user call the daemon
+without making the runtime tree public.
+
 ### 6. Enable the secure-profile doctor gate
 
 After adopting the lane OS user and protected PostgreSQL socket posture, enable

@@ -2,7 +2,9 @@ package agentloop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +14,10 @@ import (
 // geminiSettingsRelPath is the work-tree-relative path of the agy MCP settings
 // file. It carries a rotating bearer token and must never enter git provenance.
 const geminiSettingsRelPath = ".gemini/settings.json"
+
+// agyUserSettingsRelPath is Antigravity CLI's user-level settings file. It is
+// used only when the sandboxed lane user cannot write the target repo root.
+const agyUserSettingsRelPath = ".gemini/antigravity-cli/settings.json"
 
 // geminiExcludeMarker tags the line we append to the work tree's local git
 // exclude so teardown can remove EXACTLY our line without disturbing any
@@ -96,35 +102,64 @@ func LaneAdapterName(arg0 string) string {
 	return base
 }
 
-// writeEphemeralGeminiSettings writes the rotating striatum MCP endpoint into a
-// project-level .gemini/settings.json (the only MCP-config surface agy reads,
-// since it has no --mcp-config flag), merging into any existing project
-// settings and restoring/removing the file on teardown. Fresh-per-launch +
-// teardown means no stale rotating port is ever persisted (RFC 0088 Decision 5).
+// writeEphemeralGeminiSettings writes the rotating striatum MCP endpoint into
+// agy's settings surface. It prefers project-level .gemini/settings.json (the
+// only per-repo MCP-config surface agy reads, since it has no --mcp-config
+// flag), merging into any existing project settings and restoring/removing the
+// file on teardown. If a sandboxed lane OS user cannot write the target repo
+// root, it falls back to that lane user's Antigravity settings file with
+// supervisor-specific backup markers so terminal supervisor cleanup can still
+// restore the original bytes. Fresh-per-launch + teardown means no stale
+// rotating port is ever persisted (RFC 0088 Decision 5).
 //
-// #70 / RFC 0096 §3 (OQ3): the bearer token lives inside the target repo work
-// tree here, which we would prefer to relocate outside the write surface. agy
-// (Antigravity) only reads <cwd>/.gemini/settings.json or ~/.gemini/ — it has
-// no out-of-repo settings-path flag or env var (D150: revisit only if its
-// config surface changes). The user-global ~/.gemini is shared across all
-// repos/lanes and unsafe to clobber per-launch, so the per-repo file remains
-// the only viable agy MCP surface in Phase 1. We therefore keep the repo path
-// but GUARANTEE removal on every teardown path: the cleanup is centralized at
-// the supervisor terminal-state transition (mutations.updateSupervisorState →
-// CleanupGeminiSettings) so graceful exit, supervise stop, and tmux kill/lost
-// all restore/remove the file. Codex and claude never persist a repo token
-// (codex reads STRIATUM_MCP_TOKEN; claude uses an ephemeral --mcp-config under
-// .striatum/scratch), so this repo-tree token is agy-only.
+// #70 / RFC 0096 §3 (OQ3): the bearer token normally lives inside the target
+// repo work tree, which we would prefer to keep outside the write surface. agy
+// (Antigravity) only reads <cwd>/.gemini/settings.json or its user-level
+// settings — it has no out-of-repo settings-path flag or env var (D150: revisit
+// only if its config surface changes). We therefore keep the repo path when it
+// is writable, and use the lane OS user's own settings path only as the
+// run-as-user fallback. Both paths GUARANTEE removal/restoration on every
+// teardown path: cleanup is centralized at the supervisor terminal-state
+// transition (mutations.updateSupervisorState / reads.updateSupervisorState →
+// CleanupGeminiSettings + CleanupAgyUserSettings) so graceful exit, supervise
+// stop, and tmux kill/lost all restore/remove the file. Codex and claude never
+// persist a repo token (codex reads STRIATUM_MCP_TOKEN; claude uses an
+// ephemeral --mcp-config under .striatum/scratch), so this settings token is
+// agy-only.
 func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), error) {
 	noop := func() {}
 	if strings.TrimSpace(repoRoot) == "" {
 		return noop, fmt.Errorf("repository root is empty")
 	}
-	dir := filepath.Join(repoRoot, ".gemini")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return noop, fmt.Errorf("create .gemini dir: %w", err)
+	projectPath := filepath.Join(repoRoot, geminiSettingsRelPath)
+	cleanup, err := writeGeminiSettingsAt(repoRoot, projectPath, endpoint, bearer, false)
+	if err == nil {
+		return cleanup, nil
 	}
-	path := filepath.Join(dir, "settings.json")
+	if !isPermissionError(err) {
+		return noop, err
+	}
+	userPath, pathErr := agyUserSettingsPath()
+	if pathErr != nil {
+		return noop, fmt.Errorf("%w; resolve agy user settings fallback: %v", err, pathErr)
+	}
+	cleanup, fallbackErr := writeGeminiSettingsAt(repoRoot, userPath, endpoint, bearer, true)
+	if fallbackErr != nil {
+		return noop, fmt.Errorf("%w; write agy user settings fallback %s: %v", err, userPath, fallbackErr)
+	}
+	return cleanup, nil
+}
+
+func isPermissionError(err error) bool {
+	return os.IsPermission(err) || errors.Is(err, fs.ErrPermission)
+}
+
+func writeGeminiSettingsAt(repoRoot, path, endpoint, bearer string, userScoped bool) (func(), error) {
+	noop := func() {}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return noop, fmt.Errorf("create gemini settings dir %s: %w", dir, err)
+	}
 	var backup []byte
 	hadExisting := false
 	if b, err := os.ReadFile(path); err == nil {
@@ -137,12 +172,15 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 		// striatum mcpServers entry is ours.
 		_ = json.Unmarshal(backup, &settings)
 	}
-	settings["mcpServers"] = map[string]any{
-		"striatum": map[string]any{
-			"httpUrl": endpoint,
-			"headers": map[string]any{"Authorization": "Bearer " + bearer},
-		},
+	servers, _ := settings["mcpServers"].(map[string]any)
+	if servers == nil {
+		servers = map[string]any{}
 	}
+	servers["striatum"] = map[string]any{
+		"httpUrl": endpoint,
+		"headers": map[string]any{"Authorization": "Bearer " + bearer},
+	}
+	settings["mcpServers"] = servers
 	// #76: a supervised agy lane must not stall on the gemini-cli usage/feedback
 	// survey ("How's the CLI experience? [1] Good ...") inside the PTY while a
 	// work packet is active. usageStatisticsEnabled:false is the documented
@@ -157,39 +195,106 @@ func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), er
 		return noop, err
 	}
 	if err := os.WriteFile(path, body, 0o600); err != nil {
-		return noop, fmt.Errorf("write .gemini/settings.json: %w", err)
+		return noop, fmt.Errorf("write gemini settings %s: %w", path, err)
 	}
-	// #70 / RFC 0096 §3: keep the bearer-bearing settings file out of git
-	// provenance for the lane's lifetime — invisible to `git status`, to
-	// work-scope baselines, and to `git add -A` — so a token can never be swept
-	// into a commit. Removed again on every teardown path below.
-	excludeGeminiSettingsFromGit(repoRoot)
 
 	supervisorID := os.Getenv("STRIATUM_SUPERVISOR_ID")
 	var scratchDir string
-	if supervisorID != "" {
-		scratchDir = filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
-		_ = os.MkdirAll(scratchDir, 0o755)
-		if hadExisting {
-			_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.backup"), backup, 0o600)
-		} else {
-			_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.created"), []byte{}, 0o600)
-		}
-	}
-
-	cleanup := func() {
-		unexcludeGeminiSettingsFromGit(repoRoot)
+	var cleanup func()
+	if userScoped {
 		if supervisorID != "" {
-			_ = os.Remove(filepath.Join(scratchDir, "settings.json.backup"))
-			_ = os.Remove(filepath.Join(scratchDir, "settings.json.created"))
+			if err := writeAgyUserSettingsMarkers(path, supervisorID, backup, hadExisting); err != nil {
+				restoreGeminiSettings(path, backup, hadExisting)
+				return noop, err
+			}
 		}
-		if hadExisting {
-			_ = os.WriteFile(path, backup, 0o600)
-			return
+		cleanup = func() {
+			cleanupAgyUserSettingsPath(path, supervisorID)
+			restoreGeminiSettings(path, backup, hadExisting)
 		}
-		_ = os.Remove(path)
+	} else {
+		// #70 / RFC 0096 §3: keep the bearer-bearing settings file out of git
+		// provenance for the lane's lifetime — invisible to `git status`, to
+		// work-scope baselines, and to `git add -A` — so a token can never be swept
+		// into a commit. Removed again on every teardown path below.
+		excludeGeminiSettingsFromGit(repoRoot)
+		if supervisorID != "" {
+			scratchDir = filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
+			_ = os.MkdirAll(scratchDir, 0o755)
+			if hadExisting {
+				_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.backup"), backup, 0o600)
+			} else {
+				_ = os.WriteFile(filepath.Join(scratchDir, "settings.json.created"), []byte{}, 0o600)
+			}
+		}
+		cleanup = func() {
+			unexcludeGeminiSettingsFromGit(repoRoot)
+			if supervisorID != "" {
+				_ = os.Remove(filepath.Join(scratchDir, "settings.json.backup"))
+				_ = os.Remove(filepath.Join(scratchDir, "settings.json.created"))
+			}
+			restoreGeminiSettings(path, backup, hadExisting)
+		}
 	}
 	return cleanup, nil
+}
+
+func agyUserSettingsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("resolve home directory: %w", err)
+	}
+	return filepath.Join(home, agyUserSettingsRelPath), nil
+}
+
+func writeAgyUserSettingsMarkers(settingsPath, supervisorID string, backup []byte, hadExisting bool) error {
+	if strings.TrimSpace(supervisorID) == "" {
+		return nil
+	}
+	if hadExisting {
+		return os.WriteFile(agyUserSettingsBackupPath(settingsPath, supervisorID), backup, 0o600)
+	}
+	return os.WriteFile(agyUserSettingsCreatedPath(settingsPath, supervisorID), []byte{}, 0o600)
+}
+
+func cleanupAgyUserSettingsPath(settingsPath, supervisorID string) {
+	if strings.TrimSpace(settingsPath) == "" || strings.TrimSpace(supervisorID) == "" {
+		return
+	}
+	_ = os.Remove(agyUserSettingsBackupPath(settingsPath, supervisorID))
+	_ = os.Remove(agyUserSettingsCreatedPath(settingsPath, supervisorID))
+}
+
+func restoreGeminiSettings(path string, backup []byte, hadExisting bool) {
+	if hadExisting {
+		_ = os.WriteFile(path, backup, 0o600)
+		return
+	}
+	_ = os.Remove(path)
+}
+
+func agyUserSettingsBackupPath(settingsPath, supervisorID string) string {
+	return settingsPath + ".striatum-" + safeGeminiMarkerID(supervisorID) + ".backup"
+}
+
+func agyUserSettingsCreatedPath(settingsPath, supervisorID string) string {
+	return settingsPath + ".striatum-" + safeGeminiMarkerID(supervisorID) + ".created"
+}
+
+func safeGeminiMarkerID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "unknown"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' || r == '.' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteRune('_')
+	}
+	return b.String()
 }
 
 // gitInfoExcludePath resolves the active info/exclude path for repoRoot,
@@ -290,6 +395,28 @@ func CleanupGeminiSettings(repoRoot, supervisorID string) {
 		_ = os.WriteFile(settingsPath, b, 0o600)
 		_ = os.Remove(backupPath)
 	} else if _, err := os.Stat(createdPath); err == nil {
+		_ = os.Remove(settingsPath)
+		_ = os.Remove(createdPath)
+	}
+}
+
+// CleanupAgyUserSettings restores/removes the user-scoped Antigravity settings
+// file used when the sandboxed lane user cannot write repo-root .gemini.
+func CleanupAgyUserSettings(homeDir, supervisorID string) {
+	homeDir = strings.TrimSpace(homeDir)
+	if homeDir == "" || strings.TrimSpace(supervisorID) == "" {
+		return
+	}
+	settingsPath := filepath.Join(homeDir, agyUserSettingsRelPath)
+	backupPath := agyUserSettingsBackupPath(settingsPath, supervisorID)
+	createdPath := agyUserSettingsCreatedPath(settingsPath, supervisorID)
+	if b, err := os.ReadFile(backupPath); err == nil {
+		_ = os.WriteFile(settingsPath, b, 0o600)
+		_ = os.Remove(backupPath)
+		_ = os.Remove(createdPath)
+		return
+	}
+	if _, err := os.Stat(createdPath); err == nil {
 		_ = os.Remove(settingsPath)
 		_ = os.Remove(createdPath)
 	}

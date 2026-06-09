@@ -179,6 +179,21 @@ func TestRunDriveNeverCallsRescueVerbs(t *testing.T) {
 	}
 }
 
+func TestRunDriveRunUsesDefaultSleep(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	fake := newFakeDrive()
+
+	err := Run(ctx, fake, Options{
+		RepositoryID: "repo_1",
+		RunID:        "run_1",
+		Interval:     time.Hour,
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context.Canceled", err)
+	}
+}
+
 type fakeDrive struct {
 	runState      string
 	jobs          []map[string]any

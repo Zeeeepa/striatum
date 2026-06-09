@@ -957,6 +957,7 @@ func TestSupervisedLaneEnvRunAsDropsDaemonIdentity(t *testing.T) {
 		"LC_ALL":                         "en_US.UTF-8",
 		"STRIATUM_SUPERVISED_PATH_DIRS":  pathDir,
 		"STRIATUM_SUPERVISED_STDERR_LOG": "/tmp/daemon-debug.log",
+		"STRIATUM_DAEMON_SOCKET":         "/run/user/1000/striatum/daemon-go.sock",
 	} {
 		t.Setenv(k, v)
 	}
@@ -986,14 +987,15 @@ func TestSupervisedLaneEnvRunAsDropsDaemonIdentity(t *testing.T) {
 		}
 	}
 	for key, want := range map[string]string{
-		"HOME":               "/var/lib/striatum-lane",
-		"USER":               "striatum-lane",
-		"LOGNAME":            "striatum-lane",
-		"STRIATUM_MCP_URL":   "http://127.0.0.1:9999/mcp",
-		"STRIATUM_MCP_TOKEN": boundToken,
-		"STRIATUM_RUN_ID":    "run_1",
-		"TERM":               "xterm-256color",
-		"LC_ALL":             "en_US.UTF-8",
+		"HOME":                   "/var/lib/striatum-lane",
+		"USER":                   "striatum-lane",
+		"LOGNAME":                "striatum-lane",
+		"STRIATUM_MCP_URL":       "http://127.0.0.1:9999/mcp",
+		"STRIATUM_MCP_TOKEN":     boundToken,
+		"STRIATUM_RUN_ID":        "run_1",
+		"STRIATUM_DAEMON_SOCKET": "/run/user/1000/striatum/daemon-go.sock",
+		"TERM":                   "xterm-256color",
+		"LC_ALL":                 "en_US.UTF-8",
 	} {
 		if got := envValue(t, env, key); got != want {
 			t.Fatalf("%s = %q, want %q in run-as env: %#v", key, got, want, env)
@@ -1003,6 +1005,70 @@ func TestSupervisedLaneEnvRunAsDropsDaemonIdentity(t *testing.T) {
 		if strings.Contains(entry, "shared-override-bearer") || strings.Contains(entry, "/home/daemon") {
 			t.Fatalf("daemon identity/secret leaked into run-as env: %q", entry)
 		}
+	}
+}
+
+func TestSupervisedLaneEnvRunAsDerivesDaemonSocketFromXDGRuntimeDir(t *testing.T) {
+	origHome := laneOSUserHome
+	t.Cleanup(func() { laneOSUserHome = origHome })
+	laneOSUserHome = func(name string) string {
+		if name == "striatum-lane" {
+			return "/var/lib/striatum-lane"
+		}
+		return ""
+	}
+	for k, v := range map[string]string{
+		"HOME":                          "/home/daemon",
+		"USER":                          "daemonuser",
+		"LOGNAME":                       "daemonuser",
+		"PATH":                          "/usr/bin",
+		"XDG_RUNTIME_DIR":               "/run/user/1000",
+		"STRIATUM_DAEMON_SOCKET":        "",
+		"STRIATUM_DAEMON_RUNTIME_DIR":   "",
+		"STRIATUM_MCP_URL":              "http://127.0.0.1:9999/mcp",
+		"STRIATUM_SUPERVISED_PATH_DIRS": t.TempDir(),
+	} {
+		t.Setenv(k, v)
+	}
+
+	env := supervisedLaneEnv(supervisionStartConfig{
+		RepositoryID:    "repo_1",
+		RunID:           "run_1",
+		SessionID:       "sess_1",
+		LaneID:          "lane_1",
+		RepoRoot:        "/repo",
+		Command:         []string{"/bin/true"},
+		OriginalCommand: []string{"codex"},
+		RunAsUser:       "striatum-lane",
+		CapabilityToken: "stok_bound.session-secret-not-real",
+	}, "sup_1")
+
+	want := "/run/user/1000/striatum/daemon-go.sock"
+	if got := envValue(t, env, "STRIATUM_DAEMON_SOCKET"); got != want {
+		t.Fatalf("STRIATUM_DAEMON_SOCKET = %q, want %q in run-as env: %#v", got, want, env)
+	}
+}
+
+func TestSupervisedLaneEnvUsesRegisteredDaemonSocketPath(t *testing.T) {
+	origSocket := packageDaemonSocketPath
+	t.Cleanup(func() { packageDaemonSocketPath = origSocket })
+	packageDaemonSocketPath = "/run/user/1000/striatum/daemon-go.sock"
+
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/9999")
+	t.Setenv("STRIATUM_DAEMON_SOCKET", "/tmp/stale.sock")
+	env := supervisedEnvEntries(
+		"codex",
+		"/repo",
+		"repo_1",
+		"run_1",
+		"sess_1",
+		"sup_1",
+		"codex",
+		"stok_bound.session-secret-not-real",
+	)
+
+	if got := envValue(t, env, "STRIATUM_DAEMON_SOCKET"); got != "/run/user/1000/striatum/daemon-go.sock" {
+		t.Fatalf("STRIATUM_DAEMON_SOCKET = %q, want registered daemon socket in env: %#v", got, env)
 	}
 }
 
@@ -2108,13 +2174,17 @@ func (tx *superviseControlFakeTx) Exec(_ context.Context, sql string, args ...an
 
 func (tx *superviseControlFakeTx) QueryRow(_ context.Context, sql string, args ...any) db.Row {
 	switch {
-	case strings.Contains(sql, "SELECT cwd, scratch_path"):
+	case strings.Contains(sql, "ps.cwd, ps.scratch_path"):
 		// Issue #62: lane-MCP teardown resolves the supervisor's working dir.
 		cwd := filepath.Dir(tx.pipePath)
 		if tx.repoRoot != "" {
 			cwd = tx.repoRoot
 		}
-		return superviseControlFakeRow{values: []any{cwd, filepath.Join(cwd, ".striatum", "scratch", "sup_1")}}
+		runAsUser := ""
+		if tx.metadata != nil {
+			runAsUser, _ = tx.metadata["run_as_user"].(string)
+		}
+		return superviseControlFakeRow{values: []any{cwd, filepath.Join(cwd, ".striatum", "scratch", "sup_1"), runAsUser}}
 	case strings.Contains(sql, "SELECT supervisor_id, run_id, state") && strings.Contains(sql, "state = ANY"):
 		// supersedeStaleSupervisorIfRequested: return stale supervisor if configured.
 		if tx.staleSupervisorID != "" {

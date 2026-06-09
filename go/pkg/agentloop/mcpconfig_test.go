@@ -247,6 +247,116 @@ func TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings(t *testing.T) {
 	}
 }
 
+func TestAgyGeminiSettingsFallsBackToLaneUserHomeWhenRepoUnwritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-denied fallback cannot be exercised as root")
+	}
+	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup/user:1")
+
+	userSettingsPath := filepath.Join(home, agyUserSettingsRelPath)
+	if err := os.MkdirAll(filepath.Dir(userSettingsPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`{"theme":"dark","mcpServers":{"operator":{"httpUrl":"http://existing.invalid/mcp"}}}`)
+	if err := os.WriteFile(userSettingsPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Chmod(repo, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(repo, 0o755) })
+
+	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:34135/mcp", "dtok_secret")
+	if err != nil {
+		t.Fatalf("write gemini settings with fallback: %v", err)
+	}
+	defer cleanup()
+
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("project settings should not be created in unwritable repo, stat err = %v", err)
+	}
+	body, err := os.ReadFile(userSettingsPath)
+	if err != nil {
+		t.Fatalf("read user settings: %v", err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("user settings json: %v", err)
+	}
+	if parsed["theme"] != "dark" {
+		t.Fatalf("fallback should preserve existing settings: %s", body)
+	}
+	servers, _ := parsed["mcpServers"].(map[string]any)
+	if _, ok := servers["operator"]; !ok {
+		t.Fatalf("fallback should preserve existing mcpServers: %s", body)
+	}
+	striatumServer, _ := servers["striatum"].(map[string]any)
+	if striatumServer["httpUrl"] != "http://127.0.0.1:34135/mcp" {
+		t.Fatalf("fallback striatum MCP server missing/wrong: %s", body)
+	}
+	backupPath := agyUserSettingsBackupPath(userSettingsPath, "sup/user:1")
+	if _, err := os.Stat(backupPath); err != nil {
+		t.Fatalf("expected user settings backup marker: %v", err)
+	}
+
+	if err := os.WriteFile(userSettingsPath, []byte("garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	CleanupAgyUserSettings(home, "sup/user:1")
+	restored, err := os.ReadFile(userSettingsPath)
+	if err != nil {
+		t.Fatalf("read restored user settings: %v", err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("CleanupAgyUserSettings should restore original user settings, got: %s", restored)
+	}
+	if _, err := os.Stat(backupPath); !os.IsNotExist(err) {
+		t.Fatalf("expected backup marker to be removed, stat err = %v", err)
+	}
+}
+
+func TestCleanupAgyUserSettingsRemovesCreatedFallback(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("permission-denied fallback cannot be exercised as root")
+	}
+	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_created")
+
+	if err := os.Chmod(repo, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(repo, 0o755) })
+
+	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:34135/mcp", "dtok_secret")
+	if err != nil {
+		t.Fatalf("write gemini settings with created fallback: %v", err)
+	}
+	defer cleanup()
+
+	userSettingsPath := filepath.Join(home, agyUserSettingsRelPath)
+	createdPath := agyUserSettingsCreatedPath(userSettingsPath, "sup_created")
+	if _, err := os.Stat(userSettingsPath); err != nil {
+		t.Fatalf("expected user settings to be created: %v", err)
+	}
+	if _, err := os.Stat(createdPath); err != nil {
+		t.Fatalf("expected created marker: %v", err)
+	}
+
+	CleanupAgyUserSettings(home, "sup_created")
+	if _, err := os.Stat(userSettingsPath); !os.IsNotExist(err) {
+		t.Fatalf("expected user settings to be removed, stat err = %v", err)
+	}
+	if _, err := os.Stat(createdPath); !os.IsNotExist(err) {
+		t.Fatalf("expected created marker to be removed, stat err = %v", err)
+	}
+}
+
 func TestInjectLaneMCPConfigCodexAppendsTomlUrlOverride(t *testing.T) {
 	repo := t.TempDir()
 	cmd, cleanup, err := injectLaneMCPConfig(

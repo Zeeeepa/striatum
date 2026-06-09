@@ -24,6 +24,7 @@ func daemonPidfilePath(socketPath string) string {
 }
 
 func reserveDaemonRuntime(socketPath string, pid int) (func(), error) {
+	clearDaemonSocketAccessFromLaneUser(socketPath)
 	if err := assertDaemonSocketDirectory(socketPath); err != nil {
 		return nil, err
 	}

@@ -55,35 +55,41 @@ func tmuxSessionAlreadyGone(err error) bool {
 // the Claude .claude/scheduled_tasks.lock (#129). Best-effort: a missing repo
 // root or absent files leave nothing to do.
 func cleanupSupervisorLaneMCPConfig(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) {
-	repoRoot := supervisorRepoRootFromDB(ctx, runner, repositoryID, supervisorID)
+	repoRoot, runAsUser := supervisorCleanupContextFromDB(ctx, runner, repositoryID, supervisorID)
 	if repoRoot == "" {
 		return
 	}
 	agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
+	if home := laneOSUserHome(runAsUser); home != "" {
+		agentloop.CleanupAgyUserSettings(home, supervisorID)
+	}
 	agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 }
 
-// supervisorRepoRootFromDB reads the supervisor's recorded working directory
-// (cwd), falling back to deriving it from the scratch path layout
-// (<repo>/.striatum/scratch/<supervisor_id>).
-func supervisorRepoRootFromDB(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) string {
-	var cwd, scratchPath string
+// supervisorCleanupContextFromDB reads the supervisor's recorded working
+// directory (cwd), falling back to deriving it from the scratch path layout
+// (<repo>/.striatum/scratch/<supervisor_id>), plus the optional run-as user used
+// for lane-user scoped cleanup.
+func supervisorCleanupContextFromDB(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID string) (string, string) {
+	var cwd, scratchPath, runAsUser string
 	if err := runner.QueryRow(ctx, `
-		SELECT cwd, scratch_path
-		  FROM striatumd.process_supervisors
-		 WHERE repository_id = $1 AND supervisor_id = $2`,
+		SELECT ps.cwd, ps.scratch_path, COALESCE(p.metadata_json->>'run_as_user', '')
+		  FROM striatumd.process_supervisors ps
+		  LEFT JOIN striatumd.process_supervisor_pointers p
+		    ON p.repository_id = ps.repository_id AND p.supervisor_id = ps.supervisor_id
+		 WHERE ps.repository_id = $1 AND ps.supervisor_id = $2`,
 		repositoryID, supervisorID,
-	).Scan(&cwd, &scratchPath); err != nil {
-		return ""
+	).Scan(&cwd, &scratchPath, &runAsUser); err != nil {
+		return "", ""
 	}
 	if strings.TrimSpace(cwd) != "" {
-		return cwd
+		return cwd, runAsUser
 	}
 	if strings.TrimSpace(scratchPath) != "" {
 		// scratch_path is <repo>/.striatum/scratch/<supervisor_id>.
-		return filepath.Dir(filepath.Dir(filepath.Dir(scratchPath)))
+		return filepath.Dir(filepath.Dir(filepath.Dir(scratchPath))), runAsUser
 	}
-	return ""
+	return "", runAsUser
 }
 
 func terminateProcess(pid int) any {

@@ -60,8 +60,8 @@ func (tx *terminalCleanupTx) QueryRow(ctx context.Context, sql string, args ...a
 	case strings.Contains(sql, "nextval"):
 		tx.nextEvent++
 		return terminalCleanupRow{eventID: tx.nextEvent}
-	case strings.Contains(sql, "SELECT cwd, scratch_path"):
-		return terminalCleanupRow{cwd: "", scratchPath: ""}
+	case strings.Contains(sql, "ps.cwd, ps.scratch_path"):
+		return terminalCleanupRow{cwd: "", scratchPath: "", runAsUser: ""}
 	default:
 		return terminalCleanupRow{err: pgx.ErrNoRows}
 	}
@@ -85,6 +85,7 @@ type terminalCleanupRow struct {
 	eventID     int64
 	cwd         string
 	scratchPath string
+	runAsUser   string
 	err         error
 }
 
@@ -92,17 +93,21 @@ func (r terminalCleanupRow) Scan(dest ...any) error {
 	if r.err != nil {
 		return r.err
 	}
+	stringIndex := 0
 	for _, target := range dest {
 		switch typed := target.(type) {
 		case *int64:
 			*typed = r.eventID
 		case *string:
-			if r.cwd != "" {
+			switch stringIndex {
+			case 0:
 				*typed = r.cwd
-				r.cwd = ""
-			} else {
+			case 1:
 				*typed = r.scratchPath
+			default:
+				*typed = r.runAsUser
 			}
+			stringIndex++
 		case **string:
 			*typed = nil
 		default:

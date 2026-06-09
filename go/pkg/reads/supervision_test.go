@@ -1164,7 +1164,7 @@ func (tx *statusTxFakeRunner) Exec(ctx context.Context, sql string, args ...any)
 }
 
 func (tx *statusTxFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
-	if strings.Contains(sql, "SELECT cwd, scratch_path") {
+	if strings.Contains(sql, "ps.cwd, ps.scratch_path") {
 		// Issue #62: terminal transition resolves the supervisor working dir to
 		// clean up the per-launch .gemini/settings.json.
 		return statusCwdFakeRow{cwd: tx.repoRoot, scratchPath: filepath.Join(tx.repoRoot, ".striatum", "scratch", "sup_1")}
@@ -1178,14 +1178,17 @@ type statusCwdFakeRow struct {
 }
 
 func (r statusCwdFakeRow) Scan(dest ...any) error {
-	if len(dest) != 2 {
-		return errors.New("statusCwdFakeRow expects 2 destinations")
+	if len(dest) != 3 {
+		return errors.New("statusCwdFakeRow expects 3 destinations")
 	}
 	if p, ok := dest[0].(*string); ok {
 		*p = r.cwd
 	}
 	if p, ok := dest[1].(*string); ok {
 		*p = r.scratchPath
+	}
+	if p, ok := dest[2].(*string); ok {
+		*p = ""
 	}
 	return nil
 }

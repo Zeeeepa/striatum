@@ -130,11 +130,11 @@ func Run(ctx context.Context, invoker Invoker, options Options) error {
 		for _, action := range actions {
 			driver.emit(action)
 		}
-		if len(actions) == 0 && options.Once && options.JSON {
+		if len(actions) == 0 && driver.options.Once && driver.options.JSON {
 			driver.emit(Action{
 				TS:     driver.timestamp(),
 				Action: "tick",
-				RunID:  options.RunID,
+				RunID:  driver.options.RunID,
 				Result: state,
 			})
 		}
@@ -147,10 +147,10 @@ func Run(ctx context.Context, invoker Invoker, options Options) error {
 			}
 			return TerminalError{RunID: options.RunID, State: state}
 		}
-		if options.Once {
+		if driver.options.Once {
 			return nil
 		}
-		if err := options.Sleep(ctx, options.Interval); err != nil {
+		if err := driver.options.Sleep(ctx, driver.options.Interval); err != nil {
 			return err
 		}
 	}
