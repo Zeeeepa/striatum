@@ -74,6 +74,14 @@ func TestCodexMCPURLOverrideArg(t *testing.T) {
 	}
 }
 
+func TestCodexMCPBearerTokenEnvOverrideArg(t *testing.T) {
+	got := CodexMCPBearerTokenEnvOverrideArg()
+	want := `mcp_servers.striatum.bearer_token_env_var="STRIATUM_MCP_TOKEN"`
+	if got != want {
+		t.Fatalf("override = %q, want %q", got, want)
+	}
+}
+
 func TestCodexProjectTrustOverrideArg(t *testing.T) {
 	got := CodexProjectTrustOverrideArg(`/tmp/striatum repo "quoted"`)
 	want := `projects."/tmp/striatum repo \"quoted\"".trust_level="trusted"`

@@ -36,6 +36,10 @@ func TestBuildCodexInvocationInjectsEndpointAndToken(t *testing.T) {
 	if !strings.Contains(plan.Args[2], "127.0.0.1:8973") {
 		t.Fatalf("override does not carry live endpoint: %q", plan.Args[2])
 	}
+	joinedArgs := strings.Join(plan.Args, "\x00")
+	if !strings.Contains(joinedArgs, agentloop.CodexMCPBearerTokenEnvOverrideArg()) {
+		t.Fatalf("args missing bearer token env override: %#v", plan.Args)
+	}
 	if plan.Args[len(plan.Args)-2] != "exec" || plan.Args[len(plan.Args)-1] != "--full-auto" {
 		t.Fatalf("passthrough args not appended: %#v", plan.Args)
 	}

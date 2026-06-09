@@ -86,6 +86,33 @@ user and has mode `0700`. A custom socket path under a shared directory such as
 `/tmp` is refused; create an owner-only directory first and point the socket
 there.
 
+## Codex MCP launch modes
+
+Codex has no Striatum-owned MCP config file. Striatum therefore supports three
+local launch modes:
+
+- **Supervised process lanes**: the agent-loop launch plan injects
+  `STRIATUM_MCP_TOKEN` plus per-launch Codex overrides for
+  `mcp_servers.striatum.url` and
+  `mcp_servers.striatum.bearer_token_env_var`. The rotating endpoint and token
+  are never persisted to the target repository.
+- **Operator direct launcher**: `striatum codex [codex args ...]` resolves the
+  live `mcp-http-endpoint` and runtime token, then execs Codex with the same
+  URL and bearer-env overrides. It prints the endpoint and token source, never
+  the token value.
+- **Plain `codex`**: supported only when `~/.codex/config.toml` already points
+  `mcp_servers.striatum.url` at the current runtime endpoint and names an
+  exported bearer env var such as `STRIATUM_MCP_TOKEN`. After daemon restart,
+  token rotation, or MCP port rotation, refresh that config/env or use
+  `striatum codex`.
+
+`striatum doctor --verbose` warns before plain Codex startup fails: stale URLs
+surface as `codex_config_stale`, missing bearer env as
+`codex_token_env_absent`, and missing `bearer_token_env_var` config as
+`codex_bearer_env_var_absent`. The warnings point at runtime files such as
+`client-token` / `mcp-http-endpoint` or the `striatum codex` launcher without
+printing token material.
+
 ## Postgres DSN (`daemon.toml`)
 
 The daemon refuses to bind a socket without a configured Postgres DSN

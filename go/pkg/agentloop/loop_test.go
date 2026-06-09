@@ -62,6 +62,9 @@ func TestPrepareLaneCommandForBootstrapUsesCodexInitialPromptArg(t *testing.T) {
 
 func TestPrepareLaneCommandForBootstrapUsesAgyInitialPromptArg(t *testing.T) {
 	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_loop_agy")
 	prompt := "bootstrap prompt\nwith multiple lines"
 	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
 		[]string{"/home/x/.local/bin/agy", "--dangerously-skip-permissions"},
@@ -91,8 +94,11 @@ func TestPrepareLaneCommandForBootstrapUsesAgyInitialPromptArg(t *testing.T) {
 	if strings.Contains(joined, "--mcp-config") || strings.Contains(joined, "--strict-mcp-config") {
 		t.Fatalf("agy command must not carry claude-shaped MCP flags: %#v", cmd)
 	}
-	if _, err := os.Stat(repo + "/.gemini/settings.json"); err != nil {
-		t.Fatalf("agy MCP config should be written to .gemini/settings.json: %v", err)
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("agy MCP config must not be written to target .gemini/settings.json, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, agyUserSettingsRelPath)); err != nil {
+		t.Fatalf("agy MCP config should be written to user-scoped settings: %v", err)
 	}
 }
 

@@ -78,7 +78,7 @@ func TestCodexStriatumURLAbsent(t *testing.T) {
 
 func TestCodexDoctorWarnsOnStaleEndpoint(t *testing.T) {
 	home := writeCodexConfig(t, "[mcp_servers.striatum]\nurl = \"http://127.0.0.1:1111/mcp/sse\"\n")
-	setCodexDoctorEnv(t, home, "http://127.0.0.1:2222/mcp/sse", "bearer")
+	setCodexDoctorEnv(t, home, "http://127.0.0.1:2222/mcp/sse", "SENSITIVE-VALUE")
 
 	block, warnings := codexDoctorBlock()
 	if block["stale"] != true {
@@ -88,7 +88,7 @@ func TestCodexDoctorWarnsOnStaleEndpoint(t *testing.T) {
 	if !strings.Contains(joined, "codex_config_stale") {
 		t.Fatalf("expected stale warning, got: %v", warnings)
 	}
-	if strings.Contains(joined, "bearer") {
+	if strings.Contains(joined, "SENSITIVE-VALUE") {
 		t.Fatalf("token value leaked into warnings: %v", warnings)
 	}
 }
@@ -132,6 +132,31 @@ func TestCodexDoctorWarnsOnAbsentToken(t *testing.T) {
 	}
 }
 
+func TestCodexDoctorWarnsWhenEnvMissingEvenIfRuntimeTokenExists(t *testing.T) {
+	home := writeCodexConfig(t, "[mcp_servers.striatum]\nurl = \"http://127.0.0.1:3333/mcp/sse\"\nbearer_token_env_var = \"STRIATUM_MCP_TOKEN\"\n")
+	setCodexDoctorEnv(t, home, "http://127.0.0.1:3333/mcp/sse", "")
+	tokenFile := filepath.Join(t.TempDir(), "client-token")
+	if err := os.WriteFile(tokenFile, []byte("SENSITIVE-VALUE"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtimeClientTokenPath = func() (string, error) { return tokenFile, nil }
+
+	block, warnings := codexDoctorBlock()
+	if block["token_env_present"] != false {
+		t.Fatalf("expected token_env_present=false, block=%#v", block)
+	}
+	if block["runtime_token_present"] != true {
+		t.Fatalf("expected runtime_token_present=true, block=%#v", block)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "codex_token_env_absent") {
+		t.Fatalf("expected env-absent warning, got: %v", warnings)
+	}
+	if strings.Contains(joined, "SENSITIVE-VALUE") {
+		t.Fatalf("token value leaked into warnings: %v", warnings)
+	}
+}
+
 func TestCodexDoctorSilentWhenNoCodexConfig(t *testing.T) {
 	home := t.TempDir() // no ~/.codex/config.toml
 	setCodexDoctorEnv(t, home, "http://127.0.0.1:3333/mcp/sse", "bearer")
@@ -157,8 +182,11 @@ func TestCodexDoctorNeverReadsTokenValue(t *testing.T) {
 	runtimeClientTokenPath = func() (string, error) { return tokenFile, nil }
 
 	block, warnings := codexDoctorBlock()
-	if block["token_present"] != true {
-		t.Fatalf("expected token_present=true with token file, block=%#v", block)
+	if block["token_present"] != false || block["token_env_present"] != false {
+		t.Fatalf("expected direct codex token env to be absent, block=%#v", block)
+	}
+	if block["runtime_token_present"] != true {
+		t.Fatalf("expected runtime_token_present=true with token file, block=%#v", block)
 	}
 	for k, v := range block {
 		if s, ok := v.(string); ok && strings.Contains(s, "SENSITIVE-VALUE") {

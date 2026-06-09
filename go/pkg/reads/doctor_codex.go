@@ -49,8 +49,11 @@ func codexDoctorBlock() (map[string]any, []string) {
 	}
 	block["config_present"] = true
 
-	configURL, hasStriatumServer := codexStriatumURL(string(body))
+	configURL, bearerEnvVar, hasStriatumServer := codexStriatumConfig(string(body))
 	block["references_striatum"] = hasStriatumServer
+	if bearerEnvVar != "" {
+		block["bearer_token_env_var"] = bearerEnvVar
+	}
 
 	// Resolve the live endpoint the same way the daemon advertises it (env →
 	// endpoint file → runtime dir). If we cannot resolve it here we cannot judge
@@ -73,17 +76,37 @@ func codexDoctorBlock() (map[string]any, []string) {
 		}
 	}
 
-	// Bearer presence: codex reads STRIATUM_MCP_TOKEN from its env. Warn (without
-	// reading the value) when neither the env var nor a runtime client-token file
-	// is available, so codex would start with no bearer for the striatum server.
-	tokenPresent, tokenSource := codexTokenPresence()
-	block["token_present"] = tokenPresent
-	if tokenSource != "" {
-		block["token_source"] = tokenSource
+	// Direct Codex reads a bearer from the env var named by config.toml. The
+	// daemon runtime client-token file proves Striatum has token material, but
+	// direct `codex` cannot consume that file unless the operator exports it (or
+	// uses `striatum codex`, which injects STRIATUM_MCP_TOKEN for the child).
+	tokenEnvVar := bearerEnvVar
+	if tokenEnvVar == "" {
+		tokenEnvVar = agentloop.EnvMCPToken
 	}
-	if hasStriatumServer && !tokenPresent {
-		warnings = append(warnings, "codex_token_absent: no STRIATUM_MCP_TOKEN in the environment and no runtime client-token file found; "+
-			"codex will reach the striatum MCP server without a bearer. Launch via `striatum codex` to inject it.")
+	tokenEnvPresent := strings.TrimSpace(os.Getenv(tokenEnvVar)) != ""
+	runtimeTokenPresent, runtimeTokenSource := codexRuntimeTokenPresence()
+	block["token_present"] = tokenEnvPresent
+	block["token_env_present"] = tokenEnvPresent
+	block["runtime_token_present"] = runtimeTokenPresent
+	if tokenEnvPresent {
+		block["token_source"] = tokenEnvVar
+	}
+	if runtimeTokenSource != "" {
+		block["runtime_token_source"] = runtimeTokenSource
+	}
+	if hasStriatumServer && bearerEnvVar == "" {
+		warnings = append(warnings, "codex_bearer_env_var_absent: ~/.codex/config.toml mcp_servers.striatum does not set bearer_token_env_var; "+
+			"launch via `striatum codex` to inject the live bearer env-var setting.")
+	}
+	if hasStriatumServer && !tokenEnvPresent {
+		if runtimeTokenPresent {
+			warnings = append(warnings, "codex_token_env_absent: "+tokenEnvVar+" is not set in the environment; runtime client-token exists at "+runtimeTokenSource+
+				". Launch via `striatum codex` to inject it without printing token material.")
+		} else {
+			warnings = append(warnings, "codex_token_absent: no "+tokenEnvVar+" in the environment and no runtime client-token file found; "+
+				"codex will reach the striatum MCP server without a bearer. Launch via `striatum codex` to inject it.")
+		}
 	}
 
 	return block, warnings
@@ -95,8 +118,14 @@ func codexDoctorBlock() (map[string]any, []string) {
 // (`[mcp_servers.striatum]` ... `url = "..."`). It returns the URL (may be empty)
 // and whether a striatum MCP server is referenced at all.
 func codexStriatumURL(body string) (string, bool) {
+	url, _, referenced := codexStriatumConfig(body)
+	return url, referenced
+}
+
+func codexStriatumConfig(body string) (string, string, bool) {
 	referenced := false
 	url := ""
+	bearerEnvVar := ""
 	inStriatumSection := false
 	for _, raw := range strings.Split(body, "\n") {
 		line := strings.TrimSpace(stripTOMLComment(raw))
@@ -127,6 +156,11 @@ func codexStriatumURL(body string) (string, bool) {
 			url = trimTOMLString(value)
 			continue
 		}
+		if key == "mcp_servers.striatum.bearer_token_env_var" || key == `mcp_servers."striatum".bearer_token_env_var` {
+			referenced = true
+			bearerEnvVar = trimTOMLString(value)
+			continue
+		}
 		if strings.HasPrefix(key, "mcp_servers.striatum") {
 			referenced = true
 		}
@@ -134,8 +168,11 @@ func codexStriatumURL(body string) (string, bool) {
 		if inStriatumSection && key == "url" {
 			url = trimTOMLString(value)
 		}
+		if inStriatumSection && key == "bearer_token_env_var" {
+			bearerEnvVar = trimTOMLString(value)
+		}
 	}
-	return url, referenced
+	return url, bearerEnvVar, referenced
 }
 
 // codexEndpointMatches compares a config URL against the live endpoint, ignoring
@@ -174,19 +211,7 @@ func codexAuthority(raw string) string {
 	return scheme + "://" + rest
 }
 
-// codexTokenPresence reports whether codex would find a bearer, WITHOUT reading
-// or returning the token value: it checks the STRIATUM_MCP_TOKEN env var, then
-// STRIATUM_MCP_TOKEN_FILE, then the runtime client-token file path. Only
-// presence and the source location (a path or env name) are returned.
-func codexTokenPresence() (bool, string) {
-	if strings.TrimSpace(os.Getenv(agentloop.EnvMCPToken)) != "" {
-		return true, agentloop.EnvMCPToken
-	}
-	if path := strings.TrimSpace(os.Getenv(agentloop.EnvMCPTokenFile)); path != "" {
-		if fileNonEmpty(path) {
-			return true, path
-		}
-	}
+func codexRuntimeTokenPresence() (bool, string) {
 	if path, err := runtimeClientTokenPath(); err == nil && fileNonEmpty(path) {
 		return true, path
 	}

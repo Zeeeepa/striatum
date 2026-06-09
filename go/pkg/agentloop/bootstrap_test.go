@@ -102,6 +102,33 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 	}
 }
 
+func TestBuildBootstrapPromptShowsToolsCallProtocolShape(t *testing.T) {
+	prompt := BuildBootstrapPrompt(BootstrapContext{
+		RepoRoot:     "/repo",
+		RepositoryID: "repo_1",
+		RunID:        "run_1",
+		SessionID:    "sess_1",
+		Endpoint:     "http://127.0.0.1:1234/mcp/sse",
+		Token:        TokenMaterial{Source: "/runtime/client-token"},
+	})
+
+	for _, want := range []string{
+		`"method":"tools/list"`,
+		`"repository_id":"repo_1"`,
+		`"session_id":"sess_1"`,
+		`"method":"tools/call"`,
+		`"name":"work.await_packet"`,
+		`"arguments":{"session_id":"sess_1","lease_seconds":1800}`,
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("bootstrap prompt missing MCP protocol shape %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "then call work.await_packet with") {
+		t.Fatalf("bootstrap prompt implies direct MCP daemon-method calls:\n%s", prompt)
+	}
+}
+
 func assertEnvValue(t *testing.T, env []string, key string, want string) {
 	t.Helper()
 	got, ok := envLookup(env, key)

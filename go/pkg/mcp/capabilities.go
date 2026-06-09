@@ -15,6 +15,8 @@ type Tool struct {
 	RepositoryScopeMode string         `json:"repository_scope_mode"`
 }
 
+const discoveryRepositoryID = "__striatum_mcp_tools_list_discovery__"
+
 func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, repositoryID string) []Tool {
 	tools := []Tool{}
 	for _, entry := range visibleMethodEntries() {
@@ -24,9 +26,12 @@ func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, 
 		scopeRepo := ""
 		if entry.RepositoryScopeMode == rpc.ScopeSingleRepo {
 			scopeRepo = repositoryID
+			if scopeRepo == "" {
+				scopeRepo = discoveryRepositoryID
+			}
 		}
 		auth := authorizer.Authorize(entry.RequiredCapability, scopeRepo, token)
-		if auth.Decision != "allowed" {
+		if auth.Decision != "allowed" && !isRepositoryDiscoveryAllowed(entry, repositoryID, auth) {
 			continue
 		}
 		tools = append(tools, Tool{
@@ -38,6 +43,12 @@ func VisibleTools(ctx context.Context, authorizer rpc.Authorizer, token string, 
 		})
 	}
 	return tools
+}
+
+func isRepositoryDiscoveryAllowed(entry rpc.MethodEntry, requestedRepositoryID string, auth rpc.AuthContext) bool {
+	return requestedRepositoryID == "" &&
+		entry.RepositoryScopeMode == rpc.ScopeSingleRepo &&
+		auth.DenialReason == "capability_scope_mismatch"
 }
 
 func visibleMethodEntries() []rpc.MethodEntry {

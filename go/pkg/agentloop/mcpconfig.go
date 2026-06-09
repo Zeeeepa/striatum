@@ -2,21 +2,20 @@ package agentloop
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
-// geminiSettingsRelPath is the work-tree-relative path of the agy MCP settings
-// file. It carries a rotating bearer token and must never enter git provenance.
+// geminiSettingsRelPath is the legacy work-tree-relative agy MCP settings path.
+// New launches avoid this path; cleanup keeps supporting it for crash leftovers
+// from older supervisors.
 const geminiSettingsRelPath = ".gemini/settings.json"
 
 // agyUserSettingsRelPath is Antigravity CLI's user-level settings file. It is
-// used only when the sandboxed lane user cannot write the target repo root.
+// where supervised agy lanes receive their ephemeral Striatum MCP server config.
 const agyUserSettingsRelPath = ".gemini/antigravity-cli/settings.json"
 
 // geminiExcludeMarker tags the line we append to the work tree's local git
@@ -35,7 +34,7 @@ const geminiExcludeMarker = " # striatum-agy-lane (RFC 0096 #70): ephemeral MCP 
 // loads ONLY the striatum server and ignores any stale global ~/.claude.json
 // entry. P2 extends the same shape to agy (claude-shaped CLI: supports
 // `--mcp-config <configs...>` and `agy plugin import claude`). P3 wires codex
-// via a TOML override flag (codex has no --mcp-config; it overrides ~/.codex/
+// via TOML override flags (codex has no --mcp-config; it overrides ~/.codex/
 // config.toml per-key with `-c key=value`); the bearer is read by codex from
 // the STRIATUM_MCP_TOKEN env var supervisedEnv already provides.
 func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token TokenMaterial) ([]string, func(), error) {
@@ -69,16 +68,16 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		return command, cleanup, nil
 	case "codex":
 		// Codex stores the striatum MCP server in ~/.codex/config.toml; the
-		// bearer is read from the STRIATUM_MCP_TOKEN env var (supervisedEnv
-		// provides it). Only the rotating URL needs overriding at launch —
-		// `-c mcp_servers.striatum.url="<endpoint>"` overrides config.toml
-		// without persisting (Decision 5: never persist the rotating port).
+		// bearer is read from STRIATUM_MCP_TOKEN (supervisedEnv provides it).
+		// Override both the rotating URL and the bearer env-var key at launch so
+		// stale or incomplete ~/.codex/config.toml cannot break MCP startup.
 		// Best-effort project trust is also per-launch: installed-CLI conformance
 		// runs create fresh temp repos. Current Codex builds can still render the
 		// workspace-trust TUI despite this override, so the PTY responder remains
 		// the launch backstop.
 		out := append([]string(nil), command...)
 		out = append(out, "-c", fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint))
+		out = append(out, "-c", codexMCPBearerTokenEnvOverrideArg())
 		out = append(out, "-c", codexProjectTrustOverrideArg(repoRoot))
 		return out, noop, nil
 	default:
@@ -88,6 +87,10 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 
 func codexProjectTrustOverrideArg(repoRoot string) string {
 	return fmt.Sprintf("projects.%q.trust_level=%q", repoRoot, "trusted")
+}
+
+func codexMCPBearerTokenEnvOverrideArg() string {
+	return fmt.Sprintf(`mcp_servers.striatum.bearer_token_env_var=%q`, EnvMCPToken)
 }
 
 // LaneAdapterName maps a (possibly absolute) lane argv0 to its bare adapter
@@ -103,55 +106,35 @@ func LaneAdapterName(arg0 string) string {
 }
 
 // writeEphemeralGeminiSettings writes the rotating striatum MCP endpoint into
-// agy's settings surface. It prefers project-level .gemini/settings.json (the
-// only per-repo MCP-config surface agy reads, since it has no --mcp-config
-// flag), merging into any existing project settings and restoring/removing the
-// file on teardown. If a sandboxed lane OS user cannot write the target repo
-// root, it falls back to that lane user's Antigravity settings file with
-// supervisor-specific backup markers so terminal supervisor cleanup can still
-// restore the original bytes. Fresh-per-launch + teardown means no stale
-// rotating port is ever persisted (RFC 0088 Decision 5).
+// agy's user-level settings surface, merging into any existing lane-user
+// Antigravity settings and restoring/removing the file on teardown. Fresh per
+// launch plus supervisor-specific backup markers means no stale rotating port is
+// persisted (RFC 0088 Decision 5), and the target repository root never receives
+// generated .gemini control-plane config (#230).
 //
-// #70 / RFC 0096 §3 (OQ3): the bearer token normally lives inside the target
-// repo work tree, which we would prefer to keep outside the write surface. agy
-// (Antigravity) only reads <cwd>/.gemini/settings.json or its user-level
-// settings — it has no out-of-repo settings-path flag or env var (D150: revisit
-// only if its config surface changes). We therefore keep the repo path when it
-// is writable, and use the lane OS user's own settings path only as the
-// run-as-user fallback. Both paths GUARANTEE removal/restoration on every
-// teardown path: cleanup is centralized at the supervisor terminal-state
-// transition (mutations.updateSupervisorState / reads.updateSupervisorState →
-// CleanupGeminiSettings + CleanupAgyUserSettings) so graceful exit, supervise
-// stop, and tmux kill/lost all restore/remove the file. Codex and claude never
-// persist a repo token (codex reads STRIATUM_MCP_TOKEN; claude uses an
-// ephemeral --mcp-config under .striatum/scratch), so this settings token is
-// agy-only.
+// agy (Antigravity) has no --mcp-config flag or env-var config pointer; it
+// reads <cwd>/.gemini/settings.json or its user-level settings. The project
+// path caused repo-root permission traps when the lane ran as striatum-lane, so
+// new launches use the lane user's HOME-scoped settings instead. Cleanup is
+// centralized at the supervisor terminal-state transition
+// (CleanupAgyUserSettings; CleanupGeminiSettings remains as legacy cleanup).
+// Codex and claude never persist a repo token (codex reads STRIATUM_MCP_TOKEN;
+// claude uses an ephemeral --mcp-config under .striatum/scratch), so this
+// settings token is agy-only.
 func writeEphemeralGeminiSettings(repoRoot, endpoint, bearer string) (func(), error) {
 	noop := func() {}
 	if strings.TrimSpace(repoRoot) == "" {
 		return noop, fmt.Errorf("repository root is empty")
 	}
-	projectPath := filepath.Join(repoRoot, geminiSettingsRelPath)
-	cleanup, err := writeGeminiSettingsAt(repoRoot, projectPath, endpoint, bearer, false)
-	if err == nil {
-		return cleanup, nil
-	}
-	if !isPermissionError(err) {
-		return noop, err
-	}
 	userPath, pathErr := agyUserSettingsPath()
 	if pathErr != nil {
-		return noop, fmt.Errorf("%w; resolve agy user settings fallback: %v", err, pathErr)
+		return noop, fmt.Errorf("resolve agy user settings: %w", pathErr)
 	}
-	cleanup, fallbackErr := writeGeminiSettingsAt(repoRoot, userPath, endpoint, bearer, true)
-	if fallbackErr != nil {
-		return noop, fmt.Errorf("%w; write agy user settings fallback %s: %v", err, userPath, fallbackErr)
+	cleanup, err := writeGeminiSettingsAt(repoRoot, userPath, endpoint, bearer, true)
+	if err != nil {
+		return noop, fmt.Errorf("write agy user settings %s: %w", userPath, err)
 	}
 	return cleanup, nil
-}
-
-func isPermissionError(err error) bool {
-	return os.IsPermission(err) || errors.Is(err, fs.ErrPermission)
 }
 
 func writeGeminiSettingsAt(repoRoot, path, endpoint, bearer string, userScoped bool) (func(), error) {

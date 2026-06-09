@@ -65,6 +65,15 @@ func CodexMCPURLOverrideArg(endpoint string) string {
 	return fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint)
 }
 
+// CodexMCPBearerTokenEnvOverrideArg returns the exact "-c
+// mcp_servers.striatum.bearer_token_env_var=..." override argument the
+// agent-loop injects into a codex lane command so Codex reads the supervised
+// lane bearer from STRIATUM_MCP_TOKEN even when ~/.codex/config.toml is stale or
+// incomplete.
+func CodexMCPBearerTokenEnvOverrideArg() string {
+	return codexMCPBearerTokenEnvOverrideArg()
+}
+
 // CodexProjectTrustOverrideArg returns the per-launch "-c projects.<repo>.trust_level"
 // override injected into codex lane commands. It is best-effort; current Codex
 // builds may still render the workspace-trust TUI, where the PTY responder is

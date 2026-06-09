@@ -37,14 +37,14 @@ func gitStatusPorcelain(t *testing.T, dir string) string {
 	return string(out)
 }
 
-// TestAgyGeminiSettingsNeverEntersGitProvenance is the #70 / RFC 0096 §3
-// worktree-no-credential fixture: while an agy lane is live, the bearer-bearing
-// .gemini/settings.json must NOT appear in `git status` (so it cannot dirty a
-// write-scope baseline or be swept into a commit), and teardown must remove both
-// the file and the local git exclusion we added.
+// TestAgyGeminiSettingsNeverEntersGitProvenance is the #230 worktree-no-config
+// fixture: while an agy lane is live, generated MCP settings must live in the
+// lane user's Antigravity settings file, not in target-repo .gemini/.
 func TestAgyGeminiSettingsNeverEntersGitProvenance(t *testing.T) {
 	repo := t.TempDir()
+	home := t.TempDir()
 	gitInit(t, repo)
+	t.Setenv("HOME", home)
 	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_prov")
 
 	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:9/mcp", "dtok_bearer_not_real")
@@ -52,38 +52,30 @@ func TestAgyGeminiSettingsNeverEntersGitProvenance(t *testing.T) {
 		t.Fatalf("write gemini settings: %v", err)
 	}
 
-	// The file exists on disk (agy can read it)...
-	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); err != nil {
-		t.Fatalf(".gemini/settings.json should exist while the lane is live: %v", err)
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("project .gemini/settings.json must not be created, stat err = %v", err)
 	}
-	// ...but it is invisible to git: no status line mentions it.
 	if status := gitStatusPorcelain(t, repo); strings.Contains(status, ".gemini/settings.json") {
-		t.Fatalf("bearer-bearing .gemini/settings.json appeared in git status:\n%s", status)
+		t.Fatalf("generated settings appeared in git status:\n%s", status)
 	}
-	// The exclusion was recorded with our marker.
-	excludePath := gitInfoExcludePath(repo)
-	if excludePath == "" {
-		t.Fatalf("could not resolve info/exclude for the test repo")
-	}
-	if b, _ := os.ReadFile(excludePath); !strings.Contains(string(b), geminiExcludeMarker) {
-		t.Fatalf("our marker line was not added to info/exclude:\n%s", b)
+	userSettingsPath := filepath.Join(home, agyUserSettingsRelPath)
+	if _, err := os.Stat(userSettingsPath); err != nil {
+		t.Fatalf("user-scoped agy settings should exist while lane is live: %v", err)
 	}
 
-	// Teardown removes the file AND our exclusion line.
 	cleanup()
-	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
-		t.Fatalf("settings file not removed on teardown: %v", err)
-	}
-	if b, _ := os.ReadFile(excludePath); strings.Contains(string(b), geminiExcludeMarker) {
-		t.Fatalf("our exclude marker line was not removed on teardown:\n%s", b)
+	if _, err := os.Stat(userSettingsPath); !os.IsNotExist(err) {
+		t.Fatalf("created user settings should be removed on teardown, stat err = %v", err)
 	}
 }
 
-// TestAgyGeminiSettingsExcludePreservesOperatorExcludes proves teardown removes
-// ONLY our marker line, never an operator-authored exclude.
+// TestAgyGeminiSettingsExcludePreservesOperatorExcludes proves agy config
+// isolation no longer edits the target repo's local git exclude.
 func TestAgyGeminiSettingsExcludePreservesOperatorExcludes(t *testing.T) {
 	repo := t.TempDir()
+	home := t.TempDir()
 	gitInit(t, repo)
+	t.Setenv("HOME", home)
 	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_prov2")
 
 	excludePath := gitInfoExcludePath(repo)
@@ -105,7 +97,7 @@ func TestAgyGeminiSettingsExcludePreservesOperatorExcludes(t *testing.T) {
 		}
 	}
 	if strings.Contains(got, geminiExcludeMarker) {
-		t.Fatalf("our marker line survived teardown:\n%s", got)
+		t.Fatalf("agy settings isolation should not add target git exclude marker:\n%s", got)
 	}
 }
 
@@ -162,6 +154,9 @@ func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 
 func TestInjectLaneMCPConfigAgyWritesEphemeralGeminiSettings(t *testing.T) {
 	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_inject_agy")
 	cmd, cleanup, err := injectLaneMCPConfig(
 		[]string{"/home/x/.local/bin/agy", "--dangerously-skip-permissions"},
 		repo, "http://127.0.0.1:34135/mcp", TokenMaterial{Token: "dtok_secret"},
@@ -181,11 +176,14 @@ func TestInjectLaneMCPConfigAgyWritesEphemeralGeminiSettings(t *testing.T) {
 		}
 	}
 
-	// MCP config is written to project-level .gemini/settings.json (gemini schema).
-	settingsPath := filepath.Join(repo, ".gemini", "settings.json")
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("agy MCP config must not be written to target-repo .gemini, stat err = %v", err)
+	}
+	// MCP config is written to user-level Antigravity settings (gemini schema).
+	settingsPath := filepath.Join(home, agyUserSettingsRelPath)
 	info, err := os.Stat(settingsPath)
 	if err != nil {
-		t.Fatalf("stat .gemini/settings.json: %v", err)
+		t.Fatalf("stat user agy settings: %v", err)
 	}
 	if info.Mode()&0o077 != 0 {
 		t.Fatalf("settings not 0600: %v", info.Mode())
@@ -205,20 +203,54 @@ func TestInjectLaneMCPConfigAgyWritesEphemeralGeminiSettings(t *testing.T) {
 		t.Fatalf("gemini settings content wrong: %s", body)
 	}
 
-	// Teardown removes the file we created (no pre-existing settings here).
+	// Teardown removes the user settings file we created (no pre-existing settings here).
 	cleanup()
 	if _, err := os.Stat(settingsPath); !os.IsNotExist(err) {
-		t.Fatalf("ephemeral .gemini/settings.json not removed on teardown")
+		t.Fatalf("ephemeral agy user settings not removed on teardown")
+	}
+}
+
+func TestAgyGeminiSettingsUsesUserSettingsByDefault(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_isolated")
+
+	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:34135/mcp", "dtok_secret")
+	if err != nil {
+		t.Fatalf("write gemini settings: %v", err)
+	}
+
+	projectPath := filepath.Join(repo, ".gemini", "settings.json")
+	if _, err := os.Stat(projectPath); !os.IsNotExist(err) {
+		t.Fatalf("project .gemini/settings.json must not be created, stat err = %v", err)
+	}
+	userSettingsPath := filepath.Join(home, agyUserSettingsRelPath)
+	body, err := os.ReadFile(userSettingsPath)
+	if err != nil {
+		t.Fatalf("read user-scoped agy settings: %v", err)
+	}
+	if !strings.Contains(string(body), `"usageStatisticsEnabled":false`) ||
+		!strings.Contains(string(body), `"httpUrl":"http://127.0.0.1:34135/mcp"`) {
+		t.Fatalf("user settings missing striatum MCP/survey suppression: %s", body)
+	}
+
+	cleanup()
+	if _, err := os.Stat(userSettingsPath); !os.IsNotExist(err) {
+		t.Fatalf("created user settings should be removed on cleanup, stat err = %v", err)
 	}
 }
 
 func TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings(t *testing.T) {
 	repo := t.TempDir()
-	dir := filepath.Join(repo, ".gemini")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_preserve_agy")
+	dir := filepath.Join(home, filepath.Dir(agyUserSettingsRelPath))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	settingsPath := filepath.Join(dir, "settings.json")
+	settingsPath := filepath.Join(home, agyUserSettingsRelPath)
 	original := []byte(`{"security":{"auth":{"selectedType":"oauth-personal"}}}`)
 	if err := os.WriteFile(settingsPath, original, 0o600); err != nil {
 		t.Fatal(err)
@@ -245,12 +277,12 @@ func TestInjectLaneMCPConfigAgyPreservesExistingGeminiSettings(t *testing.T) {
 	if string(restored) != string(original) {
 		t.Fatalf("teardown should restore original settings, got: %s", restored)
 	}
+	if _, err := os.Stat(filepath.Join(repo, ".gemini", "settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("project .gemini/settings.json must not be created, stat err = %v", err)
+	}
 }
 
-func TestAgyGeminiSettingsFallsBackToLaneUserHomeWhenRepoUnwritable(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission-denied fallback cannot be exercised as root")
-	}
+func TestAgyGeminiSettingsUsesLaneUserHomeWhenRepoUnwritable(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -272,7 +304,7 @@ func TestAgyGeminiSettingsFallsBackToLaneUserHomeWhenRepoUnwritable(t *testing.T
 
 	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:34135/mcp", "dtok_secret")
 	if err != nil {
-		t.Fatalf("write gemini settings with fallback: %v", err)
+		t.Fatalf("write gemini settings: %v", err)
 	}
 	defer cleanup()
 
@@ -319,10 +351,7 @@ func TestAgyGeminiSettingsFallsBackToLaneUserHomeWhenRepoUnwritable(t *testing.T
 	}
 }
 
-func TestCleanupAgyUserSettingsRemovesCreatedFallback(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("permission-denied fallback cannot be exercised as root")
-	}
+func TestCleanupAgyUserSettingsRemovesCreatedSettings(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -335,7 +364,7 @@ func TestCleanupAgyUserSettingsRemovesCreatedFallback(t *testing.T) {
 
 	cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1:34135/mcp", "dtok_secret")
 	if err != nil {
-		t.Fatalf("write gemini settings with created fallback: %v", err)
+		t.Fatalf("write gemini settings: %v", err)
 	}
 	defer cleanup()
 
@@ -370,10 +399,27 @@ func TestInjectLaneMCPConfigCodexAppendsTomlUrlOverride(t *testing.T) {
 	want := []string{
 		"/home/x/.local/bin/codex",
 		"-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`,
+		"-c", `mcp_servers.striatum.bearer_token_env_var="STRIATUM_MCP_TOKEN"`,
 		"-c", CodexProjectTrustOverrideArg(repo),
 	}
 	if strings.Join(cmd, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("codex injection = %#v, want %#v", cmd, want)
+	}
+}
+
+func TestInjectLaneMCPConfigCodexAppendsBearerEnvOverride(t *testing.T) {
+	repo := t.TempDir()
+	cmd, cleanup, err := injectLaneMCPConfig(
+		[]string{"codex"},
+		repo, "http://127.0.0.1:42727/mcp", TokenMaterial{Token: "dtok_secret"},
+	)
+	if err != nil {
+		t.Fatalf("inject codex: %v", err)
+	}
+	defer cleanup()
+	joined := strings.Join(cmd, "\x00")
+	if !strings.Contains(joined, `mcp_servers.striatum.bearer_token_env_var="STRIATUM_MCP_TOKEN"`) {
+		t.Fatalf("codex injection missing bearer token env override: %#v", cmd)
 	}
 }
 
@@ -393,7 +439,7 @@ func TestInjectLaneMCPConfigPassthrough(t *testing.T) {
 }
 
 func TestCleanupGeminiSettings(t *testing.T) {
-	t.Run("creates backup when settings exist", func(t *testing.T) {
+	t.Run("restores backup when legacy project settings exist", func(t *testing.T) {
 		repo := t.TempDir()
 		dir := filepath.Join(repo, ".gemini")
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -405,16 +451,12 @@ func TestCleanupGeminiSettings(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		t.Setenv("STRIATUM_SUPERVISOR_ID", "sup1")
-		cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1/mcp", "tok")
-		if err != nil {
+		backupPath := filepath.Join(repo, ".striatum", "scratch", "sup1", "settings.json.backup")
+		if err := os.MkdirAll(filepath.Dir(backupPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-
-		// Verify backup file exists
-		backupPath := filepath.Join(repo, ".striatum", "scratch", "sup1", "settings.json.backup")
-		if _, err := os.Stat(backupPath); err != nil {
-			t.Fatalf("expected backup to exist: %v", err)
+		if err := os.WriteFile(backupPath, original, 0o600); err != nil {
+			t.Fatal(err)
 		}
 
 		// Modify settings to simulate crash/no cleanup called
@@ -438,23 +480,25 @@ func TestCleanupGeminiSettings(t *testing.T) {
 		}
 
 		// Running cleanup after is safe and noop
-		cleanup()
+		CleanupGeminiSettings(repo, "sup1")
 	})
 
-	t.Run("creates marker when settings do not exist", func(t *testing.T) {
+	t.Run("removes settings when legacy created marker exists", func(t *testing.T) {
 		repo := t.TempDir()
 		settingsPath := filepath.Join(repo, ".gemini", "settings.json")
 
-		t.Setenv("STRIATUM_SUPERVISOR_ID", "sup2")
-		cleanup, err := writeEphemeralGeminiSettings(repo, "http://127.0.0.1/mcp", "tok")
-		if err != nil {
+		createdPath := filepath.Join(repo, ".striatum", "scratch", "sup2", "settings.json.created")
+		if err := os.MkdirAll(filepath.Dir(createdPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-
-		// Verify marker file exists
-		createdPath := filepath.Join(repo, ".striatum", "scratch", "sup2", "settings.json.created")
-		if _, err := os.Stat(createdPath); err != nil {
-			t.Fatalf("expected created marker to exist: %v", err)
+		if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(settingsPath, []byte(`{"created":true}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(createdPath, []byte{}, 0o600); err != nil {
+			t.Fatal(err)
 		}
 
 		// Call CleanupGeminiSettings directly
@@ -471,7 +515,7 @@ func TestCleanupGeminiSettings(t *testing.T) {
 		}
 
 		// Running cleanup after is safe and noop
-		cleanup()
+		CleanupGeminiSettings(repo, "sup2")
 	})
 }
 

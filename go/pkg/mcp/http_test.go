@@ -59,6 +59,29 @@ func TestHTTPHandlerToolsListUsesBearerTokenAndHidesUnauthorized(t *testing.T) {
 	}
 }
 
+func TestHTTPHandlerToolsListWithoutRepositoryIDAdvertisesLaneTools(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	recorder := postJSON(t, handler, EndpointPath, `{"jsonrpc":"2.0","id":"list","method":"tools/list","params":{}}`, "lane.secret")
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	if response.Error != nil {
+		t.Fatalf("tools/list error = %#v", response.Error)
+	}
+	tools, ok := response.Result["tools"].([]any)
+	if !ok || len(tools) == 0 {
+		t.Fatalf("parameterless tools/list returned no tools for lane token: %#v", response.Result)
+	}
+	names := toolNames(tools)
+	for _, want := range []string{"work.await_packet", "work.ack", "artifact.publish", "review.submit"} {
+		if !names[want] {
+			t.Fatalf("lane token tools/list missing %s: %#v", want, names)
+		}
+	}
+}
+
 func TestHTTPHandlerToolsListRecordsSessionActivity(t *testing.T) {
 	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := &activityRecorder{}
@@ -409,6 +432,12 @@ func newTestHTTPHandler(t *testing.T) (*HTTPHandler, *bool, *bool, *bool) {
 	}, time.Now().Add(time.Hour))
 	authorizer.AddToken("admin.secret", "admin", map[rpc.Capability]rpc.CapabilityGrant{
 		rpc.CapabilityAdmin: {RepositoryID: "repo_1"},
+	}, time.Now().Add(time.Hour))
+	authorizer.AddToken("lane.secret", "lane", map[rpc.Capability]rpc.CapabilityGrant{
+		rpc.CapabilityClaim:  {RepositoryID: "repo_1", SessionID: "sess_1"},
+		rpc.CapabilityWrite:  {RepositoryID: "repo_1", SessionID: "sess_1"},
+		rpc.CapabilityRead:   {RepositoryID: "repo_1", SessionID: "sess_1"},
+		rpc.CapabilityReview: {RepositoryID: "repo_1", SessionID: "sess_1"},
 	}, time.Now().Add(time.Hour))
 
 	server := rpc.NewServer()

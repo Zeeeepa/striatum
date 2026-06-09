@@ -32,24 +32,34 @@ func BuildBootstrapPrompt(ctx BootstrapContext) string {
 	if ctx.RepositoryID != "" {
 		repositoryInstruction = fmt.Sprintf("Use repository_id %s when MCP tools require repository_id.", ctx.RepositoryID)
 	}
+	repositoryExample := ctx.RepositoryID
+	if repositoryExample == "" {
+		repositoryExample = "<repository-id>"
+	}
+	sessionExample := ctx.SessionID
+	if sessionExample == "" {
+		sessionExample = "<session-id>"
+	}
 
 	return fmt.Sprintf(`You are a Striatum lane agent for run %s, session %s.
 Target repository root: %s
 Use the local Striatum MCP server at %s.
 The same endpoint is available in STRIATUM_MCP_URL. %s
 %s
-Call tools/list first, then call work.await_packet with repository_id, session_id, and an appropriate lease_seconds value.
-Do NOT spawn a background task to probe, curl, or "discover" the MCP endpoint before working: it is already configured above and reachable now. Call tools/list then work.await_packet directly in the foreground — a background discovery probe leaves the lane idle and trips the MCP-discovery stall before any work is claimed.
-When work.await_packet returns a work packet, process it to completion yourself, synchronously and inline, before awaiting again: acknowledge it, then do exactly what the packet describes (read its context, edit files, run its commands), publish every expected artifact, and call work.complete (use submit-review for review jobs). Do NOT just save the packet, spawn a background poller, or treat receiving a packet as a substitute for doing its work — each packet must be fully executed and completed before the next work.await_packet.
-This is a durable receive loop: after every work.complete, work.release, interrogation.answer, or conversation turn, call work.await_packet again.
-While working a single packet, if you spend more than a few minutes on local work (reading source, editing files, running commands) between MCP calls, call work.heartbeat periodically — at least every few minutes, honoring the packet's lease.heartbeat_after_seconds — to keep your lease alive: the daemon classifies a lease that stops heartbeating as stalled even while you are actively working locally.
-If work.await_packet returns an interrogation_question, answer it with interrogation.answer, then immediately return to work.await_packet.
-If work.await_packet returns no_work, keep waiting by calling work.await_packet again after a short pause; do not print "await next packet" or similar terminal prose as a substitute for the tool call.
-If you need input or are blocked before work.await_packet, call session.report with report_kind question or escalate instead of waiting silently in terminal text.
+Use MCP protocol methods only through tools/list and tools/call. Do not call daemon methods such as work.await_packet as top-level MCP JSON-RPC methods; put the daemon method in params.name.
+First discover tools with {"method":"tools/list","params":{"repository_id":"%s","session_id":"%s"}}.
+Then await work with {"method":"tools/call","params":{"name":"work.await_packet","repository_id":"%s","arguments":{"session_id":"%s","lease_seconds":1800}}}.
+Do NOT spawn a background task to probe, curl, or "discover" the MCP endpoint before working: it is already configured above and reachable now. Use tools/list, then tools/call for work.await_packet directly in the foreground — a background discovery probe leaves the lane idle and trips the MCP-discovery stall before any work is claimed.
+When work.await_packet returns a work packet, process it to completion yourself, synchronously and inline, before awaiting again: acknowledge it, then do exactly what the packet describes (read its context, edit files, run its commands), publish every expected artifact, and call tools/call for work.complete (use review.submit for review jobs). Do NOT just save the packet, spawn a background poller, or treat receiving a packet as a substitute for doing its work — each packet must be fully executed and completed before the next work.await_packet.
+This is a durable receive loop: after every work.complete, work.release, interrogation.answer, or conversation turn, call tools/call for work.await_packet again.
+While working a single packet, if you spend more than a few minutes on local work (reading source, editing files, running commands) between MCP calls, call tools/call for work.heartbeat periodically — at least every few minutes, honoring the packet's lease.heartbeat_after_seconds — to keep your lease alive: the daemon classifies a lease that stops heartbeating as stalled even while you are actively working locally.
+If work.await_packet returns an interrogation_question, answer it with tools/call for interrogation.answer, then immediately return to tools/call for work.await_packet.
+If work.await_packet returns no_work, keep waiting by calling tools/call for work.await_packet again after a short pause; do not print "await next packet" or similar terminal prose as a substitute for the tool call.
+If you need input or are blocked before work.await_packet, call tools/call for session.report with report_kind question or escalate instead of waiting silently in terminal text.
 Use MCP tools to acknowledge work, publish artifacts, report blockers, complete work, or release work. This PTY supervisor will not claim, complete, release, or spoon-feed packet JSON for you.
 A working Striatum client is already provided: the MCP server above and the striatum CLI on your PATH both reach this daemon. Use them directly. Do NOT author a JSON-RPC/MCP client (e.g. scripts/striatum_client.py) or any other control-plane helper inside the target repository — that is control-plane scratch, not project source, and writing it pollutes the work tree.
 Stay inside the active work packet write scope, treat .striatum/ as operational scratch, and follow the packet commands exactly.
-`, ctx.RunID, ctx.SessionID, ctx.RepoRoot, ctx.Endpoint, tokenInstruction, repositoryInstruction)
+`, ctx.RunID, ctx.SessionID, ctx.RepoRoot, ctx.Endpoint, tokenInstruction, repositoryInstruction, repositoryExample, sessionExample, repositoryExample, sessionExample)
 }
 
 func AgentEnvironment(base []string, ctx BootstrapContext) []string {

@@ -14,7 +14,7 @@ import (
 // daemon MCP endpoint, separated from the exec so arg/env assembly is testable.
 type codexInvocation struct {
 	// Args is the full argv passed to codex, including the injected
-	// `-c mcp_servers.striatum.url=<endpoint>` override and any passthrough args.
+	// `-c mcp_servers.striatum.*=...` overrides and any passthrough args.
 	Args []string
 	// Env is the child environment with STRIATUM_MCP_TOKEN set; the token value
 	// is never logged or printed.
@@ -28,11 +28,12 @@ type codexInvocation struct {
 
 // runCodex implements `striatum codex [args...]`: it resolves the live (rotating)
 // daemon MCP endpoint and the runtime client-token the same way the daemon
-// advertises them, then execs codex with the endpoint injected via codex's
-// per-key TOML override (`-c mcp_servers.striatum.url=<endpoint>`) and the bearer
-// supplied to the child through STRIATUM_MCP_TOKEN. This removes the manual
-// `export STRIATUM_MCP_TOKEN=... && edit ~/.codex/config.toml` dance an operator
-// otherwise repeats every key rotation (#64). The token value is never printed.
+// advertises them, then execs codex with the endpoint and bearer env-var key
+// injected via codex's per-key TOML overrides and the bearer supplied to the
+// child through STRIATUM_MCP_TOKEN. This removes the manual `export
+// STRIATUM_MCP_TOKEN=... && edit ~/.codex/config.toml` dance an operator
+// otherwise repeats every key rotation (#64/#225). The token value is never
+// printed.
 // Extra args pass through to codex unchanged.
 func runCodex(args []string, stdout io.Writer, stderr io.Writer, repoRootOverride string) int {
 	for _, a := range args {
@@ -100,9 +101,13 @@ func buildCodexInvocation(passthrough []string, repoRoot string, env []string) (
 	}
 
 	// codex has no --mcp-config; it overrides ~/.codex/config.toml per key. The
-	// endpoint is quoted so a value containing shell-significant characters is
-	// passed literally as one TOML override.
-	codexArgs := []string{"codex", "-c", fmt.Sprintf("mcp_servers.striatum.url=%q", endpoint)}
+	// values are quoted so shell-significant characters are passed literally as
+	// TOML override values.
+	codexArgs := []string{
+		"codex",
+		"-c", agentloop.CodexMCPURLOverrideArg(endpoint),
+		"-c", agentloop.CodexMCPBearerTokenEnvOverrideArg(),
+	}
 	codexArgs = append(codexArgs, passthrough...)
 
 	// Inject STRIATUM_MCP_TOKEN into the child env, replacing any stale value so
@@ -145,6 +150,7 @@ func printCodexUsage(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "usage: striatum codex [codex args ...]")
 	_, _ = fmt.Fprintln(out, "launch codex wired to the live daemon MCP endpoint:")
 	_, _ = fmt.Fprintln(out, "  - injects -c mcp_servers.striatum.url=<live endpoint> (overrides ~/.codex/config.toml)")
+	_, _ = fmt.Fprintln(out, "  - injects -c mcp_servers.striatum.bearer_token_env_var=STRIATUM_MCP_TOKEN")
 	_, _ = fmt.Fprintln(out, "  - sets STRIATUM_MCP_TOKEN in codex's env from the runtime client-token (never printed)")
 	_, _ = fmt.Fprintln(out, "extra args pass through to codex unchanged.")
 }
