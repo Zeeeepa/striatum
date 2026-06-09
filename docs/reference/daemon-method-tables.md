@@ -68,6 +68,7 @@
 | `session.close` | `claim` | `single_repo` | 1 | 1 | no |
 | `session.report` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.claim_next` | `claim` | `single_repo` | 1 | 1 | no |
+| `work.claim_override` | `admin` | `single_repo` | 1 | 1 | no |
 | `work.await_packet` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.packet_show` | `read` | `single_repo` | 1 | 1 | no |
 | `work.ack` | `claim` | `single_repo` | 1 | 1 | no |
@@ -180,6 +181,7 @@
 | `register-session` | `session.register` | `claim` | `single_repo` |
 | `session close` | `session.close` | `claim` | `single_repo` |
 | `claim-next` | `work.claim_next` | `claim` | `single_repo` |
+| `work claim-override` | `work.claim_override` | `admin` | `single_repo` |
 | `work packet-show` | `work.packet_show` | `read` | `single_repo` |
 | `ack` | `work.ack` | `claim` | `single_repo` |
 | `heartbeat` | `work.heartbeat` | `claim` | `single_repo` |

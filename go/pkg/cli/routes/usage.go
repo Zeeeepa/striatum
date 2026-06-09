@@ -76,6 +76,17 @@ var usageByGroup = map[string]Usage{
 			{Name: "lease-seconds", Help: "lease duration for the claim; defaults to 3600 seconds"},
 		},
 	},
+	"work_claim_override": {
+		Params: []Param{
+			{Name: "session-id", Positional: true, Required: true, Help: "session to claim the job for, authorized by the decision"},
+			{Name: "job-id", Positional: true, Required: true, Help: "pending job the decision authorizes this session to claim"},
+			{Name: "decision-id", Positional: true, Required: true, Help: "accepted decision (scoped to the exact session_id + job_id) authorizing the override"},
+			{Name: "lease-seconds", Help: "lease duration for the claim; defaults to 3600 seconds"},
+		},
+		Notes: []string{
+			"Admin-only escape for the #222 fresh-review process-lineage gate. Requires an accepted decision recorded with --subject-session-id/--subject-job-id matching exactly; a broad or mismatched decision is refused. There is no normal-lane claim-next --force.",
+		},
+	},
 	"work_packet_show": {
 		Params: []Param{
 			{Name: "packet-id", Positional: true, Help: "specific work packet id to inspect"},
@@ -297,6 +308,8 @@ var usageByGroup = map[string]Usage{
 			{Name: "follow-up", Help: "required follow-up text for accepted_with_follow_up"},
 			{Name: "escape-surface", Help: "constrained-operator surface being escaped, e.g. shell_command or raw_file_write"},
 			{Name: "escape-action", Help: "specific action authorized outside the constrained surface"},
+			{Name: "subject-session-id", Help: "scope the decision to an exact session id (e.g. for a work.claim_override escape)"},
+			{Name: "subject-job-id", Help: "scope the decision to an exact job id (e.g. for a work.claim_override escape)"},
 			{Name: "mark-run-compromised", Bool: true, Help: "with an accepting decision, transition a completed run to compromised for provenance invalidation"},
 		},
 	},

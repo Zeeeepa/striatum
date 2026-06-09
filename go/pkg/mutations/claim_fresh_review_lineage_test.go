@@ -241,3 +241,128 @@ func TestFreshReviewLineageAuditDeduped(t *testing.T) {
 		t.Fatalf("audit event count = %s, want 1 (deduped over polling)", count)
 	}
 }
+
+// seedAcceptedDecision records an accepted operator decision artifact + event,
+// optionally scoped to an exact (subjectSession, subjectJob).
+func seedAcceptedDecision(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, decisionID, subjectSession, subjectJob string) {
+	t.Helper()
+	now := time.Now().UTC()
+	artID := "art_" + decisionID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, logical_name, artifact_kind, repo_path,
+		  content_sha256, size_bytes, publish_mode, created_at
+		) VALUES ($1,$2,$3,$4,'decision',$5,'sha',1,'create',$6)`,
+		repoID, artID, runID, decisionID, "decisions/"+decisionID+".md", now); err != nil {
+		t.Fatalf("seed decision artifact: %v", err)
+	}
+	payload := map[string]any{"decision_id": decisionID, "outcome": "accepted"}
+	if subjectSession != "" {
+		payload["subject_session_id"] = subjectSession
+	}
+	if subjectJob != "" {
+		payload["subject_job_id"] = subjectJob
+	}
+	payloadArg, err := db.JSONBArg(runner, payload)
+	if err != nil {
+		t.Fatalf("decision payload: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.events (repository_id, run_id, event_type, artifact_id, payload_json, created_at)
+		VALUES ($1,$2,'decision.recorded',$3,$4::jsonb,$5)`,
+		repoID, runID, artID, payloadArg, now); err != nil {
+		t.Fatalf("seed decision event: %v", err)
+	}
+}
+
+func seedPendingWorkMessage(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, role, lane string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, job_id, kind, state, priority,
+		  target_role_id, target_lane_id, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,'work','pending',0,$5,$6,$7,$7)`,
+		repoID, "msg_"+jobID, runID, jobID, role, lane, now); err != nil {
+		t.Fatalf("seed pending message: %v", err)
+	}
+}
+
+// TestClaimOverrideClaimsWithExactDecision: an admin override with a decision
+// scoped to the exact (session, job) claims the job even though the claimant's
+// process is contaminated (so a normal claim would be refused by the gate).
+func TestClaimOverrideClaimsWithExactDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	fx := seedFreshReviewFixture(t, ctx, runner, "repo_override_exact")
+	seedProcessPointer(t, ctx, runner, fx.repoID, fx.runID, fx.upstreamSess, 4242, "proc-A")
+	seedClaimedUpstreamPacket(t, ctx, runner, fx.repoID, fx.runID, fx.upstreamJobID, fx.upstreamSess)
+
+	reviewer := "sess_reviewer_override"
+	intgSeedSession(t, ctx, runner, fx.repoID, fx.runID, reviewer, fx.reviewRole, "claude", nil, "active")
+	intgAttest(t, ctx, runner, fx.repoID, fx.runID, reviewer, "claude")
+	// Same process as the upstream synthesizer — the gate would refuse a normal claim.
+	if refusal := fx.refusal(t, ctx, runner, reviewer); refusal == nil {
+		t.Fatalf("precondition: expected the gate to refuse the contaminated claimant")
+	}
+
+	seedPendingWorkMessage(t, ctx, runner, fx.repoID, fx.runID, fx.reviewJobID, fx.reviewRole, "claude")
+	seedAcceptedDecision(t, ctx, runner, fx.repoID, fx.runID, "D-OVR-1", reviewer, fx.reviewJobID)
+
+	res, err := HandleClaimOverride(ctx, runner, intgEnv(fx.repoID, map[string]any{
+		"session_id":  reviewer,
+		"job_id":      fx.reviewJobID,
+		"decision_id": "D-OVR-1",
+	}))
+	if err != nil {
+		t.Fatalf("claim override: %v", err)
+	}
+	if res["status"] != "claimed" || res["override_decision_id"] != "D-OVR-1" {
+		t.Fatalf("override result = %#v", res)
+	}
+}
+
+// TestClaimOverrideRefusesMismatchedDecision: a decision scoped to a different
+// (session, job) cannot authorize this override.
+func TestClaimOverrideRefusesMismatchedDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	fx := seedFreshReviewFixture(t, ctx, runner, "repo_override_mismatch")
+	reviewer := "sess_reviewer_mismatch"
+	intgSeedSession(t, ctx, runner, fx.repoID, fx.runID, reviewer, fx.reviewRole, "claude", nil, "active")
+	intgAttest(t, ctx, runner, fx.repoID, fx.runID, reviewer, "claude")
+	seedPendingWorkMessage(t, ctx, runner, fx.repoID, fx.runID, fx.reviewJobID, fx.reviewRole, "claude")
+	// Decision authorizes a DIFFERENT session.
+	seedAcceptedDecision(t, ctx, runner, fx.repoID, fx.runID, "D-OVR-2", "sess_someone_else", fx.reviewJobID)
+
+	_, err := HandleClaimOverride(ctx, runner, intgEnv(fx.repoID, map[string]any{
+		"session_id":  reviewer,
+		"job_id":      fx.reviewJobID,
+		"decision_id": "D-OVR-2",
+	}))
+	if err == nil {
+		t.Fatalf("expected mismatched override to be refused")
+	}
+}
+
+// TestClaimOverrideRefusesBroadDecision: an unscoped (broad) decision cannot
+// authorize an override.
+func TestClaimOverrideRefusesBroadDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	fx := seedFreshReviewFixture(t, ctx, runner, "repo_override_broad")
+	reviewer := "sess_reviewer_broad"
+	intgSeedSession(t, ctx, runner, fx.repoID, fx.runID, reviewer, fx.reviewRole, "claude", nil, "active")
+	intgAttest(t, ctx, runner, fx.repoID, fx.runID, reviewer, "claude")
+	seedPendingWorkMessage(t, ctx, runner, fx.repoID, fx.runID, fx.reviewJobID, fx.reviewRole, "claude")
+	seedAcceptedDecision(t, ctx, runner, fx.repoID, fx.runID, "D-OVR-3", "", "") // no subject scope
+
+	_, err := HandleClaimOverride(ctx, runner, intgEnv(fx.repoID, map[string]any{
+		"session_id":  reviewer,
+		"job_id":      fx.reviewJobID,
+		"decision_id": "D-OVR-3",
+	}))
+	if err == nil {
+		t.Fatalf("expected broad (unscoped) override to be refused")
+	}
+}

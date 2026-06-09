@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // freshReviewLineageEvent is the audit event recorded when a claim is refused
@@ -180,4 +181,141 @@ func recordFreshReviewLineageAudit(ctx context.Context, tx db.TxRunner, reposito
 	}
 	_, err = appendEvent(ctx, tx, repositoryID, runID, freshReviewLineageEvent, sessionID, jobID, nil, nil, nil, payload)
 	return err
+}
+
+// HandleClaimOverride is the admin-only escape for the fresh-review process
+// lineage gate (#222). It directly claims an existing pending job for a session
+// when a scoped, accepted operator decision authorizes exactly that
+// (session_id, job_id). It deliberately bypasses the lineage gate (that is the
+// point of the override) but nothing else: the run must be running, the session
+// active, and the job still claimable. Capability `admin` (enforced by the RPC
+// registry) means a session-bound lane token can never reach this path — there
+// is no normal-lane claim-next --force.
+func HandleClaimOverride(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	sessionID := strings.TrimSpace(stringParam(envelope, "session_id"))
+	jobID := strings.TrimSpace(stringParam(envelope, "job_id"))
+	decisionID := strings.TrimSpace(stringParam(envelope, "decision_id"))
+	if sessionID == "" || jobID == "" || decisionID == "" {
+		return nil, rpc.NewError("schema_invalid", "work.claim_override requires session_id, job_id, and decision_id", nil)
+	}
+	leaseSeconds := intParam(envelope, "lease_seconds", 3600)
+	if leaseSeconds <= 0 {
+		leaseSeconds = 3600
+	}
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if err := lockRunForSession(ctx, tx, repositoryID, sessionID); err != nil {
+			return nil, err
+		}
+		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
+		if err != nil {
+			return nil, err
+		}
+		if state := fmt.Sprint(session["state"]); state != "active" {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; work.claim_override requires an active claimant session", state), nil)
+		}
+		runID := fmt.Sprint(session["run_id"])
+		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
+		if err != nil {
+			return nil, err
+		}
+		if state := fmt.Sprint(run["state"]); state != "running" {
+			return nil, rpc.NewError("invalid_transition", "work.claim_override requires a running run", nil)
+		}
+		if err := requireClaimOverrideDecision(ctx, tx, repositoryID, runID, sessionID, jobID, decisionID); err != nil {
+			return nil, err
+		}
+		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(job["run_id"]) != runID {
+			return nil, rpc.NewError("invalid_transition", "job does not belong to the claimant session's run", nil)
+		}
+		rows, err := queryRows(ctx, tx, `
+			SELECT qm.*
+			  FROM striatumd.queue_messages qm
+			 WHERE qm.repository_id = $1
+			   AND qm.job_id = $2
+			   AND qm.kind = 'work'
+			   AND qm.state = 'pending'
+			 ORDER BY qm.priority DESC, qm.created_at ASC
+			 LIMIT 1
+			 FOR UPDATE OF qm SKIP LOCKED`, repositoryID, jobID)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return nil, rpc.NewError("invalid_transition", "no pending work message for job "+jobID+"; it may already be claimed or terminal", nil)
+		}
+		chosen := rows[0]
+		result, err := claimChosenJob(ctx, tx, repositoryID, sessionID, runID, session, run, job, chosen, leaseSeconds)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "work.claim_overridden", sessionID, jobID, chosen["message_id"], nil, nil, map[string]any{
+			"decision_id": decisionID,
+			"override":    "fresh_review_process_lineage",
+		}); err != nil {
+			return nil, err
+		}
+		result["override_decision_id"] = decisionID
+		return result, nil
+	})
+}
+
+// requireClaimOverrideDecision validates that decisionID names an accepted
+// operator decision artifact for this run whose recorded scope matches the exact
+// (session_id, job_id). A missing, non-accepting, unscoped (broad), or
+// mismatched decision is refused.
+func requireClaimOverrideDecision(ctx context.Context, tx db.TxRunner, repositoryID, runID, sessionID, jobID, decisionID string) error {
+	artifacts, err := queryRows(ctx, tx, `
+		SELECT artifact_id FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND run_id = $2 AND artifact_kind = 'decision' AND logical_name = $3
+		 LIMIT 1`, repositoryID, runID, decisionID)
+	if err != nil {
+		return err
+	}
+	if len(artifacts) == 0 {
+		return rpc.NewError("invalid_transition", "work.claim_override requires an accepted decision artifact ("+decisionID+") for this run", nil)
+	}
+	events, err := queryRows(ctx, tx, `
+		SELECT payload_json->>'outcome' AS outcome,
+		       payload_json->>'subject_session_id' AS subject_session_id,
+		       payload_json->>'subject_job_id' AS subject_job_id
+		  FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'decision.recorded'
+		   AND payload_json->>'decision_id' = $3
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, runID, decisionID)
+	if err != nil {
+		return err
+	}
+	if len(events) == 0 {
+		return rpc.NewError("invalid_transition", "decision "+decisionID+" has no recorded outcome", nil)
+	}
+	ev := events[0]
+	outcome := rowString(ev, "outcome")
+	if outcome != "accepted" && outcome != "accepted_with_follow_up" {
+		return rpc.NewError("invalid_transition", "work.claim_override requires an accepting decision; "+decisionID+" outcome is "+outcome, nil)
+	}
+	subjectSession := rowString(ev, "subject_session_id")
+	subjectJob := rowString(ev, "subject_job_id")
+	if subjectSession == "" || subjectJob == "" {
+		return rpc.NewError("invalid_transition", "work.claim_override requires a decision scoped to an exact (session_id, job_id); "+decisionID+" is a broad decision (refused)", nil)
+	}
+	if subjectSession != sessionID || subjectJob != jobID {
+		return rpc.NewError("invalid_transition", "decision "+decisionID+" authorizes a different (session_id, job_id); override refused", nil)
+	}
+	return nil
+}
+
+func rowString(row map[string]any, key string) string {
+	if value := row[key]; value != nil {
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+	return ""
 }

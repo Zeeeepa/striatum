@@ -117,6 +117,7 @@ state changes must route through daemon RPC.
 | `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
 | `session.report` | MCP pre-work session report | claim | single_repo | not implemented in Python RPC | real | no | no | RFC 0075 structured ready/heartbeat/question/escalate event path; updates RFC 0077 liveness timestamps; no terminal text authority |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
+| `work.claim_override` | `work claim-override` | admin | single_repo | pg | real | no | no | #222 admin escape for the fresh-review process-lineage gate; claims a pending job for a session only when an accepted decision is scoped to the exact `(session_id, job_id)`; emits `work.claim_overridden`. No normal-lane `claim-next --force` |
 | `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents; records await and packet-delivery liveness timestamps |
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |
 | `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable; records RFC 0077 work-heartbeat activity |

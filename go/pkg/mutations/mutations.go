@@ -69,6 +69,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("session.report", makeHandler(runner, HandleSessionReport))
 	server.Register("work.claim_next", makeHandler(runner, HandleClaimNext))
 	server.Register("claim_next", makeHandler(runner, HandleClaimNext))
+	server.Register("work.claim_override", makeHandler(runner, HandleClaimOverride))
 	server.Register("work.await_packet", makeHandler(runner, HandleAwaitPacket))
 	server.Register("work.ack", makeHandler(runner, HandleAckWork))
 	server.Register("ack", makeHandler(runner, HandleAckWork))

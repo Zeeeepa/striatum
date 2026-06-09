@@ -36,6 +36,7 @@ var generatedRoutes = []Route{
 	{Command: "register-session", Subcommand: "", Method: "session.register", ParamsGroup: "register_session", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "session", Subcommand: "close", Method: "session.close", ParamsGroup: "session_close", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "claim-next", Subcommand: "", Method: "work.claim_next", ParamsGroup: "claim_next", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "work", Subcommand: "claim-override", Method: "work.claim_override", ParamsGroup: "work_claim_override", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "work", Subcommand: "packet-show", Method: "work.packet_show", ParamsGroup: "work_packet_show", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "ack", Subcommand: "", Method: "work.ack", ParamsGroup: "ack", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "heartbeat", Subcommand: "", Method: "work.heartbeat", ParamsGroup: "heartbeat", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},

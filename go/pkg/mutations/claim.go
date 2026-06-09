@@ -181,6 +181,17 @@ func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID 
 	} else if refusal != nil {
 		return refusal, nil
 	}
+	return claimChosenJob(ctx, tx, repositoryID, sessionID, runID, session, run, job, chosen, leaseSeconds)
+}
+
+// claimChosenJob performs the actual claim of a selected pending job for a
+// session: the lease + queue-message + job state transitions, the packet render
+// and durable work_packets persistence, liveness, and the queue.claimed event.
+// It is the shared core of work.claim_next (after its eligibility gates) and the
+// admin work.claim_override path (#222), so both produce an identical, auditable
+// claim.
+func claimChosenJob(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, runID string, session, run, job, chosen map[string]any, leaseSeconds int) (map[string]any, error) {
+	jobID := fmt.Sprint(job["job_id"])
 	now := nowString()
 	leaseID, err := newID("lease")
 	if err != nil {

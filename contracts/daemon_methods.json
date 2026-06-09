@@ -34,6 +34,7 @@
     {"command": "register-session", "subcommand": null, "method": "session.register", "params": "register_session"},
     {"command": "session", "subcommand": "close", "method": "session.close", "params": "session_close"},
     {"command": "claim-next", "subcommand": null, "method": "work.claim_next", "params": "claim_next"},
+    {"command": "work", "subcommand": "claim-override", "method": "work.claim_override", "params": "work_claim_override"},
     {"command": "work", "subcommand": "packet-show", "method": "work.packet_show", "params": "work_packet_show"},
     {"command": "ack", "subcommand": null, "method": "work.ack", "params": "ack"},
     {"command": "heartbeat", "subcommand": null, "method": "work.heartbeat", "params": "heartbeat"},
@@ -644,6 +645,15 @@
     {
       "method": "work.claim_next",
       "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "work.claim_override",
+      "required_capability": "admin",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",

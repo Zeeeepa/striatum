@@ -32,6 +32,11 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 	followUp := stringParam(envelope, "follow_up")
 	escapeSurface := strings.TrimSpace(stringParam(envelope, "escape_surface"))
 	escapeAction := strings.TrimSpace(stringParam(envelope, "escape_action"))
+	// #222: an override decision may be scoped to an exact (session, job) so a
+	// downstream admin escape (e.g. work.claim_override) requires an exact match
+	// rather than a broad run-wide exemption.
+	subjectSessionID := strings.TrimSpace(stringParam(envelope, "subject_session_id"))
+	subjectJobID := strings.TrimSpace(stringParam(envelope, "subject_job_id"))
 	markRunCompromised := boolParam(envelope, "mark_run_compromised")
 	if runID == "" || pathText == "" || outcome == "" || title == "" {
 		return nil, rpc.NewError("schema_invalid", "decision.record requires run_id, path, outcome, and title", nil)
@@ -136,6 +141,12 @@ func HandleDecisionRecord(ctx context.Context, runner db.Runner, envelope rpc.En
 			payload["escape_decision"] = true
 			payload["escape_surface"] = escape.Surface
 			payload["escape_action"] = escape.Action
+		}
+		if subjectSessionID != "" {
+			payload["subject_session_id"] = subjectSessionID
+		}
+		if subjectJobID != "" {
+			payload["subject_job_id"] = subjectJobID
 		}
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, payload); err != nil {
 			return nil, err
