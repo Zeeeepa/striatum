@@ -258,6 +258,15 @@ func TestWorktreeListShowsAnchor(t *testing.T) {
 		runID, repoRoot, runBranch, baseSHA, now); err != nil {
 		t.Fatalf("insert run: %v", err)
 	}
+	sessionID := "sess_anchor_list"
+	leaseID := "lease_anchor_list"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.sessions (
+		  repository_id, session_id, run_id, role_id, lane_id, slug, ordinal, state, registered_at
+		) VALUES ('repo_anchor_list',$1,$2,'author','codex','author-codex-1',1,'active',$3)`,
+		sessionID, runID, now); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.jobs (
 		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
@@ -270,11 +279,19 @@ func TestWorktreeListShowsAnchor(t *testing.T) {
 		t.Fatalf("insert job: %v", err)
 	}
 	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ('repo_anchor_list',$1,$2,'job',$3,$4,'active',$5,$6)`,
+		leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.job_worktrees (
 		  repository_id, worktree_id, run_id, job_id, lease_id,
 		  base_branch, worktree_path, state, created_at
-		) VALUES ('repo_anchor_list',$1,$2,$3,NULL,$4,$5,'active',$6)`,
-		worktreeID, runID, jobID, runBranch, worktreeRel, now); err != nil {
+		) VALUES ('repo_anchor_list',$1,$2,$3,$4,$5,$6,'active',$7)`,
+		worktreeID, runID, jobID, leaseID, runBranch, worktreeRel, now); err != nil {
 		t.Fatalf("insert worktree: %v", err)
 	}
 
