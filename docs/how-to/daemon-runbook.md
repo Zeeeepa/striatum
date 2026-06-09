@@ -300,3 +300,32 @@ default so reads do not leak task prose into dashboards, logs, or routine
 auditing. To settle a dispute, compare the hash an agent reported acting on
 against `packet_sha256`, and only pull `--raw` when the body itself is in
 question.
+
+## Worktree commit pins (`refs/striatum`)
+
+When a repo-write job finishes in an isolated per-job worktree, the daemon
+anchors the worktree's diverged HEAD so the commit stack stays reachable after
+the worktree is removed. If the HEAD fast-forwards the run branch the daemon
+moves the run branch; otherwise it writes a durable pin under `refs/striatum`.
+
+Two pin ref shapes exist:
+
+- **Attempt-namespaced (current, #215):** `refs/striatum/<run>/<job>/<attempt>`.
+  Each job attempt anchors to its own ref, so a revision-cycle re-anchor of
+  attempt *N+1* can no longer clobber attempt *N*'s pin. This is what new runs
+  write.
+- **Legacy (pre-#215):** `refs/striatum/<run>/<job>`. Older runs wrote a single
+  job-only pin that each attempt overwrote. These refs are never rewritten or
+  migrated — they stay readable.
+
+All reachability/release/doctor checks resolve both shapes (they enumerate
+`refs/striatum/<run>/` recursively, which matches the attempt-namespaced refs,
+and also check the legacy job-only ref). A pre-#215 run that re-anchors the same
+job under a daemon upgrade keeps using its legacy job-only ref, because git
+cannot create the attempt directory beneath an existing job-only ref; new runs
+are unaffected.
+
+```bash
+# Inspect a run's pins (both shapes show up here):
+git -C <repo-root> for-each-ref --format='%(refname) %(objectname:short)' refs/striatum/<run>/
+```

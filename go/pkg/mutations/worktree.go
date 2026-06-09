@@ -502,7 +502,7 @@ func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID st
 	if runBranch == "" || runBranch == "<nil>" || nullable(run["branch_confirmed_at"]) == nil {
 		return nil, rpc.NewError("invalid_transition", "repo-write worktree commits require a confirmed run branch before completion", nil)
 	}
-	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), runBranch, worktree)
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, fmt.Sprint(job["run_id"]), fmt.Sprint(job["job_id"]), runBranch, worktree, intValue(job["attempt"]))
 	if err != nil {
 		return nil, err
 	}
@@ -567,7 +567,7 @@ func worktreeRequiredError(job map[string]any, surface string) error {
 	})
 }
 
-func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runBranch string, worktree map[string]any) (map[string]any, error) {
+func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runBranch string, worktree map[string]any, attempt int) (map[string]any, error) {
 	target, err := worktreeTarget(repoRoot, fmt.Sprint(worktree["worktree_path"]))
 	if err != nil {
 		return nil, err
@@ -588,7 +588,7 @@ func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runB
 	runTip, err := gitRevParseCommit(ctx, repoRoot, runRef)
 	if err != nil {
 		payload["run_branch_missing"] = true
-		return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload)
+		return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload, attempt)
 	}
 	if head == runTip {
 		payload["reason"] = "head_already_at_run_branch"
@@ -609,21 +609,71 @@ func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runB
 		}
 		payload["ff_failed"] = strings.TrimSpace(out)
 	}
-	return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload)
+	return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload, attempt)
 }
 
-func pinWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, head string, payload map[string]any) (map[string]any, error) {
-	pinRef := "refs/striatum/" + runID + "/" + jobID
+// pinWorktreeCommitStack anchors a worktree's diverged HEAD under an
+// attempt-namespaced pin (#215, RFC 0117 Open Question 4):
+// refs/striatum/<run>/<job>/<attempt>. Namespacing by attempt means a later
+// attempt's pin can no longer clobber an earlier attempt's pin, so revision
+// cycles keep durable provenance for every attempt's commit stack. Reads
+// resolve both this shape and the legacy refs/striatum/<run>/<job> shape.
+func pinWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, head string, payload map[string]any, attempt int) (map[string]any, error) {
+	pinRef := attemptPinRef(runID, jobID, attempt)
 	out, exit, err := integrateGit(ctx, repoRoot, "update-ref", pinRef, head)
 	if err != nil {
 		return nil, err
 	}
 	if exit != 0 {
+		// A pre-#215 run may already hold a job-only pin at the legacy shape
+		// refs/striatum/<run>/<job>. That ref occupies the <job> name, so git
+		// cannot create the attempt directory beneath it (a ref D/F conflict).
+		// Do not rewrite the historical pin or migrate the repo; fall back to
+		// the legacy job-only ref for this legacy run. New runs never reach this
+		// branch and stay attempt-namespaced, and reads resolve both shapes.
+		legacyRef := legacyPinRef(runID, jobID)
+		if legacyPinExists(ctx, repoRoot, legacyRef) {
+			lout, lexit, lerr := integrateGit(ctx, repoRoot, "update-ref", legacyRef, head)
+			if lerr != nil {
+				return nil, lerr
+			}
+			if lexit == 0 {
+				payload["anchor"] = "job_pin"
+				payload["pin_ref"] = legacyRef
+				payload["pin_shape"] = "legacy"
+				payload["pin_attempt"] = attempt
+				return payload, nil
+			}
+			out = lout
+		}
 		return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("update-ref of %q failed while anchoring worktree commits: %s", pinRef, strings.TrimSpace(out)), nil)
 	}
 	payload["anchor"] = "job_pin"
 	payload["pin_ref"] = pinRef
+	payload["pin_shape"] = "attempt"
+	payload["pin_attempt"] = attempt
 	return payload, nil
+}
+
+// attemptPinRef builds the current attempt-namespaced pin ref shape. Attempt
+// numbers are 1-based; a missing/non-positive attempt is normalized to 1 so the
+// ref is always well-formed.
+func attemptPinRef(runID, jobID string, attempt int) string {
+	if attempt < 1 {
+		attempt = 1
+	}
+	return fmt.Sprintf("refs/striatum/%s/%s/%d", runID, jobID, attempt)
+}
+
+// legacyPinRef builds the pre-#215 job-only pin ref shape, retained for
+// backward-compatible reads and the legacy-fallback write path.
+func legacyPinRef(runID, jobID string) string {
+	return "refs/striatum/" + runID + "/" + jobID
+}
+
+func legacyPinExists(ctx context.Context, repoRoot, ref string) bool {
+	_, exit, err := integrateGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", ref)
+	return err == nil && exit == 0
 }
 
 type worktreeReachability struct {

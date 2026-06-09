@@ -2048,7 +2048,7 @@ func expireLeases(ctx context.Context, runner any, repositoryID, runID string) (
 			if err != nil {
 				return nil, err
 			}
-			anchorPayload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(job["job_id"]), fmt.Sprint(worktree["base_branch"]), worktree)
+			anchorPayload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(job["job_id"]), fmt.Sprint(worktree["base_branch"]), worktree, intValue(job["attempt"]))
 			if err != nil {
 				return nil, err
 			}

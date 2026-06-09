@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -241,7 +242,7 @@ func TestAnchorWorktreeCommitStackFastForwardsRunBranchWithoutCheckout(t *testin
 	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
 		"worktree_id":   worktreeID,
 		"worktree_path": worktreeRel,
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("anchor worktree commit stack: %v", err)
 	}
@@ -302,13 +303,16 @@ func TestAnchorWorktreeCommitStackPinsDivergedHead(t *testing.T) {
 	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
 		"worktree_id":   worktreeID,
 		"worktree_path": worktreeRel,
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("anchor diverged worktree: %v", err)
 	}
-	pinRef := "refs/striatum/" + runID + "/" + jobID
+	pinRef := "refs/striatum/" + runID + "/" + jobID + "/1"
 	if payload["anchor"] != "job_pin" || payload["pin_ref"] != pinRef {
 		t.Fatalf("anchor payload = %#v, want job_pin at %s", payload, pinRef)
+	}
+	if payload["pin_shape"] != "attempt" {
+		t.Fatalf("pin_shape = %#v, want attempt", payload["pin_shape"])
 	}
 	if got := gitRevParse(t, repoRoot, pinRef); got != worktreeHead {
 		t.Fatalf("pin ref = %s, want worktree head %s", got, worktreeHead)
@@ -359,11 +363,11 @@ func TestAnchorWorktreeCommitStackPinsWhenRunBranchMissing(t *testing.T) {
 	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
 		"worktree_id":   worktreeID,
 		"worktree_path": worktreeRel,
-	})
+	}, 1)
 	if err != nil {
 		t.Fatalf("anchor missing run branch: %v", err)
 	}
-	pinRef := "refs/striatum/" + runID + "/" + jobID
+	pinRef := "refs/striatum/" + runID + "/" + jobID + "/1"
 	if payload["anchor"] != "job_pin" || payload["pin_ref"] != pinRef || payload["run_branch_missing"] != true {
 		t.Fatalf("anchor payload = %#v, want missing-branch job_pin at %s", payload, pinRef)
 	}
@@ -375,6 +379,140 @@ func TestAnchorWorktreeCommitStackPinsWhenRunBranchMissing(t *testing.T) {
 	}
 	if head := gitSymbolicHead(t, repoRoot); head != "main" {
 		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+}
+
+// TestAnchorWorktreeCommitStackNamespacesAttemptsWithoutClobber is the core
+// #215 acceptance check: anchoring attempt 2 of a job must not clobber the pin
+// that anchored attempt 1. Each attempt's diverged HEAD is preserved under its
+// own refs/striatum/<run>/<job>/<attempt> ref.
+func TestAnchorWorktreeCommitStackNamespacesAttemptsWithoutClobber(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_attempts"
+	jobID := "job_attempts"
+	runBranch := "wf/attempts"
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+
+	// A run-branch commit the worktree heads diverge from, so each anchor pins
+	// rather than fast-forwards.
+	if err := os.WriteFile(filepath.Join(repoRoot, "mainline.txt"), []byte("mainline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "mainline.txt")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "sibling run branch change")
+	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, gitRevParse(t, repoRoot, "HEAD"))
+
+	anchorAttempt := func(attempt int, content string) string {
+		worktreeID := fmt.Sprintf("wt_attempt_%d", attempt)
+		worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+		worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+		gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, baseSHA)
+		if err := os.WriteFile(filepath.Join(worktreeRoot, "attempt.txt"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, worktreeRoot, "add", "attempt.txt")
+		gitRun(t, worktreeRoot, "commit", "-q", "-m", "attempt "+content)
+		head := gitRevParse(t, worktreeRoot, "HEAD")
+		payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+			"worktree_id":   worktreeID,
+			"worktree_path": worktreeRel,
+		}, attempt)
+		if err != nil {
+			t.Fatalf("anchor attempt %d: %v", attempt, err)
+		}
+		wantRef := fmt.Sprintf("refs/striatum/%s/%s/%d", runID, jobID, attempt)
+		if payload["pin_ref"] != wantRef {
+			t.Fatalf("attempt %d pin_ref = %#v, want %s", attempt, payload["pin_ref"], wantRef)
+		}
+		gitRun(t, repoRoot, "worktree", "remove", "--force", worktreeRoot)
+		return head
+	}
+
+	head1 := anchorAttempt(1, "one\n")
+	head2 := anchorAttempt(2, "two\n")
+	if head1 == head2 {
+		t.Fatalf("attempt heads collided: %s", head1)
+	}
+
+	ref1 := fmt.Sprintf("refs/striatum/%s/%s/1", runID, jobID)
+	ref2 := fmt.Sprintf("refs/striatum/%s/%s/2", runID, jobID)
+	if got := gitRevParse(t, repoRoot, ref1); got != head1 {
+		t.Fatalf("attempt 1 pin = %s, want %s (clobbered by attempt 2?)", got, head1)
+	}
+	if got := gitRevParse(t, repoRoot, ref2); got != head2 {
+		t.Fatalf("attempt 2 pin = %s, want %s", got, head2)
+	}
+}
+
+// TestAnchorWorktreeCommitStackFallsBackToLegacyPin covers the upgrade window:
+// a pre-#215 run already holds a job-only pin at refs/striatum/<run>/<job>, so
+// git cannot create the attempt directory beneath it (ref D/F conflict). The
+// anchor must not error or migrate; it falls back to the legacy job-only ref.
+func TestAnchorWorktreeCommitStackFallsBackToLegacyPin(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_legacy"
+	jobID := "job_legacy"
+	runBranch := "wf/legacy"
+	worktreeID := "wt_legacy"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+
+	// Simulate a pre-#215 legacy job-only pin occupying the <job> ref name.
+	legacyRef := "refs/striatum/" + runID + "/" + jobID
+	gitRun(t, repoRoot, "update-ref", legacyRef, baseSHA)
+
+	// Diverge the run branch so completion pins instead of fast-forwarding.
+	if err := os.WriteFile(filepath.Join(repoRoot, "mainline.txt"), []byte("mainline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "mainline.txt")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "sibling run branch change")
+	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, gitRevParse(t, repoRoot, "HEAD"))
+
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, baseSHA)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "attempt.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "attempt.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "attempt 2")
+	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
+
+	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktreeRel,
+	}, 2)
+	if err != nil {
+		t.Fatalf("anchor with legacy pin present: %v", err)
+	}
+	if payload["pin_ref"] != legacyRef || payload["pin_shape"] != "legacy" {
+		t.Fatalf("anchor payload = %#v, want legacy fallback at %s", payload, legacyRef)
+	}
+	if got := gitRevParse(t, repoRoot, legacyRef); got != worktreeHead {
+		t.Fatalf("legacy pin = %s, want worktree head %s", got, worktreeHead)
+	}
+	// Reachability must still resolve a legacy-shaped pin.
+	reachability, err := worktreeHeadReachability(ctx, repoRoot, worktreeRoot, map[string]any{
+		"run_id":      runID,
+		"job_id":      jobID,
+		"base_branch": runBranch,
+	})
+	if err != nil {
+		t.Fatalf("reachability with legacy pin: %v", err)
+	}
+	if !reachability.Reachable {
+		t.Fatalf("legacy-pinned worktree HEAD should be reachable: %#v", reachability)
 	}
 }
 
