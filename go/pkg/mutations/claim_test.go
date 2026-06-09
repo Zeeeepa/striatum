@@ -2,6 +2,8 @@ package mutations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -475,6 +477,105 @@ func TestClaimNextReclaimRequeuedJobWithFreshSessionRequired(t *testing.T) {
 	}
 	if res3["status"] != "no_work" {
 		t.Fatalf("expected third claim status to be no_work, got %v", res3["status"])
+	}
+}
+
+// TestClaimNextPersistsRenderedPacketWithHash verifies #220: every successful
+// work.claim writes exactly the rendered packet JSON and its sha256 into
+// striatumd.work_packets, so a dispatched packet is durably auditable later by
+// hash and (on explicit request) by body. The queue message payload stays the
+// empty object — it is queue metadata, not the packet source of truth — so a
+// wrong-packet vs misfollowed-lane dispute is answerable from daemon state.
+func TestClaimNextPersistsRenderedPacketWithHash(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_packet_persist"
+	runID := "run_claim_packet_persist"
+	sessionID := "sess_1"
+	role := "worker"
+	lane := "claude"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, lane)
+
+	jobID := "job_1"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+			repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+			title, job_type, idempotency_key, created_at
+		) VALUES ($1,$2,$3,'job_w_1',1,'queued',$4,'Job 1','draft','idem_1',NOW())`,
+		repoID, jobID, runID, role); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	msgID := "msg_1"
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+			repository_id, message_id, run_id, job_id, kind, state, target_role_id,
+			target_lane_id, priority, created_at, updated_at
+		) VALUES ($1,$2,$3,$4,'work','pending',$5,$6,10,NOW(),NOW())`,
+		repoID, msgID, runID, jobID, role, lane); err != nil {
+		t.Fatalf("insert queue message: %v", err)
+	}
+
+	res, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if res["status"] != "claimed" {
+		t.Fatalf("status = %v", res["status"])
+	}
+	packetID, _ := res["packet_id"].(string)
+	if packetID == "" {
+		t.Fatalf("missing packet_id: %#v", res)
+	}
+
+	// The hash stored at claim is computed over json.Marshal(packet) where packet
+	// is the exact map returned to the caller, so it must round-trip here.
+	wantBytes, err := json.Marshal(res["packet"])
+	if err != nil {
+		t.Fatalf("marshal returned packet: %v", err)
+	}
+	wantSum := sha256.Sum256(wantBytes)
+	wantSha := hex.EncodeToString(wantSum[:])
+
+	var gotSha string
+	var gotJSON []byte
+	if err := runner.QueryRow(ctx, `
+		SELECT packet_sha256, packet_json::text
+		  FROM striatumd.work_packets
+		 WHERE repository_id = $1 AND packet_id = $2`, repoID, packetID).Scan(&gotSha, &gotJSON); err != nil {
+		t.Fatalf("read work_packets: %v", err)
+	}
+	if gotSha != wantSha {
+		t.Fatalf("packet_sha256 = %s, want %s", gotSha, wantSha)
+	}
+	// The stored body must deserialize to the same packet that was dispatched.
+	var storedPacket, dispatched map[string]any
+	if err := json.Unmarshal(gotJSON, &storedPacket); err != nil {
+		t.Fatalf("unmarshal stored packet_json: %v", err)
+	}
+	if err := json.Unmarshal(wantBytes, &dispatched); err != nil {
+		t.Fatalf("unmarshal dispatched packet: %v", err)
+	}
+	if !reflect.DeepEqual(storedPacket, dispatched) {
+		t.Fatalf("stored packet_json != dispatched packet\nstored=%#v\ndispatched=%#v", storedPacket, dispatched)
+	}
+
+	// The queue message payload is never backfilled with the packet body.
+	var payload string
+	if err := runner.QueryRow(ctx, `
+		SELECT payload_json::text FROM striatumd.queue_messages
+		 WHERE repository_id = $1 AND message_id = $2`, repoID, msgID).Scan(&payload); err != nil {
+		t.Fatalf("read queue payload: %v", err)
+	}
+	if strings.TrimSpace(payload) != "{}" {
+		t.Fatalf("queue_messages.payload_json = %q, want {} (packet body must not be duplicated here)", payload)
 	}
 }
 

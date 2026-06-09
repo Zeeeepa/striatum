@@ -267,3 +267,36 @@ Operational notes:
   trajectory; they are never raw provider stdout/stderr. The
   `striatumd.interrogations` table (migration 0016) is ownership-safe: it is a
   plain runtime-role table with no `ALTER`/FK to owner-held tables.
+
+## Auditing dispatched packets
+
+Every successful `work.claim` renders the work packet, persists it to
+`striatumd.work_packets` as `packet_json`, and records `packet_sha256` over that
+exact body. This row is the durable, daemon-owned record of *what was actually
+dispatched* to a lane — it is what makes a "wrong packet sent" vs "lane
+misfollowed a correct packet" dispute answerable from daemon state alone.
+
+The queue message is not the packet source of truth. `queue_messages.payload_json`
+stays `{}` (queue/routing metadata only); the daemon never backfills the packet
+body there or into ordinary event payloads, so do not audit a dispatched packet
+by reading queue or event rows.
+
+Inspect packets with `work packet-show` (RPC `work.packet_show`, capability
+`read`). At least one selector is required; raw body is opt-in:
+
+```bash
+# Metadata + packet_sha256 only (no task prose), newest first:
+striatum work packet-show --job-id <job-id>
+striatum work packet-show --session-id <session-id>
+striatum work packet-show --message-id <message-id>
+striatum work packet-show --run-id <run-id> --limit 50
+
+# Include the rendered packet body for a forensic comparison:
+striatum work packet-show <packet-id> --raw
+```
+
+`--raw` (also `include_raw` / `include_packet_json` over RPC) is omitted by
+default so reads do not leak task prose into dashboards, logs, or routine
+auditing. To settle a dispute, compare the hash an agent reported acting on
+against `packet_sha256`, and only pull `--raw` when the body itself is in
+question.
