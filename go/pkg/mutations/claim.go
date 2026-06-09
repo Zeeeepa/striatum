@@ -170,6 +170,17 @@ func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID 
 	if err != nil {
 		return nil, err
 	}
+	// #222: fresh-review PROCESS-lineage gate. The fresh-session gate above only
+	// guarantees a new session id; a long-lived lane process can register a fresh
+	// session and review its own upstream work. Refuse a fresh-context review job
+	// when the claimant's supervised process did durable upstream work (or its
+	// process identity is unverifiable), leaving the job queued for a real fresh
+	// reviewer. Runs before any lease/packet is created.
+	if refusal, err := freshReviewProcessLineageRefusal(ctx, tx, repositoryID, runID, sessionID, job); err != nil {
+		return nil, err
+	} else if refusal != nil {
+		return refusal, nil
+	}
 	now := nowString()
 	leaseID, err := newID("lease")
 	if err != nil {
