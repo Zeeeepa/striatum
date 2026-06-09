@@ -65,3 +65,60 @@ func TestHandleRunSummarySurfacesOperatorMode(t *testing.T) {
 		t.Fatalf("operator_mode = %#v", result["operator_mode"])
 	}
 }
+
+type runSummaryProvenanceFakeRunner struct {
+	runSummaryFakeRunner
+}
+
+func (runSummaryProvenanceFakeRunner) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "SELECT w.workflow_json"):
+		return dashboardAllRowsFromMaps([]map[string]any{{"workflow_json": map[string]any{
+			"operator_mode": "constrained",
+		}}}), nil
+	case strings.Contains(sql, "FROM striatumd.runs"):
+		return dashboardAllRowsFromMaps([]map[string]any{{
+			"run_id": "run_a", "workflow_snapshot_id": "wfs_a", "repo_root": "/tmp/repo",
+			"state": "running", "branch_name": "main",
+		}}), nil
+	case strings.Contains(sql, "FROM striatumd.jobs"):
+		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "FROM striatumd.artifacts"):
+		if !strings.Contains(sql, "recovery.auto_published") ||
+			!strings.Contains(sql, "a.author_line AS byline") {
+			return nil, errors.New("run.summary artifacts missing provenance projection")
+		}
+		runLevel := provenanceArtifactRow("art_decision", "", "", nil)
+		runLevel["job_id"] = ""
+		return dashboardAllRowsFromMaps([]map[string]any{
+			provenanceArtifactRow("art_recovered", "sess_recovered", "author: operator", map[string]any{
+				"_provenance_recovery_event_type": artifactEventRecoveryAutoPublished,
+			}),
+			runLevel,
+		}), nil
+	case strings.Contains(sql, "FROM striatumd.verdicts"):
+		return dashboardAllRowsFromMaps(nil), nil
+	default:
+		return nil, errors.New("unexpected query: " + sql)
+	}
+}
+
+func TestHandleRunSummaryAddsArtifactProvenanceCategories(t *testing.T) {
+	result, err := HandleRunSummary(context.Background(), runSummaryProvenanceFakeRunner{}, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_a", "run_id": "run_a"},
+	})
+	if err != nil {
+		t.Fatalf("HandleRunSummary: %v", err)
+	}
+	artifacts := result["artifacts"].([]map[string]any)
+	got := map[string]string{}
+	for _, artifact := range artifacts {
+		got[stringFrom(artifact, "artifact_id")] = artifactCategoryForTest(t, artifact)
+	}
+	if got["art_recovered"] != artifactProvenanceRecoveryAuthored {
+		t.Fatalf("recovered category = %q, want %q", got["art_recovered"], artifactProvenanceRecoveryAuthored)
+	}
+	if got["art_decision"] != artifactProvenanceRunLevelOperator {
+		t.Fatalf("decision category = %q, want %q", got["art_decision"], artifactProvenanceRunLevelOperator)
+	}
+}

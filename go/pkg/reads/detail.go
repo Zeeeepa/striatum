@@ -199,15 +199,16 @@ func HandleJobDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	}
 	jobID := stringFrom(jobs[0], "job_id")
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT *
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1 AND job_id = $2
-		  ORDER BY created_at`,
+		`SELECT a.*`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.job_id = $2
+		  ORDER BY a.created_at`,
 		repositoryID, jobID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(artifacts)
 	verdicts, err := collectRows(ctx, runner,
 		`SELECT *
 		   FROM striatumd.verdicts
@@ -243,12 +244,12 @@ func HandleArtifactShow(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		return nil, rpc.NewError("schema_invalid", "artifact.show requires artifact_id", nil)
 	}
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, session_id, logical_name,
-		        artifact_kind, repo_path, content_sha256, size_bytes,
-		        publish_mode, created_at, author_line,
-		        attestation_override_rationale
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1 AND artifact_id = $2`,
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.session_id, a.logical_name,
+		        a.artifact_kind, a.repo_path, a.content_sha256, a.size_bytes,
+		        a.publish_mode, a.created_at, a.author_line,
+		        a.attestation_override_rationale`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.artifact_id = $2`,
 		repositoryID, artifactID,
 	)
 	if err != nil {
@@ -258,6 +259,7 @@ func HandleArtifactShow(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		return nil, rpc.NewError("not_found", "artifact not found: "+artifactID, nil)
 	}
 	artifact := artifacts[0]
+	decorateArtifactProvenance(artifacts)
 	if runID := stringParam(envelope, "run_id"); runID != "" && stringFrom(artifact, "run_id") != runID {
 		return nil, rpc.NewError("not_found", "artifact not found in run: "+artifactID, nil)
 	}

@@ -256,6 +256,150 @@ func TestOverrideVerdictAlreadyAcceptingDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestSubmitReviewRejectsUnattestedFreshReviewWithoutProvenanceDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	markReviewJobFresh(t, ctx, runner, repoID, jobID)
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"path":       "artifacts/review/FINDING.md",
+		"verdict":    "accept",
+		"rationale":  "operator-authored final review recovery",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "review_provenance_override_required" {
+		t.Fatalf("submit-review error = %v, want review_provenance_override_required", err)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("review job state = %q, want running", got)
+	}
+	runID := "run_" + repoID
+	run, err := oneRow(ctx, runner, `
+		SELECT state FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read run: %v", err)
+	}
+	if run["state"] != "running" {
+		t.Fatalf("run state = %v, want running", run["state"])
+	}
+	if n := countVerdicts(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("verdict count = %d, want 0", n)
+	}
+}
+
+func TestSubmitReviewAllowsUnattestedFreshReviewWithProvenanceDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	markReviewJobFresh(t, ctx, runner, repoID, jobID)
+	runID := "run_" + repoID
+	decisionID := "dec_review_provenance_" + strings.ReplaceAll(t.Name(), "/", "_")
+	decisionArtifactID := seedReviewProvenanceDecision(t, ctx, runner, repoID, runID, decisionID)
+
+	result, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":                    sessionID,
+		"job_id":                        jobID,
+		"lease_id":                      leaseID,
+		"path":                          "artifacts/review/FINDING.md",
+		"verdict":                       "accept",
+		"rationale":                     "human accepted operator-authored review recovery risk",
+		"review_provenance_decision_id": decisionID,
+	}))
+	if err != nil {
+		t.Fatalf("submit-review with provenance decision: %v", err)
+	}
+	if result["job_state"] != "completed" || result["run_state"] != "completed" {
+		t.Fatalf("result states = job:%v run:%v, want completed/completed", result["job_state"], result["run_state"])
+	}
+	event, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'verdict.recorded'
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read verdict event: %v", err)
+	}
+	payload := asMap(event["payload_json"])
+	if payload["review_provenance_override"] != true ||
+		payload["review_provenance_decision_id"] != decisionID ||
+		payload["review_provenance_decision_artifact_id"] != decisionArtifactID {
+		t.Fatalf("verdict event payload = %#v, want review provenance evidence", payload)
+	}
+}
+
+func TestSubmitReviewAllowsRequireAttestedLaneWithProvenanceDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	runID := "run_" + repoID
+	setReviewWorkflowJobPolicy(t, ctx, runner, repoID, runID, map[string]any{"require_attested_lane": true})
+	decisionID := "dec_review_attested_lane_" + strings.ReplaceAll(t.Name(), "/", "_")
+	seedReviewProvenanceDecision(t, ctx, runner, repoID, runID, decisionID)
+
+	result, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":                    sessionID,
+		"job_id":                        jobID,
+		"lease_id":                      leaseID,
+		"path":                          "artifacts/review/FINDING.md",
+		"verdict":                       "accept",
+		"rationale":                     "human accepted unattested required-lane review recovery",
+		"review_provenance_decision_id": decisionID,
+	}))
+	if err != nil {
+		t.Fatalf("submit-review with required-lane provenance decision: %v", err)
+	}
+	if result["job_state"] != "completed" {
+		t.Fatalf("job_state = %v, want completed", result["job_state"])
+	}
+	artifact := asMap(result["artifact"])
+	if artifact["status"] != "published" {
+		t.Fatalf("artifact result = %#v, want published", artifact)
+	}
+}
+
+func TestRecordVerdictAllowsUnattestedFreshReviewWithProvenanceDecision(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	published, err := HandlePublishArtifact(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":   sessionID,
+		"job_id":       jobID,
+		"lease_id":     leaseID,
+		"kind":         "finding",
+		"logical_name": "review",
+		"path":         "artifacts/review/FINDING.md",
+	}))
+	if err != nil {
+		t.Fatalf("publish finding: %v", err)
+	}
+	markReviewJobFresh(t, ctx, runner, repoID, jobID)
+	runID := "run_" + repoID
+	decisionID := "dec_review_verdict_" + strings.ReplaceAll(t.Name(), "/", "_")
+	seedReviewProvenanceDecision(t, ctx, runner, repoID, runID, decisionID)
+
+	result, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id":                    sessionID,
+		"job_id":                        jobID,
+		"lease_id":                      leaseID,
+		"verdict":                       "accept",
+		"findings_artifact_id":          published["artifact_id"],
+		"rationale":                     "human accepted already-published operator-authored review recovery",
+		"review_provenance_decision_id": decisionID,
+	}))
+	if err != nil {
+		t.Fatalf("record verdict with provenance decision: %v", err)
+	}
+	if result["status"] != "completed" {
+		t.Fatalf("status = %v, want completed", result["status"])
+	}
+}
+
 func TestSubmitReviewRejectsCollaborationLedgerVerdictMismatch(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
@@ -841,6 +985,69 @@ func seedReviewFindingFixture(t *testing.T, ctx context.Context, runner db.Runne
 		t.Fatalf("insert lease: %v", err)
 	}
 	return repoID, sessionID, jobID, leaseID
+}
+
+func markReviewJobFresh(t *testing.T, ctx context.Context, runner db.Runner, repoID, jobID string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET fresh_session_required = true
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, jobID); err != nil {
+		t.Fatalf("mark review fresh: %v", err)
+	}
+}
+
+func setReviewWorkflowJobPolicy(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID string, policy map[string]any) {
+	t.Helper()
+	reviewJob := map[string]any{"id": "review", "type": "review"}
+	for key, value := range policy {
+		reviewJob[key] = value
+	}
+	workflow := map[string]any{
+		"workflow_id": "review_wf",
+		"lanes": map[string]any{
+			"reviewer": map[string]any{"display_model": "Claude"},
+		},
+		"jobs": []any{reviewJob},
+	}
+	workflowArg, err := db.JSONBArg(runner, workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.workflow_snapshots
+		   SET workflow_json = $1::jsonb
+		 WHERE repository_id = $2 AND workflow_snapshot_id = $3`,
+		workflowArg, repoID, "snap_"+runID); err != nil {
+		t.Fatalf("set review workflow policy: %v", err)
+	}
+}
+
+func seedReviewProvenanceDecision(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, decisionID string) string {
+	t.Helper()
+	now := time.Now().UTC()
+	artifactID := "art_" + decisionID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, job_id, session_id,
+		  logical_name, artifact_kind, repo_path, content_sha256,
+		  size_bytes, publish_mode, created_at
+		)
+		VALUES ($1,$2,$3,NULL,NULL,$4,'decision',$5,'sha_'||$2,1,'create',$6)`,
+		repoID, artifactID, runID, decisionID, "decisions/"+decisionID+".md", now); err != nil {
+		t.Fatalf("insert review provenance decision artifact: %v", err)
+	}
+	if _, err := appendEvent(ctx, runner, repoID, runID, "decision.recorded", nil, nil, nil, artifactID, nil, map[string]any{
+		"decision_id":     decisionID,
+		"outcome":         "accepted",
+		"path":            "decisions/" + decisionID + ".md",
+		"escape_decision": true,
+		"escape_surface":  "review_provenance",
+		"escape_action":   "allow unattested accepting review recovery for " + runID,
+	}); err != nil {
+		t.Fatalf("append review provenance decision event: %v", err)
+	}
+	return artifactID
 }
 
 type reviewOverrideFakeRunner struct {

@@ -49,6 +49,10 @@ func (dashboardFakeRunner) Query(_ context.Context, sql string, args ...any) (pg
 			"lane_attestation":        "unattested",
 			"lane_attestation_reason": "no_attached_supervisor",
 		}}), nil
+	case strings.Contains(sql, "FROM striatumd.artifacts"):
+		return dashboardAllRowsFromMaps([]map[string]any{
+			provenanceArtifactRow("art_1", "sess_1", "author: operator", nil),
+		}), nil
 	case strings.Contains(sql, "FROM striatumd.events"):
 		return dashboardAllRowsFromMaps(nil), nil
 	default:
@@ -74,5 +78,9 @@ func TestHandleDashboardDerivesUnattachedSessionAttestation(t *testing.T) {
 	}
 	if session["lane_attestation_reason"] != "no_attached_supervisor" {
 		t.Fatalf("session attestation reason = %#v", session)
+	}
+	counts := result["artifact_provenance_counts"].(map[string]int)
+	if counts[artifactProvenanceUnattestedSession] != 1 {
+		t.Fatalf("artifact provenance counts = %#v", counts)
 	}
 }

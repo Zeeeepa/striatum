@@ -144,28 +144,30 @@ func HandleListArtifacts(ctx context.Context, runner db.Runner, envelope rpc.Env
 	runID := stringParam(envelope, "run_id")
 	kind := stringParam(envelope, "kind")
 	args := []any{repositoryID}
-	where := "WHERE repository_id = $1"
+	where := "WHERE a.repository_id = $1"
 	if runID != "" {
 		args = append(args, runID)
-		where += " AND run_id = $" + strconv.Itoa(len(args))
+		where += " AND a.run_id = $" + strconv.Itoa(len(args))
 	}
 	if kind != "" {
 		args = append(args, kind)
-		where += " AND artifact_kind = $" + strconv.Itoa(len(args))
+		where += " AND a.artifact_kind = $" + strconv.Itoa(len(args))
 	}
 	limit, count := limitClause(envelope, 500)
 	items, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, session_id,
-		        artifact_kind AS kind, logical_name,
-		        repo_path AS path, content_sha256, author_line AS byline,
-		        created_at AS published_at
-		   FROM striatumd.artifacts `+where+
-			` ORDER BY created_at DESC`+limit,
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.session_id,
+		        a.artifact_kind AS kind, a.logical_name,
+		        a.repo_path AS path, a.content_sha256, a.author_line AS byline,
+		        a.created_at AS published_at`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+
+			where+
+			` ORDER BY a.created_at DESC`+limit,
 		args...,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(items)
 	return map[string]any{"count": len(items), "limit": count, "items": items}, nil
 }
 

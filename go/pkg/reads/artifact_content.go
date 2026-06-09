@@ -87,18 +87,19 @@ func HandleArtifactListForRun(ctx context.Context, runner db.Runner, envelope rp
 		return nil, rpc.NewError("schema_invalid", "artifact.list_for_run requires run_id", nil)
 	}
 	items, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, session_id, logical_name,
-		        artifact_kind, repo_path, content_sha256, size_bytes,
-		        publish_mode, created_at, author_line,
-		        blob_key, blob_sha256, blob_content_type
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY created_at ASC`,
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.session_id, a.logical_name,
+		        a.artifact_kind, a.repo_path, a.content_sha256, a.size_bytes,
+		        a.publish_mode, a.created_at, a.author_line,
+		        a.blob_key, a.blob_sha256, a.blob_content_type`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.run_id = $2
+		  ORDER BY a.created_at ASC`,
 		repositoryID, runID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(items)
 	return map[string]any{
 		"run_id": runID,
 		"count":  len(items),

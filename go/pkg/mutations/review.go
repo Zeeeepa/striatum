@@ -26,6 +26,7 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 	verdict := normalizeVerdict(stringParam(envelope, "verdict"))
 	findingsArtifactID := nullable(stringParam(envelope, "findings_artifact_id"))
 	rationale := nullable(stringParam(envelope, "rationale"))
+	reviewProvenanceDecisionID := reviewProvenanceDecisionParam(envelope)
 	if sessionID == "" || jobID == "" || leaseID == "" || verdict == "" {
 		return nil, rpc.NewError("schema_invalid", "review.verdict requires session_id, job_id, lease_id, and verdict", nil)
 	}
@@ -37,7 +38,7 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}
-		return recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, findingsArtifactID, rationale)
+		return recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, findingsArtifactID, rationale, reviewProvenanceDecisionID)
 	})
 }
 
@@ -62,6 +63,7 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	logicalNameExplicit := logicalName != ""
 	kindExplicit := kind != ""
 	rationale := nullable(stringParam(envelope, "rationale"))
+	reviewProvenanceDecisionID := reviewProvenanceDecisionParam(envelope)
 	if sessionID == "" || jobID == "" || leaseID == "" || pathText == "" || verdict == "" {
 		return nil, rpc.NewError("schema_invalid", "review.submit requires session_id, job_id, lease_id, path, and verdict", nil)
 	}
@@ -94,7 +96,8 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if kind == "" {
 			kind = "finding"
 		}
-		if err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText, verdict); err != nil {
+		reviewProvenance, err := prevalidateSubmitReview(ctx, tx, repositoryID, job, sessionID, leaseID, logicalName, kind, pathText, verdict, reviewProvenanceDecisionID)
+		if err != nil {
 			return nil, err
 		}
 		// RFC 0095 Goal 8 / #206: refuse a finding byte-identical to this job's
@@ -120,11 +123,13 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		// 23505 retry that re-ran the whole submit in a fresh transaction is
 		// no longer needed (and its logical-name lookup could not even find
 		// the row when the conflict was on the repo_path constraint).
-		artifact, err := publishArtifact(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText)
+		artifact, err := publishArtifactWithOptions(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText, publishArtifactOptions{
+			ReviewProvenanceOverride: reviewProvenance != nil,
+		})
 		if err != nil {
 			return nil, err
 		}
-		verdictResult, err := recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, artifact["artifact_id"], rationale)
+		verdictResult, err := recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, artifact["artifact_id"], rationale, reviewProvenanceDecisionID)
 		if err != nil {
 			return nil, err
 		}
@@ -474,6 +479,7 @@ func recordVerdict(
 	verdict string,
 	findingsArtifactID any,
 	rationale any,
+	reviewProvenanceDecisionID string,
 ) (map[string]any, error) {
 	job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, true)
 	if err != nil {
@@ -492,7 +498,8 @@ func recordVerdict(
 		}
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("%s job must be running before verdict", label), nil)
 	}
-	if err := enforceRequiredAttestationForVerdict(ctx, runner, repositoryID, job, sessionID); err != nil {
+	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "recording a verdict", reviewProvenanceDecisionID)
+	if err != nil {
 		return nil, err
 	}
 	if err := verifyRequiredArtifacts(ctx, runner, repositoryID, jobID); err != nil {
@@ -516,7 +523,7 @@ func recordVerdict(
 			return nil, rpc.NewError("invalid_transition", "findings artifact belongs to a different job", nil)
 		}
 	}
-	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale)
+	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale, reviewProvenance)
 }
 
 // applyVerdict records the verdict row and runs the completion / cycle / downstream
@@ -529,7 +536,7 @@ func recordVerdict(
 // mutation it performs (completeReviewJob / failReviewJob / routeRevisionCycle) is
 // lease-state-tolerant (unconditional UPDATEs keyed by id), so it is safe on a
 // stale lane.
-func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID, verdict string, job map[string]any, findingsArtifactID, rationale any) (map[string]any, error) {
+func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID, verdict string, job map[string]any, findingsArtifactID, rationale any, reviewProvenance map[string]any) (map[string]any, error) {
 	verdictID, err := newID("verdict")
 	if err != nil {
 		return nil, err
@@ -565,11 +572,15 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 		return nil, err
 	}
 	attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
-	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "verdict.recorded", sessionID, jobID, nil, nil, leaseID, map[string]any{
+	payload := map[string]any{
 		"verdict":          verdict,
 		"posture":          posture,
 		"lane_attestation": attestation["state"],
-	}); err != nil {
+	}
+	for key, value := range reviewProvenance {
+		payload[key] = value
+	}
+	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "verdict.recorded", sessionID, jobID, nil, nil, leaseID, payload); err != nil {
 		return nil, err
 	}
 	switch verdict {
@@ -742,25 +753,26 @@ func inferSubmitReviewArtifactIdentity(
 	return logicalName, kind
 }
 
-func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict string) error {
+func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict, reviewProvenanceDecisionID string) (map[string]any, error) {
 	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
-		return rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
+		return nil, rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
 	}
 	state := fmt.Sprint(job["state"])
 	if state != "claimed" && state != "running" {
-		return rpc.NewError("invalid_transition", "verdict-capable job must be claimed or running before submit-review", nil)
+		return nil, rpc.NewError("invalid_transition", "verdict-capable job must be claimed or running before submit-review", nil)
 	}
 	if state == "claimed" && nullable(job["current_message_id"]) == nil {
-		return rpc.NewError("invalid_transition", "claimed verdict-capable job is missing its current message", nil)
+		return nil, rpc.NewError("invalid_transition", "claimed verdict-capable job is missing its current message", nil)
 	}
 	if _, err := activeLeaseFor(ctx, runner, repositoryID, leaseID, sessionID, fmt.Sprint(job["job_id"])); err != nil {
-		return err
+		return nil, err
 	}
-	if err := enforceRequiredAttestationForVerdict(ctx, runner, repositoryID, job, sessionID); err != nil {
-		return err
+	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "publishing review artifacts and recording an accepting verdict", reviewProvenanceDecisionID)
+	if err != nil {
+		return nil, err
 	}
 	if err := prevalidateSubmitReviewArtifactVerdict(ctx, runner, repositoryID, job, kind, pathText, verdict); err != nil {
-		return err
+		return nil, err
 	}
 	// Build finding 1: resolve cycle placeholders against the job attempt so the
 	// submit-review pre-check compares against the attempt-scoped logical name +
@@ -786,14 +798,14 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 			expected["path"],
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !found {
 			// #96 part 2: name BOTH the submitted tuple and the expected tuple so
 			// the operator can see exactly what was submitted vs required and pass
 			// the right --logical-name/--kind (the submitted identity defaults to
 			// "review"/"finding" when not inferred from a sole expected artifact).
-			return rpc.NewError("invalid_transition", fmt.Sprintf(
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
 				"required artifact would still be missing after submit-review: submitted (logical_name=%q, kind=%q, path=%q) does not satisfy expected (logical_name=%q, kind=%q, path=%q); pass --logical-name and --kind matching the expected artifact",
 				logicalName,
 				kind,
@@ -804,7 +816,7 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 			), nil)
 		}
 	}
-	return nil
+	return reviewProvenance, nil
 }
 
 func prevalidateSubmitReviewArtifactVerdict(ctx context.Context, runner any, repositoryID string, job map[string]any, kind, pathText, submittedVerdict string) error {
@@ -1095,42 +1107,158 @@ func resolveReviewPosture(ctx context.Context, runner any, repositoryID string, 
 	return "neutral", nil
 }
 
-func enforceRequiredAttestationForVerdict(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string) error {
-	return enforceRequiredAttestationForReviewAction(ctx, runner, repositoryID, job, sessionID, "recording a verdict")
-}
-
 func enforceRequiredAttestationForArtifactPublish(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string) error {
-	return enforceRequiredAttestationForReviewAction(ctx, runner, repositoryID, job, sessionID, "publishing review artifacts")
+	return enforceRequiredAttestationForArtifactPublishWithOverride(ctx, runner, repositoryID, job, sessionID, false)
 }
 
-func enforceRequiredAttestationForReviewAction(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, action string) error {
-	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+func enforceRequiredAttestationForArtifactPublishWithOverride(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID string, reviewProvenanceOverride bool) error {
+	def, err := workflowJobDefinitionForRow(ctx, runner, repositoryID, job)
 	if err != nil {
 		return err
 	}
+	if def["require_attested_lane"] != true {
+		return nil
+	}
+	attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
+	if attestation["attested"] == true || reviewProvenanceOverride {
+		return nil
+	}
+	return reviewAttestationError(sessionID, "publishing review artifacts", attestation, false)
+}
+
+func enforceReviewProvenancePolicy(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, verdict, action, decisionID string) (map[string]any, error) {
+	def, err := workflowJobDefinitionForRow(ctx, runner, repositoryID, job)
+	if err != nil {
+		return nil, err
+	}
+	attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
+	if attestation["attested"] == true {
+		return nil, nil
+	}
+	requiresAttestedLane := def["require_attested_lane"] == true
+	requiresOverride := requiresAttestedLane || (isAcceptingVerdict(verdict) && reviewRequiresIndependentProvenance(job, def))
+	if !requiresOverride {
+		return nil, nil
+	}
+	if strings.TrimSpace(decisionID) == "" {
+		if requiresAttestedLane {
+			return nil, reviewAttestationError(sessionID, action, attestation, true)
+		}
+		return nil, rpc.NewError(
+			"review_provenance_override_required",
+			"unattested/operator-authored accepting verdict for a fresh review job requires --review-provenance-decision-id referencing an accepting run-level decision with escape_surface=review_provenance",
+			map[string]any{
+				"job_id":       job["job_id"],
+				"workflow_job": job["workflow_job_id"],
+				"session_id":   sessionID,
+			},
+		)
+	}
+	evidence, err := verifyReviewProvenanceDecision(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), decisionID)
+	if err != nil {
+		return nil, err
+	}
+	return evidence, nil
+}
+
+func workflowJobDefinitionForRow(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)
+	if err != nil {
+		return nil, err
+	}
 	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", fmt.Sprint(run["workflow_snapshot_id"]), false)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, item := range asList(asMap(snapshot["workflow_json"])["jobs"]) {
 		def := asMap(item)
 		if def["id"] != job["workflow_job_id"] {
 			continue
 		}
-		if def["require_attested_lane"] != true {
-			return nil
-		}
-		attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
-		if attestation["attested"] == true {
-			return nil
-		}
-		reason := ""
-		if attestation["reason"] != nil {
-			reason = fmt.Sprintf(" (%v)", attestation["reason"])
-		}
-		return rpc.NewError("invalid_transition", "review job requires an attached lane supervisor before "+action+reason+"; recovery: striatum supervise start --session-id "+sessionID, nil)
+		return def, nil
 	}
-	return nil
+	return map[string]any{}, nil
+}
+
+func reviewAttestationError(sessionID, action string, attestation map[string]any, includeDecisionPath bool) error {
+	reason := ""
+	if attestation["reason"] != nil {
+		reason = fmt.Sprintf(" (%v)", attestation["reason"])
+	}
+	message := "review job requires an attached lane supervisor before " + action + reason + "; recovery: striatum supervise start --session-id " + sessionID
+	if includeDecisionPath {
+		message += " or record an accepting review_provenance decision and pass --review-provenance-decision-id"
+	}
+	return rpc.NewError("invalid_transition", message, nil)
+}
+
+func reviewRequiresIndependentProvenance(job, def map[string]any) bool {
+	if fmt.Sprint(job["job_type"]) != "review" {
+		return false
+	}
+	if defType := fmt.Sprint(def["type"]); defType != "" && defType != "review" {
+		return false
+	}
+	return boolValue(job["fresh_session_required"]) || def["fresh_session_required"] == true || def["reviewer_context_policy"] == "fresh"
+}
+
+func isAcceptingVerdict(verdict string) bool {
+	return verdict == "accept" || verdict == "accept_with_findings"
+}
+
+func reviewProvenanceDecisionParam(envelope rpc.Envelope) string {
+	if value := strings.TrimSpace(stringParam(envelope, "review_provenance_decision_id")); value != "" {
+		return value
+	}
+	return strings.TrimSpace(stringParam(envelope, "provenance_decision_id"))
+}
+
+func verifyReviewProvenanceDecision(ctx context.Context, runner any, repositoryID, runID, decisionID string) (map[string]any, error) {
+	artifact, err := oneRow(ctx, runner, `
+		SELECT artifact_id, job_id, session_id
+		  FROM striatumd.artifacts
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND artifact_kind = 'decision'
+		   AND logical_name = $3
+		 LIMIT 1`, repositoryID, runID, decisionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, rpc.NewError("invalid_transition", "review provenance decision was not found for this run", map[string]any{"decision_id": decisionID})
+		}
+		return nil, err
+	}
+	if nullable(artifact["job_id"]) != nil || nullable(artifact["session_id"]) != nil {
+		return nil, rpc.NewError("invalid_transition", "review provenance decision must be a run-level decision artifact", map[string]any{"decision_id": decisionID})
+	}
+	event, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND event_type = 'decision.recorded'
+		   AND payload_json->>'decision_id' = $3
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, runID, decisionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, rpc.NewError("invalid_transition", "review provenance decision is missing its decision.recorded event", map[string]any{"decision_id": decisionID})
+		}
+		return nil, err
+	}
+	payload := asMap(event["payload_json"])
+	outcome := fmt.Sprint(payload["outcome"])
+	if outcome != "accepted" && outcome != "accepted_with_follow_up" {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("review provenance decision must have an accepting outcome (got %q)", outcome), map[string]any{"decision_id": decisionID})
+	}
+	if fmt.Sprint(payload["escape_surface"]) != "review_provenance" {
+		return nil, rpc.NewError("invalid_transition", "review provenance decision must declare escape_surface=review_provenance", map[string]any{"decision_id": decisionID})
+	}
+	return map[string]any{
+		"review_provenance_override":             true,
+		"review_provenance_decision_id":          decisionID,
+		"review_provenance_decision_artifact_id": artifact["artifact_id"],
+	}, nil
 }
 
 // reviewFeedsAbsorbingAdjudicator reports whether every downstream consumer of

@@ -81,6 +81,25 @@ func publishArtifact(
 	logicalName string,
 	pathText string,
 ) (map[string]any, error) {
+	return publishArtifactWithOptions(ctx, runner, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText, publishArtifactOptions{})
+}
+
+type publishArtifactOptions struct {
+	ReviewProvenanceOverride bool
+}
+
+func publishArtifactWithOptions(
+	ctx context.Context,
+	runner any,
+	repositoryID string,
+	sessionID string,
+	jobID string,
+	leaseID string,
+	kind string,
+	logicalName string,
+	pathText string,
+	options publishArtifactOptions,
+) (map[string]any, error) {
 	job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, true)
 	if err != nil {
 		return nil, err
@@ -94,7 +113,7 @@ func publishArtifact(
 	if !allowedArtifactKinds[kind] {
 		return nil, rpc.NewError("artifact_error", fmt.Sprintf("artifact kind %q is not in the allowed kinds list", kind), nil)
 	}
-	if err := enforceRequiredAttestationForArtifactPublish(ctx, runner, repositoryID, job, sessionID); err != nil {
+	if err := enforceRequiredAttestationForArtifactPublishWithOverride(ctx, runner, repositoryID, job, sessionID, options.ReviewProvenanceOverride); err != nil {
 		return nil, err
 	}
 	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", fmt.Sprint(job["run_id"]), false)

@@ -121,7 +121,7 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 	}{
 		{[]string{"claim-next"}, []string{"<session-id>", "--lease-seconds"}},
 		{[]string{"publish-artifact"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<kind>", "<logical-name>", "<path>", "--allow-no-process-execution"}},
-		{[]string{"submit-review"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<path>", "accept|accept_with_findings|needs_revision|reject", "--logical-name", "--kind"}},
+		{[]string{"submit-review"}, []string{"<session-id>", "<job-id>", "<lease-id>", "<path>", "accept|accept_with_findings|needs_revision|reject", "--logical-name", "--kind", "--review-provenance-decision-id"}},
 		{[]string{"complete"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--summary"}},
 		{[]string{"repo", "patch-preview"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--patch"}},
 		{[]string{"process", "run"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--command-json", "--timeout-seconds"}},

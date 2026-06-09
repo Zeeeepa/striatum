@@ -112,6 +112,13 @@ finding artifact and record the verdict. Use `verdict` when the required
 review artifact is already published for the current attempt, such as a
 re-claimed review job after lease recovery.
 
+For operator-authored or otherwise unattested recovery of an accepting fresh
+review, record an accepting run-level decision with
+`--escape-surface review_provenance`, then pass
+`--review-provenance-decision-id <decision-id>` to `submit-review` or `verdict`.
+The verdict event records the decision id and artifact id as durable override
+evidence.
+
 `publish-artifact` validates lease ownership, write scope, path
 safety, artifact kind, front matter, and byline. Model-bylined
 artifacts require lane evidence: a path-specific supervised
@@ -123,7 +130,13 @@ row and in the provenance event.
 For review jobs declaring `require_attested_lane: true`, `publish-artifact`
 also refuses publication unless the session has an attached lane supervisor.
 `decision record --mark-run-compromised` records an accepting decision and
-transitions a completed run to `compromised` for provenance invalidation.
+transitions a completed run to `compromised` for provenance invalidation; V1
+uses this replacement-run-only path for compromised completed review jobs.
+
+Artifact listing, detail, summary, export, and dashboard JSON includes
+`provenance.category` so operator-bylined artifacts can be separated from
+attested supervised-lane, daemon auto-finalized, operator-on-behalf,
+self-declared operator, recovery-authored, and run-level operator artifacts.
 
 ## Worktree (opt-in per lane via `worktree_isolation: per_job`)
 

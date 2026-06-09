@@ -51,17 +51,18 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	}
 
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT artifact_id, job_id, artifact_kind AS kind, logical_name,
-		        repo_path AS path, content_sha256, author_line AS byline,
-		        created_at AS published_at
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY created_at`,
+		`SELECT a.artifact_id, a.job_id, a.artifact_kind AS kind, a.logical_name,
+		        a.repo_path AS path, a.content_sha256, a.author_line AS byline,
+		        a.created_at AS published_at`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.run_id = $2
+		  ORDER BY a.created_at`,
 		repositoryID, runID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(artifacts)
 
 	verdicts, err := collectRows(ctx, runner,
 		`SELECT verdict_id, job_id, session_id, verdict,
@@ -131,18 +132,19 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, rpc.NewError("not_found", "run not found: "+runID, nil)
 	}
 	artifacts, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, job_id, artifact_kind AS kind,
-		        logical_name, repo_path AS path, content_sha256,
-		        author_line AS byline, created_at AS published_at
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1 AND run_id = $2
-		  ORDER BY created_at DESC LIMIT 500`,
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.artifact_kind AS kind,
+		        a.logical_name, a.repo_path AS path, a.content_sha256,
+		        a.author_line AS byline, a.created_at AS published_at`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.run_id = $2
+		  ORDER BY a.created_at DESC LIMIT 500`,
 		repositoryID,
 		runID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(artifacts)
 	verdicts, err := collectRows(ctx, runner,
 		`SELECT verdict_id, run_id, job_id, verdict,
 		        posture AS review_posture, created_at AS recorded_at
@@ -244,17 +246,18 @@ func HandleCorpusExport(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	}
 	limit, count := limitClause(envelope, 1000)
 	rows, err := collectRows(ctx, runner,
-		`SELECT artifact_id, run_id, artifact_kind AS kind, logical_name,
-		        repo_path AS path, content_sha256, author_line AS byline,
-		        created_at AS published_at
-		   FROM striatumd.artifacts
-		  WHERE repository_id = $1
-		  ORDER BY created_at DESC`+limit,
+		`SELECT a.artifact_id, a.run_id, a.artifact_kind AS kind, a.logical_name,
+		        a.repo_path AS path, a.content_sha256, a.author_line AS byline,
+		        a.created_at AS published_at`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1
+		  ORDER BY a.created_at DESC`+limit,
 		repositoryID,
 	)
 	if err != nil {
 		return nil, err
 	}
+	decorateArtifactProvenance(rows)
 	redactedRows := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
 		redactedRows = append(redactedRows, redactCorpusArtifactRow(row))

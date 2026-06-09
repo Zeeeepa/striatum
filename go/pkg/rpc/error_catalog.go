@@ -287,6 +287,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Run `striatum repo add <path> --init` for the target repository, then retry.",
 	},
 	{
+		Code:       "review_provenance_override_required",
+		Meaning:    "An unattested/operator-authored accepting review verdict requires an explicit run-level review provenance decision.",
+		Suggestion: "Record an accepting decision with `--escape-surface review_provenance --escape-action <action> --rationale <reason>`, then retry with `--review-provenance-decision-id <decision_id>`.",
+	},
+	{
 		Code:       "run_not_found",
 		Meaning:    "The run_id was not found.",
 		Suggestion: "List runs (list.runs) and use an existing run_id.",

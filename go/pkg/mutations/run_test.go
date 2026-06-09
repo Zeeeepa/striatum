@@ -176,6 +176,53 @@ func TestDecisionRecordCanMarkCompletedRunCompromised(t *testing.T) {
 	}
 }
 
+func TestCompletedReviewCompromiseIsReplacementRunOnly(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	repoID := "repo_completed_review_compromise"
+	runID := "run_completed_review_compromise"
+	reviewJobID := "job_completed_review_compromise"
+	seedCompletedRunForDecision(t, ctx, runner, repoID, runID, repoRoot)
+	seedCompletedReviewJob(t, ctx, runner, repoID, runID, reviewJobID)
+
+	_, err := HandleRunRetryJob(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID,
+		"job_id": reviewJobID,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "replacement run") {
+		t.Fatalf("retry completed review error = %v, want replacement-run guidance", err)
+	}
+
+	result, err := HandleDecisionRecord(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id":               runID,
+		"path":                 "docs/decisions/compromised-review.md",
+		"outcome":              "accepted",
+		"title":                "Invalidate compromised completed review",
+		"decision_id":          "dec_compromised_review",
+		"rationale":            "Completed review provenance was compromised; replacement run required.",
+		"mark_run_compromised": true,
+	}))
+	if err != nil {
+		t.Fatalf("decision.record: %v", err)
+	}
+	transition := asMap(result["run_state_transition"])
+	if transition["from"] != "completed" || transition["to"] != "compromised" {
+		t.Fatalf("run_state_transition = %#v, want completed -> compromised", result["run_state_transition"])
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "completed" {
+		t.Fatalf("completed review job state = %q, want completed (replacement-run-only path does not revive jobs)", got)
+	}
+	if _, err := oneRow(ctx, runner, `
+		SELECT event_id
+		  FROM striatumd.events
+		 WHERE repository_id = $1 AND run_id = $2 AND event_type = 'run.compromised'
+		   AND payload_json->>'stop_reason' = 'provenance_compromised'`, repoID, runID); err != nil {
+		t.Fatalf("run.compromised evidence missing: %v", err)
+	}
+}
+
 func TestRunResumeCompletedRunGivesCompromiseGuidance(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
@@ -194,6 +241,27 @@ func TestRunResumeCompletedRunGivesCompromiseGuidance(t *testing.T) {
 	}
 	if strings.Contains(rpcErr.Message, "retry_job") {
 		t.Fatalf("run.resume message = %q, must not point completed runs at retry_job", rpcErr.Message)
+	}
+}
+
+func seedCompletedReviewJob(t *testing.T, ctx context.Context, runner any, repoID, runID, jobID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	execer, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		t.Fatalf("runner does not support Exec")
+	}
+	if err := execer.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, expected_artifacts_json, idempotency_key, created_at,
+		  completed_at
+		) VALUES ($1,$2,$3,'final_review',1,'completed','reviewer',
+		  'Final Review','review','[]'::jsonb,'idem_'||$2,$4,$4)`,
+		repoID, jobID, runID, now); err != nil {
+		t.Fatalf("insert completed review job: %v", err)
 	}
 }
 

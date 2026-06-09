@@ -384,6 +384,7 @@ remediation is sensible for that code.
 | `repo_not_found` | The repository path does not exist on disk. | Verify the repository path and re-run `striatum repo add` with the correct location. |
 | `repo_not_registered` | The repository is not registered with the daemon. | Register the repository first (`striatum repo add`), then retry. |
 | `repo_scratch_missing` | The repository scratch area is not initialized. | Register the repository with `striatum repo add --init`, then retry. |
+| `review_provenance_override_required` | An unattested/operator-authored accepting review verdict requires an explicit run-level review provenance decision. | Record an accepting decision with `--escape-surface review_provenance --escape-action <action> --rationale <reason>`, then retry with `--review-provenance-decision-id <decision_id>`. |
 | `run_not_found` | The run_id was not found. | List runs (list.runs) and use an existing run_id. |
 | `schema_invalid` | The request failed schema validation (missing, ill-typed, or malformed parameters or envelope). | Fix the named parameter to match the documented schema and resend the request. |
 | `sha256_mismatch` | A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted). | Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying. |

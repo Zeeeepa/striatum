@@ -201,6 +201,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "verdict", Positional: true, Required: true, Values: []string{"accept", "accept_with_findings", "needs_revision", "reject"}, Help: "review verdict"},
 			{Name: "findings-artifact-id", Help: "already-published findings artifact id to attach to the verdict"},
 			{Name: "rationale", Help: "optional verdict rationale"},
+			{Name: "review-provenance-decision-id", Help: "accepting run-level decision allowing unattested review provenance recovery"},
 		},
 		Notes: []string{
 			"Use verdict instead of submit-review when the required finding artifact is already published for the current attempt.",
@@ -216,6 +217,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "logical-name", Help: "artifact logical name; inferred from the sole required expected artifact when possible, otherwise defaults to review"},
 			{Name: "kind", Help: "artifact kind; inferred from the sole required expected artifact when possible, otherwise defaults to finding"},
 			{Name: "rationale", Help: "optional verdict rationale"},
+			{Name: "review-provenance-decision-id", Help: "accepting run-level decision allowing unattested review provenance recovery"},
 		},
 	},
 	"worktree_create": {

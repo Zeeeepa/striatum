@@ -817,7 +817,9 @@ For completed runs whose provenance is later found compromised, an accepting
 decision can pass `--mark-run-compromised`; the daemon records the decision
 artifact, emits `run.compromised`, and transitions the run from `completed` to
 `compromised` so operators can start a replacement run without silently reviving
-finished work.
+finished work. Completed review jobs are not selectively invalidated or retried
+in V1; compromised completed review provenance is corrected by marking the
+completed run `compromised` and starting a replacement run.
 
 Durable Markdown artifacts should include the work packet's privacy-safe
 `author:` line in their title block when one is provided. For unattested
@@ -837,6 +839,16 @@ operator-only `--allow-no-process-execution
 --override-rationale` path records both a provenance event and the artifact's
 `attestation_override_rationale`.
 
+Artifact list, detail, summary, export, and dashboard read surfaces include a
+derived `provenance` object alongside the actual byline. Its `category` is one
+of `attested_supervised_lane`, `unattested_no_supervisor_session`,
+`daemon_auto_finalized_from_artifact`, `operator_published_on_behalf`,
+`operator_self_declared`, `recovery_authored`, `operator_authored`, or
+`unknown`. The derivation is read-only and uses the artifact row, session
+operator labels, publish-time supervisor/process evidence, and provenance or
+recovery events; it does not add a new durable state table or upgrade bylines
+into proof of source-byte authorship.
+
 `complete` and review `verdict` commands verify all required artifacts before
 terminal job transition.
 
@@ -848,6 +860,17 @@ a re-claimed review job already has its required finding artifact published for
 the current attempt, use `verdict` / `review.verdict` instead; it records the
 verdict against the existing artifact and avoids re-publishing an immutable
 logical name.
+
+For an unattested session recording an accepting verdict on a fresh review job,
+or on a review job that declares `require_attested_lane: true`, `submit-review`
+and `verdict` require `--review-provenance-decision-id <id>` unless the session
+is lane-attested. The referenced artifact must be a run-level accepting
+`decision` whose `decision.recorded` payload declares
+`escape_surface: review_provenance`. When accepted, the daemon records
+`review_provenance_override`, the decision id, and the decision artifact id on
+the `verdict.recorded` event. Direct `publish-artifact` remains strict for
+`require_attested_lane`; use `submit-review` for the audited combined override
+path.
 
 `override-verdict` is an explicit operator recovery command for a completed or
 `waiting_human` review job whose latest verdict is non-accepting. It requires a

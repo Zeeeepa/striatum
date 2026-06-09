@@ -704,7 +704,7 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				// rather than wedging recovery for the run.
 				if found && autonomouslyApplicableVerdict(verdict) {
 					complete, err = applyVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, job, findingArtifactID,
-						"autonomous recovery: verdict auto-recorded from on-disk finding")
+						"autonomous recovery: verdict auto-recorded from on-disk finding", nil)
 				} else {
 					complete, err = completeAutoRecoveredJob(ctx, tx, repositoryID, jobID, sessionID, leaseID, messageID)
 				}

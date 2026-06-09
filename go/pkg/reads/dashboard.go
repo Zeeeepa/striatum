@@ -35,7 +35,15 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			return nil, err
 		}
 		if len(latest) == 0 {
-			return map[string]any{"run_id": nil, "jobs_by_state": map[string]int{}, "verdicts_by_state": map[string]int{}, "blockers": map[string]int{}, "sessions": []any{}, "recent_events": []any{}}, nil
+			return map[string]any{
+				"run_id":                     nil,
+				"jobs_by_state":              map[string]int{},
+				"verdicts_by_state":          map[string]int{},
+				"blockers":                   map[string]int{},
+				"sessions":                   []any{},
+				"recent_events":              []any{},
+				"artifact_provenance_counts": map[string]int{},
+			}, nil
 		}
 		runID = stringFrom(latest[0], "run_id")
 	}
@@ -246,12 +254,25 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		return nil, err
 	}
 
+	artifactRows, err := collectRows(ctx, runner,
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.session_id,
+		        a.author_line`+artifactProvenanceColumns+`
+		   FROM striatumd.artifacts a`+artifactProvenanceJoins+`
+		  WHERE a.repository_id = $1 AND a.run_id = $2`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	decorateArtifactProvenance(artifactRows)
+
 	return map[string]any{
-		"run_id":            runID,
-		"jobs_by_state":     jobsByState,
-		"verdicts_by_state": verdictCounts,
-		"blockers":          blockerCounts,
-		"sessions":          sessions,
-		"recent_events":     events,
+		"run_id":                     runID,
+		"jobs_by_state":              jobsByState,
+		"verdicts_by_state":          verdictCounts,
+		"blockers":                   blockerCounts,
+		"sessions":                   sessions,
+		"recent_events":              events,
+		"artifact_provenance_counts": artifactProvenanceCounts(artifactRows),
 	}, nil
 }
