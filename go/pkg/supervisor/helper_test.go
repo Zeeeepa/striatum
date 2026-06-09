@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -327,6 +328,7 @@ func TestRunHelperAttachClientExitWithLivePaneIsNotAgentExit(t *testing.T) {
 	if err := attachCmd.Start(); err != nil {
 		t.Fatalf("start attach surrogate: %v", err)
 	}
+	t.Cleanup(func() { _ = attachCmd.Wait() })
 	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
 		return &LaunchResult{
 			PID:         48211,
@@ -384,6 +386,70 @@ func TestRunHelperAttachClientExitWithLivePaneIsNotAgentExit(t *testing.T) {
 	delivery, ok := attachPayload["delivery_liveness"].(map[string]any)
 	if !ok || delivery["class"] != "degraded" || delivery["healthy"] != false || delivery["reason"] != "attach_client_exited" {
 		t.Fatalf("attach exit delivery liveness = %#v", attachPayload)
+	}
+}
+
+func TestRunHelperAttachClientExitWithMissingSessionButLivePaneIsDetached(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	pid := os.Getpid()
+	attachCmd := exec.Command("sh", "-c", "exit 0")
+	if err := attachCmd.Start(); err != nil {
+		t.Fatalf("start attach surrogate: %v", err)
+	}
+	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
+		return &LaunchResult{
+			PID:         pid,
+			AttachPID:   attachCmd.Process.Pid,
+			Cmd:         attachCmd,
+			StdinWriter: eofPTY{},
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":        "backed",
+					"session_name": "striatum-run",
+					"pane_id":      "%4",
+					"pane_pid":     pid,
+				},
+			},
+		}, nil
+	}
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_attach_detached",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/true"},
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: errors.New("can't find session")},
+		{prefix: []string{"list-panes"}, out: "%4|" + strconv.Itoa(pid) + "\n"},
+	}}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{TmuxRunner: runner}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var attachPayload map[string]any
+	for _, event := range decoded {
+		if event.EventType == HelperEventAgentExited {
+			t.Fatalf("live detached pane should not emit agent_exited: %#v", decoded)
+		}
+		if event.EventType == HelperEventAttachExited {
+			attachPayload = event.Payload
+		}
+	}
+	if attachPayload == nil {
+		t.Fatalf("missing attach_client_exited event: %#v", decoded)
+	}
+	if attachPayload["tmux_liveness"] != string(TmuxLivenessHelperDetachedProcessAlive) {
+		t.Fatalf("attach payload = %#v, want detached/process-alive tmux liveness", attachPayload)
 	}
 }
 

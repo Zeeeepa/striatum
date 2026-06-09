@@ -114,7 +114,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 			for _, row := range rows {
 				view := reattachStatusView(probeCtx, row)
 				class := superviseString(view["lane_liveness_class"])
-				if !strings.HasPrefix(class, "tmux_") {
+				if !strings.HasPrefix(class, "tmux_") && class != string(gosupervisor.TmuxLivenessHelperDetachedProcessAlive) {
 					continue
 				}
 				deliveryLiveness := superviseObject(view["delivery_liveness"])

@@ -24,12 +24,13 @@ type TmuxIdentity struct {
 type TmuxLivenessClass string
 
 const (
-	TmuxLivenessOK              TmuxLivenessClass = "tmux_ok"
-	TmuxLivenessSessionMissing  TmuxLivenessClass = "tmux_session_missing"
-	TmuxLivenessPaneMissing     TmuxLivenessClass = "tmux_pane_missing"
-	TmuxLivenessPaneDead        TmuxLivenessClass = "tmux_pane_dead"
-	TmuxLivenessPanePIDMismatch TmuxLivenessClass = "tmux_pane_pid_mismatch"
-	TmuxLivenessUnavailable     TmuxLivenessClass = "tmux_unavailable"
+	TmuxLivenessOK                         TmuxLivenessClass = "tmux_ok"
+	TmuxLivenessSessionMissing             TmuxLivenessClass = "tmux_session_missing"
+	TmuxLivenessPaneMissing                TmuxLivenessClass = "tmux_pane_missing"
+	TmuxLivenessPaneDead                   TmuxLivenessClass = "tmux_pane_dead"
+	TmuxLivenessPanePIDMismatch            TmuxLivenessClass = "tmux_pane_pid_mismatch"
+	TmuxLivenessUnavailable                TmuxLivenessClass = "tmux_unavailable"
+	TmuxLivenessHelperDetachedProcessAlive TmuxLivenessClass = "helper_detached_process_alive"
 )
 
 const (
@@ -281,21 +282,35 @@ func tmuxLivenessFailure(ctx context.Context, r TmuxRunner, id TmuxIdentity, cla
 		failure.ObservedPanePID = panePID
 		failure.PaneProcessLive = &live
 	}
-	return TmuxLiveness{
-		Class:           class,
-		State:           tmuxLivenessState(class),
-		Healthy:         false,
-		ObservedPanePID: observedPID,
-		Detail:          detail,
-		Failure:         &failure,
+	if tmuxFailureIsDetachedProcessAlive(class, failure) {
+		class = TmuxLivenessHelperDetachedProcessAlive
+		failure.FailureClass = class
 	}
+	return TmuxLiveness{
+		Class:            class,
+		State:            tmuxLivenessState(class),
+		Healthy:          false,
+		ObservedPanePID:  failure.ObservedPanePID,
+		ObservedStartTok: "",
+		Detail:           detail,
+		Failure:          &failure,
+	}
+}
+
+func tmuxFailureIsDetachedProcessAlive(class TmuxLivenessClass, failure TmuxProbeFailure) bool {
+	switch class {
+	case TmuxLivenessSessionMissing, TmuxLivenessPaneMissing:
+	default:
+		return false
+	}
+	return failure.PaneProcessLive != nil && *failure.PaneProcessLive
 }
 
 func tmuxLivenessState(class TmuxLivenessClass) string {
 	switch class {
 	case TmuxLivenessOK:
 		return "healthy"
-	case TmuxLivenessUnavailable:
+	case TmuxLivenessUnavailable, TmuxLivenessHelperDetachedProcessAlive:
 		return "degraded"
 	default:
 		return "lost"
@@ -334,7 +349,7 @@ func ProbeLaneLiveness(ctx context.Context, r TmuxRunner, metadata map[string]an
 			tmux := ProbeTmuxLiveness(ctx, r, id)
 			return LaneLiveness{
 				Backed:      "tmux",
-				Alive:       tmux.Healthy,
+				Alive:       tmux.Healthy || tmux.Class == TmuxLivenessHelperDetachedProcessAlive,
 				Class:       string(tmux.Class),
 				Tmux:        &tmux,
 				ObservedPID: tmux.ObservedPanePID,

@@ -1133,6 +1133,7 @@ func TestRemediationCoverageTable(t *testing.T) {
 		gosupervisor.TmuxLivenessPaneDead,
 		gosupervisor.TmuxLivenessPanePIDMismatch,
 		gosupervisor.TmuxLivenessUnavailable,
+		gosupervisor.TmuxLivenessHelperDetachedProcessAlive,
 	}
 	for _, class := range tmuxClasses {
 		rem := tmuxLivenessRemediation(string(class), "reason", "sess_1")

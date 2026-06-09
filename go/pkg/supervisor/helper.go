@@ -377,7 +377,9 @@ func attachClientExitPayload(ctx context.Context, result *LaunchResult, err erro
 	if live.Backed != "tmux" {
 		return nil, false
 	}
-	if live.Class != string(TmuxLivenessOK) && live.Class != string(TmuxLivenessUnavailable) {
+	if live.Class != string(TmuxLivenessOK) &&
+		live.Class != string(TmuxLivenessUnavailable) &&
+		live.Class != string(TmuxLivenessHelperDetachedProcessAlive) {
 		return nil, false
 	}
 	payload := map[string]any{

@@ -596,6 +596,35 @@ func TestClassifyFreshOutputSuppressesLeaseHeartbeatStall(t *testing.T) {
 	}
 }
 
+func TestClassifyToolCallCrossesDeadlineToActionableStall(t *testing.T) {
+	now := time.Date(2026, 6, 9, 16, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	started := now.Add(-time.Duration(policy.ToolCallSeconds+1) * time.Second)
+	got := Classify(Activity{
+		SessionState:          "active",
+		RegisteredAt:          at(now.Add(-30 * time.Minute)),
+		LastToolsListAt:       at(now.Add(-29 * time.Minute)),
+		LastAwaitPacketAt:     at(now.Add(-28 * time.Minute)),
+		LastPacketDeliveredAt: at(now.Add(-27 * time.Minute)),
+		LastAckAt:             at(now.Add(-26 * time.Minute)),
+		LastMCPRequestAt:      at(started),
+		LastToolCallStartedAt: at(started),
+	}, policy, now)
+
+	if got.Protocol != ProtocolStalled {
+		t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, ProtocolStalled, got)
+	}
+	if got.StallClass != StallProtocolIdle {
+		t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, StallProtocolIdle, got)
+	}
+	if got.DeadlineName != DeadlineToolCall {
+		t.Fatalf("deadline = %q, want %q; result = %#v", got.DeadlineName, DeadlineToolCall, got)
+	}
+	if got.ToolCallSince == nil || got.ToolCallDeadline == nil {
+		t.Fatalf("tool-call stall should keep since/deadline visible: %#v", got)
+	}
+}
+
 // TestProjectionExposesNewLivenessColumns asserts the read-layer projection
 // surfaces the new PTY/tool-call timestamps and, for an in-tool lane, the
 // visible tool_call_since / tool_call_deadline (#83).

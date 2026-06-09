@@ -163,7 +163,7 @@ func TestProbeTmuxFailureRecordsPaneProcessLiveness(t *testing.T) {
 		PaneID:      "%4",
 		PanePID:     pid,
 	})
-	if live.Class != TmuxLivenessSessionMissing || live.State != "lost" {
+	if live.Class != TmuxLivenessHelperDetachedProcessAlive || live.State != "degraded" {
 		t.Fatalf("liveness = %#v", live)
 	}
 	if live.Failure == nil || live.Failure.ObservedPanePID != pid || live.Failure.PaneProcessLive == nil || !*live.Failure.PaneProcessLive {
@@ -171,6 +171,36 @@ func TestProbeTmuxFailureRecordsPaneProcessLiveness(t *testing.T) {
 	}
 	if len(runner.calls) != 2 || !argsPrefix(runner.calls[1], []string{"list-panes"}) {
 		t.Fatalf("tmux calls = %#v, want list-panes fallback", runner.calls)
+	}
+}
+
+func TestProbeTmuxLivenessClassifiesSessionMissingButPaneProcessAlive(t *testing.T) {
+	pid := os.Getpid()
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: errors.New("can't find session")},
+		{prefix: []string{"list-panes"}, out: "%4|" + strconv.Itoa(pid) + "\n"},
+	}}
+	live := ProbeTmuxLiveness(context.Background(), runner, TmuxIdentity{
+		SessionName: "striatum-run",
+		PaneID:      "%4",
+		PanePID:     pid,
+	})
+	if live.Class != TmuxLivenessHelperDetachedProcessAlive || live.State != "degraded" || live.Healthy {
+		t.Fatalf("liveness = %#v, want helper-detached/process-alive degraded class", live)
+	}
+	if live.Failure == nil || live.Failure.PaneProcessLive == nil || !*live.Failure.PaneProcessLive {
+		t.Fatalf("failure should retain positive pane process evidence: %#v", live.Failure)
+	}
+	lane := ProbeLaneLiveness(context.Background(), runner, map[string]any{
+		"tmux": map[string]any{
+			"state":        "backed",
+			"session_name": "striatum-run",
+			"pane_id":      "%4",
+			"pane_pid":     pid,
+		},
+	}, 99999, "")
+	if !lane.Alive || lane.Class != string(TmuxLivenessHelperDetachedProcessAlive) {
+		t.Fatalf("lane liveness = %#v, want process alive with detached helper class", lane)
 	}
 }
 

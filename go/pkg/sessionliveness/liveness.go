@@ -309,6 +309,9 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		}
 		return stallResult(activity, StallEscalationPending, DeadlineEscalation, 0, at)
 	}
+	if result, stalled := staleToolCallResult(activity, policy, now); stalled {
+		return result
+	}
 	if !discovered(activity) {
 		// #192: an agent CLI's normal cold start (model/session init before its
 		// first tools/list) routinely exceeds the bare DiscoverySeconds, so the
@@ -420,6 +423,20 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		return stallResult(activity, StallProtocolIdle, DeadlineProtocolIdle, policy.ProtocolIdleSeconds, base)
 	}
 	return workingResult(activity, policy, now)
+}
+
+func staleToolCallResult(activity Activity, policy Policy, now time.Time) (Result, bool) {
+	inTool, since := inToolCall(activity)
+	if !inTool || policy.ToolCallSeconds <= 0 || !missed(since, policy.ToolCallSeconds, now) {
+		return Result{}, false
+	}
+	result := stallResult(activity, StallProtocolIdle, DeadlineToolCall, policy.ToolCallSeconds, since)
+	result.ToolCallSince = since
+	if since != nil {
+		deadline := since.UTC().Add(time.Duration(policy.ToolCallSeconds) * time.Second)
+		result.ToolCallDeadline = &deadline
+	}
+	return result, true
 }
 
 // workingResult derives the precise protocol state for a lane that has cleared

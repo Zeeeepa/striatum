@@ -125,7 +125,11 @@ func (l *Liveness) run(ctx context.Context) {
 			live := ProbeLaneLiveness(ctx, livenessTmuxRunner, row.Metadata, l.pid, row.PIDStartTime)
 			row.LastHeartbeatAt = now.UTC()
 			if live.Alive {
-				recordTmuxProbeOK(row.Metadata, now)
+				if live.Class == string(TmuxLivenessHelperDetachedProcessAlive) {
+					recordTmuxProbeDetachedProcessAlive(row.Metadata, now, live)
+				} else {
+					recordTmuxProbeOK(row.Metadata, now)
+				}
 				row.State = "running"
 				_ = l.store.UpsertSupervisorPointer(ctx, row)
 				l.mu.Lock()
@@ -168,6 +172,22 @@ func recordTmuxProbeOK(metadata map[string]any, now time.Time) {
 	delete(tmux, "probe_skipped_at")
 	delete(tmux, "probe_unavailable_count")
 	delete(tmux, "last_unavailable_detail")
+	metadata["tmux"] = tmux
+}
+
+func recordTmuxProbeDetachedProcessAlive(metadata map[string]any, now time.Time, live LaneLiveness) {
+	tmux := objectValue(metadata["tmux"])
+	if len(tmux) == 0 {
+		return
+	}
+	tmux["liveness_state"] = "degraded"
+	tmux["probe_skipped_at"] = now.UTC().Format(time.RFC3339Nano)
+	if live.Tmux != nil {
+		tmux["liveness"] = TmuxLivenessPayload(*live.Tmux)
+	}
+	if strings.TrimSpace(live.Detail) != "" {
+		tmux["last_unavailable_detail"] = strings.TrimSpace(live.Detail)
+	}
 	metadata["tmux"] = tmux
 }
 

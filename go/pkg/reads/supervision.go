@@ -790,6 +790,8 @@ func reattachState(row map[string]any, pidAlive bool, currentStart string, live 
 			// Keep checking pointer and daemon consistency below.
 		case string(gosupervisor.TmuxLivenessUnavailable):
 			return "needs_verification", live.Class, "verify_before_reattach"
+		case string(gosupervisor.TmuxLivenessHelperDetachedProcessAlive):
+			return "needs_verification", live.Class, "rebridge_helper"
 		default:
 			return "lost_candidate", live.Class, "mark_lost_or_reconcile"
 		}
@@ -1396,6 +1398,12 @@ func tmuxLivenessRemediation(class string, detail string, sessionID string) stri
 		return "tmux pane process exited; inspect the retained pane if needed, then stop and restart or reclaim the lane"
 	case string(gosupervisor.TmuxLivenessPanePIDMismatch):
 		return "tmux pane identity changed; stop this supervisor and start or reclaim a replacement lane"
+	case string(gosupervisor.TmuxLivenessHelperDetachedProcessAlive):
+		target := "--session-id <session_id>"
+		if sessionID != "" {
+			target = "--session-id " + sessionID
+		}
+		return "helper detached while the tmux pane process is alive; run striatum supervise rebridge " + target
 	default:
 		return ""
 	}
