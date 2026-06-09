@@ -76,3 +76,9 @@ func TestWorkflowValidateIsNotGeneratedDaemonRoute(t *testing.T) {
 		t.Fatalf("workflow validate must remain a local command, got generated route %#v", route)
 	}
 }
+
+func TestOperatorBootstrapIsNotGeneratedDaemonRoute(t *testing.T) {
+	if route, _, ok := routes.Lookup([]string{"operator", "bootstrap"}); ok {
+		t.Fatalf("operator bootstrap must remain a local read composite unless a product decision adds an RPC method, got route %#v", route)
+	}
+}

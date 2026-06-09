@@ -65,6 +65,13 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		return runRunDrive(driveArgs, stdout, stderr, globals)
 	}
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "operator" {
+		operatorArgs := append([]string(nil), globals.CommandArgs[1:]...)
+		if globals.JSONOutput && !containsFlag(operatorArgs, "--json") {
+			operatorArgs = append(operatorArgs, "--json")
+		}
+		return runOperator(operatorArgs, stdout, stderr, globals)
+	}
 	// #111: `workflow` (bare) and `workflow --help` carry no recognized subcommand,
 	// so localcommands.Lookup misses them and they fall to the daemon route as an
 	// "unknown command". Route them to the local workflow dispatcher (which lists
@@ -143,6 +150,10 @@ func usage(out io.Writer) {
 			subs[local] = map[string]bool{}
 		}
 	}
+	if subs["operator"] == nil {
+		subs["operator"] = map[string]bool{}
+	}
+	subs["operator"]["bootstrap"] = true
 	if subs["run"] == nil {
 		subs["run"] = map[string]bool{}
 	}

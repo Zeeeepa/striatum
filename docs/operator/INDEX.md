@@ -1,14 +1,16 @@
 # Operator Index
 author: coordinator-codex-gpt-5.5-001
 
-This is the cold-start operator surface. Read
-[`BRIEF.md`](BRIEF.md), then only the brief's `scope_links` unless a
-task explicitly asks for deeper archaeology.
+The normal cold-start surface is `striatum operator bootstrap --markdown`
+or `striatum operator bootstrap --json`. It returns daemon health, current
+frontier state, operator-brief freshness, skill drift, copyable next commands,
+and a bounded reading plan. Read [`BRIEF.md`](BRIEF.md) directly only when the
+bootstrap packet asks for it or when you need deeper provenance.
 
 ## Current Brief
 
 - [`BRIEF.md`](BRIEF.md) — current operator state, next actions,
-  blockers, hazards, and bounded pointers.
+  blockers, hazards, and bounded pointers consumed by `operator bootstrap`.
 
 ## Open Plans
 

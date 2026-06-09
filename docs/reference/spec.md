@@ -113,6 +113,18 @@ agent-side bundles, register a repository, render a user service,
 repair local Postgres grants, or run smoke checks, but they do not
 become an alternate workflow-state authority.
 
+AI-operator cold start is guided by `striatum operator bootstrap`. The command
+is a CLI-local read composite, not a daemon RPC method and not a new live-state
+authority. Its stable JSON payload uses
+`schema_version: "striatum.operator_bootstrap.v1"` and is also rendered as a
+bounded Markdown-ish human summary by default. It composes daemon reads such as
+`repo.resolve`, `status`, and `doctor` with local probes for git identity,
+`VERSION`, daemon runtime token path presence, MCP endpoint path presence, and
+`docs/operator/BRIEF.md` freshness. It must separate active frontier state from
+historical run history, cap expanded lists, avoid embedding full `status`,
+`doctor`, session, verdict, or run-history arrays, and return a small honest
+degraded packet with recovery commands when the daemon or token is unavailable.
+
 Writable SQLite import windows are closed. The retired `migrate-repo-local`
 and `daemon migrate` spellings are fully removed. CLI verbs against an unregistered repo refuse with exit code 12
 (`repo_not_migrated`) and point operators to register with `repo add --init`; CLI verbs without a

@@ -18,10 +18,10 @@ striatum run prepare
 striatum branch confirm
 striatum run start
 striatum run drive
+striatum operator bootstrap
 striatum run summary
 striatum archive create
 striatum archive verify
-striatum operator current-brief
 ```
 
 `workflow generate` (below) is the way to scaffold a starter workflow tree;
@@ -36,6 +36,17 @@ role/lane as the DAG unblocks, adopts already-active matching sessions, and
 stops terminal or superseded launched lanes before registering fresh reviewers.
 It is not a daemon RPC method and does not call rescue verbs or force non-fresh
 sessions.
+
+`operator bootstrap [--operator-docs-root <path>] [--limit N]
+[--markdown|--json]`
+is a bounded AI-operator cold-start packet. It is a local read-only
+composite over existing daemon reads (`repo.resolve`, `status`, `doctor`)
+plus local git, `VERSION`, daemon-runtime-path, MCP-endpoint-path, and
+`docs/operator/BRIEF.md` probes. It prints frontier state, doctor counts,
+operator-brief freshness, skill drift, exact next commands, and a bounded
+reading plan without embedding full status, doctor, session, verdict, or
+historical run arrays. `--limit` caps expanded lists and is bounded to 20.
+The command creates no live state and is not a daemon RPC method.
 
 `workflow templates list [--kind shape|lane_set|role_pack|adversary_pack]`
 and `workflow templates show <template_id>` read the bundled local
@@ -78,18 +89,6 @@ directory instead of a project tree.
 bundles for `claude_code`, `codex`, or `agy`. Project-scope plugin
 installs also write a local marketplace fixture when supported by the
 profile.
-
-`operator current-brief [--operator-docs-root <path>] [--json]`
-(RFC 0058 V1.5) is a local read-only helper for the operator progress
-surface. It reads `docs/operator/BRIEF.md` by default, refuses a missing
-brief, symlink, non-regular file, invalid `operator_brief` front matter,
-or `status` other than `current`, and prints `path`, `brief_id`,
-`supersedes`, `scope_links`, `context_budget_lines`,
-`retrieval_priority`, and `cold_start_paths`. This command does not
-route through daemon RPC and is exempt from daemon-required enforcement
-because Markdown operator provenance is the authority for this surface.
-`--operator-docs-root` points at the directory containing `BRIEF.md`,
-not at the file itself.
 
 ## Agent / session work loop
 

@@ -8,7 +8,11 @@ behavior, fix the doc.
 
 ## Start Here
 
-Read these first, in order:
+For normal AI-operator cold start, run `striatum operator bootstrap --markdown`
+first and follow its `next_actions` and bounded `reading_plan`. Use
+`--json` when another tool will consume the packet. For source changes,
+bootstrap failure, or tasks that require deeper project archaeology, read these
+first, in order:
 
 1. `README.md`
 2. `ARCHITECTURE.md` for the one-page substrate map

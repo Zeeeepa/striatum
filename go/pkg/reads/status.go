@@ -215,9 +215,20 @@ func statusIntFlag(envelope rpc.Envelope, key string) (int, bool) {
 		return int(v), true
 	case float64:
 		return int(v), true
+	case json.Number:
+		parsed, err := v.Int64()
+		if err == nil {
+			return int(parsed), true
+		}
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err == nil {
+			return parsed, true
+		}
 	default:
 		return 0, false
 	}
+	return 0, false
 }
 
 // repoWideBounded reports whether the scope is the bounded repo-wide default
