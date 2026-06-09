@@ -13,25 +13,21 @@ Historical prompts are not current standalone execution plans. Some prompts inte
 mention Engram paths, old branch names, or `--repo ..` command shapes because
 that was the historical validation environment.
 
-For new Striatum work, start from `README.md`, `docs/README.md`, and
-`docs/TODO.md`. If one of these prompts is useful as a template, copy it into a
-new prompt and rewrite the target repository, branch, workflow paths, and
-verification commands before running it.
+For new Striatum work, start from `README.md`, `docs/index.md`, and
+`docs/reference/todo.md`. If one of these prompts is useful as a template, copy
+it into a new prompt and rewrite the target repository, branch, workflow paths,
+and verification commands before running it.
 
 ## Reusable Prompts
 
 - [`OPERATOR_INITIALIZATION_PROMPT.md`](OPERATOR_INITIALIZATION_PROMPT.md):
-  paste into a fresh AI operator session before it starts or resumes a
-  Striatum run. Fill in its run-specific block first; it is the complete
-  bootstrap and boundary prompt, establishing mission, environment, required
-  reading, daemon/Postgres mode, hard product boundaries, lane/model policy,
-  out-of-scope work, definition of done, recovery posture, report cadence, and
-  first actions.
-- [`OPERATOR_BOUNDARY_PROMPT.md`](OPERATOR_BOUNDARY_PROMPT.md): paste into an
-  operator session only when you need the short refresher that separates
-  control-plane coordination from workflow role work, for example when an
-  already-initialized operator session is drifting into design, implementation,
-  review, synthesis, or artifact authorship.
+  canonical operator prompt source. It contains the full cold-start prompt for
+  a fresh AI operator session plus the shorter boundary refresher. Fill in its
+  run-specific block before using the full prompt.
+- [`OPERATOR_BOUNDARY_PROMPT.md`](OPERATOR_BOUNDARY_PROMPT.md): convenience
+  excerpt of the boundary refresher from `OPERATOR_INITIALIZATION_PROMPT.md`.
+  Paste it into an already initialized operator session when you need the short
+  reminder that separates control-plane coordination from workflow role work.
 - [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
   paste into a fresh CLI agent session to install/load Striatum guidance,
   scaffold a full three-lane design plus adversarial-review dogfood workflow
