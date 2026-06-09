@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -14,8 +15,10 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/lanehealth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
+	"github.com/jackc/pgx/v5"
 )
 
 func HandleClaimNext(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -107,6 +110,9 @@ func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID 
 	}
 	if nullable(run["paused_at"]) != nil {
 		return map[string]any{"status": "no_work", "paused": true}, nil
+	}
+	if err := ensureWorkSessionBackend(ctx, tx, repositoryID, sessionID, "claim"); err != nil {
+		return nil, err
 	}
 	rows, err := queryRows(ctx, tx, `
 			SELECT qm.*
@@ -246,6 +252,69 @@ func claimNextInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID 
 		return nil, err
 	}
 	return claimNextResult(sessionID, packetID, packet, selfDriving), nil
+}
+
+func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, phase string) error {
+	supervisor, err := requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
+	if err != nil {
+		var rpcErr *rpc.Error
+		if errors.As(err, &rpcErr) && rpcErr.Code == "invalid_transition" {
+			return expireActiveSessionForMissingBackend(ctx, tx, repositoryID, sessionID, phase, "no_attached_supervisor")
+		}
+		return err
+	}
+	if supervisor.State != "attached" {
+		return rpc.NewError("invalid_transition", fmt.Sprintf("session cannot %s work because supervisor %s is %s; rebridge, stop, or register a fresh session", phase, supervisor.SupervisorID, supervisor.State), nil)
+	}
+	checker := lanehealth.Checker{
+		Probe: lanehealth.ProdProbe{Runner: supervisionTmuxRunner},
+	}
+	health, err := checker.Check(ctx, tx, repositoryID, sessionID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return expireActiveSessionForMissingBackend(ctx, tx, repositoryID, sessionID, phase, "no_attached_supervisor")
+		}
+		return err
+	}
+	if health.LiveTarget() {
+		return nil
+	}
+	reason := string(health.Reason)
+	if reason == "" {
+		reason = "unattested_lane_backend"
+	}
+	if backendLossShouldMarkSessionLost(health.Reason) {
+		if err := markSupervisorLostInTx(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, phase+" refused: "+reason, supervisor.PID, map[string]any{
+			"phase":               "work." + phase,
+			"lane_attestation":    "unattested",
+			"attestation_reason":  reason,
+			"supervisor_liveness": health.LivenessClass,
+		}); err != nil {
+			return err
+		}
+	}
+	return rpc.NewError("invalid_transition", "session cannot "+phase+" work without a live attested lane backend: "+reason, nil)
+}
+
+func backendLossShouldMarkSessionLost(reason lanehealth.LaneReason) bool {
+	switch reason {
+	case lanehealth.ReasonPIDMissing, lanehealth.ReasonPIDGone, lanehealth.ReasonPIDIdentityMismatch:
+		return true
+	default:
+		return false
+	}
+}
+
+func expireActiveSessionForMissingBackend(ctx context.Context, runner any, repositoryID, sessionID, phase, reason string) error {
+	if err := markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
+		RepositoryID: repositoryID,
+		SessionID:    sessionID,
+		State:        "expired",
+		Reason:       phase + " refused: " + reason,
+	}); err != nil {
+		return err
+	}
+	return rpc.NewError("invalid_transition", "session cannot "+phase+" work without an attached supervisor; start or register a fresh session", nil)
 }
 
 func claimNextResult(sessionID, packetID string, packet map[string]any, selfDrivingSupervisor bool) map[string]any {

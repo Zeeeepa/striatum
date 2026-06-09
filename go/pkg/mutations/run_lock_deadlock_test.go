@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -206,6 +207,59 @@ func resetRunLockRace(t *testing.T, ctx context.Context, runner db.Runner, fx *r
 	exec("sessions active", `UPDATE striatumd.sessions SET state='active', closed_at=NULL, close_reason=NULL
 		 WHERE repository_id=$1 AND session_id = ANY($2)`,
 		fx.repoID, []string{fx.reviewerSession, fx.claimantSession})
+	resetRunLockClaimantBackend(t, ctx, runner, fx, now)
 	// Clear the prior round's verdict so the next accept can be recorded.
 	exec("clear verdicts", `DELETE FROM striatumd.verdicts WHERE repository_id=$1 AND job_id=$2`, fx.repoID, fx.reviewJob)
+}
+
+func resetRunLockClaimantBackend(t *testing.T, ctx context.Context, runner db.Runner, fx *runLockRaceFixture, now time.Time) {
+	t.Helper()
+	pid := os.Getpid()
+	supervisorID := "sup_" + fx.claimantSession
+	daemonSupervisorID := "dsup_" + fx.claimantSession
+	exec := func(what, sql string, args ...any) {
+		if err := runner.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("reset claimant backend %s: %v", what, err)
+		}
+	}
+	exec("process supervisor", `
+		INSERT INTO striatumd.process_supervisors (
+		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
+		  scratch_path, pid, pid_start_time, state, started_at, heartbeat_at, ended_at, stop_reason
+		) VALUES ($1,$2,$3,$4,'claude','[]'::jsonb,'/tmp','/tmp/scratch',$5,'','attached',$6,$6,NULL,NULL)
+		ON CONFLICT (repository_id, supervisor_id) DO UPDATE
+		  SET pid = EXCLUDED.pid,
+		      pid_start_time = '',
+		      state = 'attached',
+		      heartbeat_at = EXCLUDED.heartbeat_at,
+		      ended_at = NULL,
+		      stop_reason = NULL`,
+		fx.repoID, supervisorID, fx.runID, fx.claimantSession, pid, now)
+	exec("pointer", `
+		INSERT INTO striatumd.process_supervisor_pointers (
+		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		  pid, pid_start_time, state, updated_at, metadata_json
+		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)
+		ON CONFLICT (repository_id, supervisor_id) DO UPDATE
+		  SET daemon_supervisor_id = EXCLUDED.daemon_supervisor_id,
+		      pid = EXCLUDED.pid,
+		      pid_start_time = '',
+		      state = 'attached',
+		      updated_at = EXCLUDED.updated_at,
+		      metadata_json = EXCLUDED.metadata_json`,
+		fx.repoID, supervisorID, daemonSupervisorID, fx.runID, fx.claimantSession, pid, now)
+	exec("daemon supervisor", `
+		INSERT INTO striatumd.daemon_supervisors (
+		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
+		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
+		  pid_start_time, state, started_at, heartbeat_at, ended_at, stop_reason
+		) VALUES ($1,$2,$3,$4,$5,'inst','claude','[]'::jsonb,'sha','/tmp',$6,'','attached',$7,$7,NULL,NULL)
+		ON CONFLICT (daemon_supervisor_id) DO UPDATE
+		  SET pid = EXCLUDED.pid,
+		      pid_start_time = '',
+		      state = 'attached',
+		      heartbeat_at = EXCLUDED.heartbeat_at,
+		      ended_at = NULL,
+		      stop_reason = NULL`,
+		daemonSupervisorID, fx.repoID, fx.runID, fx.claimantSession, supervisorID, pid, now)
 }

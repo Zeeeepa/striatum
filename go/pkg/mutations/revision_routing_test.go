@@ -69,6 +69,7 @@ func revisionFixture(t *testing.T, ctx context.Context, runner db.Runner, repoID
 	}
 
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "reviewer", "codex", []string{"review"}, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "codex")
 
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.leases (

@@ -34,7 +34,7 @@ author: reviewer-claude-007
 
 The change is correct.
 `
-	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, payload)
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, payload)
 
 	_, err := HandlePublishArtifact(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id":   sessionID,

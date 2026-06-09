@@ -38,7 +38,11 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
 		}
-		return recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, findingsArtifactID, rationale, reviewProvenanceDecisionID)
+		return recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, findingsArtifactID, rationale, recordVerdictOptions{
+			ReviewProvenanceDecisionID: reviewProvenanceDecisionID,
+			RequireWorkSessionBackend:  true,
+			WorkSessionBackendPhase:    "record-verdict",
+		})
 	})
 }
 
@@ -129,7 +133,9 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
-		verdictResult, err := recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, artifact["artifact_id"], rationale, reviewProvenanceDecisionID)
+		verdictResult, err := recordVerdict(ctx, tx, repositoryID, sessionID, jobID, leaseID, verdict, artifact["artifact_id"], rationale, recordVerdictOptions{
+			ReviewProvenanceDecisionID: reviewProvenanceDecisionID,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -479,7 +485,7 @@ func recordVerdict(
 	verdict string,
 	findingsArtifactID any,
 	rationale any,
-	reviewProvenanceDecisionID string,
+	options recordVerdictOptions,
 ) (map[string]any, error) {
 	job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, true)
 	if err != nil {
@@ -498,9 +504,22 @@ func recordVerdict(
 		}
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("%s job must be running before verdict", label), nil)
 	}
-	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "recording a verdict", reviewProvenanceDecisionID)
+	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "recording a verdict", options.ReviewProvenanceDecisionID)
 	if err != nil {
 		return nil, err
+	}
+	if options.RequireWorkSessionBackend && reviewProvenance == nil {
+		tx, ok := runner.(db.TxRunner)
+		if !ok {
+			return nil, fmt.Errorf("runner does not support review backend gate")
+		}
+		phase := options.WorkSessionBackendPhase
+		if phase == "" {
+			phase = "record-verdict"
+		}
+		if err := ensureWorkSessionBackend(ctx, tx, repositoryID, sessionID, phase); err != nil {
+			return nil, err
+		}
 	}
 	if err := verifyRequiredArtifacts(ctx, runner, repositoryID, jobID); err != nil {
 		return nil, err
@@ -524,6 +543,12 @@ func recordVerdict(
 		}
 	}
 	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale, reviewProvenance)
+}
+
+type recordVerdictOptions struct {
+	ReviewProvenanceDecisionID string
+	RequireWorkSessionBackend  bool
+	WorkSessionBackendPhase    string
 }
 
 // applyVerdict records the verdict row and runs the completion / cycle / downstream
@@ -753,7 +778,7 @@ func inferSubmitReviewArtifactIdentity(
 	return logicalName, kind
 }
 
-func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict, reviewProvenanceDecisionID string) (map[string]any, error) {
+func prevalidateSubmitReview(ctx context.Context, runner db.TxRunner, repositoryID string, job map[string]any, sessionID, leaseID, logicalName, kind, pathText, verdict, reviewProvenanceDecisionID string) (map[string]any, error) {
 	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
 		return nil, rpc.NewError("invalid_transition", "submit-review is valid only for verdict-capable jobs", nil)
 	}
@@ -770,6 +795,11 @@ func prevalidateSubmitReview(ctx context.Context, runner any, repositoryID strin
 	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "publishing review artifacts and recording an accepting verdict", reviewProvenanceDecisionID)
 	if err != nil {
 		return nil, err
+	}
+	if reviewProvenance == nil {
+		if err := ensureWorkSessionBackend(ctx, runner, repositoryID, sessionID, "submit-review"); err != nil {
+			return nil, err
+		}
 	}
 	if err := prevalidateSubmitReviewArtifactVerdict(ctx, runner, repositoryID, job, kind, pathText, verdict); err != nil {
 		return nil, err

@@ -259,7 +259,7 @@ func TestOverrideVerdictAlreadyAcceptingDoesNotMutate(t *testing.T) {
 func TestSubmitReviewRejectsUnattestedFreshReviewWithoutProvenanceDecision(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
-	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
 	markReviewJobFresh(t, ctx, runner, repoID, jobID)
 
 	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
@@ -292,10 +292,74 @@ func TestSubmitReviewRejectsUnattestedFreshReviewWithoutProvenanceDecision(t *te
 	}
 }
 
+func TestSubmitReviewExpiresUnattestedSessionWithoutProvenanceOverride(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("reject"))
+
+	_, err := HandleSubmitReview(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"path":       "artifacts/review/FINDING.md",
+		"verdict":    "reject",
+		"rationale":  "operator-authored rejected review without lane backend",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("submit-review error = %v, want invalid_transition", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "expired" {
+		t.Fatalf("session state = %q, want expired", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("review job state = %q, want running", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 1 {
+		t.Fatalf("active lease count = %d, want 1", n)
+	}
+	if n := countVerdicts(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("verdict count = %d, want 0", n)
+	}
+	if n := countArtifactsForJob(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("artifact count = %d, want 0", n)
+	}
+}
+
+func TestRecordVerdictExpiresUnattestedSessionWithoutProvenanceOverride(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("reject"))
+
+	_, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"verdict":    "reject",
+		"rationale":  "operator-authored rejected verdict without lane backend",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("record verdict error = %v, want invalid_transition", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "expired" {
+		t.Fatalf("session state = %q, want expired", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("review job state = %q, want running", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 1 {
+		t.Fatalf("active lease count = %d, want 1", n)
+	}
+	if n := countVerdicts(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("verdict count = %d, want 0", n)
+	}
+}
+
 func TestSubmitReviewAllowsUnattestedFreshReviewWithProvenanceDecision(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
-	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
 	markReviewJobFresh(t, ctx, runner, repoID, jobID)
 	runID := "run_" + repoID
 	decisionID := "dec_review_provenance_" + strings.ReplaceAll(t.Name(), "/", "_")
@@ -336,7 +400,7 @@ func TestSubmitReviewAllowsUnattestedFreshReviewWithProvenanceDecision(t *testin
 func TestSubmitReviewAllowsRequireAttestedLaneWithProvenanceDecision(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
-	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
 	runID := "run_" + repoID
 	setReviewWorkflowJobPolicy(t, ctx, runner, repoID, runID, map[string]any{"require_attested_lane": true})
 	decisionID := "dec_review_attested_lane_" + strings.ReplaceAll(t.Name(), "/", "_")
@@ -366,7 +430,7 @@ func TestSubmitReviewAllowsRequireAttestedLaneWithProvenanceDecision(t *testing.
 func TestRecordVerdictAllowsUnattestedFreshReviewWithProvenanceDecision(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
-	repoID, sessionID, jobID, leaseID := seedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
+	repoID, sessionID, jobID, leaseID := seedUnattestedReviewFindingFixture(t, ctx, runner, findingArtifactPayload("accept"))
 	published, err := HandlePublishArtifact(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id":   sessionID,
 		"job_id":       jobID,
@@ -637,6 +701,7 @@ func seedCollaborationLedgerSubmitFixtureWithPayload(t *testing.T, ctx context.C
 		t.Fatalf("update run repo root: %v", err)
 	}
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "adjudicator", "adjudicator", []string{"review"}, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "adjudicator")
 	now := time.Now().UTC()
 	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "adjudicator"})
 	if err != nil {
@@ -914,10 +979,19 @@ The change is correct.
 }
 
 // seedReviewFindingFixture seeds a repo + run (with an on-disk repo root) + an
-// active reviewer session + a running review job (no required artifacts, no
-// attestation requirement) + an active lease, and writes the finding body to
-// artifacts/review/FINDING.md. It returns the ids the review handlers need.
+// active, attested reviewer session + a running review job (no required
+// artifacts, no attestation requirement) + an active lease, and writes the
+// finding body to artifacts/review/FINDING.md. It returns the ids the review
+// handlers need.
 func seedReviewFindingFixture(t *testing.T, ctx context.Context, runner db.Runner, payload string) (repoID, sessionID, jobID, leaseID string) {
+	return seedReviewFindingFixtureWithAttestation(t, ctx, runner, payload, true)
+}
+
+func seedUnattestedReviewFindingFixture(t *testing.T, ctx context.Context, runner db.Runner, payload string) (repoID, sessionID, jobID, leaseID string) {
+	return seedReviewFindingFixtureWithAttestation(t, ctx, runner, payload, false)
+}
+
+func seedReviewFindingFixtureWithAttestation(t *testing.T, ctx context.Context, runner db.Runner, payload string, attested bool) (repoID, sessionID, jobID, leaseID string) {
 	t.Helper()
 	repoID = "repo_idem58_" + strings.ReplaceAll(t.Name(), "/", "_")
 	runID := "run_" + repoID
@@ -948,6 +1022,9 @@ func seedReviewFindingFixture(t *testing.T, ctx context.Context, runner db.Runne
 		t.Fatalf("update run repo root: %v", err)
 	}
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "reviewer", "reviewer", []string{"review"}, "active")
+	if attested {
+		intgAttest(t, ctx, runner, repoID, runID, sessionID, "reviewer")
+	}
 	now := time.Now().UTC()
 	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "reviewer"})
 	if err != nil {
@@ -1021,6 +1098,19 @@ func setReviewWorkflowJobPolicy(t *testing.T, ctx context.Context, runner db.Run
 		workflowArg, repoID, "snap_"+runID); err != nil {
 		t.Fatalf("set review workflow policy: %v", err)
 	}
+}
+
+func countArtifactsForJob(t *testing.T, ctx context.Context, runner any, repoID, jobID string) int {
+	t.Helper()
+	row, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n
+		  FROM striatumd.artifacts
+		 WHERE repository_id = $1 AND job_id = $2`,
+		repoID, jobID)
+	if err != nil {
+		t.Fatalf("count artifacts: %v", err)
+	}
+	return intValue(row["n"])
 }
 
 func seedReviewProvenanceDecision(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, decisionID string) string {
@@ -1257,8 +1347,21 @@ func (r reviewOverrideFakeRow) Scan(dest ...any) error {
 	}
 	for i, value := range r.values {
 		switch target := dest[i].(type) {
+		case *string:
+			if value == nil {
+				*target = ""
+			} else {
+				*target = fmt.Sprint(value)
+			}
 		case *int64:
 			*target = value.(int64)
+		case **int:
+			if value == nil {
+				*target = nil
+			} else {
+				v := intValue(value)
+				*target = &v
+			}
 		case **string:
 			if value == nil {
 				*target = nil
@@ -1266,6 +1369,8 @@ func (r reviewOverrideFakeRow) Scan(dest ...any) error {
 				text := value.(string)
 				*target = &text
 			}
+		case *any:
+			*target = value
 		default:
 			return errors.New("unsupported scan destination")
 		}
@@ -1289,7 +1394,7 @@ schema_version: striatum.finding.v1
 artifact_kind: finding
 verdict_intent: accept
 ---
-author: operator
+author: author-unknown-model-001
 
 Everything looks perfect.`)
 
@@ -1396,6 +1501,19 @@ func (tx *submitReviewFakeTx) Exec(_ context.Context, sql string, args ...any) e
 
 func (tx *submitReviewFakeTx) QueryRow(_ context.Context, sql string, _ ...any) db.Row {
 	switch {
+	case strings.Contains(sql, "FROM striatumd.process_supervisors ps"):
+		return reviewOverrideFakeRow{values: []any{
+			"sup_review",
+			"run_1",
+			"sess_review",
+			"attached",
+			tx.repoRoot,
+			"",
+			os.Getpid(),
+			"",
+			"dsup_review",
+			map[string]any{},
+		}}
 	case strings.Contains(sql, "repo_event_chain_heads"):
 		return reviewOverrideFakeRow{err: pgx.ErrNoRows}
 	case strings.Contains(sql, "nextval"):
@@ -1411,6 +1529,24 @@ func (tx *submitReviewFakeTx) QueryScalar(context.Context, string, ...any) (stri
 
 func (tx *submitReviewFakeTx) Query(_ context.Context, sql string, args ...any) (pgx.Rows, error) {
 	switch {
+	case strings.Contains(sql, "LEFT JOIN striatumd.process_supervisors ps") &&
+		strings.Contains(sql, "LEFT JOIN striatumd.process_supervisor_pointers p"):
+		pid := os.Getpid()
+		return runPrepareRowsFromMaps([]map[string]any{{
+			"supervisor_id":                "sup_review",
+			"pid":                          pid,
+			"pid_start_time":               "",
+			"supervisor_state":             "attached",
+			"pointer_daemon_supervisor_id": "dsup_review",
+			"pointer_pid":                  pid,
+			"pointer_pid_start_time":       "",
+			"pointer_state":                "attached",
+			"pointer_metadata_json":        map[string]any{},
+			"daemon_supervisor_id":         "dsup_review",
+			"daemon_state":                 "attached",
+			"state":                        "active",
+			"registered_at":                time.Now().UTC(),
+		}}), nil
 	case strings.Contains(sql, "FROM striatumd.jobs"):
 		return runPrepareRowsFromMaps([]map[string]any{{
 			"job_id":             "job_review",

@@ -136,6 +136,7 @@ func TestRetryJobReopenReleasesLeaseAndAllowsFreshClaim(t *testing.T) {
 	// WITHOUT the re-claim failing the uq_active_resource_lease index.
 	freshSessionID := "sess_synth_fresh_" + repoID
 	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, freshSessionID, "synthesizer", "claude", []string{"synthesis"}, "active", 2)
+	intgAttest(t, ctx, runner, repoID, runID, freshSessionID, "claude")
 	res, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id": freshSessionID,
 	}))

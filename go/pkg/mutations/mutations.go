@@ -942,7 +942,15 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 		if activeLease {
 			continue
 		}
-		if err := stopSupervisorsForTerminalSession(ctx, runner, repositoryID, runID, sessionID, now, reason); err != nil {
+		if err := stopSupervisorsForTerminalSession(ctx, runner, terminalSessionSupervisorStop{
+			RepositoryID:     repositoryID,
+			RunID:            runID,
+			SessionID:        sessionID,
+			EndedAt:          now,
+			Reason:           reason,
+			StopReasonPrefix: "terminal run cleanup",
+			EventSource:      "terminal_run_cleanup",
+		}); err != nil {
 			return err
 		}
 		if err := exec.Exec(ctx, `
@@ -964,7 +972,17 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 	return nil
 }
 
-func stopSupervisorsForTerminalSession(ctx context.Context, runner any, repositoryID, runID, sessionID, endedAt, reason string) error {
+type terminalSessionSupervisorStop struct {
+	RepositoryID     string
+	RunID            string
+	SessionID        string
+	EndedAt          string
+	Reason           string
+	StopReasonPrefix string
+	EventSource      string
+}
+
+func stopSupervisorsForTerminalSession(ctx context.Context, runner any, stop terminalSessionSupervisorStop) error {
 	tx, ok := runner.(db.TxRunner)
 	if !ok {
 		return fmt.Errorf("runner does not support supervisor terminal cleanup")
@@ -986,12 +1004,12 @@ func stopSupervisorsForTerminalSession(ctx context.Context, runner any, reposito
 		   AND ps.state IN ('starting','attached','detached')
 		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
 		 FOR UPDATE OF ps`,
-		repositoryID, runID, sessionID,
+		stop.RepositoryID, stop.RunID, stop.SessionID,
 	)
 	if err != nil {
 		return err
 	}
-	stopReason := "terminal run cleanup: " + reason
+	stopReason := stop.StopReasonPrefix + ": " + stop.Reason
 	for _, row := range rows {
 		supervisorID := metadataString(row["supervisor_id"])
 		if supervisorID == "" {
@@ -1034,15 +1052,15 @@ func stopSupervisorsForTerminalSession(ctx context.Context, runner any, reposito
 		if stdinPipePath := metadataString(row["stdin_pipe_path"]); stdinPipePath != "" {
 			_ = os.Remove(stdinPipePath)
 		}
-		if err := updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "stopped", endedAt, 0, "", "", &endedAt, &stopReason); err != nil {
+		if err := updateSupervisorState(ctx, tx, stop.RepositoryID, supervisorID, daemonSupervisorID, "stopped", stop.EndedAt, 0, "", "", &stop.EndedAt, &stopReason); err != nil {
 			return err
 		}
 		payload := map[string]any{
 			"supervisor_id":        supervisorID,
 			"daemon_supervisor_id": nullableString(daemonSupervisorID),
-			"session_id":           sessionID,
-			"reason":               reason,
-			"source":               "terminal_run_cleanup",
+			"session_id":           stop.SessionID,
+			"reason":               stop.Reason,
+			"source":               stop.EventSource,
 		}
 		if signaled != nil {
 			payload["signal"] = signaled
@@ -1050,7 +1068,7 @@ func stopSupervisorsForTerminalSession(ctx context.Context, runner any, reposito
 		for key, value := range eventExtra {
 			payload[key] = value
 		}
-		if _, err := appendEvent(ctx, runner, repositoryID, runID, "supervisor.stopped", sessionID, nil, nil, nil, nil, payload); err != nil {
+		if _, err := appendEvent(ctx, runner, stop.RepositoryID, stop.RunID, "supervisor.stopped", stop.SessionID, nil, nil, nil, nil, payload); err != nil {
 			return err
 		}
 	}

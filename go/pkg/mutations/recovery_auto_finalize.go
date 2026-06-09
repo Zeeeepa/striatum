@@ -1048,7 +1048,7 @@ func finalizeAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID
 		if err != nil {
 			return nil, err
 		}
-		completeResult, err = recordVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, artifactID, autoFinalizeSummary, "")
+		completeResult, err = recordVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, artifactID, autoFinalizeSummary, recordVerdictOptions{})
 		if err != nil {
 			return nil, err
 		}

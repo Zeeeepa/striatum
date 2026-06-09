@@ -100,6 +100,7 @@ func TestSweepAutoRequeuesDeadLaneRunningLimboJob(t *testing.T) {
 	// A fresh implementer session in the claude lane must now claim the requeued job.
 	freshSession := "sess_fresh_" + repoID
 	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, freshSession, "implementer", "claude", []string{"write"}, "active", 2)
+	intgAttest(t, ctx, runner, repoID, runID, freshSession, "claude")
 	claim, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id": freshSession,
 	}))
@@ -600,6 +601,7 @@ func TestSweepRecoversStalledSessionActiveLane(t *testing.T) {
 	// A fresh implementer session in the claude lane must now claim the requeued job.
 	freshSession := "sess_fresh_" + repoID
 	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, freshSession, "implementer", "claude", []string{"write"}, "active", 2)
+	intgAttest(t, ctx, runner, repoID, runID, freshSession, "claude")
 	claim, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id": freshSession,
 	}))

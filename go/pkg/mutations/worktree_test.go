@@ -462,6 +462,7 @@ func TestWorktreeCompleteAnchorsCommitStack(t *testing.T) {
 		sessionID, runID, now); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
+	intgAttest(t, ctx, runner, "repo_anchor", runID, sessionID, "codex")
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.jobs (
 		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
@@ -896,6 +897,7 @@ func seedWorktreeRequiredJob(t *testing.T, ctx context.Context, runner db.Runner
 		ids.repoID, ids.sessionID, ids.runID, now); err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
+	intgAttest(t, ctx, runner, ids.repoID, ids.runID, ids.sessionID, "codex")
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.jobs (
 		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,

@@ -152,6 +152,69 @@ func registeredNonFreshReason(t *testing.T, ctx context.Context, runner any, rep
 	return fmt.Sprint(row["non_fresh_reason"])
 }
 
+func TestCloseSessionStopsAttachedSupervisorRows(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_close_stops_supervisor"
+	runID := "run_close_stops_supervisor"
+	sessionID := "sess_close_stops_supervisor"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"implementer": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{"capabilities": []any{"write"}}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "implementer", "claude", []string{"write"}, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "claude")
+
+	result, err := HandleCloseSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"reason":     "operator closing idle lane",
+	}))
+	if err != nil {
+		t.Fatalf("close session: %v", err)
+	}
+	if result["state"] != "closed" {
+		t.Fatalf("close result state = %#v, want closed; result=%#v", result["state"], result)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT s.state AS session_state,
+		       s.close_reason,
+		       ps.state AS supervisor_state,
+		       ps.stop_reason AS supervisor_stop_reason,
+		       ptr.state AS pointer_state,
+		       ds.state AS daemon_state,
+		       ds.stop_reason AS daemon_stop_reason
+		  FROM striatumd.sessions s
+		  JOIN striatumd.process_supervisors ps
+		    ON ps.repository_id = s.repository_id
+		   AND ps.session_id = s.session_id
+		  JOIN striatumd.process_supervisor_pointers ptr
+		    ON ptr.repository_id = ps.repository_id
+		   AND ptr.supervisor_id = ps.supervisor_id
+		  JOIN striatumd.daemon_supervisors ds
+		    ON ds.repository_id = ps.repository_id
+		   AND ds.daemon_supervisor_id = ptr.daemon_supervisor_id
+		 WHERE s.repository_id = $1 AND s.session_id = $2`,
+		repoID, sessionID)
+	if err != nil {
+		t.Fatalf("read closed supervisor rows: %v", err)
+	}
+	if fmt.Sprint(row["session_state"]) != "closed" || fmt.Sprint(row["close_reason"]) != "operator closing idle lane" {
+		t.Fatalf("session terminal state = %#v", row)
+	}
+	if fmt.Sprint(row["supervisor_state"]) != "stopped" ||
+		fmt.Sprint(row["pointer_state"]) != "stopped" ||
+		fmt.Sprint(row["daemon_state"]) != "stopped" {
+		t.Fatalf("supervisor terminal states = %#v, want all stopped", row)
+	}
+	if fmt.Sprint(row["supervisor_stop_reason"]) != "session close: operator closing idle lane" ||
+		fmt.Sprint(row["daemon_stop_reason"]) != "session close: operator closing idle lane" {
+		t.Fatalf("supervisor stop reasons = %#v", row)
+	}
+}
+
 func seedFreshReviewerPolicyRun(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID string, freshReviewer bool) {
 	t.Helper()
 	intgSeedRepo(t, ctx, runner, repoID)

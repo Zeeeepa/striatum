@@ -157,6 +157,14 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 				if err := updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "stopped", now, 0, "", "", &now, &stopReason); err != nil {
 					return nil, err
 				}
+				if err := markActiveSessionTerminal(ctx, tx, activeSessionTerminalUpdate{
+					RepositoryID: repositoryID,
+					SessionID:    fmt.Sprint(row["session_id"]),
+					State:        "lost",
+					Reason:       "process lost: " + stopReason,
+				}); err != nil {
+					return nil, err
+				}
 				agentloop.CleanupGeminiSettings(repoRoot, supervisorID)
 				agentloop.CleanupClaudeScheduledTasksLock(repoRoot)
 			}

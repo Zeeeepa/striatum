@@ -10,9 +10,12 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/jackc/pgx/v5"
 )
 
 func TestClaimNextResultSurfacesPacketIDAndSuperviseSend(t *testing.T) {
@@ -564,6 +567,7 @@ func TestClaimNextProjectsExplicitInterrogationTargets(t *testing.T) {
 	intgSeedSession(t, ctx, runner, repoID, runID, targetSession, "synthesizer", "claude", nil, "active")
 	intgAttest(t, ctx, runner, repoID, runID, targetSession, "claude")
 	intgSeedSession(t, ctx, runner, repoID, runID, consumerSession, "reviewer", "claude", []string{"interrogate"}, "active")
+	intgAttest(t, ctx, runner, repoID, runID, consumerSession, "claude")
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.jobs (
 		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
@@ -691,6 +695,231 @@ func TestClaimNextRefusesClosedSession(t *testing.T) {
 	}
 }
 
+type claimBackendGateExec struct {
+	sql  string
+	args []any
+}
+
+type claimBackendGateFakeTx struct {
+	execs []claimBackendGateExec
+}
+
+func (tx *claimBackendGateFakeTx) Exec(ctx context.Context, sql string, args ...any) error {
+	tx.execs = append(tx.execs, claimBackendGateExec{sql: sql, args: append([]any{}, args...)})
+	return nil
+}
+
+func (tx *claimBackendGateFakeTx) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	return claimBackendGateRow{err: pgx.ErrNoRows}
+}
+
+func (tx *claimBackendGateFakeTx) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
+	return "", nil
+}
+
+func (tx *claimBackendGateFakeTx) Commit(ctx context.Context) error {
+	return nil
+}
+
+func (tx *claimBackendGateFakeTx) Rollback(ctx context.Context) error {
+	return nil
+}
+
+func (tx *claimBackendGateFakeTx) sawSessionUpdateArg(arg any) bool {
+	for _, exec := range tx.execs {
+		if !strings.Contains(exec.sql, "UPDATE striatumd.sessions") {
+			continue
+		}
+		for _, item := range exec.args {
+			if item == arg {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type claimBackendGateRow struct {
+	err error
+}
+
+func (r claimBackendGateRow) Scan(dest ...any) error {
+	return r.err
+}
+
+func TestEnsureWorkSessionBackendExpiresMissingSupervisor(t *testing.T) {
+	tx := &claimBackendGateFakeTx{}
+
+	err := ensureWorkSessionBackend(context.Background(), tx, "repo_1", "sess_1", "claim")
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("backend gate err = %v, want invalid_transition", err)
+	}
+	if !tx.sawSessionUpdateArg("expired") {
+		t.Fatalf("missing session expired update, execs=%#v", tx.execs)
+	}
+	if !tx.sawSessionUpdateArg("claim refused: no_attached_supervisor") {
+		t.Fatalf("missing close_reason update, execs=%#v", tx.execs)
+	}
+}
+
+func TestClaimNextExpiresUnattestedSessionBeforeClaim(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_unattested"
+	runID := "run_claim_unattested"
+	sessionID := "sess_unattested"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "worker", "claude", nil, "active")
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, "job_unattested", "work", "worker", "claude")
+
+	_, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("claim_next err = %v, want invalid_transition", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "expired" {
+		t.Fatalf("session state = %q, want expired", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, "job_unattested"); got != "queued" {
+		t.Fatalf("job state = %q, want queued", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, "job_unattested"); n != 0 {
+		t.Fatalf("active lease count = %d, want 0", n)
+	}
+}
+
+func TestClaimNextMarksDeadAttachedSupervisorLostBeforeClaim(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_claim_dead_supervisor"
+	runID := "run_claim_dead_supervisor"
+	sessionID := "sess_dead_supervisor"
+	supervisorID := "sup_dead_supervisor"
+	daemonSupervisorID := "dsup_dead_supervisor"
+	deadPID := 99999999
+	now := time.Now().UTC()
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "worker", "claude", nil, "active")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.process_supervisors (
+		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
+		  scratch_path, pid, state, started_at
+		) VALUES ($1,$2,$3,$4,'process','[]'::jsonb,'/tmp','/tmp/scratch',$5,'attached',$6)`,
+		repoID, supervisorID, runID, sessionID, deadPID, now); err != nil {
+		t.Fatalf("insert supervisor: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.process_supervisor_pointers (
+		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
+		  pid, state, updated_at, metadata_json
+		) VALUES ($1,$2,$3,$4,$5,$6,'attached',$7,'{}'::jsonb)`,
+		repoID, supervisorID, daemonSupervisorID, runID, sessionID, deadPID, now); err != nil {
+		t.Fatalf("insert pointer: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_supervisors (
+		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
+		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
+		  state, started_at, heartbeat_at
+		) VALUES ($1,$2,$3,$4,$5,'inst','process','[]'::jsonb,'sha','/tmp',$6,'attached',$7,$7)`,
+		daemonSupervisorID, repoID, runID, sessionID, supervisorID, deadPID, now); err != nil {
+		t.Fatalf("insert daemon supervisor: %v", err)
+	}
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, "job_dead_supervisor", "work", "worker", "claude")
+
+	_, err := HandleClaimNext(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("claim_next err = %v, want invalid_transition", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "lost" {
+		t.Fatalf("session state = %q, want lost", got)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT ps.state AS supervisor_state, ptr.state AS pointer_state, ds.state AS daemon_state
+		  FROM striatumd.process_supervisors ps
+		  JOIN striatumd.process_supervisor_pointers ptr
+		    ON ptr.repository_id = ps.repository_id AND ptr.supervisor_id = ps.supervisor_id
+		  JOIN striatumd.daemon_supervisors ds
+		    ON ds.repository_id = ps.repository_id AND ds.daemon_supervisor_id = ptr.daemon_supervisor_id
+		 WHERE ps.repository_id = $1 AND ps.supervisor_id = $2`,
+		repoID, supervisorID)
+	if err != nil {
+		t.Fatalf("read supervisor states: %v", err)
+	}
+	if row["supervisor_state"] != "lost" || row["pointer_state"] != "lost" || row["daemon_state"] != "lost" {
+		t.Fatalf("supervisor states = %#v, want all lost", row)
+	}
+}
+
+func TestCompleteWorkRejectsUnattestedSession(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_complete_unattested"
+	runID := "run_complete_unattested"
+	sessionID := "sess_complete_unattested"
+	jobID := "job_complete_unattested"
+	leaseID := "lease_complete_unattested"
+	now := time.Now().UTC()
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"claude": map[string]any{}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "worker", "claude", nil, "active")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, title, job_type, role_id,
+		  state, idempotency_key, created_at, started_at, current_lease_id
+		) VALUES ($1,$2,$3,'work','Work','build','worker','running','idem_complete_unattested',$4,$4,$5)`,
+		repoID, jobID, runID, now, leaseID); err != nil {
+		t.Fatalf("insert job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.leases (
+		  repository_id, lease_id, run_id, resource_type, resource_id, owner_session_id,
+		  state, acquired_at, expires_at
+		) VALUES ($1,$2,$3,'job',$4,$5,'active',$6,$7)`,
+		repoID, leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
+		t.Fatalf("insert lease: %v", err)
+	}
+
+	_, err := HandleCompleteWork(ctx, runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   leaseID,
+		"summary":    "done",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("complete err = %v, want invalid_transition", err)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "expired" {
+		t.Fatalf("session state = %q, want expired", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "running" {
+		t.Fatalf("job state = %q, want running", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 1 {
+		t.Fatalf("active lease count = %d, want 1", n)
+	}
+}
+
 // #105: a role/context path declared relative to the workflow dir resolves to a
 // repo-root-relative path so a lane running from the repo root opens it on the
 // first try, and the explicit workflow_root is derived from the snapshot.
@@ -749,6 +978,7 @@ func TestClaimNextExplainsFreshSessionIneligibility(t *testing.T) {
 		"lanes":       map[string]any{"claude": map[string]any{"capabilities": []any{"write"}}},
 	})
 	intgSeedSession(t, ctx, runner, repoID, runID, sess, "implementer", "claude", []string{"claim", "write"}, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sess, "claude")
 
 	seedQueuedImplJob := func(jobID, wfJobID string, fresh bool) {
 		if err := runner.Exec(ctx, `

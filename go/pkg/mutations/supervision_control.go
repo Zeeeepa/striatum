@@ -532,6 +532,14 @@ func stopSupervisorInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessi
 		endedAt, "supervisor stopped: "+reason, repositoryID, sessionID); err != nil {
 		return nil, err
 	}
+	if err := markActiveSessionTerminal(ctx, tx, activeSessionTerminalUpdate{
+		RepositoryID: repositoryID,
+		SessionID:    sessionID,
+		State:        "stopped",
+		Reason:       "supervisor stopped: " + reason,
+	}); err != nil {
+		return nil, err
+	}
 	eventPayload := map[string]any{
 		"supervisor_id":        supervisor.SupervisorID,
 		"daemon_supervisor_id": nullableString(supervisor.DaemonSupervisorID),
@@ -1400,6 +1408,14 @@ func markSupervisorLostInTx(ctx context.Context, runner db.TxRunner, repositoryI
 		repositoryID, supervisorID,
 	).Scan(&daemonSupervisorID)
 	if err := updateSupervisorState(ctx, runner, repositoryID, supervisorID, daemonSupervisorID, "lost", now, pid, "", "", &now, &reason); err != nil {
+		return err
+	}
+	if err := markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
+		RepositoryID: repositoryID,
+		SessionID:    sessionID,
+		State:        "lost",
+		Reason:       "supervisor lost: " + reason,
+	}); err != nil {
 		return err
 	}
 	eventPayload := map[string]any{

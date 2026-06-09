@@ -737,9 +737,13 @@ parent session unless explicitly registered as first-class sessions.
 Sessions are created `active` by `register-session`. The `state` column
 ranges over `('active','expired','stopped','lost','closed')`:
 
-- `active`: registered and able to claim work.
+- `active`: registered and eligible for work only while its lane backend is
+  still attached and lane-attested. Claim, generic completion, and normal
+  review completion paths refuse to drive work for an active row that has no
+  live attached supervisor backend.
 - `expired`: an explicit recovery path released the session's lease and
-  marked the session expired. Reserved for the existing recovery surface.
+  marked the session expired, or a claim/completion attempt found no attached
+  supervisor backend for an otherwise-active session.
 - `stopped`/`lost`: the session's supervised process exited (RFC 0009).
 - `closed`: the new terminal state introduced by RFC 0011, set either by
   the explicit `striatum session close` command or by run-terminal
@@ -752,6 +756,10 @@ active lease (the message points the operator at `striatum release`).
 On the happy path it transitions the session to `closed`, records
 `closed_at` and `close_reason`, and emits a `session.closed` event with
 payload `{session_id, role_id, lane_id, reason, source: "explicit"}`.
+If the session still has an active attached/detached process supervisor but no
+active work lease, the close path first stops the supervisor rows, updates the
+daemon/pointer rows to `stopped`, and emits `supervisor.stopped` with
+`source: "explicit_session_close"`.
 
 When a run transitions to a terminal state (`completed`, `failed`,
 `canceled`), the runner automatically closes every still-active session
@@ -774,9 +782,17 @@ override) `non_fresh_reason`. The `RUN_SUMMARY.md`
 
 ## Work Queue
 
-`claim-next` lazily expires active leases, then atomically claims the oldest
-eligible pending work message. It returns a structured work packet and stores
-the packet JSON plus hash.
+`claim-next` lazily expires active leases, verifies the claiming session is
+active and backed by a live lane-attested supervisor, then atomically claims the
+oldest eligible pending work message. Generic `work.complete` and normal review
+completion paths (`review.submit`/`review.verdict`) apply the same backend gate;
+explicit review-provenance decisions remain the documented escape path for
+operator-authored review recovery. If an otherwise-active session has no
+attached supervisor, these paths mark it `expired` and refuse the transition. If
+its attached supervisor PID is missing, gone, or identity-mismatched, they mark
+the supervisor and session `lost` and refuse the transition. Other unattested
+backend failures are refused without claiming or completing work. It returns a
+structured work packet and stores the packet JSON plus hash.
 
 Required transition commands:
 

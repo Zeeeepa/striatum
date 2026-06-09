@@ -443,6 +443,31 @@ func normalizeSessionCapabilities(capabilities []string) []string {
 	return result
 }
 
+type activeSessionTerminalUpdate struct {
+	RepositoryID string
+	SessionID    string
+	State        string
+	Reason       string
+}
+
+func markActiveSessionTerminal(ctx context.Context, runner any, update activeSessionTerminalUpdate) error {
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support session terminal update")
+	}
+	now := nowString()
+	if err := exec.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET state = $1, closed_at = $2, close_reason = $3
+		 WHERE repository_id = $4 AND session_id = $5 AND state = 'active'`,
+		update.State, now, update.Reason, update.RepositoryID, update.SessionID); err != nil {
+		return err
+	}
+	return nil
+}
+
 func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -489,6 +514,17 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			return nil, err
 		}
 		now := nowString()
+		if err := stopSupervisorsForTerminalSession(ctx, tx, terminalSessionSupervisorStop{
+			RepositoryID:     repositoryID,
+			RunID:            fmt.Sprint(session["run_id"]),
+			SessionID:        sessionID,
+			EndedAt:          now,
+			Reason:           reason,
+			StopReasonPrefix: "session close",
+			EventSource:      "explicit_session_close",
+		}); err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.sessions
 			   SET state = 'closed', closed_at = $1, close_reason = $2
@@ -1082,6 +1118,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}, nil
 		}
 		if _, err := activeLeaseFor(ctx, tx, repositoryID, leaseID, sessionID, jobID); err != nil {
+			return nil, err
+		}
+		if err := ensureWorkSessionBackend(ctx, tx, repositoryID, sessionID, "complete"); err != nil {
 			return nil, err
 		}
 		if isVerdictCapableJobType(jobType) {

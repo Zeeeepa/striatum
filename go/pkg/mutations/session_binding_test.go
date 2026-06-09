@@ -81,6 +81,7 @@ func TestClaimNextRejectsCrossSessionBoundToken(t *testing.T) {
 		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
 	})
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionA, role, lane, nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionA, lane)
 
 	// A token bound to a DIFFERENT session (B) trying to claim AS session A.
 	spoof := boundCtx(ctx, repoID, "sess_claim_B")

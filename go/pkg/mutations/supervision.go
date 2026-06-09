@@ -672,16 +672,29 @@ func updateReportSupervisorStopped(ctx context.Context, runner db.TxRunner, repo
 		return err
 	}
 	if supervisor.DaemonSupervisorID == "" {
-		return nil
+		return markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
+			RepositoryID: repositoryID,
+			SessionID:    supervisor.SessionID,
+			State:        "stopped",
+			Reason:       "supervisor stopped: " + stopReason,
+		})
 	}
-	return runner.Exec(ctx, `
+	if err := runner.Exec(ctx, `
 		UPDATE striatumd.daemon_supervisors
 		   SET state = 'stopped',
 		       ended_at = $1,
 		       stop_reason = $2
 		 WHERE repository_id = $3 AND daemon_supervisor_id = $4`,
 		now, stopReason, repositoryID, supervisor.DaemonSupervisorID,
-	)
+	); err != nil {
+		return err
+	}
+	return markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
+		RepositoryID: repositoryID,
+		SessionID:    supervisor.SessionID,
+		State:        "stopped",
+		Reason:       "supervisor stopped: " + stopReason,
+	})
 }
 
 func refreshReportSupervisorHeartbeat(ctx context.Context, runner db.TxRunner, repositoryID string, supervisor supervisorReportRow, now string) error {
