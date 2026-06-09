@@ -740,16 +740,111 @@ func TestResolveSupervisedCommandBinaryResolvesOnAugmentedPath(t *testing.T) {
 	}
 	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", dir)
 
-	got := resolveSupervisedCommandBinary([]string{"faketool", "arg"})
+	got := resolveSupervisedCommandBinary([]string{"faketool", "arg"}, nil)
 	want := []string{bin, "arg"}
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("resolved = %#v, want %#v", got, want)
 	}
 
 	// An absolute / path-bearing argv0 is left untouched.
-	abs := resolveSupervisedCommandBinary([]string{"/bin/cat", "-"})
+	abs := resolveSupervisedCommandBinary([]string{"/bin/cat", "-"}, nil)
 	if strings.Join(abs, "\x00") != strings.Join([]string{"/bin/cat", "-"}, "\x00") {
 		t.Fatalf("absolute argv0 rewritten: %#v", abs)
+	}
+}
+
+// TestResolveSupervisedCommandBinaryUsesPathPrefix verifies #223: a lane binary
+// that lives only in the lane's path_prefix resolves without a wrapper, even
+// when it is not on the daemon's augmented PATH.
+func TestResolveSupervisedCommandBinaryUsesPathPrefix(t *testing.T) {
+	prefixDir := t.TempDir()
+	bin := filepath.Join(prefixDir, "agy")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Daemon PATH dirs deliberately do not contain agy.
+	t.Setenv("STRIATUM_SUPERVISED_PATH_DIRS", t.TempDir())
+
+	got := resolveSupervisedCommandBinary([]string{"agy", "--dangerously-skip-permissions"}, []string{prefixDir})
+	want := []string{bin, "--dangerously-skip-permissions"}
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("resolved = %#v, want %#v", got, want)
+	}
+}
+
+func TestLanePathPrefixParsing(t *testing.T) {
+	got, err := lanePathPrefix(map[string]any{"path_prefix": []any{"/opt/agy/bin", "/usr/local/bin", "/opt/agy/bin"}})
+	if err != nil {
+		t.Fatalf("lanePathPrefix: %v", err)
+	}
+	want := []string{"/opt/agy/bin", "/usr/local/bin"} // deduped, order preserved
+	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("path_prefix = %#v, want %#v", got, want)
+	}
+	if _, err := lanePathPrefix(map[string]any{"path_prefix": []any{"relative/bin"}}); err == nil {
+		t.Fatalf("expected error for relative path_prefix entry")
+	}
+	if _, err := lanePathPrefix(map[string]any{"path_prefix": "not-an-array"}); err == nil {
+		t.Fatalf("expected error for non-array path_prefix")
+	}
+	if got, err := lanePathPrefix(map[string]any{}); err != nil || got != nil {
+		t.Fatalf("absent path_prefix = (%#v, %v), want (nil, nil)", got, err)
+	}
+}
+
+func TestLaneCommandEnvParsing(t *testing.T) {
+	got, err := laneCommandEnv(map[string]any{"command_env": map[string]any{"AGY_HOME": "/opt/agy", "FOO": "bar"}})
+	if err != nil {
+		t.Fatalf("laneCommandEnv: %v", err)
+	}
+	if got["AGY_HOME"] != "/opt/agy" || got["FOO"] != "bar" {
+		t.Fatalf("command_env = %#v", got)
+	}
+	if _, err := laneCommandEnv(map[string]any{"command_env": map[string]any{"PATH": "/x"}}); err == nil {
+		t.Fatalf("expected error for command_env PATH")
+	}
+	if _, err := laneCommandEnv(map[string]any{"command_env": map[string]any{"STRIATUM_MCP_TOKEN": "x"}}); err == nil {
+		t.Fatalf("expected error for STRIATUM_-namespaced command_env key")
+	}
+	if _, err := laneCommandEnv(map[string]any{"command_env": map[string]any{"FOO": 1}}); err == nil {
+		t.Fatalf("expected error for non-string command_env value")
+	}
+}
+
+// TestSupervisedLaneEnvAppliesLaunchEnv verifies #223 end to end: the lane env
+// prepends path_prefix to PATH and includes command_env, while the daemon's
+// session-bound token stays authoritative and the adapter identity stays the
+// declared lane adapter (not a wrapper).
+func TestSupervisedLaneEnvAppliesLaunchEnv(t *testing.T) {
+	config := supervisionStartConfig{
+		RepoRoot:         t.TempDir(),
+		RepositoryID:     "repo",
+		RunID:            "run",
+		SessionID:        "sess",
+		LaneID:           "agy",
+		OriginalCommand:  []string{"agy", "--dangerously-skip-permissions"},
+		CapabilityToken:  "tok-123",
+		LaunchPathPrefix: []string{"/opt/agy/bin"},
+		LaunchEnv:        map[string]string{"AGY_HOME": "/opt/agy", "FOO": "bar"},
+	}
+	if config.adapterName() != "agy" {
+		t.Fatalf("adapter = %q, want agy (declared lane adapter, not a wrapper)", config.adapterName())
+	}
+	env := supervisedLaneEnv(config, "sup-1")
+	values := map[string]string{}
+	for _, entry := range env {
+		if k, v, ok := strings.Cut(entry, "="); ok {
+			values[k] = v
+		}
+	}
+	if !strings.HasPrefix(values["PATH"], "/opt/agy/bin"+string(os.PathListSeparator)) {
+		t.Fatalf("PATH = %q, want /opt/agy/bin prepended", values["PATH"])
+	}
+	if values["AGY_HOME"] != "/opt/agy" || values["FOO"] != "bar" {
+		t.Fatalf("command_env not applied: AGY_HOME=%q FOO=%q", values["AGY_HOME"], values["FOO"])
+	}
+	if values["STRIATUM_MCP_TOKEN"] != "tok-123" {
+		t.Fatalf("STRIATUM_MCP_TOKEN = %q, want the injected bound token", values["STRIATUM_MCP_TOKEN"])
 	}
 }
 

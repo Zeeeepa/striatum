@@ -188,6 +188,44 @@ user, protected socket directory, and PostgreSQL `pg_hba.conf` deny rule are in
 place. It is not part of the ordinary unit suite because it depends on host OS
 users and PostgreSQL listener configuration.
 
+## Lane launch environment (`path_prefix` / `command_env`, #223)
+
+A lane sometimes needs a binary (e.g. `agy`) that is not on the daemon's PATH,
+or a provider-specific env var. Do **not** reach for a machine-local `/tmp`
+wrapper such as `["/usr/bin/env", "PATH=…", "agy", …]`: that makes the lane's
+argv0 `env`, so adapter detection no longer sees `agy`, the agent-loop guard
+refuses it, and the workflow stops being portable.
+
+Instead declare the launch environment on the lane itself, in the workflow — it
+travels with the snapshot and stays auditable:
+
+```json
+"lanes": {
+  "agy": {
+    "adapter": "process",
+    "command": ["agy", "--dangerously-skip-permissions"],
+    "adapter_capabilities": { "agent_loop": true },
+    "path_prefix": ["/opt/agy/bin"],
+    "command_env": { "AGY_HOME": "/opt/agy" }
+  }
+}
+```
+
+- `path_prefix` — absolute directories **prepended** to the supervised lane PATH.
+  The lane binary resolves from here regardless of the daemon's own PATH, so the
+  command stays the normal `["agy", …]` shape and the adapter identity stays
+  `agy`.
+- `command_env` — extra non-secret env entries for the lane process. It **cannot**
+  set `PATH` (use `path_prefix`) or any `STRIATUM_`-namespaced control var; the
+  daemon's injected identity/token/MCP-endpoint env always wins, so the lane
+  still authenticates as its own session and reaches the control plane over the
+  injected MCP configuration — never a socket-backed local `striatum` CLI path
+  that would be invalid for the sandbox user.
+
+`validate`/`lint` enforce these shapes, and supervised launch refuses an
+agent-loop lane whose argv0 is not a supported adapter — so the wrapper anti-
+pattern is rejected rather than silently accepted.
+
 ## Scope and non-goals
 
 - This is OS-level isolation of a process Striatum spawns; it is **not** new

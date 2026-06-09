@@ -427,6 +427,47 @@ func validateLanes(lanes map[string]any) error {
 		if mode := stringValue(lane["worktree_isolation"]); mode != "" && !worktreeIsolationValues[mode] {
 			return errf("lane %q worktree_isolation must be one of [off per_job]", laneID)
 		}
+		// #223: first-class lane launch env. path_prefix is an array of absolute
+		// directories prepended to the lane PATH; command_env is an object of
+		// string env values. command_env must not set PATH (use path_prefix) or any
+		// STRIATUM_-namespaced control var, so the snapshot stays portable and
+		// cannot override the daemon control plane.
+		if raw, exists := lane["path_prefix"]; exists {
+			items, ok := raw.([]any)
+			if !ok {
+				return errf("lane %q path_prefix must be an array of absolute directory strings", laneID)
+			}
+			for _, item := range items {
+				dir, ok := item.(string)
+				if !ok || strings.TrimSpace(dir) == "" {
+					return errf("lane %q path_prefix entries must be non-empty strings", laneID)
+				}
+				if !filepath.IsAbs(strings.TrimSpace(dir)) {
+					return errf("lane %q path_prefix entries must be absolute paths: %s", laneID, dir)
+				}
+			}
+		}
+		if raw, exists := lane["command_env"]; exists {
+			obj, ok := raw.(map[string]any)
+			if !ok {
+				return errf("lane %q command_env must be an object of string values", laneID)
+			}
+			for key, value := range obj {
+				trimmed := strings.TrimSpace(key)
+				if trimmed == "" {
+					return errf("lane %q command_env keys must be non-empty", laneID)
+				}
+				if trimmed == "PATH" {
+					return errf("lane %q command_env must not set PATH; use path_prefix instead", laneID)
+				}
+				if strings.HasPrefix(trimmed, "STRIATUM_") {
+					return errf("lane %q command_env must not set STRIATUM_-namespaced control vars: %s", laneID, trimmed)
+				}
+				if _, ok := value.(string); !ok {
+					return errf("lane %q command_env value for %s must be a string", laneID, trimmed)
+				}
+			}
+		}
 		// GH #119: if a lane's supervision block explicitly requests an
 		// agent-loop transport (transport: "pty_helper" or require_tmux: true),
 		// it must also declare adapter_capabilities.agent_loop: true (or the

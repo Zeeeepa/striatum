@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/agentloop"
@@ -36,21 +37,82 @@ func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisor
 func supervisedLaneEnv(config supervisionStartConfig, supervisorID string) []string {
 	adapter := config.adapterName()
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+		return applyLaneLaunchEnv(config, supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
 	}
 	entries := supervisedEnvEntries(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
 	base := supervisedRunAsPassThrough(os.Environ(), config.RunAsUser)
 	if endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, os.Environ()); err == nil && strings.TrimSpace(endpoint) != "" {
 		base = mergeEnvReplacing(base, []string{"STRIATUM_MCP_URL=" + endpoint})
 	}
-	return mergeEnvReplacing(base, entries)
+	return applyLaneLaunchEnv(config, mergeEnvReplacing(base, entries))
 }
 
 func supervisedPTYHelperSpecEnv(config supervisionStartConfig, supervisorID string) []string {
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
+		return applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
 	}
 	return supervisedLaneEnv(config, supervisorID)
+}
+
+// applyLaneLaunchEnv layers the workflow-authored lane launch env (#223) onto an
+// already-built supervised lane env: command_env entries (which can never name
+// PATH or a STRIATUM_-namespaced control var — enforced at parse) override the
+// OS passthrough/provider base but lose to the daemon control entries, and
+// path_prefix dirs are prepended to PATH. The result lets a workflow launch a
+// lane (e.g. agy) with a controlled PATH and provider env without a
+// machine-local wrapper, while the daemon's identity/token/endpoint vars stay
+// authoritative.
+func applyLaneLaunchEnv(config supervisionStartConfig, env []string) []string {
+	if len(config.LaunchEnv) > 0 {
+		env = mergeEnvReplacing(env, commandEnvEntries(config.LaunchEnv))
+	}
+	if len(config.LaunchPathPrefix) > 0 {
+		env = prependLanePathPrefix(env, config.LaunchPathPrefix)
+	}
+	return env
+}
+
+func commandEnvEntries(values map[string]string) []string {
+	out := make([]string, 0, len(values))
+	for key, value := range values {
+		out = append(out, key+"="+value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func prependLanePathPrefix(env []string, prefix []string) []string {
+	current := ""
+	idx := -1
+	for i, entry := range env {
+		if key, value, ok := strings.Cut(entry, "="); ok && key == "PATH" {
+			current = value
+			idx = i
+		}
+	}
+	seen := map[string]bool{}
+	merged := make([]string, 0, len(prefix))
+	for _, dir := range prefix {
+		if dir == "" || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		merged = append(merged, dir)
+	}
+	for _, dir := range filepath.SplitList(current) {
+		if dir == "" || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		merged = append(merged, dir)
+	}
+	pathEntry := "PATH=" + strings.Join(merged, string(os.PathListSeparator))
+	if idx >= 0 {
+		out := append([]string(nil), env...)
+		out[idx] = pathEntry
+		return out
+	}
+	return append(env, pathEntry)
 }
 
 func rebridgeHelperEnv(supervisor supervisorControlRow) []string {

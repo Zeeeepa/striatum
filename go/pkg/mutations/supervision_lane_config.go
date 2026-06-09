@@ -39,6 +39,16 @@ type supervisionStartConfig struct {
 	// gets no injected token, which fails loudly rather than silently inheriting
 	// the daemon's shared operator override).
 	CapabilityToken string
+	// LaunchPathPrefix is the lane's optional path_prefix (#223): absolute
+	// directories prepended to the supervised lane PATH so a workflow can launch a
+	// lane binary that lives outside the daemon PATH WITHOUT a machine-local
+	// wrapper script. It is workflow-authored (lives in the snapshot), so it stays
+	// portable and auditable.
+	LaunchPathPrefix []string
+	// LaunchEnv is the lane's optional command_env (#223): extra non-secret env
+	// for the lane process. It cannot set PATH (use path_prefix) or any
+	// STRIATUM_-namespaced control var, so it never touches the control plane.
+	LaunchEnv map[string]string
 }
 
 // adapterName returns the bare CLI adapter name of the lane (e.g. "claude"),
@@ -106,6 +116,18 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 		return config, err
 	}
 	config.OriginalCommand = append([]string(nil), command...)
+	// #223: first-class lane launch env. Parse the workflow-authored path_prefix
+	// and command_env so a lane (e.g. agy) can be launched with a controlled PATH
+	// and provider env WITHOUT a machine-local /usr/bin/env wrapper — which would
+	// also have changed the adapter identity to "env" and been refused below.
+	config.LaunchPathPrefix, err = lanePathPrefix(lane)
+	if err != nil {
+		return config, err
+	}
+	config.LaunchEnv, err = laneCommandEnv(lane)
+	if err != nil {
+		return config, err
+	}
 	if laneUsesAgentLoop(lane) {
 		// #181: an agent-loop lane is driven by the self-driving bootstrap +
 		// PTY-submit wiring, which only knows how to deliver the initial prompt
@@ -142,7 +164,7 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	// the launching process's PATH at construction time, before cmd.Env is
 	// applied, so setting the child PATH alone is insufficient (the F44
 	// path.conf-retirement regression).
-	command = resolveSupervisedCommandBinary(command)
+	command = resolveSupervisedCommandBinary(command, config.LaunchPathPrefix)
 	transport, err := supervisionTransport(lane)
 	if err != nil {
 		return config, err
@@ -264,10 +286,11 @@ func selfDrivingAgentLoopCommand(command []string) ([]string, error) {
 }
 
 // resolveSupervisedCommandBinary rewrites command[0] to an absolute path found
-// on the augmented supervised PATH, so the lane binary resolves regardless of
-// the daemon's own PATH. A no-op when argv0 is already a path or cannot be
-// resolved (the launch will then surface the original not-found error).
-func resolveSupervisedCommandBinary(command []string) []string {
+// on the lane's path_prefix (#223) then the augmented supervised PATH, so the
+// lane binary resolves regardless of the daemon's own PATH. A no-op when argv0
+// is already a path or cannot be resolved (the launch will then surface the
+// original not-found error).
+func resolveSupervisedCommandBinary(command []string, pathPrefix []string) []string {
 	if len(command) == 0 || strings.TrimSpace(command[0]) == "" {
 		return command
 	}
@@ -275,7 +298,8 @@ func resolveSupervisedCommandBinary(command []string) []string {
 	if strings.ContainsRune(bin, os.PathSeparator) {
 		return command
 	}
-	for _, dir := range filepath.SplitList(supervisedPath()) {
+	searchDirs := append(append([]string(nil), pathPrefix...), filepath.SplitList(supervisedPath())...)
+	for _, dir := range searchDirs {
 		if dir == "" {
 			continue
 		}
@@ -287,6 +311,81 @@ func resolveSupervisedCommandBinary(command []string) []string {
 		}
 	}
 	return command
+}
+
+// lanePathPrefix parses the optional lane path_prefix (#223): absolute
+// directories prepended to the supervised lane PATH. Entries must be non-empty
+// absolute paths; the daemon-side existence of a dir is not required so the
+// snapshot stays portable.
+func lanePathPrefix(lane map[string]any) ([]string, error) {
+	raw, ok := lane["path_prefix"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, rpc.NewError("invalid_transition", "lane path_prefix must be an array of absolute directory strings", nil)
+	}
+	out := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		dir, ok := item.(string)
+		if !ok || strings.TrimSpace(dir) == "" {
+			return nil, rpc.NewError("invalid_transition", "lane path_prefix entries must be non-empty strings", nil)
+		}
+		dir = filepath.Clean(strings.TrimSpace(dir))
+		if !filepath.IsAbs(dir) {
+			return nil, rpc.NewError("invalid_transition", "lane path_prefix entries must be absolute paths: "+dir, nil)
+		}
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		out = append(out, dir)
+	}
+	return out, nil
+}
+
+// laneCommandEnv parses the optional lane command_env (#223): extra non-secret
+// environment entries for the lane process. It cannot set PATH (use path_prefix)
+// or any STRIATUM_-namespaced control var (daemon-owned identity/token/endpoint),
+// so a workflow can give a lane provider-specific env without touching the
+// control plane or PATH.
+func laneCommandEnv(lane map[string]any) (map[string]string, error) {
+	raw, ok := lane["command_env"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	obj, ok := raw.(map[string]any)
+	if !ok {
+		return nil, rpc.NewError("invalid_transition", "lane command_env must be an object of string values", nil)
+	}
+	out := make(map[string]string, len(obj))
+	for key, value := range obj {
+		key = strings.TrimSpace(key)
+		if err := validateLaneCommandEnvKey(key); err != nil {
+			return nil, err
+		}
+		text, ok := value.(string)
+		if !ok {
+			return nil, rpc.NewError("invalid_transition", "lane command_env value for "+key+" must be a string", nil)
+		}
+		out[key] = text
+	}
+	return out, nil
+}
+
+func validateLaneCommandEnvKey(key string) error {
+	if key == "" {
+		return rpc.NewError("invalid_transition", "lane command_env keys must be non-empty", nil)
+	}
+	if key == "PATH" {
+		return rpc.NewError("invalid_transition", "lane command_env must not set PATH; use path_prefix instead", nil)
+	}
+	if strings.HasPrefix(key, "STRIATUM_") {
+		return rpc.NewError("invalid_transition", "lane command_env must not set STRIATUM_-namespaced control vars: "+key, nil)
+	}
+	return nil
 }
 
 func agentLoopFlagIndex(command []string) int {

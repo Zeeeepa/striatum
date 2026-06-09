@@ -105,6 +105,44 @@ func TestValidateReturnsAuthoringErrors(t *testing.T) {
 	}
 }
 
+// TestValidateLaneLaunchEnv verifies #223: a lane may declare path_prefix and
+// command_env, and the validator enforces their shape and the control-plane
+// boundary (no PATH or STRIATUM_-namespaced keys in command_env).
+func TestValidateLaneLaunchEnv(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":     "process",
+		"command":     []any{"agy", "--dangerously-skip-permissions"},
+		"path_prefix": []any{"/opt/agy/bin"},
+		"command_env": map[string]any{"AGY_HOME": "/opt/agy"},
+	}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("valid launch env rejected: %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "path_prefix": []any{"relative/bin"}}
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "absolute paths") {
+		t.Fatalf("relative path_prefix error = %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "command_env": map[string]any{"PATH": "/x"}}
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "must not set PATH") {
+		t.Fatalf("command_env PATH error = %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{"adapter": "process", "command": []any{"true"}, "command_env": map[string]any{"STRIATUM_MCP_TOKEN": "x"}}
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "STRIATUM_-namespaced") {
+		t.Fatalf("command_env STRIATUM_ key error = %v", err)
+	}
+}
+
 func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)
