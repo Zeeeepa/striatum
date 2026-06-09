@@ -85,7 +85,7 @@ func HandleCorpusMigrateHistoricalDogfoodFile(
 	if bucket == "" {
 		return nil, rpc.NewError(
 			"blob_disabled",
-			fmt.Sprintf("repository %s has no blob_bucket configured (run `striatum adopt --apply-blob-creation` first)", repositoryID),
+			fmt.Sprintf("repository %s has no blob_bucket configured (run `striatum repo add <path> --apply-blob-creation` first)", repositoryID),
 			map[string]any{"repository_id": repositoryID},
 		)
 	}

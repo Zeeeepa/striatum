@@ -8,7 +8,7 @@ preferred path, runs one dissent review, and records the final decision.
 Validate it from the repository root:
 
 ```bash
-PYTHONPATH=src python3 -m striatum.cli workflow validate examples/implementation-panel-flow/workflow.json
+striatum workflow validate examples/implementation-panel-flow/workflow.json --json
 ```
 
 The fixture intentionally uses local process lanes so it can be inspected

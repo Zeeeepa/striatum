@@ -1,5 +1,5 @@
 //go:generate go run ../cli/routergen -mode rpc-registry -contract ../../../contracts/daemon_methods.json -out registry_methods.go
-//go:generate go run ../cli/routergen -mode markdown-tables -contract ../../../contracts/daemon_methods.json -out ../../../docs/architecture/DAEMON_METHOD_TABLES.md
+//go:generate go run ../cli/routergen -mode markdown-tables -contract ../../../contracts/daemon_methods.json -out ../../../docs/reference/daemon-method-tables.md
 
 package rpc
 

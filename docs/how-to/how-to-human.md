@@ -202,7 +202,7 @@ different fixture or copy the example into a scratch tree first.
 ## Initialize
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" init --json
+"$RUNNER" repo add "$TARGET_REPO" --init --json
 "$RUNNER" --repo "$TARGET_REPO" status --json
 "$RUNNER" --repo "$TARGET_REPO" doctor --json
 ```
@@ -212,9 +212,9 @@ repo (supervised wrapper FIFOs, pidfiles, and transient supervisor
 scratch) and adds `.striatum/` to that repo's
 `.gitignore`. Authoritative workflow state lives in the daemon-
 owned PostgreSQL instance under a `repository_id` scope per D094 /
-RFC 0043; `init` registers the repository with the daemon when one
-is reachable. The daemon is a hard prerequisite — without a
-reachable daemon, the verbs above refuse with exit code 11
+RFC 0043; `repo add --init` registers the repository with the daemon
+and initializes scratch. The daemon is a hard prerequisite — without a
+reachable daemon, repository-scoped verbs refuse with exit code 11
 (`daemon_unreachable`); against a pre-D094 SQLite-only repo they
 refuse with exit code 12 (`repo_not_migrated`) and tell you to
 archive/remove legacy SQLite files before registering. See
@@ -225,24 +225,22 @@ To also drop a self-contained agent skill bundle that teaches a
 Striatum-aware agent how to drive the runner (RFC 0015 V1):
 
 ```bash
-# Guided day-zero path: init scratch, install skills/plugins,
-# scaffold DDD docs, and register with daemon Postgres.
-"$RUNNER" --repo "$TARGET_REPO" adopt --profile claude_code --json
+# Claude Code:
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile claude_code --json
+"$RUNNER" --repo "$TARGET_REPO" plugin install --profile claude_code --json
 
-# Claude Code: writes five SKILL.md files under .claude/skills/striatum-*/
-"$RUNNER" --repo "$TARGET_REPO" init --with-skills claude_code --json
+# Codex CLI:
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile codex --json
+"$RUNNER" --repo "$TARGET_REPO" plugin install --profile codex --json
 
-# Codex CLI: writes five flat files under .codex/agents/striatum-*.md
-"$RUNNER" --repo "$TARGET_REPO" init --with-skills codex --json
+# Gemini CLI:
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile gemini --json
 
-# Gemini CLI: writes one striatum-STRIATUM_GEMINI_GUIDE.md at the repo root
-"$RUNNER" --repo "$TARGET_REPO" init --with-skills gemini --json
+# Anything else:
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile generic --json
 
-# Anything else: writes one striatum-STRIATUM_AGENT_GUIDE.md at the repo root
-"$RUNNER" --repo "$TARGET_REPO" init --with-skills generic --json
-
-# All four at once (deterministic order, disjoint paths):
-"$RUNNER" --repo "$TARGET_REPO" init --with-skills all --json
+# All skill profiles at once (deterministic order, disjoint paths):
+"$RUNNER" --repo "$TARGET_REPO" skills install --profile all --json
 ```
 
 The current Go installer ships four skill profiles plus an `all`
@@ -291,32 +289,33 @@ options):
 topology. Preview is the default. Add `--write` to write the workflow
 tree.
 
-### Backport harness-profile fragments
+### Refresh existing workflow fixtures
 
-RFC 0040 V1 bakes the "no-questions" and gemini front-matter
-completeness fragments into the bundled template catalog (see
+RFC 0040 V1 bakes the "no-questions" front-matter completeness fragments into
+the bundled template catalog (see
 [`docs/HARNESS_FRICTION_PATTERNS.md`](../explanation/harness-friction-patterns.md)).
-New workflows scaffolded via `workflow generate` pick them up
-automatically. Existing workflows can be upgraded in place:
+New workflows scaffolded via `workflow generate` pick them up automatically.
+
+The Python-era `workflow upgrade` CLI is not part of the current Go CLI. For an
+existing workflow, regenerate the nearest starter into a temporary path, copy
+over the wanted prompt/role fragments by hand, then validate the edited
+workflow:
 
 ```bash
-# Preview the change set without writing.
-"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --dry-run --json
-
-# Apply the catalog fragments where the existing instruction is empty
-# or already matches the catalog default; refuse on conflict.
-"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --json
-
-# Override a conflicting custom instruction. The change set records
-# `forced: true` on each overwritten field.
-"$RUNNER" --repo "$TARGET_REPO" workflow upgrade path/to/workflow.json --force --json
+"$RUNNER" workflow generate \
+  --shape code_change \
+  --lane-set local \
+  --workflow-id my-change-refresh \
+  --scaffold-root /tmp/striatum-workflow-refresh \
+  --artifact-root striatum/my-change \
+  --write \
+  --json
+"$RUNNER" workflow validate path/to/workflow.json --json
 ```
 
-`workflow upgrade` refuses to mutate a workflow that has any non-
-terminal run referencing it; cancel or complete the run first, or
-duplicate the workflow if the active run should be left alone. The
-verb is scoped to harness-profile fragments in V1; other corrections
-will land as separate verbs.
+Do not mutate a workflow that has a non-terminal run unless the operator has
+decided that the active run should consume the changed file. Duplicate the
+workflow if the active run should be left alone.
 
 ## Drive a dogfood through daemon MCP
 
@@ -866,11 +865,12 @@ escape is for subprocess compatibility fixtures only.
 
 The old SQLite cutover commands are fully removed.
 `daemon migrate` and `daemon migrate-repo-local` are no longer parseable
-compatibility spellings. To inspect current daemon reachability, registration,
-and first-run posture, use:
+compatibility spellings. To inspect current daemon reachability,
+registration, and runtime posture, use:
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" doctor --first-run --json
+"$RUNNER" daemon status
+"$RUNNER" --repo "$TARGET_REPO" doctor --verbose --json
 ```
 
 CLI verbs against an unregistered repo refuse with exit code 12
@@ -932,12 +932,9 @@ make -C go build
 ls go/bin/striatumd
 ```
 
-The build requires Go 1.23+ and the system `make`. Release tooling can
-stage per-platform binaries into `striatum._daemongo` via
-`make daemon-go-release`, and local package/editable testing can stage the
-host binary with `make daemon-go-install`. Installs that do not include a
-matching package-data binary still fall through to `STRIATUMD_GO_BIN` and
-then `go/bin/striatumd`.
+The build requires Go 1.23+ and the system `make`. The root `make install`
+target copies the built Go binaries into `$(PREFIX)/bin`; release archives are
+built with `make release-archives`.
 
 Run it directly for developer inspection:
 
@@ -945,7 +942,7 @@ Run it directly for developer inspection:
 ./go/bin/striatumd \
   --socket "${XDG_RUNTIME_DIR:-/tmp}/striatum/daemon.sock" \
   --postgres-url "$STRIATUM_DAEMON_DB_URL" \
-  --migrations-sha-source src/striatum/daemon_pg/sql
+  --migrations-sha-source go/pkg/db/sql
 ```
 
 `daemon.describe` exposes the supported schema, migration count, and method
@@ -967,9 +964,7 @@ from _harness.multi_repo import MultiRepoHarness
 
 harness = MultiRepoHarness(daemon_pg_url=...)
 
-# The harness invokes `make -C go build` if the binary is missing; set
-# STRIATUMD_GO_BIN=/path/to/striatumd to skip the build step and reuse a
-# prebuilt binary.
+# The harness invokes `make -C go build` if the binary is missing.
 harness = MultiRepoHarness(daemon_pg_url=..., daemon_core="go")
 ```
 

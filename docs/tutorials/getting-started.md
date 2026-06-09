@@ -43,8 +43,9 @@ covers that path.
   the connection through `STRIATUM_DAEMON_DB_URL`,
   `~/.config/striatum/daemon.toml`, or `--postgres-url`. See
   [POSTGRES_TRANSITION.md](../how-to/postgres-transition.md) for the full
-  runbook (daemon doctor, daemon startup, retired SQLite import
-  handling, repository registration, verification, and the documented
+  runbook (`daemon migrate-db`, `daemon owner-ddl apply`, daemon startup,
+  retired SQLite import handling, repository registration, verification, and
+  the documented
   refusal exit codes 11
   `daemon_unreachable` and 12 `repo_not_migrated`).
 

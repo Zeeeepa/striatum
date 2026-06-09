@@ -21,7 +21,6 @@ striatum run drive
 striatum operator bootstrap
 striatum run summary
 striatum archive create
-striatum archive verify
 ```
 
 `workflow generate` (below) is the way to scaffold a starter workflow tree;
@@ -185,7 +184,7 @@ striatum daemon status
 striatum daemon uninstall
 striatum daemon migrate-db [--admin-url <dsn>] [--json]
 striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]
-striatum doctor [--first-run] [--verbose] [--json]
+striatum doctor [--verbose] [--json]
 striatumd [daemon-start options]
 systemctl --user start|stop|restart|status striatumd
 striatum repo add <path> [--init] [--no-migrate compatibility flag]
@@ -242,11 +241,9 @@ migrations and roles, but it does not install, start, stop, or
 upgrade PostgreSQL. Bundled, embedded, and Dockerized Postgres
 distributions are deferred.
 
-`striatum doctor` is the daemon-backed health check. `doctor --first-run`
-verifies daemon socket reachability, PostgreSQL posture, runtime-token
-presence, repo registration, MCP visibility, and a sample daemon read route.
-`doctor --verbose` includes structured `problem_records` alongside the stable
-string `problems` list.
+`striatum doctor` is the daemon-backed health check. `doctor --verbose`
+includes structured `problem_records` alongside the stable string `problems`
+list.
 `striatum daemon status` is the local bootstrap summary for unit state and
 runtime paths; it folds in read-only doctor information when the daemon is
 reachable.
@@ -264,8 +261,8 @@ runtime role can apply itself. This is distinct from the retired SQLite-era
 `daemon migrate-repo-local --from sqlite --to pg --repo <path>` are fully
 removed SQLite-era import spellings. They are no longer parseable compatibility
 commands; stale automation receives an unknown-command parse failure. Use
-`striatum doctor --first-run --json` and `striatum repo add <path> --init` for
-current registration/cutover diagnostics.
+`striatum daemon status`, `striatum doctor --verbose --json`, and
+`striatum repo add <path> --init` for current registration/cutover diagnostics.
 CLI verbs against an unregistered repo refuse with exit code 12
 (`repo_not_migrated`) and point operators to archive/remove legacy SQLite
 files, then register with `repo add --init`.
@@ -292,21 +289,12 @@ striatum status [--run-id <id>]
 striatum doctor
 striatum why <job-id>
 striatum dashboard --all
-striatum doctor --first-run
 ```
 
 The V1 `--no-daemon` flag is retired (D094 / RFC 0043); parsing it
 returns the standard argparse "unrecognized arguments" error and exit
 code 2. Production mutation and read verbs do not fall back to direct
 repo-local mode.
-
-`doctor --first-run` is a bootstrap smoke check, not a normal
-repo-state doctor run. It returns a
-`striatum.first_run_diagnostic.v1` JSON report that verifies daemon socket
-reachability, Go daemon binary provenance from `striatumd --describe`,
-Postgres doctor status, runtime token presence, repository registration,
-MCP tool visibility, one sample daemon read route, and the daemon authority
-report.
 
 Daemon RPC method capabilities use the closed vocabulary `read`,
 `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
@@ -462,7 +450,6 @@ a registered daemon RPC method.
 
 ```text
 striatum corpus export --since <ref> --out <dir>
-striatum corpus verify --bundle <dir>
 ```
 
 `corpus export` emits a redacted JSONL bundle of Striatum's durable
@@ -473,11 +460,6 @@ harness-friction patterns, recent commits) plus a verifying
 unchanged inputs produces byte-identical JSONL files and stable per-file
 SHA-256s; only `generated_at` varies, and it is excluded from the bundle
 digest.
-`corpus verify` is a local read-only checker for an existing bundle; it
-validates the manifest, per-file hashes and byte counts, JSONL row shape,
-duplicate row ids, row/file `sub_kind` consistency, row counts, and the
-implied V1 corpus contract version.
-
 The bundle is operator-triggered local provenance, never streamed to any
 external service. Optional consumers (Engram is the first reference under
 RFC 0044) may ingest the bundle for retrieval, but Striatum does not call
@@ -490,20 +472,15 @@ incremental watermarks, optional context-injection policy) are scoped by
 
 ```text
 striatum archive create --run-id <id> --out <dir>
-striatum archive verify --bundle <dir> [--manifest-only] [--repo-root <path>]
-striatum archive inspect --bundle <dir> [--repo-root <path>]
 ```
 
 `archive create` is a daemon/Postgres-backed read command that writes a
 local archive directory for one run. The V2 archive contains the run row,
 workflow snapshot, run-scoped rows, artifact metadata, event metadata, and a
 self-verifying `manifest.json`; it does not copy artifact contents,
-transcripts, or `.striatum/` scratch. `archive verify` is local and
-read-only against an existing archive bundle, and it runs offline semantic
-replay by default. `--manifest-only` is the explicit fast path that skips
-semantic replay; `--repo-root` also verifies artifact content hashes against
-files in a local repository checkout. `archive inspect` is a read-only local
-projection over the same verifier.
+transcripts, or `.striatum/` scratch. The current Go CLI exposes archive
+creation only; local `archive verify` / `archive inspect` verifier commands are
+not part of the active command surface.
 
 ## Adapter
 

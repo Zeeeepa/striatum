@@ -1218,8 +1218,8 @@ transitions. The non-negotiable invariants are:
   recovery, `run prepare`, `run start`, `corpus export`) that fails when
   an external memory consumer is missing, unreachable, or misconfigured.
 
-These invariants are pinned by the active V2 boundary guardrail
-`tests/test_corpus_verify.py::test_corpus_v2_surface_keeps_augmentation_boundary_local`.
+These invariants are pinned by Go guardrails around the corpus export path and
+the daemon method registry.
 The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
 power V2 are scoped by [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
@@ -1236,21 +1236,9 @@ hybrid archive defaults (`snapshot`, `event_log`, and
 metadata_only`. The archive does not copy artifact contents, transcripts,
 `.striatum/` scratch, or any external-service state.
 
-`striatum archive verify --bundle <dir>` checks an existing archive locally
-without daemon state and runs offline deep-chain semantic replay by default:
-run/repository consistency, FK-style references among run rows,
-duplicate/missing archived row-id rejection for command requests, process
-supervisors, process supervisor pointers, verdicts, blockers, process
-executions, and job worktrees, monotonic event ordering, event-row hash
-recomputation, and event-chain continuity when `previous_hash` / `row_hash`
-anchors are present. `--manifest-only` is the explicit fast path that skips
-semantic replay and checks only manifest shape, file hashes, byte counts, and
-row counts. Because the archive stores artifact metadata rather than artifact
-bytes, artifact content hashes are checked only when the operator also
-provides `--repo-root <path>`. `striatum archive inspect --bundle <dir>` is
-a read-only local semantic inspection surface over the same verifier; it
-reports consistency, replay posture, and privacy-relevant metadata without
-daemon reachability or workflow-state mutation.
+The current Go CLI exposes archive creation only. Local `archive verify` and
+`archive inspect` verifier commands are not part of the active command surface;
+adding them requires a source change plus CLI/reference-doc updates.
 
 ## Branches And Commits
 
@@ -1397,8 +1385,6 @@ striatum recovery resume
 # Corpus export (RFC 0044 V1; RFC 0052 contract)
 striatum corpus export --since <ref> --out <dir>
 striatum archive create --run-id <id> --out <dir>
-striatum archive verify --bundle <dir> [--manifest-only] [--repo-root <path>]
-striatum archive inspect --bundle <dir> [--repo-root <path>]
 
 # Adapter
 striatum adapter run

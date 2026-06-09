@@ -139,7 +139,7 @@ D006/D009 in DECISION_LOG name this directly. In DDD terms:
 - CLI, MCP, web, process-adapter, and supervisor surfaces all route
   state changes through the same daemon-owned method vocabulary.
   Local file-authoring helpers such as `workflow validate` and
-  `workflow graph` do not mutate live workflow state.
+  `workflow generate` do not mutate live workflow state.
 
 This is what makes the vocabulary load-bearing: a reviewer cannot
 return `looks good` because the CLI doesn't accept that. The

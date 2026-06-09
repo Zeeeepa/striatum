@@ -49,7 +49,7 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	{
 		Code:       "blob_apply_required",
 		Meaning:    "The blob bucket does not exist and creation was not authorized.",
-		Suggestion: "Re-run adopt with --apply-blob-creation to create the bucket.",
+		Suggestion: "Re-run `striatum repo add <path> --apply-blob-creation` to create the bucket.",
 	},
 	{
 		Code:       "blob_disabled",

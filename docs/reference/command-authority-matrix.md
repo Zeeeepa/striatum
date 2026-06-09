@@ -1,19 +1,19 @@
 # Command Authority Matrix
 
-Status: Phase 1 Go-port tracking
-Date: 2026-05-18
-Source inputs: `src/striatum/cli/parser.py`,
-`src/striatum/cli/daemon_rpc_route.py`,
-`src/striatum/daemon_rpc/registry.py`,
-`src/striatum/daemon_rpc/server.py`,
-`src/striatum/daemon_pg/handlers/`, and `go/pkg/`.
+Status: Go-only authority reference
+Date: 2026-06-09
+Source inputs: `contracts/daemon_methods.json`,
+`go/pkg/cli/routes/routes_generated.go`,
+`go/pkg/cli/localcommands/localcommands.go`, `go/pkg/rpc/registry_methods.go`,
+and `go/pkg/`.
 
 This matrix names the current authority path for every registered daemon RPC
 method plus CLI commands that are intentionally outside the production workflow
 mutation path. It is transition scaffolding for the architecture remediation
 plan. Contract metadata and CLI route reference tables are generated in
-`docs/architecture/DAEMON_METHOD_TABLES.md`; authority classification,
-SQLite-dependency notes, and Go-port status still live here. Every new RPC
+`docs/reference/daemon-method-tables.md`; authority classification,
+historical SQLite-dependency notes, and Go authority status still live here.
+Every new RPC
 method or handwritten route map must update this file. Per D108, executable
 guardrails keep this matrix aligned with the daemon contract/runtime while it
 remains curated for authority and status classification; the retired Python
@@ -35,6 +35,9 @@ the production contract; D112 removed `apply.reviewed_patch` as well. These
 names no longer appear as registered methods, and stale calls audit as
 `method_unknown`.
 
+The `python authority` column below is retained as retirement provenance for
+pre-RFC-0078 rows; it is not a current implementation surface.
+
 Legend:
 
 - **python authority**: `pg` means a native Python Postgres handler is
@@ -52,23 +55,17 @@ Legend:
 
 ## Direct PostgreSQL Bootstrap/Admin Plane
 
-These Python client/CLI touchpoints may configure or open daemon PostgreSQL
-directly because they run before a daemon is healthy, inspect daemon health, or
-guard local authoring against active runs. This is not a general live-state
-mutation escape hatch: ordinary workflow state changes must route through
-daemon RPC. The retired Python guardrail
-(`tests/architecture/test_authority_guardrails.py`) used to scan these imports;
-the live executable guards are the Go contract tests named in the introduction
-above.
+These Go CLI touchpoints may configure or open daemon PostgreSQL directly
+because they run before a daemon is healthy or apply owner/admin DDL out of
+band. This is not a general live-state mutation escape hatch: ordinary workflow
+state changes must route through daemon RPC.
 
 | File/function | Allowed surface | Direct PostgreSQL helper imports | Constraint |
 |---|---|---|---|
-| `src/striatum/day_zero.py::<module>` | guided adoption, first-run smoke, service status helpers | `resolve_config`, `connect`, `connect_and_migrate`, `doctor` | day-zero setup/diagnostic only; workflow mutations still route through daemon RPC |
-| `src/striatum/day_zero.py::adopt` | guided first-run repo registration | `repo_add_pg` | initializes operational scratch and repository registration only |
-| `src/striatum/cli/dispatch.py::_dispatch_daemon` | `daemon doctor`, lifecycle/status/audit/sweep/service commands | `client_admin`, `doctor` | daemon-global admin/diagnostic plane only |
-| `src/striatum/cli/dispatch.py::_daemon_doctor_repo_cutover_report` | `daemon doctor --repo --authority` cutover verification | `resolve_config` | verify-only repository cutover report |
-| `src/striatum/cli/dispatch.py::_dispatch_daemon_repo` | `repo add/list/remove` CLI bridge | `client_admin` | calls PostgreSQL admin client helpers; no repo-local SQLite state |
-| `src/striatum/cli/workflow.py::_running_runs_for_workflow_pg` | local workflow-upgrade running-run guard | `resolve_config`, `connect` | read-only guard; fail closed when daemon PostgreSQL state is unknown |
+| `go/pkg/cli/localcommands/daemon.go::runDaemonMigrate` | `daemon migrate-db` | `db.ResolveConfig`, `db.ConnectAndMigrate` | Applies forward PostgreSQL migrations with an owner/admin DSN before the daemon serves; no workflow RPC mutation. |
+| `go/pkg/cli/localcommands/daemon.go::runDaemonOwnerDDL` | `daemon owner-ddl apply` | `db.ResolveConfig`, `db.Connect`, `db.ApplyOwnerBundles`, `db.ReassertWriteRevokes`, `db.ReassertReadRevokes` | Applies owner bundles and reasserts protected grants with an owner DSN; no workflow RPC mutation. |
+| `go/pkg/cli/localcommands/daemon.go::runDaemonInstall` | `daemon install` | none | Renders the systemd user unit and config scaffold only. |
+| `go/pkg/cli/localcommands/daemon.go::runDaemonStatus` | `daemon status` | none directly | Reports local service/runtime layout and shells to `striatum doctor` for a read-only daemon health check. |
 
 ## Registered Daemon Methods
 
@@ -99,9 +96,9 @@ above.
 | `run.events` | web SSE event stream DTO | read | single_repo | pg | real | no | no | stable |
 | `run.posture_verdicts` | web posture verdict drill-down | read | single_repo | pg | real | no | no | stable |
 | `workflow.validate` | `workflow validate` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring validator; no PG state mutation |
-| `workflow.lint` | MCP/UI workflow lint | read | single_repo | not implemented in Python RPC | real | no | no live state | Go daemon lint projection with immutable workflow fingerprint and accepted-risk annotations |
-| `workflow.plan` | `workflow plan` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring plan projection |
-| `workflow.graph` | `workflow graph` | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring JSON/Mermaid/DOT projection |
+| `workflow.lint` | MCP/UI workflow lint; no current Go CLI route | read | single_repo | not implemented in Python RPC | real | no | no live state | Go daemon lint projection with immutable workflow fingerprint and accepted-risk annotations |
+| `workflow.plan` | MCP/UI workflow plan; no current Go CLI route | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring plan projection |
+| `workflow.graph` | MCP/UI workflow graph; no current Go CLI route | read | single_repo | local_file_authoring | real | no | no live state | Go file-authoring JSON/Mermaid/DOT projection |
 | `workflow.accepted_risks.list` | `workflow accepted-risks` / MCP/UI accepted-risk list | read | single_repo | not implemented in Python RPC | real | no | no live state mutation | Go read projection over daemon-owned workflow accepted-risk records |
 | `workflow.templates.list` | `workflow templates list` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
 | `workflow.templates.show` | `workflow templates show` | read | single_repo | local_file_authoring | real | no | no live state | Go embedded catalog read; CLI remains local authoring surface |
@@ -157,7 +154,7 @@ delivery bridge or the supervisor is restarted.
 | `worktree.release` | `worktree release` | write | single_repo | pg + git refs | real | no | no | refuses non-`--force` release while worktree HEAD is unreachable from the run branch or `refs/striatum/`; `--force` records `worktree.force_released` |
 | `worktree.gc` | `worktree gc` | write | single_repo | pg + git refs + git worktrees | real | no | no | removes only on-disk worktrees for terminal jobs whose HEAD is reachable from the run branch or `refs/striatum/`; skipped rows are reported and removals emit `worktree.gc_removed` |
 | `workflow.generate` | `workflow generate` | write | single_repo | local_file_authoring | real | no | no live state | Go generator writer; refuses unsafe paths/overwrites |
-| `workflow.upgrade` | `workflow upgrade` | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Go upgrade supports harness-profile updates and `--add-phases` V1.1 rewrites |
+| `workflow.upgrade` | MCP/UI workflow upgrade; no current Go CLI route | write | single_repo | local_file_authoring | real | no | PG running-run guard only; no Go SQLite import | Registered daemon method only; the Python-era `workflow upgrade` CLI is retired. |
 | `workflow.accept_risk` | `workflow accept-risk` / MCP/UI accepted-risk mutation | admin | single_repo | not implemented in Python RPC | real | no | no | Go append-only accepted-risk mutation; requires decision artifact reference, rationale, and lint finding fingerprint |
 | `review.submit` | `submit-review` | review | single_repo | pg | real | no | no | stable |
 | `review.verdict` | `verdict` | review | single_repo | pg | real | no | no | stable |
@@ -175,7 +172,7 @@ delivery bridge or the supervisor is restarted.
 | `run.cancel` | `run cancel` | admin | single_repo | pg | real | no | no | stable |
 | `run.retry_job` | `run retry-job` | admin | single_repo | pg | real | no | no | stable |
 | `run.integrate` | `run integrate` | apply | single_repo | not implemented in Python RPC | real | no | no | Go RFC 0108 Phase 4 serialized gated integration (merge-tree plumbing; never auto-resolves) |
-| `repo.init` | `init` | admin | single_repo | bootstrap CLI helper | real | no | no Go SQLite import; Python bootstrap compatibility remains | Go registers PG-backed repo state and operational scratch only |
+| `repo.init` | RPC/bootstrap helper; CLI uses `repo add --init` | admin | single_repo | bootstrap CLI helper | real | no | no Go SQLite import | Go registers PG-backed repo state and operational scratch only |
 | `recovery.stale_leases` | `recovery stale-leases` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.requeue_stale` | `recovery requeue-stale` | recovery | single_repo | pg | real | no | no | stable |
 | `recovery.cancel_job` | `recovery cancel-job` | recovery | single_repo | pg | real | no | no | stable |
@@ -193,8 +190,8 @@ delivery bridge or the supervisor is restarted.
 | `daemon.token.revoke` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token revocation by token id or full token |
 | `daemon.token.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go PostgreSQL token rotation with ambiguous-scope refusal |
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go rotates the local Ed25519 sealed-apply fallback key file and returns key id/public-key metadata; full apply-gate mutation remains separate |
-| `daemon.shutdown` | `daemon stop` out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
-| `daemon.migrate` | `daemon migrate` | admin | daemon_global | migration CLI helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
+| `daemon.shutdown` | RPC only; stop service out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
+| `daemon.migrate` | RPC/admin migration method; CLI bootstrap helper is `daemon migrate-db` | admin | daemon_global | migration helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
 | `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
 | `cross_repo.why` | `cross-repo why` | read | cross_repo | direct cross-repo service | real | no | no | stable |
@@ -219,37 +216,23 @@ known response. They should not be emitted by current CLI routing.
 
 ## CLI-Only Or Out-Of-Band Commands
 
-These commands are in `parser.py` but are not production workflow mutation
-methods routed by `daemon_rpc_route.py`. Some remain valid bootstrap/admin
-helpers; others are local authoring or legacy service surfaces that later
-remediation phases should either daemon-route, quarantine, or delete.
+These commands are implemented by `go/pkg/cli/localcommands` and are not
+production workflow mutation methods routed through daemon RPC. They are
+bootstrap, installer, or local workflow-authoring helpers.
 
 | CLI command | Current authority | SQLite dependency | Classification |
 |---|---|---|---|
-| `init` | `dispatch.py` -> `init_repo` | yes, bootstrap compatibility | bootstrap_admin |
-| `adopt` | guided bootstrap over init/install/scaffold + PG repo migration | intentional bootstrap/migration only | bootstrap_admin |
 | `skills install` | local filesystem installer | no workflow state | bootstrap_admin |
+| `skills list` | embedded optional-skill catalog and on-disk manifest reader | no workflow state | bootstrap_admin |
 | `plugin install` / `plugin uninstall` | local filesystem installer | no workflow state | bootstrap_admin |
-| `self-update` | local pip + installer helper | no workflow state | bootstrap_admin |
-| `daemon start` | daemon lifecycle launcher | no repo-local workflow SQLite | bootstrap_admin |
-| `daemon service install` / `start` / `status` | local service-manager helper; Go start forwards resident recovery scheduler flags | no workflow state | bootstrap_admin |
-| `daemon doctor` | daemon PG doctor plus disabled legacy-registry status; registry probe only when PG diagnostics are unavailable or under explicit fixture escapes | diagnostic/test-only registry probe | bootstrap_admin |
-| `doctor --first-run` | day-zero smoke over daemon socket, PG doctor, token, MCP, and sample read route | no workflow state | bootstrap_admin |
-| `daemon migrate` | retired compatibility refusal | no SQLite open | bootstrap_admin |
-| `daemon migrate-repo-local` | retired compatibility refusal; verify evidence lives under `daemon doctor --repo --authority` | no SQLite open | bootstrap_admin |
-| `daemon status` / `stop` / `health` / `audit` / `sweep` | daemon lifecycle helpers | PostgreSQL daemon audit/metadata paths; sweep owns PostgreSQL scheduler cursors | bootstrap_admin |
-| `cross-repo list` / `describe` / `why` | daemon RPC cross-repo helpers | no | daemon_read_out_of_band |
-| `cross-repo cancel` | daemon RPC + PG participant cancel | no | daemon_recovery |
-| `workflow validate` / `lint` / `plan` / `graph` | local authoring helpers; daemon RPC fails closed for ordinary CLI use; durable accepted-risk state is daemon-owned via `workflow.accept_risk` | no live state mutation from local lint | local_file_authoring |
-| `workflow generate` / `templates` | local authoring helpers; daemon RPC fails closed | no live state | local_file_authoring |
-| `workflow upgrade` | local authoring helper with PG running-run guard | PostgreSQL-only running-run check; fails closed when PG state is unknown and never opens repo-local SQLite | local_file_authoring |
-| `recovery watch` | foreground scheduler repeatedly calling daemon `recovery.sweep` | no production SQLite | daemon_scheduler |
-| `run graph` | daemon RPC to PG handler | no | daemon_native |
-| `send` | daemon RPC to PG handler | no | daemon_native |
-| `adapter run` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
-| `byline` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
-| `inbox --session-id` | retired outside explicit legacy test fixtures | no production SQLite | legacy fixture only |
-| `serve` | local HTTP/web service over daemon RPC plus explicit CLI-local authoring helpers | no production SQLite | service cleanup debt |
+| `daemon install` | renders systemd user unit and scaffolds `daemon.toml` | no workflow state | bootstrap_admin |
+| `daemon uninstall` | disables/removes systemd user unit; leaves config/data intact | no workflow state | bootstrap_admin |
+| `daemon status` | local unit/runtime layout plus read-only `striatum doctor` result | no workflow mutation | bootstrap_admin |
+| `daemon migrate-db` | applies pending PostgreSQL migrations via owner/admin DSN | no workflow state | bootstrap_admin |
+| `daemon owner-ddl apply` | applies owner-DDL bundles and reasserts protected grants | no workflow state | bootstrap_admin |
+| `workflow validate` | offline workflow JSON validation | no live state | local_file_authoring |
+| `workflow generate` | embedded catalog scaffold preview/write helper | no live state | local_file_authoring |
+| `workflow templates list` / `workflow templates show` | embedded workflow-template catalog reads | no live state | local_file_authoring |
 
 ## Immediate Findings
 
@@ -267,26 +250,23 @@ remediation phases should either daemon-route, quarantine, or delete.
    and register against `striatumd.repositories` without opening or creating
    `.striatum/retired-local-state`; `--init` creates only operational scratch.
 4. `repo.resolve` is a daemon-global bootstrap read because repository-scoped
-   authorization cannot know the repository id before resolution. Python CLI
-   and service clients now resolve repositories through daemon RPC instead of
-   direct PostgreSQL imports.
-5. Both Python and Go daemon routes now fail closed for SQLite-bound dogfood
-   composites. Operators should use primitive daemon methods (`work.ack`,
+   authorization cannot know the repository id before resolution. Current Go
+   CLI, MCP, and web clients resolve repositories through daemon RPC.
+5. Go daemon routes fail closed for SQLite-bound dogfood composites.
+   Operators should use primitive daemon methods (`work.ack`,
    `artifact.publish`, `review.verdict`, `work.complete`, and ordinary
    `recovery.*`) until a PostgreSQL-native composite is designed.
 6. Go daemon startup now owns the resident active-run recovery scheduler:
    it calls Go `recovery.sweep`, records `daemon.recovery_sweep`, and upserts
    `striatumd.scheduler_cursors` without production SQLite.
-7. `/v1/invoke`, local MCP `striatum/invoke`, and web chat tools route
-   daemon-mapped production reads and mutations through daemon RPC; local MCP
-   `tools/list` / `tools/call` do not advertise or execute CLI-shaped aliases.
-   Hidden local workflow-authoring methods also fail closed in Go MCP
-   `tools/call` with `tool_hidden`, including for write-capable tokens.
-   `striatum.api.invoke` remains only for local authoring and explicit
-   test/fixture compatibility paths.
-8. `striatum.db` remains the legacy SQLite engine, but substrate-neutral
-   helpers now live in `primitives.py` and `repo_policy.py`; guardrails keep
-   daemon PG/RPC production modules from importing SQLite helpers.
+7. `/v1/invoke` routes daemon-mapped production reads and allowed mutations
+   through daemon RPC. MCP `tools/list` / `tools/call` are derived from the
+   daemon method registry and do not advertise CLI-shaped aliases. Hidden local
+   workflow-authoring methods fail closed in Go MCP `tools/call` with
+   `tool_hidden`, including for write-capable tokens.
+8. The legacy Python SQLite engine is deleted from the production tree.
+   Historical SQLite references remain only in archived docs and fixtures; live
+   workflow state is daemon-owned PostgreSQL.
 9. Go no longer has generic `not_implemented` handlers for active contract
    methods. D110 removed the SQLite-bound dogfood composites and the
    repo-local SQLite import RPC from the production contract; D112 removed
@@ -338,7 +318,7 @@ remediation is sensible for that code.
 | `bad_host` | The MCP endpoint rejected a request whose Host header is not loopback. | Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL. |
 | `bad_origin` | The MCP endpoint rejected a browser-style request whose Origin header is not loopback. | Send requests from a loopback origin or drop the Origin header. |
 | `base_head_mismatch` | The current git HEAD does not match the commit_request base_head. | Regenerate the commit_request against the current HEAD, then re-run git.commit_apply. |
-| `blob_apply_required` | The blob bucket does not exist and creation was not authorized. | Re-run adopt with --apply-blob-creation to create the bucket. |
+| `blob_apply_required` | The blob bucket does not exist and creation was not authorized. | Re-run `striatum repo add <path> --apply-blob-creation` to create the bucket. |
 | `blob_disabled` | The daemon is not configured for blob storage. | — |
 | `blob_head_failed` | The blob backend failed to stat an object. | — |
 | `blob_list_failed` | The blob backend failed to list a bucket. | — |

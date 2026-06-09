@@ -9,9 +9,9 @@ deployment to blob-backed artifact storage. The infrastructure
 (daemon S3 client, publish/get_content/list_for_run RPC handlers,
 doctor block, web UI viewer, bulk-migration script) shipped in
 commits `154fac4` through `4fc41ae`. The remaining work is
-operator-side: stand up an S3-compatible service, adopt repos
+operator-side: stand up an S3-compatible service, register or re-register repos
 against it, then bulk-migrate the historical `docs/dogfood/`
-content.
+content once the public Go CLI migration wrapper exists.
 
 ## Prerequisites
 
@@ -54,29 +54,19 @@ to a path the daemon's user can read (e.g.,
 them from systemd, or run the daemon as root for V1 and tighten
 later.
 
-## Step 2 — Verify with `daemon doctor`
+## Step 2 — Verify with `doctor`
 
 ```bash
-striatum daemon doctor --json | jq .blob
+striatum --repo /path/to/registered/repo doctor --verbose --json | jq .blob
 ```
 
-A daemon-global success (no repository_id supplied) reports:
+When blob storage is configured and reachable, the doctor blob block reports:
 
 ```json
 {
   "configured": true,
   "reachable": true,
   "errors": []
-}
-```
-
-A repository-scoped doctor (with `--repo /path/to/registered/repo`)
-adds bucket-level diagnostics:
-
-```json
-{
-  "configured": true,
-  "reachable": true,
   "bucket": "striatum-<repository_id>",
   "bucket_exists": true,
   "bucket_status": "ok",
@@ -87,29 +77,30 @@ adds bucket-level diagnostics:
 ```
 
 `bucket_status: "not_provisioned"` means the repo row has NULL
-`blob_bucket`; you have not run `striatum adopt --apply-blob-creation`
-for this repo yet (step 3).
+`blob_bucket`; you have not re-run `striatum repo add
+--apply-blob-creation` for this repo yet (step 3).
 
 `bucket_status: "missing"` means the bucket name is set but the
-bucket does not exist on the endpoint. Re-run `adopt --apply-blob-creation`.
+bucket does not exist on the endpoint. Re-run `repo add
+--apply-blob-creation`.
 
 ## Step 3 — Adopt repositories against the bucket
 
 For a new repo:
 
 ```bash
-striatum adopt --profile claude_code --apply-blob-creation /path/to/repo
+striatum repo add /path/to/repo --init --apply-blob-creation --json
 ```
 
 The `--apply-blob-creation` flag tells the daemon to create the
 per-repo bucket if it does not exist. Without it, an unprovisioned
 bucket refuses with `blob_apply_required`.
 
-For an already-adopted repo (no blob_bucket yet — the repo was
+For an already-registered repo (no blob_bucket yet — the repo was
 registered before blob was configured):
 
 ```bash
-striatum adopt --apply-blob-creation /path/to/repo
+striatum repo add /path/to/repo --apply-blob-creation --json
 ```
 
 The daemon detects the existing registration and backfills
@@ -119,7 +110,10 @@ To explicitly choose the bucket name (instead of the default
 `<prefix><repository_id>`):
 
 ```bash
-striatum adopt --apply-blob-creation --blob-bucket striatum-myrepo /path/to/repo
+striatum repo add /path/to/repo \
+  --apply-blob-creation \
+  --blob-bucket striatum-myrepo \
+  --json
 ```
 
 **Exit code 12 (`repo_blob_conflict`)** means the chosen bucket is
@@ -136,7 +130,10 @@ Trigger a workflow that publishes a blob-routed artifact kind
 `progress_note`). After the publish:
 
 ```bash
-striatum --json invoke artifact.list_for_run --repository_id <id> --run_id <run>
+BASE_URL=$(sed 's#/mcp$##' "${XDG_RUNTIME_DIR}/striatum/mcp-http-endpoint")
+TOKEN=$(cat "${XDG_RUNTIME_DIR}/striatum/client-token")
+curl -H "Authorization: Bearer ${TOKEN}" \
+  "${BASE_URL}/v1/runs/<run_id>/artifacts" | jq .
 ```
 
 Expected: each blob-routed artifact carries non-null `blob_key` and
@@ -144,12 +141,20 @@ Expected: each blob-routed artifact carries non-null `blob_key` and
 `work_plan`, `operator_brief`, `operator_report`) still have
 `blob_key: null` — they stay git-tracked.
 
-`striatum --json invoke artifact.get_content --repository_id <id> --artifact_id <art>`
-returns `{ "source": "blob", "verified": true, ... }` for
-blob-routed artifacts and `{ "source": "repo_path", ... }` for
-legacy / decisional ones.
+Fetch the raw artifact body through the Go web service:
+
+```bash
+curl -H "Authorization: Bearer ${TOKEN}" \
+  "${BASE_URL}/v1/artifacts/<artifact_id>/raw" > /tmp/artifact-body
+```
 
 ## Step 5 — Bulk-migrate `docs/dogfood/`
+
+The current Go daemon registers the per-file
+`corpus.migrate_historical_dogfood_file` RPC handler, but the public Go CLI no
+longer exposes the old `striatum corpus migrate-historical-dogfoods` wrapper.
+Do not run the retired command shape below or remove `docs/dogfood/` until a
+current CLI wrapper lands.
 
 **This step is destructive for the working tree**: after it lands,
 1,305 files across 66 dogfood directories move from git tracking
@@ -157,53 +162,14 @@ into blob storage.
 
 Before running:
 
-- Confirm `daemon doctor --repo <striatum repo> --json | jq .blob`
+- Confirm `striatum --repo <striatum repo> doctor --verbose --json | jq .blob`
   reports `bucket_status: "ok"` for the striatum repo.
 - Look up the bucket name:
   `psql -c "SELECT blob_bucket FROM striatumd.repositories WHERE repo_root = '/path/to/striatum'"`.
 
-The migration goes through the daemon — no S3 client is installed on
-the Python side. The CLI walks `docs/dogfood/`, reads each file, and
-hands the base64-encoded body to the daemon over the existing
-`corpus.migrate_historical_dogfood_file` RPC. The daemon does the
-actual upload using the same `*blob.Client` that the live publish
-path uses, so credentials and per-repo bucket binding stay in one
-place.
-
-Dry-run first:
-
-```bash
-striatum corpus migrate-historical-dogfoods \
-  --bucket <bucket> \
-  --dry-run --json | tee migration-dry-run.json
-jq '.counts' migration-dry-run.json
-```
-
-Expected: `would_upload` ≈ 1,305 (the file count), `error: 0`.
-
-Real run (idempotent — repeated runs skip already-uploaded files):
-
-```bash
-striatum corpus migrate-historical-dogfoods --bucket <bucket> --json | tee migration.json
-jq '.counts' migration.json
-```
-
-Expected: `uploaded` + `skipped_already_present` ≈ 1,305,
-`error: 0`. If any errors, **stop here** — the on-disk files are
-still present, and re-running the migration after fixing the
-underlying cause is safe.
-
-Verify a sample by re-fetching one file's body and comparing sha256:
-
-```bash
-jq -r '.entries[0] | "\(.blob_key) \(.sha256)"' migration.json
-# Pick the printed (blob_key, sha256); fetch via the S3 client and
-# diff against the on-disk file.
-```
-
 ## Step 6 — Remove `docs/dogfood/` from the working tree
 
-Only after step 5 reports zero errors:
+Only after a current migration wrapper exists and reports zero errors:
 
 ```bash
 git rm -r docs/dogfood/
@@ -226,10 +192,9 @@ $EDITOR / web-browser → http://localhost:<port>/run/<run_id>/artifacts/<artifa
 
 # Corpus export should produce the same redacted bundle:
 striatum corpus export --since <ref> --out /tmp/corpus
-striatum corpus verify --bundle /tmp/corpus
 
 # Doctor stays green:
-striatum daemon doctor --repo /path/to/striatum --json | jq '.blob.bucket_status'
+striatum --repo /path/to/striatum doctor --verbose --json | jq '.blob.bucket_status'
 # → "ok"
 ```
 

@@ -12,4 +12,6 @@ Use the default five-label triage vocabulary. See `docs/agents/triage-labels.md`
 
 ### Domain docs
 
-Use Striatum's current product docs: vocabulary lives in `docs/UBIQUITOUS_LANGUAGE.md` and decisions live in `docs/DECISION_LOG.md`. See `docs/agents/domain.md`.
+Use Striatum's current product docs: vocabulary lives in
+`docs/reference/ubiquitous-language.md` and decisions live in
+`docs/decisions/decision-log.md`. See `docs/agents/domain.md`.

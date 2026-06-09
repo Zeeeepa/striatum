@@ -81,17 +81,17 @@ to push a healthy run forward, the operator harness should be improved.
 tar -xzf striatum_2.0.0_linux-amd64.tar.gz
 export PATH="$PWD/striatum_2.0.0_linux-amd64/bin:$PATH"
 
-# 2. Verify and repair the local Postgres role/grants.
-striatum daemon doctor \
-  --apply-migrations \
-  --provision-rw-role \
-  --repair-grants \
-  --json
+# 2. Configure PostgreSQL, then apply daemon DB bootstrap work.
+# Set postgres_url in ~/.config/striatum/daemon.toml or export
+# STRIATUM_DAEMON_DB_URL / STRIATUM_DAEMON_ADMIN_DB_URL first.
+striatum daemon install --no-start --json
+striatum daemon migrate-db --json
+striatum daemon owner-ddl apply --json
 
-# 3. Install/start a user service, or use foreground daemon start.
-striatum daemon service install --manager auto --json
-striatum daemon service start --manager auto --json
-# OR: striatum daemon start --json &
+# 3. Start the user service, or use foreground striatumd.
+systemctl --user start striatumd
+# OR: striatumd -socket "${XDG_RUNTIME_DIR}/striatum/daemon-go.sock"
+striatum daemon status
 
 # 4. Register a target repo, then install agent-side skills/plugins.
 TARGET_REPO=/path/to/your/repo
@@ -99,9 +99,8 @@ striatum repo add "$TARGET_REPO" --init --json
 striatum --repo "$TARGET_REPO" skills install --profile claude_code --json
 striatum --repo "$TARGET_REPO" plugin install --profile claude_code --json
 
-# 5. Smoke-test the first-run path end to end, including daemon
-#    binary provenance and authority routing.
-striatum --repo "$TARGET_REPO" doctor --first-run --json
+# 5. Check repository registration, daemon reachability, and posture.
+striatum --repo "$TARGET_REPO" doctor --verbose --json
 ```
 
 What this setup does:

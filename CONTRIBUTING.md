@@ -6,32 +6,33 @@ contributors. The quick path:
 ```bash
 git clone https://github.com/halbritt/striatum
 cd striatum
-make install          # creates .venv/, installs editable + dev deps
-make lint             # ruff
-make typecheck        # mypy --strict
-make test             # pytest
+make install          # builds and installs Go binaries, then scaffolds daemon config
+make lint             # Go lint via the root Makefile
+make typecheck        # Go type/test gate via the root Makefile
+make test             # go test
+make smoke            # fresh-clone/package smoke
 ```
 
-Every PR must keep `lint`, `typecheck`, and `test` green. CI runs
-all three on Ubuntu and macOS against Python 3.11 and 3.12, plus
-the package smoke (`scripts/package_smoke.sh`) and the
-fresh-clone smoke (`scripts/fresh_clone_smoke.sh`).
+Every PR must keep `lint`, `typecheck`, and `test` green. The project is
+Go-only; the root Makefile delegates to `go/` for `striatum`, `striatumd`,
+and `striatum-supervisor-helper`. CI and release checks also exercise the Go
+package smoke and fresh-clone smoke scripts.
 
 striatum is local-first orchestration software. Do not add
 hosted-service dependencies, telemetry, transcript capture, or
 external persistence without an explicit product decision (see
-[`docs/DECISION_LOG.md`](docs/decisions/decision-log.md)).
+[`docs/decisions/decision-log.md`](docs/decisions/decision-log.md)).
 
 ## Where to put what
 
 The doc system has explicit boundaries — see
 [`docs/DOC_MAP.md`](docs/reference/doc-map.md). Briefly:
 
-- Behavior changes edit [`docs/SPEC.md`](docs/reference/spec.md) and add a
+- Behavior changes edit [`docs/reference/spec.md`](docs/reference/spec.md) and add a
   one-sentence-per-cell row to
-  [`docs/DECISION_LOG.md`](docs/decisions/decision-log.md).
+  [`docs/decisions/decision-log.md`](docs/decisions/decision-log.md).
 - New concepts add a glossary entry to
-  [`docs/UBIQUITOUS_LANGUAGE.md`](docs/reference/ubiquitous-language.md)
+  [`docs/reference/ubiquitous-language.md`](docs/reference/ubiquitous-language.md)
   *first*, validator + introspection second
   (see [`docs/DDD.md`](docs/explanation/domain-driven-design.md) § "Adding to the model").
 - Significant design changes go through an RFC under
@@ -48,78 +49,56 @@ The doc system has explicit boundaries — see
    changes, that means `SPEC.md` + `CHANGELOG.md` + (if it's an
    accepted RFC's V1) `DECISION_LOG.md`.
 4. Add or update tests for behavior changes.
-5. Don't commit `.striatum/`, `.venv/`, caches, egg-info,
-   transcripts, or private diagnostics.
+5. Don't commit `.striatum/`, caches, build outputs, transcripts, or private
+   diagnostics.
 6. Push the branch; open the PR against `main`.
 
 ## Working as an agent contributor
 
 If you are an LLM agent (Claude Code, Codex, Gemini CLI, …)
 working on this codebase, read [`AGENTS.md`](AGENTS.md). It
-points at [`docs/HOW_TO_AGENT.md`](docs/how-to/how-to-agent.md) for
+points at [`docs/how-to/how-to-agent.md`](docs/how-to/how-to-agent.md) for
 how to drive striatum *as a runner inside a target repo* —
 that's a different role from contributing to striatum's source.
 
 ## Releases
 
-Releases are tagged on `main` with `vX.Y.Z` and shipped to PyPI
-+ GitHub Releases automatically by
-[`.github/workflows/release.yml`](.github/workflows/release.yml).
+Releases are tagged on `main` with `vX.Y.Z` and shipped as Go binary archives
+through [`.github/workflows/release.yml`](.github/workflows/release.yml).
+See [`docs/how-to/releasing.md`](docs/how-to/releasing.md) for the full
+release policy.
 
 To cut a release:
 
 ```bash
-# 1. Bump version in pyproject.toml + src/striatum/__init__.py.
-# 2. Promote `## Unreleased` to `## X.Y.Z — YYYY-MM-DD` in CHANGELOG.md.
-# 3. Commit on main. The release workflow's tag-vs-pyproject check
-#    will reject a tag that doesn't match the pyproject version.
+# 1. Bump VERSION.
+# 2. Promote `## Unreleased` to `## vX.Y.Z — YYYY-MM-DD` in CHANGELOG.md.
+# 3. Run make release-check.
+# 4. Commit on main. The release workflow rejects a tag that does not
+#    match VERSION.
 git commit -am "vX.Y.Z: <one-line summary>"
 git push origin main
 
-# 4. Tag and push the tag. The Release workflow fires on the tag push.
+# 5. Tag and push the tag. The Release workflow fires on the tag push.
 git tag -a vX.Y.Z -m "vX.Y.Z: <one-line summary>"
 git push origin vX.Y.Z
 ```
 
 The release workflow:
 
-1. Verifies the tag's version matches `pyproject.toml`.
-2. Builds the wheel + sdist; runs `twine check --strict`.
-3. Publishes to PyPI via
-   [trusted publishing](https://docs.pypi.org/trusted-publishers/) —
-   no API token in the repo.
-4. Creates a GitHub Release for the tag with the matching
-   CHANGELOG slice as the body and the dist files attached.
-
-### One-time PyPI setup
-
-Trusted publishing needs configuration on the PyPI side, not
-just the repo side:
-
-1. Create the project on PyPI (publish a first release with an
-   API token, or pre-register via the PyPI UI).
-2. On the project's PyPI "Publishing" page, add a trusted
-   publisher with:
-   - Owner: `halbritt`
-   - Repository: `striatum`
-   - Workflow: `release.yml`
-   - Environment: `pypi`
-3. In the GitHub repo settings, create an environment named
-   `pypi` (no secrets required for OIDC; optionally restrict
-   to the `main` branch / `v*` tags as a safety belt).
-
-After that, every `v*` tag pushed to GitHub publishes the
-release end-to-end.
+1. Verifies the tag's version matches the root `VERSION` file.
+2. Builds Linux/macOS Go archives and `SHA256SUMS`.
+3. Checks the archives and runs the Go package smoke.
+4. Creates a GitHub Release for the tag with the matching CHANGELOG slice and
+   archive files attached.
 
 ## Versioning policy
 
-- `0.x.y`: V1 RFCs landing on top of the V1 MVP baseline.
-- `1.0.0`: every V1 RFC accepted (cut after RFC 0016 V1).
-- `1.x.0`: new RFC landed (V1, or a step that closes a deferred
-  slice).
-- `1.x.y`: polish / fix / docs / a non-RFC feature follow-up
-  (e.g., `1.4.1` added the run-level artifact rollup on top of
-  RFC 0013 step 7).
+- Major: breaking product or packaging transitions.
+- Minor: new behavior or meaningful operator-visible changes.
+- Patch: fixes to an already-tagged release.
+
+The root `VERSION` file is the single version source for release builds.
 
 ## License
 

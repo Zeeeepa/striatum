@@ -140,7 +140,7 @@ type PrincipalCapability struct {
 }
 
 // PrincipalScope is a principal plus its effective capability/repository scope,
-// used by `daemon doctor` so the operator can see exactly which principals are
+// used by `doctor` so the operator can see exactly which principals are
 // configured and what each may do, on which repositories.
 type PrincipalScope struct {
 	PrincipalID  string                `json:"principal_id"`

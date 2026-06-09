@@ -52,10 +52,10 @@
   },
   "context_docs": [
     {"path": "README.md", "required": false},
-    {"path": "docs/INDEX.md", "required": false},
-    {"path": "docs/UBIQUITOUS_LANGUAGE.md", "required": false},
-    {"path": "docs/WORKFLOW_TYPES.md", "required": false},
-    {"path": "docs/HOW_TO_AGENT.md", "required": false},
+    {"path": "docs/index.md", "required": false},
+    {"path": "docs/reference/ubiquitous-language.md", "required": false},
+    {"path": "docs/reference/workflow-types.md", "required": false},
+    {"path": "docs/how-to/how-to-agent.md", "required": false},
     {
       "path": "docs/rfcs/0074-workflow-shape-and-adversary-pack-catalog.md",
       "required": false

@@ -142,7 +142,7 @@ func (s Service) provisionBucket(ctx context.Context, repositoryID string, param
 	if errors.Is(err, blob.ErrApplyRequired) {
 		return "", nil, rpc.NewError(
 			"blob_apply_required",
-			fmt.Sprintf("bucket %q does not exist; re-run adopt with --apply-blob-creation to create it", bucket),
+			fmt.Sprintf("bucket %q does not exist; re-run repo add with --apply-blob-creation to create it", bucket),
 			map[string]any{"bucket": bucket},
 		)
 	}

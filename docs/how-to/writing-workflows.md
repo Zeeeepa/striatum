@@ -92,12 +92,10 @@ example: `examples/rfc-ledger-cleanup/workflow.json`,
 
 ### Visual editing
 
-The web UI at `/workflows/edit/<path>` provides a React Flow graph
-editor for already-generated workflows. It is *not* the recommended
-authoring path: round-tripping a workflow through the visual editor
-can lose coordinates and is fragile. Use the generator for new
-workflows; use the visual editor only to inspect or make small
-structural edits.
+The RFC 0038 React Flow editor at `/workflows/edit/<path>` is retired in the
+current Go-only web UI. There is no current browser graph editor for workflow
+files. Use the generator for new workflows, hand-edit the JSON when needed, and
+run `striatum workflow validate <path> --json` after each edit.
 
 ## Required top-level fields
 

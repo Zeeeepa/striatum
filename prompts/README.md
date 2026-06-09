@@ -28,11 +28,14 @@ and verification commands before running it.
   excerpt of the boundary refresher from `OPERATOR_INITIALIZATION_PROMPT.md`.
   Paste it into an already initialized operator session when you need the short
   reminder that separates control-plane coordination from workflow role work.
-- [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
-  paste into a fresh CLI agent session to install/load Striatum guidance,
-  scaffold a full three-lane design plus adversarial-review dogfood workflow
-  for RFC 0026 and RFC 0027, validate it, and stop before run start.
 - [`STRIATUM_DAEMON_RESEARCH_PROMPT.md`](STRIATUM_DAEMON_RESEARCH_PROMPT.md):
   paste into outside LLMs to critique the proposed long-running daemon,
   multi-repository control plane, MCP server, storage, runtime, and migration
   direction from first principles.
+
+## Historical Reference Prompts
+
+- [`RFC_0026_0027_SCAFFOLD_PROMPT.md`](RFC_0026_0027_SCAFFOLD_PROMPT.md):
+  historical/reference dogfood scaffold prompt. It predates the current
+  Go-only CLI and daemon-required PostgreSQL operation; rewrite command
+  shapes and paths before using it as a template.
