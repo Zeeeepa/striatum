@@ -157,12 +157,19 @@ func TestSuperviseStartCleansUpTmuxLaunchWhenChildDeadBeforeAttach(t *testing.T)
 	origLaunch := supervisionLaunch
 	origSignal := signalProcessZeroLocal
 	origRunner := supervisionTmuxRunner
+	origProbe := probeLaneLivenessAtStart
 	defer func() {
 		supervisionMkfifo = origMkfifo
 		supervisionLaunch = origLaunch
 		signalProcessZeroLocal = origSignal
 		supervisionTmuxRunner = origRunner
+		probeLaneLivenessAtStart = origProbe
 	}()
+	// #201: this exercises the genuine dead-child path, so the pane probe reports
+	// not-alive; the supervisor is marked lost and the tmux launch is cleaned up.
+	probeLaneLivenessAtStart = func(context.Context, map[string]any, int, string) gosupervisor.LaneLiveness {
+		return gosupervisor.LaneLiveness{Alive: false, Class: "tmux_pane_dead"}
+	}
 	tmuxRunner := &mutationFakeTmuxRunner{}
 	supervisionTmuxRunner = tmuxRunner
 	supervisionMkfifo = func(path string) error {
@@ -220,6 +227,88 @@ func TestSuperviseStartCleansUpTmuxLaunchWhenChildDeadBeforeAttach(t *testing.T)
 	}
 	if !tx2.sawExec("UPDATE striatumd.process_supervisor_pointers", "metadata_json") {
 		t.Fatalf("failed attach should persist launch metadata for later cleanup: %#v", tx2.execs)
+	}
+}
+
+// TestSuperviseStartRecordsDetachedWhenPaneAliveButAttachFailed verifies #201:
+// when the daemon cannot confirm the agent PID but the lane pane is alive,
+// supervise start records a recoverable detached supervisor (NOT a misleading
+// lost / child-exited), does NOT tear the live pane down, and leaves the session
+// recoverable for a rebridge.
+func TestSuperviseStartRecordsDetachedWhenPaneAliveButAttachFailed(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	origSignal := signalProcessZeroLocal
+	origRunner := supervisionTmuxRunner
+	origProbe := probeLaneLivenessAtStart
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+		signalProcessZeroLocal = origSignal
+		supervisionTmuxRunner = origRunner
+		probeLaneLivenessAtStart = origProbe
+	}()
+	probeLaneLivenessAtStart = func(context.Context, map[string]any, int, string) gosupervisor.LaneLiveness {
+		return gosupervisor.LaneLiveness{Alive: true, Class: "tmux_ok"}
+	}
+	tmuxRunner := &mutationFakeTmuxRunner{}
+	supervisionTmuxRunner = tmuxRunner
+	supervisionMkfifo = func(path string) error {
+		return os.WriteFile(path, nil, 0o600)
+	}
+	supervisionLaunch = func(context.Context, supervisionStartConfig, string, string, string, string) (supervisionLaunchResult, error) {
+		return supervisionLaunchResult{
+			PID:          999998,
+			PIDStartTime: "alive-start-token",
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":        "backed",
+					"session_name": "striatum-run-alive-attach-failed",
+					"pane_id":      "%4",
+					"pane_pid":     999998,
+				},
+			},
+		}, nil
+	}
+	// The daemon's PID signal probe says dead, but the pane probe (above) says
+	// alive — the attach-failed-lane-alive case.
+	signalProcessZeroLocal = func(int) error { return syscall.ESRCH }
+
+	tx1 := &superviseControlFakeTx{}
+	tx2 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: t.TempDir(),
+		txs:      []*superviseControlFakeTx{tx1, tx2},
+	}
+	_, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_alive_attach_failed",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"session_id":    "sess_1",
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected attach failure to surface an error")
+	}
+	if !strings.Contains(err.Error(), "alive") || !strings.Contains(strings.ToLower(err.Error()), "rebridge") {
+		t.Fatalf("error not legible for attach-failed-lane-alive: %v", err)
+	}
+	// The live pane must NOT be torn down (no kill-session against an alive pane).
+	if len(tmuxRunner.calls) != 0 {
+		t.Fatalf("live pane should not be cleaned up, tmux calls = %#v", tmuxRunner.calls)
+	}
+	event := tx2.lastEventInsert()
+	if event == nil || event.args[3] != "supervisor.detached" {
+		t.Fatalf("expected supervisor.detached event, got %#v", event)
+	}
+	if !tx2.sawExecArg("UPDATE striatumd.process_supervisors", "detached") {
+		t.Fatalf("supervisor should be set detached: %#v", tx2.execs)
+	}
+	// The session stays recoverable — it must NOT be marked lost.
+	if tx2.sawExecArg("UPDATE striatumd.active_sessions", "lost") || tx2.sawExecArg("UPDATE striatumd.sessions", "lost") {
+		t.Fatalf("detached attach-failure must not mark the session lost: %#v", tx2.execs)
 	}
 }
 
@@ -750,6 +839,33 @@ func TestResolveSupervisedCommandBinaryResolvesOnAugmentedPath(t *testing.T) {
 	abs := resolveSupervisedCommandBinary([]string{"/bin/cat", "-"}, nil)
 	if strings.Join(abs, "\x00") != strings.Join([]string{"/bin/cat", "-"}, "\x00") {
 		t.Fatalf("absolute argv0 rewritten: %#v", abs)
+	}
+}
+
+// TestFailedAttachOutcome verifies #201: a supervise-start attach failure with a
+// provably-alive pane is classified detached (recoverable), never a misleading
+// lost / "child exited"; a dead pane keeps the genuine child-exited path.
+func TestFailedAttachOutcome(t *testing.T) {
+	state, reason, message := failedAttachOutcome(true)
+	if state != "detached" {
+		t.Fatalf("pane-alive state = %q, want detached", state)
+	}
+	if reason != "attach_failed_lane_alive" {
+		t.Fatalf("pane-alive reason = %q", reason)
+	}
+	if !strings.Contains(message, "alive") || !strings.Contains(message, "rebridge") && !strings.Contains(message, "Rebridge") {
+		t.Fatalf("pane-alive message not legible: %q", message)
+	}
+
+	state, reason, message = failedAttachOutcome(false)
+	if state != "lost" {
+		t.Fatalf("pane-dead state = %q, want lost", state)
+	}
+	if reason != "child exited before attach" {
+		t.Fatalf("pane-dead reason = %q", reason)
+	}
+	if !strings.Contains(message, "child exited") {
+		t.Fatalf("pane-dead message = %q", message)
 	}
 }
 

@@ -188,6 +188,85 @@ user, protected socket directory, and PostgreSQL `pg_hba.conf` deny rule are in
 place. It is not part of the ordinary unit suite because it depends on host OS
 users and PostgreSQL listener configuration.
 
+## The privilege split (#201)
+
+Keep the **trusted** half of supervision on the daemon/operator side of the user
+boundary, and drop privileges only for the lane's own CLI process:
+
+| Component | Runs as | Gets |
+|---|---|---|
+| daemon, supervisor bookkeeping, attestation, packet delivery | operator | daemon socket, client token, PostgreSQL authority |
+| supervisor helper / attach / liveness probing | operator (daemon side) | reaches the daemon over its own authority |
+| the lane CLI process (claude/codex/agy) | the dedicated lane OS user | only its repo/worktree + provider auth + injected MCP endpoint/token |
+
+The lane OS user must **not** be able to read the operator's
+`"$XDG_RUNTIME_DIR"/striatum/client-token`, the daemon unix socket, or the daemon
+PostgreSQL DSN. The lane authenticates only with its injected, session-bound
+`STRIATUM_MCP_TOKEN` over the injected MCP endpoint — never a socket-backed local
+`striatum` CLI path, which is invalid for the sandbox user anyway. If a lane is
+falling back to a socket-backed CLI, treat that as a provisioning bug, not a
+reason to widen the lane user's access.
+
+> Do **not** "fix" a sandboxed lane by making the operator runtime dir, client
+> token, daemon socket, or database reachable by the lane user. That re-opens the
+> exact boundary [#87](https://github.com/halbritt/striatum/issues/87) closed.
+
+## Provision the lane user's host access
+
+`sudo -u <lane-user> env -i …` starts the lane with an empty environment, so a
+fresh host needs each of these provisioned explicitly or the lane stalls at
+launch/attest:
+
+- **HOME** — the lane user needs a real, writable home; the daemon sets
+  `HOME`/`USER`/`LOGNAME` from the OS user record, but the home directory must
+  exist and be owned by the lane user (provider CLIs write config/cache there).
+- **Provider auth** — the lane user needs its own provider credentials in its
+  HOME (e.g. the claude/codex/agy login/config), since it cannot read the
+  operator's. Log in once as the lane user, or copy the minimal credential files
+  with lane-user ownership.
+- **Repository traversal ACLs** — the lane user must be able to traverse the path
+  to the target repo and read it. Grant `r-x` along each parent directory and on
+  the repo, e.g. `setfacl -R -m u:<lane-user>:rX <repo>` plus `setfacl -m
+  u:<lane-user>:--x` on each ancestor directory.
+- **git `safe.directory`** — because the repo is owned by the operator, git run
+  as the lane user refuses it as "dubious ownership". Add the repo (and each
+  per-job worktree path) to the lane user's `~/.gitconfig` `safe.directory`, or
+  set it system-wide.
+- **Grounding repo read-only** — a read-only grounding/reference repo only needs
+  `r-x` for the lane user; do not grant write.
+- **Per-job worktree write** — when the workflow uses `worktree_isolation:
+  per_job`, the lane must be able to **write** its per-job worktree under
+  `.striatum/worktrees/<id>`. Grant the lane user write on that worktree path
+  (e.g. a default ACL on the worktrees parent so new per-job worktrees inherit
+  it).
+
+### The `.striatum/` contradiction, resolved
+
+`.striatum/` is daemon-owned operational scratch (PTY FIFOs, pidfiles, the
+capability-token cache) and is **private to the daemon/operator** — the lane user
+gets no blanket access to it. The one explicit exception is per-job worktrees:
+when a workflow uses worktree isolation, the daemon provisions lane write access
+to that job's `.striatum/worktrees/<id>` subtree specifically, and nothing else
+under `.striatum/`.
+
+## Reading lane liveness: dead vs attach-failed (#201)
+
+A launch that the daemon cannot attach is not necessarily a dead lane. `supervise
+start` now distinguishes the two and records an accurate state:
+
+- **`lost` / `supervisor child exited before it could be attached`** — the lane
+  pane/process is gone. This is a genuine failure; start fresh.
+- **`detached` / `attach_failed_lane_alive`** — the pane/process is alive but the
+  daemon's attach leg failed. The common cause is a sandboxed lane whose helper
+  runs as the lane user and cannot reach the daemon to attest, or missing lane
+  provisioning (HOME, provider auth, repo ACLs). The session stays recoverable:
+  fix the provisioning above and **rebridge** the supervisor rather than treating
+  it as dead.
+
+A healthy pane is never recorded as `lost` just because the attach leg failed, so
+`status`/`dashboard` and the `supervisor.detached` event point at the real
+problem (provisioning/attach) instead of a misleading "child exited".
+
 ## Lane launch environment (`path_prefix` / `command_env`, #223)
 
 A lane sometimes needs a binary (e.g. `agy`) that is not on the daemon's PATH,

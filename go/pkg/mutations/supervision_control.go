@@ -169,9 +169,33 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		launch.PIDStartTime = tmuxPaneStartTokenFromMetadata(launch.Metadata)
 	}
 	if !pidAliveLocal(launch.PID) {
+		// #201: the daemon could not confirm the launched agent PID. That does NOT
+		// always mean the lane died — for a sandboxed lane whose helper runs as the
+		// lane OS user, the pane/process can be perfectly alive while only the
+		// daemon's attach leg failed (e.g. the lane cannot reach the daemon socket
+		// to attest). Probe the pane FIRST: a provably-alive pane is recorded
+		// detached (recoverable via rebridge), never a misleading lost /
+		// "child exited", and we must not run the dead-lane cleanup (which kills the
+		// tmux session) against a live pane.
+		live := probeLaneLivenessAtStart(ctx, launch.Metadata, launch.PID, launch.PIDStartTime)
+		state, reason, message := failedAttachOutcome(live.Alive)
+		if state == "detached" {
+			// Keep the stdin pipe so a rebridge can reuse it, do NOT tear down the
+			// live pane, and leave the session recoverable rather than lost.
+			cleanupPipe = false
+			_ = markSupervisorDetachedAfterFailedAttach(ctx, runner, repositoryID, supervisorID, daemonSupervisorID, config.RunID, sessionID, reason, launch.PID, launch.PIDStartTime, launch.Metadata, map[string]any{
+				"phase":               "start",
+				"pane_liveness_class": live.Class,
+				"pane_alive":          live.Alive,
+			})
+			return nil, rpc.NewError("invalid_transition", message, nil)
+		}
+		// Genuine dead child: tear down any tmux/process remnants, then mark lost.
 		payload := failedAttachCleanupPayload(ctx, launch)
-		_ = markSupervisorLostWithMetadata(ctx, runner, repositoryID, supervisorID, config.RunID, sessionID, "child exited before attach", launch.PID, launch.Metadata, payload)
-		return nil, rpc.NewError("invalid_transition", "supervisor child exited before it could be attached", nil)
+		payload["pane_liveness_class"] = live.Class
+		payload["pane_alive"] = live.Alive
+		_ = markSupervisorLostWithMetadata(ctx, runner, repositoryID, supervisorID, config.RunID, sessionID, reason, launch.PID, launch.Metadata, payload)
+		return nil, rpc.NewError("invalid_transition", message, nil)
 	}
 
 	attachedAt := nowString()
@@ -1379,6 +1403,60 @@ func refreshSupervisorHeartbeat(ctx context.Context, runner db.TxRunner, reposit
 func markSupervisorLost(ctx context.Context, runner db.Runner, repositoryID, supervisorID, runID, sessionID, reason string, pid int, payload map[string]any) error {
 	_, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		return nil, markSupervisorLostInTx(ctx, tx, repositoryID, supervisorID, runID, sessionID, reason, pid, payload)
+	})
+	return err
+}
+
+// probeLaneLivenessAtStart probes a just-launched lane's pane/process liveness
+// on the supervise-start failure path. Overridable in tests.
+var probeLaneLivenessAtStart = func(ctx context.Context, metadata map[string]any, pid int, startToken string) gosupervisor.LaneLiveness {
+	return gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(metadata), metadata, pid, startToken)
+}
+
+// failedAttachOutcome classifies a supervise-start attach failure (#201). When
+// the daemon could not confirm the launched agent PID, the lane may genuinely
+// have died OR its pane/process may be alive while only the daemon's attach leg
+// failed — the common sandboxed-lane case (a helper running as the lane OS user
+// that cannot reach the daemon socket to attest). A provably-alive pane is
+// recorded detached (recoverable via rebridge), never lost, with an accurate
+// message; otherwise the genuine "child exited before attach" path stands.
+func failedAttachOutcome(paneAlive bool) (state, reason, message string) {
+	if paneAlive {
+		return "detached", "attach_failed_lane_alive",
+			"supervisor could not attach the lane, but its pane/process is alive; the lane likely cannot reach the daemon to attest. Rebridge the supervisor and verify lane-user provisioning (HOME, provider auth, repo ACLs) — see docs/how-to/lane-sandbox.md"
+	}
+	return "lost", "child exited before attach", "supervisor child exited before it could be attached"
+}
+
+// markSupervisorDetachedAfterFailedAttach records a launched-but-unattached
+// supervisor whose pane is alive as detached (#201). Unlike the lost path it
+// does NOT mark the session terminal: the lane is alive, so the session stays
+// recoverable and an operator can rebridge.
+func markSupervisorDetachedAfterFailedAttach(ctx context.Context, runner db.Runner, repositoryID, supervisorID, daemonSupervisorID, runID, sessionID, reason string, pid int, pidStartTime string, metadata, payload map[string]any) error {
+	_, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if len(metadata) > 0 {
+			if mergeErr := mergePointerMetadata(ctx, tx, repositoryID, supervisorID, metadata); mergeErr != nil {
+				if payload == nil {
+					payload = map[string]any{}
+				}
+				payload["metadata_persist_error"] = mergeErr.Error()
+			}
+		}
+		now := nowString()
+		if err := updateSupervisorState(ctx, tx, repositoryID, supervisorID, daemonSupervisorID, "detached", now, pid, pidStartTime, now, nil, nil); err != nil {
+			return nil, err
+		}
+		eventPayload := map[string]any{
+			"supervisor_id":        supervisorID,
+			"daemon_supervisor_id": nullableString(daemonSupervisorID),
+			"pid":                  optionalPositiveInt(pid),
+			"reason":               reason,
+		}
+		for key, value := range payload {
+			eventPayload[key] = value
+		}
+		_, err := appendEvent(ctx, tx, repositoryID, runID, "supervisor.detached", sessionID, nil, nil, nil, nil, eventPayload)
+		return nil, err
 	})
 	return err
 }
