@@ -2,10 +2,16 @@ package localcommands
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/halbritt/striatum/go/pkg/admin"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 func TestDaemonSubcommandsAreLocal(t *testing.T) {
@@ -34,6 +40,16 @@ func TestRenderUnitUsesSpecifiersNotHardcodedHome(t *testing.T) {
 	// the Setsid-detached supervisor helpers and tmux-backed agent lanes survive.
 	if !strings.Contains(unit, "KillMode=process") {
 		t.Fatalf("unit missing KillMode=process (#141: restart must not cgroup-kill lane helpers):\n%s", unit)
+	}
+}
+
+func TestRenderUnitRepairsRuntimeDirectoryMode(t *testing.T) {
+	unit := renderUnit()
+	if !strings.Contains(unit, "ExecStartPre=/usr/bin/mkdir -p %t/striatum") {
+		t.Fatalf("unit missing runtime directory creation:\n%s", unit)
+	}
+	if !strings.Contains(unit, "ExecStartPre=/usr/bin/chmod 0700 %t/striatum") {
+		t.Fatalf("unit missing runtime directory permission repair:\n%s", unit)
 	}
 }
 
@@ -100,5 +116,115 @@ func TestResolveLayoutUsesCanonicalSocket(t *testing.T) {
 	wantUnit := filepath.Join(configHomeDir, "systemd", "user", "striatumd.service")
 	if l.unitPath != wantUnit {
 		t.Fatalf("unit path = %s, want %s", l.unitPath, wantUnit)
+	}
+}
+
+func TestRunDaemonStatusUsesDiscoveryTokenWhenClientTokenMissing(t *testing.T) {
+	runtimeDir := t.TempDir()
+	configHomeDir := t.TempDir()
+	socket := filepath.Join(runtimeDir, "daemon-go.sock")
+	token := "dtok_status.valid"
+	t.Setenv(admin.EnvRuntimeDir, runtimeDir)
+	t.Setenv("XDG_CONFIG_HOME", configHomeDir)
+	t.Setenv("STRIATUM_DAEMON_SOCKET", socket)
+	if err := os.WriteFile(filepath.Join(runtimeDir, "discovery.json"), []byte(`{"client_token":"`+token+`"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	authorizer := rpc.NewMemoryAuthorizer()
+	authorizer.AddToken(token, "client_status", map[rpc.Capability]rpc.CapabilityGrant{
+		rpc.CapabilityRead: {},
+	}, time.Now().Add(time.Hour))
+	server := rpc.NewServer()
+	server.Authorizer = authorizer
+	server.Register("repo.resolve", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if envelope.CapabilityToken != token {
+			t.Fatalf("repo.resolve token = %q, want discovery token", envelope.CapabilityToken)
+		}
+		return map[string]any{"repository_id": "repo_status", "repo_root": "."}, nil
+	})
+	server.Register("doctor", func(_ context.Context, envelope rpc.Envelope) (map[string]any, error) {
+		if envelope.CapabilityToken != token {
+			t.Fatalf("doctor token = %q, want discovery token", envelope.CapabilityToken)
+		}
+		return map[string]any{"ok": true}, nil
+	})
+	listener, err := rpc.ListenUnix(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		_ = server.Serve(ctx, listener)
+	}()
+
+	var stdout, stderr bytes.Buffer
+	if code := RunDaemon([]string{"status", "--json"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("status exit=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stdout.String(), token) {
+		t.Fatalf("status leaked token material:\n%s", stdout.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("status JSON: %v\n%s", err, stdout.String())
+	}
+	data, _ := payload["data"].(map[string]any)
+	if data["doctor"] != "ok" {
+		t.Fatalf("doctor = %#v, want ok; payload=%s", data["doctor"], stdout.String())
+	}
+	if data["token_source"] != "discovery.json" {
+		t.Fatalf("token_source = %#v, want discovery.json", data["token_source"])
+	}
+}
+
+func TestAuthorizationFailureExplanationClassifiesTokenProblems(t *testing.T) {
+	tests := []struct {
+		name       string
+		token      tokenInspection
+		doctor     doctorStatus
+		want       string
+		wantReason string
+	}{
+		{
+			name:       "missing token",
+			token:      tokenInspection{Problem: "missing token"},
+			doctor:     doctorStatus{ErrorCode: "token_unavailable"},
+			want:       "missing token",
+			wantReason: "missing_token",
+		},
+		{
+			name:       "unreadable token",
+			token:      tokenInspection{Problem: "read daemon capability token: permission denied"},
+			doctor:     doctorStatus{ErrorCode: "token_unavailable"},
+			want:       "unreadable token",
+			wantReason: "unreadable_token",
+		},
+		{
+			name:       "stale token",
+			token:      tokenInspection{Source: "/run/user/1000/striatum/client-token", Present: true},
+			doctor:     doctorStatus{ErrorCode: "token_invalid"},
+			want:       "stale or revoked token",
+			wantReason: "stale_or_revoked_token",
+		},
+		{
+			name:       "daemon denial",
+			token:      tokenInspection{Source: "/run/user/1000/striatum/client-token", Present: true},
+			doctor:     doctorStatus{ErrorCode: "capability_missing"},
+			want:       "daemon-side denial",
+			wantReason: "daemon_denial",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			explanation := explainAuthorizationFailure(tt.doctor, tt.token)
+			if explanation.Reason != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", explanation.Reason, tt.wantReason)
+			}
+			if !strings.Contains(explanation.Message, tt.want) {
+				t.Fatalf("message = %q, want substring %q", explanation.Message, tt.want)
+			}
+		})
 	}
 }

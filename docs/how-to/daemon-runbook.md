@@ -17,6 +17,9 @@ RPC). It:
 - renders `~/.config/systemd/user/striatumd.service` from an embedded
   template that uses the systemd `%h` (home) and `%t` (runtime dir)
   specifiers, so the unit is host-portable and contains no hardcoded paths;
+- creates `${XDG_RUNTIME_DIR}/striatum` before daemon start and repairs it to
+  mode `0700`, so a permissive pre-existing runtime socket directory does not
+  leave the user service in a restart loop;
 - scaffolds a commented `~/.config/striatum/daemon.toml` **only when absent**
   (it never overwrites a real DSN);
 - runs `systemctl --user daemon-reload` and `enable --now` unless
@@ -69,9 +72,12 @@ and `~/Library/Caches/striatum/runtime/` on macOS. Override with
 | File | Purpose |
 |---|---|
 | `daemon-go.sock` | The canonical Unix-domain control socket. This is the single supported name; the retired Python launcher's `striatumd.sock` and the cutover symlink are gone (RFC 0079). |
-| `client-token` | Capability token the CLI/MCP clients read to authenticate to the daemon. |
+| `client-token` | Owner-only capability token the CLI/MCP clients read to authenticate to the daemon. If the runtime directory is recreated after reboot while client rows already exist, daemon startup mints and writes a fresh local operator token. |
 | `mcp-http-endpoint` | The resolved MCP HTTP endpoint URL (host:port + `/mcp`). |
+| `discovery.json` | Owner-only discovery bundle containing pid, socket path, MCP URL/port, and the current runtime client token for clients that need to recover when `client-token` is missing or stale. Status output reports this source without printing token material. |
+| `instance-id` | Stable daemon instance id used by the authority bootstrap registry. |
 | `striatumd.pid` | Daemon pidfile. |
+| `web-ui.sock` | Optional local web UI socket when the tailnet-identity web surface is enabled. |
 
 Clients resolve the socket from `${XDG_RUNTIME_DIR}/striatum/daemon-go.sock`
 by default; override with `--daemon-socket` or `STRIATUM_DAEMON_SOCKET`.
@@ -120,13 +126,21 @@ In the foreground recipe the daemon logs to stderr.
 - **Daemon won't start / no DSN.** `journalctl --user -u striatumd` shows the
   daemon refusing to bind without `postgres_url`. Set the DSN (above) and
   `systemctl --user restart striatumd`.
+- **Daemon won't start / runtime directory mode.** If logs show
+  `daemon socket directory ... mode 0775; want 0700`, rerun
+  `striatum daemon install` to refresh the unit, or repair manually:
+  `chmod 0700 "${XDG_RUNTIME_DIR}/striatum"` and
+  `systemctl --user restart striatumd`.
 - **`repo_not_migrated` (exit 12).** The target repo isn't registered with
   the daemon. Run `striatum repo add <path> --init` (see
   [postgres-transition.md](postgres-transition.md)).
-- **Socket / token mismatch.** A stale `client-token` from a prior daemon can
-  cause auth failures. Stop the daemon, remove the runtime directory contents
-  (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`), and restart; the
-  daemon regenerates them.
+- **Socket / token mismatch.** `striatum daemon status` reports the live token
+  source (`client-token`, `discovery.json`, or an override env var) and
+  classifies auth failures as missing token, unreadable token, stale/revoked
+  token, or daemon-side denial. For stale local runtime material, stop the
+  daemon, remove the runtime files (`daemon-go.sock`, `client-token`,
+  `mcp-http-endpoint`, `discovery.json`), confirm the directory is `0700`, and
+  restart; the daemon regenerates them.
 - **Migration on start.** The daemon applies pending schema migrations on
   startup as its runtime role (`striatumd_rw`); a slow first start after an
   upgrade is normal. Watch the log.

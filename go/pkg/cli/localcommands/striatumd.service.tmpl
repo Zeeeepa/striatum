@@ -11,6 +11,7 @@ Type=simple
 # %h = user home, %t = per-user runtime directory (XDG_RUNTIME_DIR); using
 # specifiers keeps this unit host-portable with no hardcoded home paths.
 ExecStartPre=/usr/bin/mkdir -p %t/striatum
+ExecStartPre=/usr/bin/chmod 0700 %t/striatum
 ExecStart=%h/.local/bin/striatumd -socket %t/striatum/daemon-go.sock
 Restart=on-failure
 RestartSec=2

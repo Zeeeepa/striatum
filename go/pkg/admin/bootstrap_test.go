@@ -38,8 +38,9 @@ func TestBootstrapRuntimeTokenCreatesAdminClientAndPrivateFile(t *testing.T) {
 	if runner.beginCount != 1 || !runner.committed {
 		t.Fatalf("transaction state begin=%d committed=%v", runner.beginCount, runner.committed)
 	}
-	if len(runner.execs) != 10 {
-		t.Fatalf("exec count = %d, want table lock + client insert + 8 capabilities", len(runner.execs))
+	wantExecCount := 2 + len(bootstrapCapabilities)
+	if len(runner.execs) != wantExecCount {
+		t.Fatalf("exec count = %d, want table lock + client insert + %d capabilities", len(runner.execs), len(bootstrapCapabilities))
 	}
 	if !strings.Contains(runner.execs[0].sql, "LOCK TABLE striatumd.clients") {
 		t.Fatalf("first SQL did not lock clients table: %s", runner.execs[0].sql)
@@ -77,9 +78,12 @@ func TestBootstrapRuntimeTokenCreatesAdminClientAndPrivateFile(t *testing.T) {
 	}
 }
 
-func TestBootstrapRuntimeTokenSkipsWhenClientsExist(t *testing.T) {
+func TestBootstrapRuntimeTokenSkipsWhenClientsExistAndRuntimeTokenIsReadable(t *testing.T) {
 	runner := &tokenFakeRunner{clientCount: 1}
 	tokenPath := filepath.Join(t.TempDir(), "runtime", "client-token")
+	if err := WriteRuntimeToken(tokenPath, "dtok_existing.secret"); err != nil {
+		t.Fatalf("seed runtime token: %v", err)
+	}
 
 	result, err := BootstrapRuntimeTokenIfNeeded(context.Background(), runner, tokenPath)
 	if err != nil {
@@ -91,8 +95,66 @@ func TestBootstrapRuntimeTokenSkipsWhenClientsExist(t *testing.T) {
 	if runner.beginCount != 0 || len(runner.execs) != 0 {
 		t.Fatalf("existing client path wrote database rows: begin=%d execs=%#v", runner.beginCount, runner.execs)
 	}
-	if _, err := os.Stat(tokenPath); !os.IsNotExist(err) {
-		t.Fatalf("existing client path wrote runtime token file: %v", err)
+	body, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatalf("read runtime token: %v", err)
+	}
+	if string(body) != "dtok_existing.secret\n" {
+		t.Fatalf("runtime token was mutated: %q", string(body))
+	}
+}
+
+func TestBootstrapRuntimeTokenRestoresMissingRuntimeTokenWhenClientsExist(t *testing.T) {
+	runner := &tokenFakeRunner{clientCount: 1}
+	tokenPath := filepath.Join(t.TempDir(), "runtime", "client-token")
+
+	result, err := BootstrapRuntimeTokenIfNeeded(context.Background(), runner, tokenPath)
+	if err != nil {
+		t.Fatalf("bootstrap runtime token: %v", err)
+	}
+	if result == nil {
+		t.Fatal("bootstrap result is nil, want restored runtime token")
+	}
+	token, ok := result["token"].(string)
+	if !ok || !strings.HasPrefix(token, "dtok_") || !strings.Contains(token, ".") {
+		t.Fatalf("unexpected restored token result: %#v", result)
+	}
+	body, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatalf("runtime token file was not restored: %v", err)
+	}
+	if string(body) != token+"\n" {
+		t.Fatalf("runtime token file content = %q, want restored token plus newline", string(body))
+	}
+	if mode := fileMode(t, tokenPath); mode != 0o600 {
+		t.Fatalf("runtime token mode = %#o, want 0600", mode)
+	}
+	if mode := fileMode(t, filepath.Dir(tokenPath)); mode != 0o700 {
+		t.Fatalf("runtime token directory mode = %#o, want 0700", mode)
+	}
+	if runner.beginCount != 1 || !runner.committed {
+		t.Fatalf("transaction state begin=%d committed=%v", runner.beginCount, runner.committed)
+	}
+	wantExecCount := 2 + len(bootstrapCapabilities)
+	if len(runner.execs) != wantExecCount {
+		t.Fatalf("exec count = %d, want table lock + client insert + %d capabilities", len(runner.execs), len(bootstrapCapabilities))
+	}
+}
+
+func TestWriteRuntimeTokenRepairsExistingRuntimeDirectoryMode(t *testing.T) {
+	runtimeDir := filepath.Join(t.TempDir(), "runtime")
+	if err := os.MkdirAll(runtimeDir, 0o775); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(runtimeDir, 0o775); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := WriteRuntimeToken(filepath.Join(runtimeDir, "client-token"), "dtok_fixed.secret"); err != nil {
+		t.Fatalf("write runtime token: %v", err)
+	}
+	if mode := fileMode(t, runtimeDir); mode != 0o700 {
+		t.Fatalf("runtime token directory mode = %#o, want 0700", mode)
 	}
 }
 

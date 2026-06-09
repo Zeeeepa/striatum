@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/admin"
+	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	"github.com/halbritt/striatum/go/pkg/db"
 )
 
@@ -390,25 +393,40 @@ func runDaemonStatus(args []string, stdout, stderr io.Writer) int {
 	socketPresent := fileExists(layout.socket)
 	configURL := db.ResolveConfig("")
 	dsnConfigured := strings.TrimSpace(configURL.URL) != ""
-	doctor := runDoctor()
+	token := inspectDaemonToken(layout.token)
+	doctor := runDoctorStatus()
+	auth := explainAuthorizationFailure(doctor, token)
+	if auth.Reason != "" {
+		doctor.Authorization = &auth
+		doctor.Summary = auth.Message
+	}
 
 	if flags.json {
 		return writeDaemonJSON(stdout, stderr, map[string]any{
 			"ok": true,
 			"data": map[string]any{
-				"systemd":        systemdAvailable(),
-				"unit_path":      layout.unitPath,
-				"unit_installed": unitInstalled,
-				"enabled":        enabled,
-				"active":         active,
-				"socket":         layout.socket,
-				"socket_present": socketPresent,
-				"token":          layout.token,
-				"mcp_endpoint":   layout.mcpEndpoint,
-				"daemon_toml":    layout.configTOML,
-				"dsn_configured": dsnConfigured,
-				"dsn_source":     configURL.Source,
-				"doctor":         doctor,
+				"systemd":               systemdAvailable(),
+				"unit_path":             layout.unitPath,
+				"unit_installed":        unitInstalled,
+				"enabled":               enabled,
+				"active":                active,
+				"socket":                layout.socket,
+				"socket_present":        socketPresent,
+				"token":                 layout.token,
+				"token_present":         token.Present,
+				"token_source":          token.Source,
+				"token_path":            token.Path,
+				"token_problem":         token.Problem,
+				"token_fallback_source": token.FallbackSource,
+				"token_fallback_path":   token.FallbackPath,
+				"mcp_endpoint":          layout.mcpEndpoint,
+				"daemon_toml":           layout.configTOML,
+				"dsn_configured":        dsnConfigured,
+				"dsn_source":            configURL.Source,
+				"doctor":                doctor.Summary,
+				"doctor_ok":             doctor.OK,
+				"doctor_error":          doctor.ErrorCode,
+				"authorization":         authorizationJSON(doctor.Authorization),
 			},
 		})
 	}
@@ -420,11 +438,34 @@ func runDaemonStatus(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "  unit:    systemd not detected (foreground mode; unit path %s)\n", layout.unitPath)
 	}
 	_, _ = fmt.Fprintf(stdout, "  socket:  %s (present=%t)\n", layout.socket, socketPresent)
-	_, _ = fmt.Fprintf(stdout, "  token:   %s\n", layout.token)
+	_, _ = fmt.Fprintf(stdout, "  token:   %s%s\n", layout.token, tokenStatusSuffix(token))
 	_, _ = fmt.Fprintf(stdout, "  mcp:     %s\n", layout.mcpEndpoint)
 	_, _ = fmt.Fprintf(stdout, "  config:  %s (dsn_configured=%t)\n", layout.configTOML, dsnConfigured)
-	_, _ = fmt.Fprintf(stdout, "  doctor:  %s\n", doctor)
+	_, _ = fmt.Fprintf(stdout, "  doctor:  %s\n", doctor.Summary)
 	return 0
+}
+
+type tokenInspection struct {
+	Source         string
+	Path           string
+	Present        bool
+	Problem        string
+	FallbackSource string
+	FallbackPath   string
+}
+
+type doctorStatus struct {
+	Summary       string
+	OK            bool
+	ErrorCode     string
+	ErrorMessage  string
+	Authorization *authorizationExplanation
+}
+
+type authorizationExplanation struct {
+	Reason      string
+	Message     string
+	Remediation string
 }
 
 type layout struct {
@@ -503,29 +544,203 @@ func systemctlOutput(args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// runDoctor shells out to this same striatum binary so `daemon status` can fold
-// the read-only daemon health check into one view without re-implementing it.
-func runDoctor() string {
-	self, err := os.Executable()
+func runDoctorStatus() doctorStatus {
+	config, err := rpcclient.ResolveConfig(os.Environ(), "", "", "", 0)
 	if err != nil {
-		return "unknown (cannot resolve striatum binary)"
+		return doctorStatusFromError(err)
 	}
-	out, err := exec.Command(self, "doctor").CombinedOutput()
-	summary := strings.TrimSpace(string(out))
-	if summary == "" {
-		if err != nil {
-			return fmt.Sprintf("unreachable (%v)", err)
+	timeout := time.Duration(config.DeadlineMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = time.Duration(rpcclient.DefaultDeadlineMS) * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	client := rpcclient.Client{Config: config}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return doctorStatusFromError(fmt.Errorf("resolve current directory for repo.resolve: %w", err))
+	}
+	resolved, err := client.Invoke(ctx, "repo.resolve", map[string]any{"path": cwd})
+	if err != nil {
+		return doctorStatusFromError(err)
+	}
+	repositoryID, _ := resolved["repository_id"].(string)
+	if strings.TrimSpace(repositoryID) == "" {
+		return doctorStatus{Summary: "repo.resolve response did not include repository_id", ErrorCode: "schema_invalid", ErrorMessage: "repo.resolve response did not include repository_id"}
+	}
+	report, err := client.Invoke(ctx, "doctor", map[string]any{"repository_id": repositoryID})
+	if err != nil {
+		return doctorStatusFromError(err)
+	}
+	if ok, _ := report["ok"].(bool); ok {
+		return doctorStatus{Summary: "ok", OK: true}
+	}
+	return doctorStatus{Summary: doctorDegradedSummary(report), OK: false}
+}
+
+func doctorStatusFromError(err error) doctorStatus {
+	var clientErr *rpcclient.Error
+	if errors.As(err, &clientErr) {
+		return doctorStatus{Summary: clientErr.Message, ErrorCode: clientErr.Code, ErrorMessage: clientErr.Message}
+	}
+	return doctorStatus{Summary: err.Error(), ErrorMessage: err.Error()}
+}
+
+func doctorDegradedSummary(report map[string]any) string {
+	problems, _ := report["problems"].([]any)
+	if len(problems) == 1 {
+		return "degraded (1 problem)"
+	}
+	if len(problems) > 1 {
+		return fmt.Sprintf("degraded (%d problems)", len(problems))
+	}
+	return "degraded"
+}
+
+func inspectDaemonToken(defaultTokenPath string) tokenInspection {
+	if strings.TrimSpace(os.Getenv(rpcclient.EnvDaemonToken)) != "" {
+		return tokenInspection{Source: rpcclient.EnvDaemonToken, Present: true}
+	}
+	tokenPath := strings.TrimSpace(os.Getenv(rpcclient.EnvDaemonTokenFile))
+	source := rpcclient.EnvDaemonTokenFile
+	if tokenPath == "" {
+		tokenPath = defaultTokenPath
+		source = "client-token"
+	}
+	return inspectTokenFile(tokenPath, source)
+}
+
+func inspectTokenFile(path string, source string) tokenInspection {
+	discovery, hasDiscovery := inspectDiscoveryToken(path)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		if hasDiscovery {
+			discovery.Problem = tokenReadProblem(path, err)
+			return discovery
 		}
-		return "ok"
+		return tokenInspection{Source: source, Path: path, Problem: tokenReadProblem(path, err)}
 	}
-	// Collapse to the first line for the one-line status view.
-	if idx := strings.IndexByte(summary, '\n'); idx >= 0 {
-		summary = summary[:idx]
+	inspection := tokenInspection{
+		Source:  source,
+		Path:    path,
+		Present: strings.TrimSpace(string(body)) != "",
 	}
+	if !inspection.Present {
+		inspection.Problem = "token file is empty"
+	}
+	if hasDiscovery {
+		inspection.FallbackSource = discovery.Source
+		inspection.FallbackPath = discovery.Path
+	}
+	return inspection
+}
+
+func inspectDiscoveryToken(tokenFile string) (tokenInspection, bool) {
+	if filepath.Base(tokenFile) != "client-token" {
+		return tokenInspection{}, false
+	}
+	path := filepath.Join(filepath.Dir(tokenFile), "discovery.json")
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		return tokenInspection{}, false
+	}
+	body, err := os.ReadFile(path)
 	if err != nil {
-		return summary + " (exit error)"
+		return tokenInspection{}, false
 	}
-	return summary
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return tokenInspection{}, false
+	}
+	token, _ := payload["client_token"].(string)
+	if strings.TrimSpace(token) == "" {
+		return tokenInspection{}, false
+	}
+	return tokenInspection{Source: "discovery.json", Path: path, Present: true}, true
+}
+
+func tokenReadProblem(path string, err error) string {
+	if os.IsNotExist(err) {
+		return fmt.Sprintf("missing token: %s", path)
+	}
+	return fmt.Sprintf("read daemon capability token: %v", err)
+}
+
+func explainAuthorizationFailure(doctor doctorStatus, token tokenInspection) authorizationExplanation {
+	if doctor.ErrorCode == "" {
+		return authorizationExplanation{}
+	}
+	switch doctor.ErrorCode {
+	case "token_unavailable", "token_missing":
+		if token.Problem == "" || strings.Contains(token.Problem, "missing token") || strings.Contains(token.Problem, "empty") {
+			return authorizationExplanation{
+				Reason:      "missing_token",
+				Message:     fmt.Sprintf("authorization failed: %s (missing token; %s)", doctor.ErrorCode, tokenProblemOrDefault(token, "no daemon capability token was found")),
+				Remediation: "restart striatumd or restore the runtime client-token",
+			}
+		}
+		return authorizationExplanation{
+			Reason:      "unreadable_token",
+			Message:     fmt.Sprintf("authorization failed: %s (unreadable token; %s)", doctor.ErrorCode, token.Problem),
+			Remediation: "repair runtime file permissions or restart striatumd",
+		}
+	case "token_malformed", "token_invalid", "token_revoked", "token_expired":
+		return authorizationExplanation{
+			Reason:      "stale_or_revoked_token",
+			Message:     fmt.Sprintf("authorization failed: %s (stale or revoked token from %s)", doctor.ErrorCode, tokenLocation(token)),
+			Remediation: "restart striatumd to restore the local runtime token, or mint a fresh admin token",
+		}
+	case "capability_missing", "capability_scope_mismatch", "capability_expired", "capability_denied":
+		return authorizationExplanation{
+			Reason:      "daemon_denial",
+			Message:     fmt.Sprintf("authorization failed: %s (daemon-side denial for token from %s)", doctor.ErrorCode, tokenLocation(token)),
+			Remediation: "use a token with the required daemon capability and repository scope",
+		}
+	default:
+		return authorizationExplanation{}
+	}
+}
+
+func tokenProblemOrDefault(token tokenInspection, fallback string) string {
+	if token.Problem != "" {
+		return token.Problem
+	}
+	return fallback
+}
+
+func tokenLocation(token tokenInspection) string {
+	if token.Path != "" {
+		return token.Path
+	}
+	if token.Source != "" {
+		return token.Source
+	}
+	return "unknown source"
+}
+
+func tokenStatusSuffix(token tokenInspection) string {
+	parts := []string{fmt.Sprintf("present=%t", token.Present)}
+	if token.Source != "" {
+		parts = append(parts, "source="+token.Source)
+	}
+	if token.FallbackSource != "" {
+		parts = append(parts, "fallback="+token.FallbackSource)
+	}
+	if token.Problem != "" {
+		parts = append(parts, "problem="+token.Problem)
+	}
+	return " (" + strings.Join(parts, ", ") + ")"
+}
+
+func authorizationJSON(explanation *authorizationExplanation) any {
+	if explanation == nil || explanation.Reason == "" {
+		return nil
+	}
+	return map[string]any{
+		"reason":      explanation.Reason,
+		"message":     explanation.Message,
+		"remediation": explanation.Remediation,
+	}
 }
 
 func printForegroundRecipe(stdout io.Writer, l layout) {

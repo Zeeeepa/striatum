@@ -67,7 +67,7 @@ func BootstrapRuntimeTokenIfNeeded(ctx context.Context, runner db.Runner, tokenP
 	if err != nil {
 		return nil, err
 	}
-	if count > 0 {
+	if count > 0 && runtimeTokenReadable(tokenPath) {
 		return nil, nil
 	}
 	tx, err := runner.BeginTx(ctx)
@@ -82,7 +82,7 @@ func BootstrapRuntimeTokenIfNeeded(ctx context.Context, runner db.Runner, tokenP
 	if err != nil {
 		return nil, err
 	}
-	if count > 0 {
+	if count > 0 && runtimeTokenReadable(tokenPath) {
 		if err := tx.Commit(ctx); err != nil {
 			return nil, err
 		}
@@ -114,6 +114,11 @@ func BootstrapRuntimeTokenIfNeeded(ctx context.Context, runner db.Runner, tokenP
 		"token_id":  result["token_id"],
 		"token":     token,
 	}, nil
+}
+
+func runtimeTokenReadable(path string) bool {
+	body, err := os.ReadFile(path)
+	return err == nil && strings.TrimSpace(string(body)) != ""
 }
 
 func clientCount(ctx context.Context, runner interface {
