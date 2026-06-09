@@ -516,6 +516,87 @@ func TestAnchorWorktreeCommitStackFallsBackToLegacyPin(t *testing.T) {
 	}
 }
 
+// TestSweepRunPinsDeletesIntegratedRetainsDivergent covers the #214 acceptance
+// checks (RFC 0117 Open Question 1): an integrated pin (reachable from the run
+// branch) is deleted, a divergent pin is retained with a reason, both the legacy
+// and attempt-namespaced ref shapes are handled, and a second sweep is
+// idempotent (no unexpected changes).
+func TestSweepRunPinsDeletesIntegratedRetainsDivergent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_sweep"
+	runBranch := "wf/sweep"
+	baseBranch := "main"
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+
+	// Build two commits in a worktree: C1 (integrated onto the run branch) and
+	// C2 (a child of C1 that the run branch never advances to, so it diverges).
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", "wt_sweep"))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, baseSHA)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "c1.txt"), []byte("one\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "c1.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "c1")
+	c1 := gitRevParse(t, worktreeRoot, "HEAD")
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "c2.txt"), []byte("two\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "c2.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "c2")
+	c2 := gitRevParse(t, worktreeRoot, "HEAD")
+	gitRun(t, repoRoot, "worktree", "remove", "--force", worktreeRoot)
+
+	// Integrate C1 onto the run branch.
+	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, c1)
+
+	// Legacy-shaped pin at the integrated commit (should be deleted).
+	legacyRef := "refs/striatum/" + runID + "/jobA"
+	gitRun(t, repoRoot, "update-ref", legacyRef, c1)
+	// Attempt-namespaced pin at the divergent commit (should be retained).
+	attemptRef := "refs/striatum/" + runID + "/jobB/2"
+	gitRun(t, repoRoot, "update-ref", attemptRef, c2)
+
+	deleted, retained, err := sweepRunPins(ctx, repoRoot, runID, runBranch, baseBranch)
+	if err != nil {
+		t.Fatalf("sweepRunPins: %v", err)
+	}
+	if len(deleted) != 1 || deleted[0]["ref"] != legacyRef {
+		t.Fatalf("deleted = %#v, want [%s]", deleted, legacyRef)
+	}
+	if deleted[0]["reason"] != "reachable_from" {
+		t.Fatalf("deleted reason = %#v, want reachable_from", deleted[0]["reason"])
+	}
+	if len(retained) != 1 || retained[0]["ref"] != attemptRef || retained[0]["reason"] != "divergent" {
+		t.Fatalf("retained = %#v, want divergent [%s]", retained, attemptRef)
+	}
+	// The integrated pin is gone; the divergent pin survives.
+	if got := mustGitExit(t, repoRoot, "rev-parse", "--verify", "--quiet", legacyRef); got == 0 {
+		t.Fatalf("legacy pin %q should be deleted", legacyRef)
+	}
+	if got := gitRevParse(t, repoRoot, attemptRef); got != c2 {
+		t.Fatalf("attempt pin = %s, want %s (divergent pin must be retained)", got, c2)
+	}
+
+	// Idempotent: a second sweep deletes nothing new and still retains the
+	// divergent pin.
+	deleted2, retained2, err := sweepRunPins(ctx, repoRoot, runID, runBranch, baseBranch)
+	if err != nil {
+		t.Fatalf("second sweepRunPins: %v", err)
+	}
+	if len(deleted2) != 0 {
+		t.Fatalf("second sweep deleted = %#v, want none", deleted2)
+	}
+	if len(retained2) != 1 || retained2[0]["ref"] != attemptRef {
+		t.Fatalf("second sweep retained = %#v, want [%s]", retained2, attemptRef)
+	}
+}
+
 func TestWorktreeCompleteAnchorsCommitStack(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)

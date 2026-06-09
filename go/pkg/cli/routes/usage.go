@@ -236,9 +236,11 @@ var usageByGroup = map[string]Usage{
 	"worktree_gc": {
 		Params: []Param{
 			{Name: "run-id", Help: "limit garbage collection to a single run"},
+			{Name: "sweep-pins", Bool: true, Help: "also sweep this run's refs/striatum pins (requires --run-id): delete pins whose tip is reachable from the integrated run/base branch, retain divergent pins, and report both (flag)"},
 		},
 		Notes: []string{
 			"Removes only on-disk job worktrees whose jobs are terminal and whose HEAD is reachable from the run branch or refs/striatum pins; skipped rows are reported with reasons.",
+			"--sweep-pins is an explicit run-closeout pin sweep: it deletes only integrated (reachable) pins, never deletes divergent pins, never runs git gc, and is idempotent — re-running reports no unexpected changes. Output lists pins_deleted, pins_retained, and reasons.",
 		},
 	},
 	"repo_add": {

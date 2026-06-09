@@ -329,3 +329,30 @@ are unaffected.
 # Inspect a run's pins (both shapes show up here):
 git -C <repo-root> for-each-ref --format='%(refname) %(objectname:short)' refs/striatum/<run>/
 ```
+
+### Pin sweep on run closeout (#214)
+
+Pins are durable provenance, not garbage — they are only disposable once the
+commit they anchor is already part of the integrated history. The pin sweep is
+an **explicit, opt-in** run-closeout operation, never an implicit side effect of
+an unrelated command:
+
+```bash
+striatum worktree gc --run-id <run-id> --sweep-pins
+```
+
+With `--sweep-pins` (which requires `--run-id`), after the normal worktree-dir
+GC the daemon sweeps that run's `refs/striatum` pins:
+
+- A pin whose tip is **reachable** from the integrated line (the run branch or
+  its integration base) is deleted — its commits live on in integrated history,
+  so the pin is redundant.
+- A **divergent** pin (commits that exist *only* under the pin) is retained and
+  reported. A retained pin is not a failure; it is evidence that work exists
+  outside the integrated branch, for the operator to inspect.
+
+The sweep resolves both ref shapes, never deletes a divergent pin, and never
+runs `git gc`. It is idempotent: re-running after the reachable pins are gone
+deletes nothing new and reports the same retained set. The response and the
+`worktree.pins_swept` event both list `pins_deleted`, `pins_retained`, and the
+reason for each.

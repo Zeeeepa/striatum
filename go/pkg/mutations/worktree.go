@@ -330,6 +330,10 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		return nil, err
 	}
 	runID := strings.TrimSpace(stringParam(envelope, "run_id"))
+	sweepPins := boolParam(envelope, "sweep_pins")
+	if sweepPins && runID == "" {
+		return nil, rpc.NewError("schema_invalid", "worktree.gc sweep_pins requires run_id to scope the pin sweep to a single run", nil)
+	}
 
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		if err := lockRepo(ctx, tx, repositoryID); err != nil {
@@ -445,14 +449,121 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 			base["checked_refs"] = check.Reachability.CheckedRefs
 			removed = append(removed, base)
 		}
-		return map[string]any{
+		response := map[string]any{
 			"status":        "ok",
 			"removed_count": len(removed),
 			"skipped_count": len(skipped),
 			"removed":       removed,
 			"skipped":       skipped,
-		}, nil
+		}
+		if sweepPins {
+			run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+			if err != nil {
+				return nil, err
+			}
+			repoRoot := strings.TrimSpace(fmt.Sprint(run["repo_root"]))
+			deleted, retained, err := sweepRunPins(ctx, repoRoot, runID,
+				strings.TrimSpace(fmt.Sprint(run["branch_name"])),
+				strings.TrimSpace(fmt.Sprint(run["branch_base"])))
+			if err != nil {
+				return nil, err
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, "worktree.pins_swept", nil, nil, nil, nil, nil, map[string]any{
+				"deleted":        deleted,
+				"retained":       retained,
+				"deleted_count":  len(deleted),
+				"retained_count": len(retained),
+			}); err != nil {
+				return nil, err
+			}
+			response["pins_swept"] = true
+			response["pins_deleted"] = deleted
+			response["pins_retained"] = retained
+			response["pins_deleted_count"] = len(deleted)
+			response["pins_retained_count"] = len(retained)
+		}
+		return response, nil
 	})
+}
+
+// sweepRunPins implements #214 (RFC 0117 Open Question 1): on explicit run
+// closeout it deletes refs/striatum pins whose tip is already reachable from the
+// run's integrated history (the run branch or its integration base), and retains
+// divergent pins — commits that exist only under the pin — for operator
+// inspection. It resolves both the attempt-namespaced and legacy ref shapes,
+// never deletes a divergent pin, and never runs git gc. The compare-and-delete
+// against the evaluated tip keeps the sweep idempotent and safe against a
+// concurrent re-anchor.
+func sweepRunPins(ctx context.Context, repoRoot, runID, runBranch, baseBranch string) (deleted, retained []map[string]any, err error) {
+	integratedRefs := []string{}
+	seenRef := map[string]bool{}
+	for _, branch := range []string{runBranch, baseBranch} {
+		branch = strings.TrimSpace(branch)
+		if branch == "" || branch == "<nil>" {
+			continue
+		}
+		ref := "refs/heads/" + branch
+		if seenRef[ref] {
+			continue
+		}
+		if _, exit, e := integrateGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", ref); e == nil && exit == 0 {
+			integratedRefs = append(integratedRefs, ref)
+			seenRef[ref] = true
+		}
+	}
+
+	out, exit, err := integrateGit(ctx, repoRoot, "for-each-ref", "--format=%(refname) %(objectname)", "refs/striatum/"+runID+"/")
+	if err != nil {
+		return nil, nil, err
+	}
+	if exit != 0 {
+		return nil, nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("for-each-ref of refs/striatum/%s/ failed while sweeping pins: %s", runID, strings.TrimSpace(out)), nil)
+	}
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		ref, tip := parts[0], parts[1]
+		reachable := false
+		via := ""
+		for _, integratedRef := range integratedRefs {
+			ok, e := gitIsAncestor(ctx, repoRoot, tip, integratedRef)
+			if e != nil {
+				return nil, nil, e
+			}
+			if ok {
+				reachable = true
+				via = integratedRef
+				break
+			}
+		}
+		entry := map[string]any{"ref": ref, "tip": tip}
+		if !reachable {
+			entry["reason"] = "divergent"
+			retained = append(retained, entry)
+			continue
+		}
+		dout, dexit, derr := integrateGit(ctx, repoRoot, "update-ref", "-d", ref, tip)
+		if derr != nil {
+			return nil, nil, derr
+		}
+		if dexit != 0 {
+			entry["reason"] = "delete_failed"
+			entry["detail"] = strings.TrimSpace(dout)
+			retained = append(retained, entry)
+			continue
+		}
+		entry["reason"] = "reachable_from"
+		entry["integrated_ref"] = via
+		deleted = append(deleted, entry)
+	}
+	return deleted, retained, nil
 }
 
 func worktreeGCDecision(ctx context.Context, repoRoot string, row map[string]any) (worktreeGCCheck, error) {
