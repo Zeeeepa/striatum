@@ -114,6 +114,14 @@ type Config struct {
 
 	// HTTPClient overrides the default client (tests may inject a tuned one).
 	HTTPClient *http.Client
+
+	// AfterRegister, when non-nil, is invoked with the freshly-registered session
+	// id immediately after session.register and BEFORE tools/list / await. The
+	// harness uses it to seed the attested-backend rows a real lane would get from
+	// `supervise start`, so the dbf2013b session-backend gate admits the claim. It
+	// runs on the agent's goroutine, so it must be goroutine-safe and return an
+	// error rather than calling t.Fatalf.
+	AfterRegister func(sessionID string) error
 }
 
 // ArtifactSpec is the single artifact the happy path publishes.
@@ -195,6 +203,16 @@ func (a *Agent) Run(ctx context.Context) (Result, error) {
 	a.mu.Unlock()
 	if res.SessionID == "" {
 		return res, fmt.Errorf("session.register returned no session_id: %v", regData)
+	}
+
+	// dbf2013b: a real lane is attested by `supervise start` between register and
+	// the first claim. The in-process testagent skips supervise, so the harness
+	// supplies AfterRegister to seed the attested-backend rows here — without it
+	// the work.await_packet/claim below is refused (no attached supervisor).
+	if a.cfg.AfterRegister != nil {
+		if err := a.cfg.AfterRegister(res.SessionID); err != nil {
+			return res, fmt.Errorf("after_register attest: %w", err)
+		}
 	}
 
 	// C3 broken mode: never discover. Stop here; last_tools_list_at stays null.

@@ -195,6 +195,9 @@ func driveTargetToInterrogationReady(t *testing.T, ctx context.Context, h *Harne
 	if sessionID == "" {
 		t.Fatalf("session.register returned no session_id: %v", reg)
 	}
+	// dbf2013b: attest the registered session (a real lane is attested by
+	// supervise start) so work.await_packet/claim below is admitted.
+	attestFixtureSession(t, ctx, h.Runner, fx.RepositoryID, fx.RunID, sessionID, fx.Lane)
 	c.rpc("tools/list", map[string]any{"repository_id": fx.RepositoryID, "session_id": sessionID})
 
 	var leaseID, messageID string

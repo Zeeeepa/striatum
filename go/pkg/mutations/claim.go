@@ -332,7 +332,19 @@ func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID,
 	if health.LiveTarget() {
 		return nil
 	}
+	// A backend that is ALIVE but only attention-pending — a pending interrogation
+	// question or escalation — is a live attested lane waiting on a human/
+	// interrogator, not a dead backend. Admit it; a genuinely dead lane fails the
+	// Alive probe and is still refused below. Only death/idle stalls
+	// (discovery/await/ack/lease-heartbeat/protocol-idle) and missing backends are
+	// refused.
+	if health.Alive && isAttentionPendingStall(health.Stall.StallClass) {
+		return nil
+	}
 	reason := string(health.Reason)
+	if health.Stall.StallClass != "" {
+		reason = health.Stall.StallClass
+	}
 	if reason == "" {
 		reason = "unattested_lane_backend"
 	}
@@ -354,6 +366,15 @@ func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID,
 		}
 	}
 	return refusal
+}
+
+// isAttentionPendingStall reports whether a stall class means the lane is alive
+// and waiting on a human/interrogator (a pending interrogation question or
+// escalation) rather than dead or idle. Such a lane has a live attested backend,
+// so the work-session backend gate must admit it.
+func isAttentionPendingStall(stallClass string) bool {
+	return stallClass == sessionliveness.StallQuestionPending ||
+		stallClass == sessionliveness.StallEscalationPending
 }
 
 func backendLossShouldMarkSessionLost(reason lanehealth.LaneReason) bool {

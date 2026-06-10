@@ -86,6 +86,12 @@ func RunLive(t *testing.T, ctx context.Context, h *Harness, fx *Fixture, adapter
 			RepoPath:    fx.ArtifactRepoPath,
 		},
 		InterrogationWait: 5 * time.Second,
+		// dbf2013b: attest the registered session (a real lane is attested by
+		// supervise start) so work.await_packet/claim is admitted. Runs on the
+		// agent goroutine, so use the error-returning attest variant.
+		AfterRegister: func(sessionID string) error {
+			return attestFixtureSessionErr(ctx, h.Runner, fx.RepositoryID, fx.RunID, sessionID, fx.Lane)
+		},
 	}
 	if scope.IncludeInterrogation {
 		cfg.InterrogationGate = gate

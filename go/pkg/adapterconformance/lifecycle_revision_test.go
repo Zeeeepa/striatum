@@ -512,7 +512,7 @@ func (i *revisionRunDriveInvoker) invokeRPC(ctx context.Context, method string, 
 func (i *revisionRunDriveInvoker) driveSession(ctx context.Context, sessionID string) {
 	i.t.Helper()
 	rows := chaosQuery(i.t, ctx, i.h, `
-		SELECT role_id
+		SELECT role_id, lane_id
 		  FROM striatumd.sessions
 		 WHERE repository_id=$1 AND session_id=$2`,
 		i.lc.fx.RepositoryID, sessionID)
@@ -520,6 +520,9 @@ func (i *revisionRunDriveInvoker) driveSession(ctx context.Context, sessionID st
 		i.t.Fatalf("session %s rows = %d, want 1", sessionID, len(rows))
 	}
 	role := fmt.Sprint(rows[0]["role_id"])
+	// dbf2013b: real supervise.start attests the session before it claims; this
+	// run-drive fixture stands in for supervise.start, so attest here.
+	attestFixtureSession(i.t, ctx, i.h.Runner, i.lc.fx.RepositoryID, i.lc.fx.RunID, sessionID, fmt.Sprint(rows[0]["lane_id"]))
 	leaseID := claimAndAck(i.t, ctx, i.h, i.lc.fx.RepositoryID, sessionID, "run drive "+role)
 	switch role {
 	case i.lc.fx.Role:

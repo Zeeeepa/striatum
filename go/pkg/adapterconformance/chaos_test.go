@@ -149,8 +149,12 @@ func injectMaskedDeadAgent(t *testing.T, ctx context.Context, runner db.Runner, 
 		now.Add(-10*time.Minute), repositoryID, jobID); err != nil {
 		t.Fatalf("inject masked dead agent (age prior leases %s): %v", jobID, err)
 	}
-	// Record the supervised agent as a (secretly dead) attached pointer.
-	supID := "sup_masked_" + sessionID
+	// Record the supervised agent as a (secretly dead) attached pointer. Reuse
+	// the attest supervisor id ("sup_"+session) so this flips the session's
+	// existing attached pointer (seedFixtureSession now attests every scenario
+	// session, #243/dbf2013b) to the dead pid via ON CONFLICT — inserting a
+	// second attached pointer would violate uq_active_daemon_supervisor_pointer_per_session.
+	supID := "sup_" + sessionID
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisor_pointers (
 		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
@@ -158,7 +162,7 @@ func injectMaskedDeadAgent(t *testing.T, ctx context.Context, runner db.Runner, 
 		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)
 		ON CONFLICT (repository_id, supervisor_id) DO UPDATE
 		   SET pid = EXCLUDED.pid, state = EXCLUDED.state, updated_at = EXCLUDED.updated_at`,
-		repositoryID, supID, "dsup_masked_"+sessionID, runID, sessionID, deadPID, now); err != nil {
+		repositoryID, supID, "dsup_"+sessionID, runID, sessionID, deadPID, now); err != nil {
 		t.Fatalf("inject masked dead agent (pointer %s): %v", sessionID, err)
 	}
 }
@@ -228,6 +232,9 @@ func freshReplacementAgent(t *testing.T, ctx context.Context, h *Harness, fx *Fi
 			RepoPath:    fx.ArtifactRepoPath,
 		},
 		InterrogationWait: 2 * time.Second,
+		AfterRegister: func(sessionID string) error {
+			return attestFixtureSessionErr(ctx, h.Runner, fx.RepositoryID, fx.RunID, sessionID, fx.Lane)
+		},
 	}
 	res, err := testagent.New(cfg).Run(ctx)
 	if err != nil {

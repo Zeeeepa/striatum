@@ -245,6 +245,10 @@ func seedFixtureSession(t *testing.T, ctx context.Context, runner db.Runner, rep
 		  capabilities_json, state, registered_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,'active',$9)`,
 		repositoryID, sessionID, runID, role, lane, sessionID+"-slug", ordinal, capsArg, now)
+	// dbf2013b: claim/complete/verdict/submit now require a live attested lane
+	// backend. A seeded scenario session stands in for a supervised lane, so
+	// attest it here (idempotent) — otherwise every scenario claim is refused.
+	attestFixtureSession(t, ctx, runner, repositoryID, runID, sessionID, lane)
 }
 
 // attestFixtureSession seeds an attached supervisor + pointer + daemon
@@ -253,29 +257,50 @@ func seedFixtureSession(t *testing.T, ctx context.Context, runner db.Runner, rep
 // the in-tree intgAttest helper used by the mutations integration tests.
 func attestFixtureSession(t *testing.T, ctx context.Context, runner db.Runner, repositoryID, runID, sessionID, lane string) {
 	t.Helper()
+	if err := attestFixtureSessionErr(ctx, runner, repositoryID, runID, sessionID, lane); err != nil {
+		t.Fatalf("attest session %s: %v", sessionID, err)
+	}
+}
+
+// attestFixtureSessionErr is the error-returning core of attestFixtureSession,
+// safe to call off the test goroutine (e.g. from a testagent AfterRegister hook).
+// The inserts are idempotent (ON CONFLICT DO NOTHING) so attesting a session that
+// is already attested — or seeding via seedFixtureSession then attesting again —
+// is a no-op rather than a primary-key violation.
+func attestFixtureSessionErr(ctx context.Context, runner db.Runner, repositoryID, runID, sessionID, lane string) error {
 	now := time.Now().UTC()
 	supID := "sup_" + sessionID
+	dsupID := "dsup_" + sessionID
 	pid := os.Getpid()
-	seedExec(t, ctx, runner, "attest supervisor "+sessionID, `
+	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisors (
 		  repository_id, supervisor_id, run_id, session_id, adapter, command_json, cwd,
 		  scratch_path, pid, state, started_at
-		) VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'/tmp','/tmp/scratch',$6,'attached',$7)`,
-		repositoryID, supID, runID, sessionID, lane, pid, now)
-	dsupID := "dsup_" + sessionID
-	seedExec(t, ctx, runner, "attest pointer "+sessionID, `
+		) VALUES ($1,$2,$3,$4,$5,'[]'::jsonb,'/tmp','/tmp/scratch',$6,'attached',$7)
+		ON CONFLICT (repository_id, supervisor_id) DO NOTHING`,
+		repositoryID, supID, runID, sessionID, lane, pid, now); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.process_supervisor_pointers (
 		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
 		  pid, pid_start_time, state, updated_at, metadata_json
-		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)`,
-		repositoryID, supID, dsupID, runID, sessionID, pid, now)
-	seedExec(t, ctx, runner, "attest daemon supervisor "+sessionID, `
+		) VALUES ($1,$2,$3,$4,$5,$6,'','attached',$7,'{}'::jsonb)
+		ON CONFLICT (repository_id, supervisor_id) DO NOTHING`,
+		repositoryID, supID, dsupID, runID, sessionID, pid, now); err != nil {
+		return err
+	}
+	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.daemon_supervisors (
 		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
 		  daemon_instance_id, adapter, command_json, command_sha256, cwd, pid,
 		  pid_start_time, state, started_at, heartbeat_at
-		) VALUES ($1,$2,$3,$4,$5,'inst',$6,'[]'::jsonb,'sha','/tmp',$7,'','attached',$8,$8)`,
-		dsupID, repositoryID, runID, sessionID, supID, lane, pid, now)
+		) VALUES ($1,$2,$3,$4,$5,'inst',$6,'[]'::jsonb,'sha','/tmp',$7,'','attached',$8,$8)
+		ON CONFLICT (daemon_supervisor_id) DO NOTHING`,
+		dsupID, repositoryID, runID, sessionID, supID, lane, pid, now); err != nil {
+		return err
+	}
+	return nil
 }
 
 // fixtureArtifactBody is the progress_note the happy path publishes: a valid
