@@ -699,6 +699,32 @@ Auto-close on a run-terminal transition (RFC 0011) records each
 session's `close_reason` from the same vocabulary: `run_completed`,
 `run_failed`, `run_canceled`, or `explicit`.
 
+Before choosing a clean completion, `maybe_complete_run` runs the
+RFC 0118 run-completion provenance gate: every provenance-required
+review gate (`require_attested_lane=true` or fresh per the reviewer
+policy) must show, on its latest non-superseded accepting verdict, a
+frozen `lane_attestation_at_record='attested'` stamp or an explicit
+override basis (`review_provenance_override`, `posture='override'`,
+or a run-level accepting `escape_surface=review_provenance`
+decision). A NULL stamp (pre-migration row) is fail-closed. All other
+required verdict-capable gates are held to the shipped admission rule
+(accepting + present). A failing gate routes the run to
+`needs_operator` with `stop_reason='provenance_gate_failed'` and a
+resolvable escalation enumerating the failing gates; resolving the
+escalation re-drives completion. A completed run records
+`completion_mode` — `lanes_attested` when every provenance-required
+gate cleared on a frozen attested stamp, `operator_override` when any
+gate cleared by an override basis. `completion_mode` is advisory
+metadata: downstream consumers that care must read it explicitly.
+
+Every terminal transition — including the operator `run cancel` path —
+freezes a write-once `runs.completion_record_json` INSIDE the terminal
+transaction, before session teardown: per-job state and attempt, the
+frozen verdict provenance stamps, per-session attestation and
+(imminent) close reason, supervisor and lease state, and a
+recovery-event summary. The record's sha256 is anchored in the
+append-only terminal event payload for tamper evidence.
+
 ### Per-run serialization invariant (RFC 0104)
 
 Every transaction that mutates a single run's aggregate — its rows in
@@ -1471,6 +1497,15 @@ review job with attempt counts, artifacts annotated with structured author
 bylines, blockers, and verification state. The renderer is deterministic so
 two runs with the same daemon state produce the same Markdown.
 
+`run.summary` carries the verdicts' frozen provenance stamps, the run's
+`completion_mode`, an `overrides[]` block (every override-cleared verdict
+with its authorizing decision), and a `sessions[]` block. On a terminal run
+the sessions block and `completion_record` projection come from the frozen
+`run_completion_record` — the last-live state captured before teardown —
+never from a live probe. `evidence export` renders deterministic
+`## Sessions`, `## Provenance Gate`, and `## Operator Overrides` sections
+from the same frozen state.
+
 ### Recovery
 
 `recovery stale-leases --json` applies lazy lease expiry for a run and
@@ -1546,6 +1581,17 @@ exit-on-terminal default (`--no-exit-on-terminal` keeps looping), and
 `recovery auto` are accepted. A pidfile collision with an alive watcher
 exits 4 with `another recovery watch is active (pid <N>)`; stale
 pidfiles (dead PIDs) are overwritten cleanly.
+
+`recovery invalidate-job <job_id> <decision_id>` (RFC 0118 P1-6,
+capability `recovery`) invalidates a single compromised completed
+review job while the run stays running: the job's verdict rows are
+superseded under an accepting operator decision scoped to the exact
+`(session_id, job_id)` (broad decisions refused) — the superseded row,
+frozen provenance stamp intact, IS the durable invalidation receipt —
+and the job reopens at a fresh attempt that must itself pass the
+attested admission gate to re-complete. A `recovery.job_invalidated`
+event names the decision, the superseded verdict, and the reopened
+attempt.
 
 ### Self-Contained Agent Skills
 
