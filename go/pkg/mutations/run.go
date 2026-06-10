@@ -461,13 +461,21 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			   AND state = 'active'`, now, repositoryID, runID); err != nil {
 			return nil, err
 		}
+		// RFC 0118 P1-5: freeze the completion record while the sessions are
+		// still live — this operator-cancel path is the run_45aa8852 incident
+		// path whose post-teardown reads came back empty.
+		cancelPayload, err := freezeRunCompletionRecord(ctx, tx, repositoryID, runID, "canceled", "run_canceled",
+			map[string]any{"stop_reason": reason}, map[string]any{"reason": reason})
+		if err != nil {
+			return nil, err
+		}
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.runs
 			   SET state = 'canceled', completed_at = $1, stop_reason = $2
 			 WHERE repository_id = $3 AND run_id = $4`, now, reason, repositoryID, runID); err != nil {
 			return nil, err
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.canceled", nil, nil, nil, nil, nil, map[string]any{"reason": reason}); err != nil {
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.canceled", nil, nil, nil, nil, nil, cancelPayload); err != nil {
 			return nil, err
 		}
 		if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {

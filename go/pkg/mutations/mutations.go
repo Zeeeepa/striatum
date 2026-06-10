@@ -873,13 +873,18 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 		return fmt.Errorf("runner does not support exec")
 	}
 	if failed && fmt.Sprint(run["state"]) == "running" {
+		failedPayload, err := freezeRunCompletionRecord(ctx, runner, repositoryID, runID, "failed", "run_failed",
+			map[string]any{"stop_reason": "job_failed"}, map[string]any{"reason": "job_failed"})
+		if err != nil {
+			return err
+		}
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.runs
 			   SET state = 'failed', completed_at = $1, stop_reason = 'job_failed'
 			 WHERE repository_id = $2 AND run_id = $3`, now, repositoryID, runID); err != nil {
 			return err
 		}
-		if _, err := appendEvent(ctx, runner, repositoryID, runID, "run.failed", nil, nil, nil, nil, nil, map[string]any{"reason": "job_failed"}); err != nil {
+		if _, err := appendEvent(ctx, runner, repositoryID, runID, "run.failed", nil, nil, nil, nil, nil, failedPayload); err != nil {
 			return err
 		}
 		return closeRemainingSessions(ctx, runner, repositoryID, runID, "run_failed", "run_failed")
@@ -929,6 +934,11 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 			"completion_mode": completionMode,
 			"provenance_gate": ledger,
 		}
+		payload, err = freezeRunCompletionRecord(ctx, runner, repositoryID, runID, "completed", "run_completed",
+			map[string]any{"completion_mode": completionMode, "provenance_gate": ledger}, payload)
+		if err != nil {
+			return err
+		}
 		// stop_reason may carry 'provenance_gate_failed' from an earlier
 		// escalation of this run; a clean (re-driven) completion clears it.
 		if err := exec.Exec(ctx, `
@@ -938,11 +948,18 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 			 WHERE repository_id = $4 AND run_id = $5`, state, now, completionMode, repositoryID, runID); err != nil {
 			return err
 		}
-	} else if err := exec.Exec(ctx, `
-		UPDATE striatumd.runs
-		   SET state = $1, completed_at = $2, stop_reason = 'all_jobs_canceled'
-		 WHERE repository_id = $3 AND run_id = $4`, state, now, repositoryID, runID); err != nil {
-		return err
+	} else {
+		payload, err = freezeRunCompletionRecord(ctx, runner, repositoryID, runID, state, reason,
+			map[string]any{"stop_reason": "all_jobs_canceled"}, payload)
+		if err != nil {
+			return err
+		}
+		if err := exec.Exec(ctx, `
+			UPDATE striatumd.runs
+			   SET state = $1, completed_at = $2, stop_reason = 'all_jobs_canceled'
+			 WHERE repository_id = $3 AND run_id = $4`, state, now, repositoryID, runID); err != nil {
+			return err
+		}
 	}
 	if _, err := appendEvent(ctx, runner, repositoryID, runID, eventType, nil, nil, nil, nil, nil, payload); err != nil {
 		return err

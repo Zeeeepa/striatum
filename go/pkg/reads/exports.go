@@ -28,7 +28,8 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 
 	runs, err := collectRows(ctx, runner,
 		`SELECT run_id, workflow_snapshot_id, repo_root, state, branch_name,
-		        created_at, started_at, completed_at, stop_reason, completion_mode
+		        created_at, started_at, completed_at, stop_reason, completion_mode,
+		        completion_record_json
 		   FROM striatumd.runs WHERE repository_id = $1 AND run_id = $2`,
 		repositoryID, runID,
 	)
@@ -37,6 +38,28 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	}
 	if len(runs) == 0 {
 		return nil, rpc.NewError("not_found", "run not found", nil)
+	}
+	// RFC 0118 P1-5: terminal runs project the frozen run_completion_record —
+	// the sessions[] block is the last-live state captured before teardown,
+	// not a live read that would see the post-teardown emptiness.
+	completionRecord := objectOrEmpty(runs[0]["completion_record_json"])
+	delete(runs[0], "completion_record_json")
+	var sessionsBlock any
+	if runTerminalState(fmt.Sprint(runs[0]["state"])) && completionRecord["sessions"] != nil {
+		sessionsBlock = completionRecord["sessions"]
+	} else {
+		liveSessions, err := collectRows(ctx, runner,
+			`SELECT session_id, role_id, lane_id, state, close_reason,
+			        registered_at, closed_at
+			   FROM striatumd.sessions
+			  WHERE repository_id = $1 AND run_id = $2
+			  ORDER BY registered_at, session_id`,
+			repositoryID, runID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		sessionsBlock = liveSessions
 	}
 
 	jobs, err := collectRows(ctx, runner,
@@ -104,15 +127,28 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		return nil, err
 	}
 
-	return map[string]any{
+	result := map[string]any{
 		"run":           runs[0],
 		"jobs":          jobs,
 		"artifacts":     artifacts,
 		"verdicts":      verdicts,
 		"overrides":     overrides,
+		"sessions":      sessionsBlock,
 		"doctor":        doctor,
 		"operator_mode": workflowOperatorMode(workflow),
-	}, nil
+	}
+	if len(completionRecord) > 0 {
+		result["completion_record"] = completionRecord
+	}
+	return result, nil
+}
+
+func runTerminalState(state string) bool {
+	switch state {
+	case "completed", "failed", "canceled", "compromised":
+		return true
+	}
+	return false
 }
 
 // HandleEvidenceExport mirrors reads/evidence_export.py — a redacted
@@ -139,7 +175,8 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 	runs, err := collectRows(ctx, runner,
-		`SELECT run_id, state, branch_name, completed_at
+		`SELECT run_id, state, branch_name, completed_at, completion_mode,
+		        completion_record_json
 		   FROM striatumd.runs
 		  WHERE repository_id = $1 AND run_id = $2`,
 		repositoryID,
@@ -150,6 +187,21 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 	}
 	if len(runs) == 0 {
 		return nil, rpc.NewError("not_found", "run not found: "+runID, nil)
+	}
+	completionRecord := objectOrEmpty(runs[0]["completion_record_json"])
+	delete(runs[0], "completion_record_json")
+	overrideVerdicts, err := collectRows(ctx, runner,
+		`SELECT verdict_id, job_id, verdict, posture,
+		        lane_attestation_at_record, review_provenance_decision_id
+		   FROM striatumd.verdicts
+		  WHERE repository_id = $1 AND run_id = $2
+		    AND (review_provenance_override = true OR posture = 'override')
+		  ORDER BY created_at, verdict_id`,
+		repositoryID,
+		runID,
+	)
+	if err != nil {
+		return nil, err
 	}
 	artifacts, err := collectRows(ctx, runner,
 		`SELECT a.artifact_id, a.run_id, a.job_id, a.artifact_kind AS kind,
@@ -188,6 +240,7 @@ func HandleEvidenceExport(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
+	body += renderProvenanceSections(completionRecord, overrideVerdicts)
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, err
 	}
@@ -250,6 +303,60 @@ func renderEvidenceMarkdown(run map[string]any, payload map[string]any) (string,
 	b.Write(payloadJSON)
 	b.WriteString("\n```\n")
 	return b.String(), nil
+}
+
+// renderProvenanceSections appends the RFC 0118 P1-5 deterministic sections.
+// Sessions and the provenance-gate ledger come from the frozen
+// run_completion_record (last-live state); operator overrides come from the
+// frozen verdict stamps. Only identifiers, states, and category tokens are
+// rendered — no prose fields, so no redaction pass is required.
+func renderProvenanceSections(record map[string]any, overrides []map[string]any) string {
+	var b strings.Builder
+	b.WriteString("\n## Sessions\n\n")
+	sessions, _ := record["sessions"].([]any)
+	if len(sessions) == 0 {
+		b.WriteString("- no frozen session record (pre-RFC-0118 terminal run or non-terminal run)\n")
+	}
+	for _, item := range sessions {
+		session, _ := item.(map[string]any)
+		line := fmt.Sprintf("- `%s` state=`%s` close_reason=`%s`",
+			fmt.Sprint(session["session_id"]), fmt.Sprint(session["state"]), fmt.Sprint(session["close_reason"]))
+		if attestation, ok := session["attestation"].(map[string]any); ok {
+			line += fmt.Sprintf(" attestation=`%s`", fmt.Sprint(attestation["state"]))
+			if supervisor := attestation["supervisor_id"]; supervisor != nil {
+				line += fmt.Sprintf(" supervisor=`%s`", fmt.Sprint(supervisor))
+			}
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n## Provenance Gate\n\n")
+	gates, _ := record["provenance_gate"].([]any)
+	if len(gates) == 0 {
+		b.WriteString("- no frozen provenance ledger (pre-RFC-0118 terminal run or non-terminal run)\n")
+	}
+	for _, item := range gates {
+		gate, _ := item.(map[string]any)
+		line := fmt.Sprintf("- gate `%s` basis=`%s`",
+			fmt.Sprint(gate["workflow_job_id"]), fmt.Sprint(gate["basis"]))
+		if decision := gate["override_decision_id"]; decision != nil {
+			line += fmt.Sprintf(" decision=`%s`", fmt.Sprint(decision))
+		}
+		b.WriteString(line + "\n")
+	}
+	b.WriteString("\n## Operator Overrides\n\n")
+	if len(overrides) == 0 {
+		b.WriteString("- none\n")
+	}
+	for _, row := range overrides {
+		line := fmt.Sprintf("- verdict `%s` on job `%s`: `%s` posture=`%s` lane_at_record=`%s`",
+			fmt.Sprint(row["verdict_id"]), fmt.Sprint(row["job_id"]), fmt.Sprint(row["verdict"]),
+			fmt.Sprint(row["posture"]), fmt.Sprint(row["lane_attestation_at_record"]))
+		if decision := row["review_provenance_decision_id"]; decision != nil {
+			line += fmt.Sprintf(" decision=`%s`", fmt.Sprint(decision))
+		}
+		b.WriteString(line + "\n")
+	}
+	return b.String()
 }
 
 // HandleCorpusExport exposes the redaction-safe corpus rows the augmentation

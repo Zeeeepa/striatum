@@ -49,6 +49,8 @@ func (runSummaryFakeRunner) Query(_ context.Context, sql string, _ ...any) (pgx.
 		return dashboardAllRowsFromMaps(nil), nil
 	case strings.Contains(sql, "FROM striatumd.verdicts"):
 		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "FROM striatumd.sessions"):
+		return dashboardAllRowsFromMaps(nil), nil
 	default:
 		return nil, errors.New("unexpected query: " + sql)
 	}
@@ -97,6 +99,8 @@ func (runSummaryProvenanceFakeRunner) Query(_ context.Context, sql string, _ ...
 			runLevel,
 		}), nil
 	case strings.Contains(sql, "FROM striatumd.verdicts"):
+		return dashboardAllRowsFromMaps(nil), nil
+	case strings.Contains(sql, "FROM striatumd.sessions"):
 		return dashboardAllRowsFromMaps(nil), nil
 	default:
 		return nil, errors.New("unexpected query: " + sql)
