@@ -144,6 +144,42 @@ Artifact listing, detail, summary, export, and dashboard JSON includes
 attested supervised-lane, daemon auto-finalized, operator-on-behalf,
 self-declared operator, recovery-authored, and run-level operator artifacts.
 
+## Mediated repository and process surfaces (RFC 0099)
+
+```text
+striatum repo write <session-id> <job-id> <lease-id> <path> --content <text>
+striatum repo patch-preview <session-id> <job-id> <lease-id> --patch <text>
+striatum repo patch-apply <session-id> <job-id> <lease-id> --patch <text>
+striatum process run <session-id> <job-id> <lease-id> [-- <command> ...]
+striatum scope-check [--packet-file <packet.json>] [--allowed <path> ...] [--forbidden <path> ...]
+striatum work claim-override <session-id> <job-id> <decision-id>
+```
+
+These are the RFC 0099 constrained-operator mutation surfaces. `repo write`,
+`repo patch-preview`, and `repo patch-apply` (capability `write`) require an
+active repo-write job lease and refuse paths outside `write_scope.allowed_paths`
+before mutating. `repo write` writes exact UTF-8 `--content` to one
+repo-relative path; `repo patch-preview` checks a unified git-style `--patch`
+for applyability and write-scope without mutating, and `repo patch-apply`
+repeats those checks before applying.
+
+`process run` (capability `write`) executes a command array — passed after `--`
+or via `--command-json` — with `--timeout-seconds` (default 300, cap 1800) and
+records `process_executions` evidence without storing stdout/stderr. It requires
+`capability_requirements.process_execution: true` on the job, or a matching
+typed escape decision whose `escape_surface` is `process.run` or `shell_command`.
+
+`scope-check` is a daemon-free, read-only pre-`complete` diagnostic: it flags any
+changed path outside `allowed_paths` or inside `forbidden_paths` and exits
+nonzero on drift. Read the scope from the active work packet with
+`--packet-file`, or paste `--allowed` / `--forbidden` paths directly.
+
+`work claim-override <session-id> <job-id> <decision-id>` (capability `admin`) is
+the narrow escape for the fresh-review process-lineage gate: it claims a pending
+job for a session authorized by an accepted decision recorded with matching
+`--subject-session-id` / `--subject-job-id`. A broad or mismatched decision is
+refused; there is no normal-lane `claim-next --force`.
+
 ## Worktree (opt-in per lane via `worktree_isolation: per_job`)
 
 ```text
@@ -170,6 +206,68 @@ striatum supervise list
 striatum supervise trajectory
 ```
 
+## Conversation (RFC 0086)
+
+```text
+striatum conversation open <participant-session-ids>
+striatum conversation say <session-id> <conversation-id> <body>
+striatum conversation close <session-id> <conversation-id>
+striatum conversation list <run-id>
+striatum conversation show <conversation-id>
+```
+
+The RFC 0086 multi-party conversation surface runs an N-party round-robin
+exchange over persistent agent-loop sessions. `conversation open` starts a
+conversation across the named participant sessions; `say` posts a turn (both
+`write`), `close` ends it (`write`), and `list` / `show` (`read`) enumerate a
+run's conversations and replay one transcript.
+
+## Interrogation (RFC 0082 / 0083)
+
+```text
+striatum interrogation open <session-id> <target-session-id>
+striatum interrogation ask <session-id> <interrogation-id>
+striatum interrogation answer <session-id> <interrogation-id>
+striatum interrogation close <session-id> <interrogation-id>
+striatum interrogation list <run-id>
+striatum interrogation show <interrogation-id>
+```
+
+Interrogation windows let a consumer session question an upstream
+`interrogation target` (a completing job marked `interrogable: true` whose
+session stays available for preserved-context questioning). `open` / `ask` /
+`answer` / `close` (capability `write`) drive one window; `list` / `show`
+(`read`) enumerate a run's interrogations and replay one exchange.
+
+## Trajectory (RFC 0081)
+
+```text
+striatum trajectory export <run-id> [profile]
+striatum trajectory watch <run-id> [profile]
+```
+
+`trajectory export` returns the ordered, profile-filtered conversation
+trajectory for a run as replayable/diffable JSONL; `trajectory watch` live-tails
+it (both capability `read`). The `dialogue` profile is the curated adjudicator
+view (`striatum trajectory export <run-id> dialogue`). This is distinct from
+`supervise trajectory`, which reads one supervisor's operator-local PTY log.
+
+## Escalation and principal inbox (RFC 0053 / 0102)
+
+```text
+striatum inbox
+striatum escalation list
+striatum escalation show <escalation-id>
+striatum escalation resolve <escalation-id>
+```
+
+`escalation list` (capability `read`) reports the open escalations awaiting
+human-principal judgment; `striatum inbox` is the alias that routes to the same
+`escalation.list` method. `escalation show` (`read`) prints one escalation, and
+`escalation resolve` (`admin`) records the principal's disposition. Escalations
+are also resolvable through `striatum decision record` (RFC 0053 escalation
+artifacts are durable provenance for the principal inbox).
+
 ## Dashboard
 
 ```text
@@ -191,10 +289,11 @@ striatum daemon status
 striatum daemon uninstall
 striatum daemon migrate-db [--admin-url <dsn>] [--json]
 striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]
+striatum daemon token-create <capability>
 striatum doctor [--verbose] [--json]
 striatumd [daemon-start options]
 systemctl --user start|stop|restart|status striatumd
-striatum repo add <path> [--init] [--no-migrate compatibility flag]
+striatum repo add <path> [--init] [--display-name <name>] [--no-migrate] [--apply-blob-creation]
 striatum repo list
 striatum repo remove <id>
 striatum cross-repo list
@@ -223,6 +322,11 @@ Authorization uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
 
+`striatum daemon token-create <capability>` (method `daemon.token.create`,
+capability `admin`) mints an additional scoped capability token against the
+daemon-owned Postgres. The capability argument is one of the closed vocabulary
+above. The secret is returned once and never re-read from the registry.
+
 `repo add` canonicalizes the repository root, refuses
 symlink/path-traversal ambiguity, derives a realpath/inode-based
 repository identity, and refuses active path re-occupation by a
@@ -230,7 +334,12 @@ different identity. Pass `--init` when no `.striatum/` directory
 exists; it creates operational scratch only and does not create
 `.striatum/retired-local-state`. If a pre-D094 repo-local SQLite source
 exists, registration refuses and tells the operator to archive/remove
-the legacy SQLite file before registering.
+the legacy SQLite file before registering. `--display-name` sets the
+operator-facing repository name (defaults to the directory basename);
+`--apply-blob-creation` creates the per-repository blob-storage bucket when
+the daemon is configured for blob storage and the bucket is absent.
+`--no-migrate` is an accepted compatibility flag — production registration
+never imports retired SQLite state.
 
 `repo remove` is idempotent, revokes live repo-scoped
 capabilities, preserves audit rows, and never reuses
@@ -336,6 +445,19 @@ generation uses the existing local service and RFC 0034 generator paths.
 striatum skills install
 ```
 
+## Codex launcher
+
+```text
+striatum codex [codex args ...]
+```
+
+`striatum codex` launches the `codex` CLI pre-wired to the live daemon MCP
+endpoint: it injects `-c mcp_servers.striatum.url=<live endpoint>` (overriding
+`~/.codex/config.toml`) and `-c
+mcp_servers.striatum.bearer_token_env_var=STRIATUM_MCP_TOKEN`, and sets
+`STRIATUM_MCP_TOKEN` in codex's environment from the runtime `client-token`
+(never printed). Extra arguments pass through to `codex` unchanged.
+
 ## Daemon-Mounted HTTP Service (RFC 0012 / 0013 / 0085)
 
 ```text
@@ -397,6 +519,7 @@ and link back to the workflow detail when the source path is known.
 ```text
 striatum status
 striatum why
+striatum work packet-show
 striatum doctor
 striatum git snapshot
 striatum git commit-apply
@@ -408,6 +531,7 @@ striatum recovery auto-finalize
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery cancel-job
+striatum recovery invalidate-job
 striatum recovery process-reconcile
 striatum recovery resume
 striatum checkpoint resolve
@@ -449,6 +573,17 @@ report the hook kind without side effects, and hook failures are reported
 inside `escalations[]`. `recovery auto-publish` emits the explicit
 `recovery.auto_publish_stale_artifacts` method; the deprecated `recovery.auto`
 alias is not emitted by the current CLI.
+
+`recovery invalidate-job <job-id> <decision-id>` (RFC 0118, capability
+`recovery`) invalidates a completed job's provenance against an accepting
+run-level decision and records a durable supersede receipt so a fresh attempt
+can re-drive the work.
+
+`work packet-show` (capability `read`) inspects work-packet metadata. Select a
+packet with `[packet-id]` or `--message-id` / `--job-id` / `--session-id` /
+`--run-id` (at least one selector required); `--limit` caps rows (default 20,
+cap 200). It returns metadata and `packet_sha256` only; pass `--raw` to include
+`packet_json`, which is omitted by default to avoid leaking task prose.
 
 ## Corpus export (RFC 0044 V1 / RFC 0057 contract)
 
