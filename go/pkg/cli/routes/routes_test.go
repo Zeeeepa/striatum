@@ -195,6 +195,7 @@ func TestGeneratedUsageRendersPositionalArguments(t *testing.T) {
 		{[]string{"run", "start"}, []string{"usage: striatum run start", "<run-id>", "method: run.start"}},
 		{[]string{"interrogation", "open"}, []string{"<session-id>", "<target-session-id>"}},
 		{[]string{"override-verdict"}, []string{"<session-id>", "<job-id>", "<verdict>"}},
+		{[]string{"work", "claim-override"}, []string{"<session-id>", "<job-id>", "<decision-id>", "method: work.claim_override"}},
 		{[]string{"trajectory", "export"}, []string{"<run-id>", "<profile>"}},
 	}
 	for _, tc := range cases {
