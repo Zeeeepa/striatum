@@ -456,3 +456,44 @@ Item 4 — section 8 follow-ups:
 Validation: `git diff --check` clean; no generated file or generator was
 touched, so the `go generate ./...` drift gate is unaffected; the
 authority-matrix guardrail (`go test ./pkg/rpc`) does not read any edited file.
+
+## 12. Dedicated CLI-Reference Pass Closeout
+
+Continuation session: 2026-06-10, Claude Opus 4.8. This discharges the bounded
+CLI-doc follow-up deferred in section 11 item 4. Method: built `./go/bin/striatum`
+(v2.31.0) and reconciled every `<cmd> [sub] --help` against
+`routes_generated.go` + `localcommands.go`; no auditor summary was trusted
+without a direct source/runtime check.
+
+Reverse-direction stale sweep (higher priority) came back **clean**: every
+`striatum <verb>` string in `cli-reference.md` maps to a live verb. The five
+sweep hits were all correct — the deliberately-retired `adapter run` section and
+four negative "does not exist" statements (`daemon sweep`, `keys`, `serve`, and a
+`striatum install supports` regex artifact). No documented-but-removed command
+remained after the section 11 `recovery watch` removal.
+
+Forward gaps closed in `cli-reference.md` (commit `8cb3b0d1`, 27 verbs):
+- New `## Mediated repository and process surfaces (RFC 0099)` section:
+  `repo write`, `repo patch-preview`, `repo patch-apply`, `process run`,
+  `scope-check`, `work claim-override`.
+- New live-collaboration sections: `## Conversation (RFC 0086)` (open/say/close/
+  list/show), `## Interrogation (RFC 0082/0083)` (open/ask/answer/close/list/
+  show), `## Trajectory (RFC 0081)` (export/watch — distinct from
+  `supervise trajectory`), `## Escalation and principal inbox (RFC 0053/0102)`
+  (`inbox` + escalation list/show/resolve).
+- New `## Codex launcher` section (`striatum codex`).
+- Added to existing sections: `daemon token-create`; `recovery invalidate-job`
+  (RFC 0118 P1-6 — landed `a73fddfe` *after* this handoff was written, so absent
+  from its surface listing; caught by the live-help re-derivation); `work
+  packet-show`; and the `repo add` flag set `--display-name` /
+  `--apply-blob-creation` / `--no-migrate`.
+
+Not changed (verified adequate, not gaps): `run pause|resume|cancel|retry-job|
+integrate` and `workflow accept-risk|accepted-risks` are already documented in
+prose with capabilities and argument shapes; the `adapter run` retired-section
+is correct as-is.
+
+Validation: `git diff --check` clean; code fences balanced (42); guardrails
+`go test ./pkg/rpc ./pkg/cli/routes ./pkg/cli/routestest` green (pure-doc edit is
+test-neutral, run as a sanity). The CLI-reference audit deferred since the
+docs-drift effort is now complete.
