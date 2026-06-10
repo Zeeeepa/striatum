@@ -260,6 +260,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "init", Bool: true, Help: "create .striatum/scratch and add .striatum/ to .gitignore when registering a fresh target repo"},
 			{Name: "display-name", Help: "operator-facing repository name; defaults to the directory basename"},
 			{Name: "no-migrate", Bool: true, Help: "accepted compatibility flag; production registration never imports retired SQLite state"},
+			{Name: "apply-blob-creation", Bool: true, Help: "create the blob-storage bucket for this repository if it does not yet exist; required when the daemon is configured for blob storage and the bucket is absent"},
 		},
 	},
 	"register_session": {
