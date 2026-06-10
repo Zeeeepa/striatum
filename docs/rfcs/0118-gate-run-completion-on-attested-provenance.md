@@ -83,6 +83,30 @@ Most of the per-JOB completion contract has already shipped (and the sub-issues 
 
 #240 is the umbrella (open until P0-1..P0-4 + P1-5 + P1-6 land). #228/#229/#231/#234/#238/#239 shipped and stay closed as acceptance checks/regression guards under #240. #237 stays closed but its invalidate-granularity residual is the #240 ask (5) subproblem closed by P1-6 (reopen #237 only if the committee wants it tracked separately). #230/#232/#233/#235/#236 are process-lane subproblems that shipped and are not related to the completion gate. No closed issue needs to REOPEN for correctness, because the umbrella invariant is unmet at the RUN-completion layer (and at the recovery auto-finalize surface) — a layer none of the closed issues owned — not at any shipped per-job gate.
 
+## Reconciliation against `main` (2026-06-10, re-verified @ `5da9cec8`)
+
+This RFC was grounded at `f6ab9949`; `main` has since advanced through #214/#215/#220/#201/#223/#222/#243. Re-verification at `5da9cec8`:
+
+**Every P0/P1 diagnosis still holds — nothing in the gap set shipped.**
+
+- **P0-3 core gap unchanged.** `maybeCompleteRun` (now `mutations.go:845`, was 829) still flips a run to a bare `completed` on job STATES only (`state NOT IN ('completed','skipped','canceled')`:860; `state = "completed"`:900; `payload`:898), never re-asserting required-artifact/verdict attestation at the run boundary.
+- **P0-2 bypass unchanged.** `finalizeAutoFinalizeCandidate` still calls `recordVerdict(…, recordVerdictOptions{})` (`recovery_auto_finalize.go:1051`) with empty options, so the attestation gate is still skipped on the auto-finalize path.
+- **P0-2 hole unchanged.** `HandleOverrideVerdict` (`review.go:165`) still stamps the workflow posture via `resolveReviewPosture` (`:266`), not `posture='override'`.
+- **P0-1 precondition unchanged.** `verdicts` still has only `posture` (`0005:247`), no frozen attestation column; **migration `0024` is still free** (`LatestDaemonDBVersion=23`, highest sql `0023_principals.sql`), so the P0-1 "add `0024_verdict_provenance_stamp.sql`, bump 23→24" instruction stands verbatim.
+
+**New shipped foundation to build on — #222 fresh-review process lineage + `work.claim_override` (`go/pkg/mutations/claim_fresh_review_lineage.go`, NEW).**
+
+- A claim-time gate (`freshReviewProcessLineageRefusal`:28 / `freshReviewLineageRefusal`:147, via `sessionSupervisedProcessIdentity` + `upstreamWorkByProcess`) now refuses a fresh-required review claimed by a session whose supervised process identity (pid + start_token) matches an upstream review job's process — independent-process enforcement at `work.claim` that complements `ensureWorkSessionBackend` (which still covers the incident's unattested / no-supervisor / pid-null case). This narrows the claim-time attack surface but does NOT close the run-completion-boundary gap; **P0-3 remains load-bearing**.
+- `HandleClaimOverride` (`work.claim_override`, :194) is a NEW admin-only operator escape: `requireClaimOverrideDecision` (:274) validates the named `decision_id` is an *accepting* `artifact_kind='decision'` artifact **scoped to the exact (session_id, job_id)** (broad or mismatched decisions refused), run still running; it records `override_decision_id` on the claim/event. This independently validates this RFC's escape-via-scoped-accepting-decision pattern — it is the claim-side twin of `verifyReviewProvenanceDecision`.
+
+**Integration deltas (fold into the work items; the Design body is otherwise unchanged).**
+
+1. **P0-1/P0-2/P0-3 must cover the `work.claim_override` path.** A session that claimed via `work.claim_override` is by construction an operator-escaped, non-independent claimant. Any verdict it later records MUST be stamped (P0-1) with `review_provenance_override=true` + the override `decision_id` and contribute `completion_mode='operator_override'` (P0-4), never `lanes_attested`. P0-1 must carry the claim's `override_decision_id` forward onto the verdict stamp (today it lives on the claim/event, with no link to the eventual verdict). Add `work.claim_override` to the P0-2 table-test of operator/recovery verdict-producing surfaces.
+2. **P1-6 reuses the scoped-decision validator.** `recovery.invalidate_job` should reuse `requireClaimOverrideDecision`'s "accepting decision artifact scoped to exact (session_id, job_id)" check (the claim-side twin of `verifyReviewProvenanceDecision`) rather than reinvent decision validation.
+3. **Citations refreshed.** `maybeCompleteRun` 829→845; add `go/pkg/mutations/claim_fresh_review_lineage.go` (`HandleClaimOverride:194`, `requireClaimOverrideDecision:274`, `freshReviewProcessLineageRefusal:28`) to the Context surface.
+
+Net: #222 reduces claim-time risk and proves out the scoped-accepting-decision escape pattern, but the run-completion-boundary invariant (P0-1..P0-4), the auto-finalize bypass fix, and the durable terminal record (P1-5) remain unshipped and load-bearing.
+
 ## Open questions
 
 - **NULL-stamp cutover — RESOLVED 2026-06-10 (operator: halbritt) → fail-closed-after-migration.** Jobs completed before the 0024 migration have no frozen stamp. The operator decision is **fail-closed**: a run that COMPLETES after the migration treats a NULL `lane_attestation_at_record` on a provenance-required gate as **unattested**, so it cannot reach `completion_mode='lanes_attested'` and instead routes to `needs_operator`/`provenance_gate_failed` with the standard operator-escape path (record a `review_provenance` escape decision → terminates as `operator_override`). Runs that already reached a terminal state before the migration are NOT retroactively invalidated, and the 0024 backfill MUST NOT synthesize an `attested` value for historical verdict rows (leave them NULL; only post-migration completions are gated on the stamp). P0-3 may be handed to an AFK agent on this basis. (Rejected: fail-open, which would keep the incident class reproducible for any run still completing against pre-migration verdict rows.)
