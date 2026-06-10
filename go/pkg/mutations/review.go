@@ -263,17 +263,19 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 		if err != nil {
 			return nil, err
 		}
-		posture, err := resolveReviewPosture(ctx, tx, repositoryID, job)
-		if err != nil {
-			return nil, err
-		}
+		// RFC 0118 P0-2: an operator override is never the workflow-resolved
+		// posture — the row must read back as operator-cleared, and the frozen
+		// stamp (P0-1) records the lane state the override was issued against.
+		attestation := sessionLaneAttestation(ctx, tx, repositoryID, sessionID)
 		now := nowString()
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.verdicts (
 			  repository_id, verdict_id, run_id, job_id, session_id,
-			  verdict, rationale, findings_artifact_id, created_at, posture
+			  verdict, rationale, findings_artifact_id, created_at, posture,
+			  lane_attestation_at_record, review_provenance_override,
+			  review_provenance_decision_id, supervisor_id_at_record
 			)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'override',$10,true,NULL,$11)`,
 			repositoryID,
 			verdictID,
 			job["run_id"],
@@ -283,7 +285,8 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			strings.TrimSpace(rationale),
 			effectiveArtifactID,
 			now,
-			posture,
+			attestation["state"],
+			attestation["supervisor_id"],
 		); err != nil {
 			return nil, err
 		}
@@ -343,6 +346,8 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 			"previous_verdict_id": previousVerdictID,
 			"verdict_id":          verdictID,
 			"resolved_blockers":   resolvedBlockers,
+			"posture":             "override",
+			"lane_attestation":    attestation["state"],
 		}); err != nil {
 			return nil, err
 		}
@@ -508,6 +513,16 @@ func recordVerdict(
 	if err != nil {
 		return nil, err
 	}
+	if options.ProvenanceOverrideBasis != "" && reviewProvenance["review_provenance_override"] != true {
+		merged := map[string]any{
+			"review_provenance_override": true,
+			"review_provenance_basis":    options.ProvenanceOverrideBasis,
+		}
+		for key, value := range reviewProvenance {
+			merged[key] = value
+		}
+		reviewProvenance = merged
+	}
 	if options.RequireWorkSessionBackend && reviewProvenance == nil {
 		tx, ok := runner.(db.TxRunner)
 		if !ok {
@@ -549,6 +564,13 @@ type recordVerdictOptions struct {
 	ReviewProvenanceDecisionID string
 	RequireWorkSessionBackend  bool
 	WorkSessionBackendPhase    string
+	// ProvenanceOverrideBasis is set by operator/recovery surfaces that record
+	// a verdict without an attested-lane admission gate of their own (RFC 0118
+	// P0-2 mechanism 3, e.g. recovery auto-finalize). A non-empty basis stamps
+	// review_provenance_override=true on the verdict row and names the basis in
+	// the verdict.recorded event, so the verdict can never read back as a clean
+	// lane-attested clear.
+	ProvenanceOverrideBasis string
 }
 
 // applyVerdict records the verdict row and runs the completion / cycle / downstream
@@ -584,7 +606,7 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	// operator decision; carry the claim's authorizing decision onto the frozen
 	// stamp even when the lane is attested at record time. A verdict-time gate
 	// decision already in reviewProvenance takes precedence for the decision_id.
-	if reviewProvenance["review_provenance_override"] != true {
+	if nullable(reviewProvenance["review_provenance_decision_id"]) == nil {
 		claim, err := oneRow(ctx, runner, `
 			SELECT payload_json->>'decision_id' AS decision_id
 			  FROM striatumd.events

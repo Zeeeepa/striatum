@@ -1048,7 +1048,13 @@ func finalizeAutoFinalizeCandidate(ctx context.Context, runner any, repositoryID
 		if err != nil {
 			return nil, err
 		}
-		completeResult, err = recordVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, artifactID, autoFinalizeSummary, recordVerdictOptions{})
+		// RFC 0118 P0-2 (mechanism 3): an auto-finalized verdict is a daemon
+		// recovery action, not an attested lane clear — declare the override
+		// basis so the frozen stamp (P0-1) can never read back as a clean
+		// neutral verdict and the run can never complete as lanes_attested.
+		completeResult, err = recordVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, artifactID, autoFinalizeSummary, recordVerdictOptions{
+			ProvenanceOverrideBasis: "daemon_auto_finalized_from_artifact",
+		})
 		if err != nil {
 			return nil, err
 		}

@@ -2,6 +2,7 @@ package mutations
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -146,5 +147,23 @@ The change is correct; accepting.
 	// The verdict-gated downstream edge fired: the findings_ledger is no longer blocked.
 	if got := jobState(t, ctx, runner, repoID, downstreamJobID); got == "blocked" {
 		t.Fatalf("downstream findings_ledger still blocked — the --accepted review--> edge did not fire (the #144 wedge)")
+	}
+	// RFC 0118 P0-2 classification: the #144 sweep is a lane-evidence
+	// TRANSCRIPTION (the stalled lane authored the verdict_intent; recovery
+	// merely records it), so its stamp is the truthful unattested state with NO
+	// override basis — the run-completion gate fail-closes it on
+	// provenance-required reviews and passes it on ordinary ones.
+	stamp, err := oneRow(ctx, runner, `
+		SELECT lane_attestation_at_record, review_provenance_override
+		  FROM striatumd.verdicts
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, reviewJobID)
+	if err != nil {
+		t.Fatalf("read sweep verdict stamp: %v", err)
+	}
+	if got := fmt.Sprint(stamp["lane_attestation_at_record"]); got != "unattested" {
+		t.Fatalf("lane_attestation_at_record = %q, want unattested (stale lane, truthful stamp)", got)
+	}
+	if stamp["review_provenance_override"] != false {
+		t.Fatalf("review_provenance_override = %v, want false (transcription, not an operator override)", stamp["review_provenance_override"])
 	}
 }

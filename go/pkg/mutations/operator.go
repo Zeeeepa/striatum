@@ -416,14 +416,22 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				return nil, err
 			}
 			overrideRationale := fmt.Sprintf("operator override of revision_routing checkpoint %s, superseded by decision %v", blockerID, decisionID)
+			// RFC 0118 P0-2: freeze the provenance stamp (P0-1) on the clearing
+			// row, bound to the resolving decision — the minted clearing session
+			// has no lane, so the stamp records the unattested state honestly.
+			clearingAttestation := sessionLaneAttestation(ctx, tx, repositoryID, fmt.Sprint(overrideSessionID))
 			if err := tx.Exec(ctx, `
 				INSERT INTO striatumd.verdicts (
 				  repository_id, verdict_id, run_id, job_id, session_id, verdict,
-				  rationale, findings_artifact_id, created_at, posture
+				  rationale, findings_artifact_id, created_at, posture,
+				  lane_attestation_at_record, review_provenance_override,
+				  review_provenance_decision_id, supervisor_id_at_record
 				)
-				VALUES ($1,$2,$3,$4,$5,'accept_with_findings',$6,$7,$8,'override')`,
+				VALUES ($1,$2,$3,$4,$5,'accept_with_findings',$6,$7,$8,'override',
+				        $9,true,$10,$11)`,
 				repositoryID, verdictID, job["run_id"], blockerJobID, overrideSessionID,
-				overrideRationale, artifactID, overrideCreatedAt); err != nil {
+				overrideRationale, artifactID, overrideCreatedAt,
+				clearingAttestation["state"], decisionID, clearingAttestation["supervisor_id"]); err != nil {
 				return nil, err
 			}
 			if _, err := appendEvent(ctx, tx, repositoryID, runID, "verdict.recorded", overrideSessionID, blockerJobID, nil, artifactID, nil, map[string]any{
