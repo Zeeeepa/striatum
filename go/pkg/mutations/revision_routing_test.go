@@ -407,6 +407,9 @@ func reclaimReviewRunning(t *testing.T, ctx context.Context, runner db.Runner, r
 	leaseID = "lease2_" + reviewJobID
 
 	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, sessionID, "reviewer", "codex", []string{"review"}, "active", 2)
+	// dbf2013b: record-verdict requires a live attested lane backend; attest the
+	// fresh revision-cycle reviewer so the backend gate passes.
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "codex")
 
 	// Re-use the pending work message the re-enqueue already published for the
 	// job (a fresh insert would trip uq_active_work_message_per_job); move it to

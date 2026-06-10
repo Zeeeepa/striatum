@@ -266,6 +266,21 @@ func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[str
 	}()
 	result, err := fn(tx)
 	if err != nil {
+		// #222/dbf2013b follow-up: the session backend gate must EXPIRE/mark-lost a
+		// dead session as a durable cleanup, but it runs inside this work tx and
+		// then returns a refusal error — which rolls the tx back and would undo the
+		// transition. Roll back first (releasing this tx's FOR UPDATE locks on the
+		// session row), then apply the cleanup on a fresh pooled connection so it
+		// commits independently, and surface the plain refusal to the caller.
+		var gate *sessionBackendGateError
+		if errors.As(err, &gate) {
+			_ = tx.Rollback(context.Background())
+			committed = true // finalize: skip the deferred rollback
+			if gate.cleanup != nil {
+				_ = gate.cleanup(ctx, runner)
+			}
+			return nil, gate.rpcErr
+		}
 		return nil, err
 	}
 	// RFC 0110 §4.4: append the success audit row as the final write INSIDE this

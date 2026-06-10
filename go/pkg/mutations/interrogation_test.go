@@ -1199,6 +1199,9 @@ func TestInterrogationReplacementReviewerAfterWindowClosed(t *testing.T) {
 	// replacement reviewer claims it (same role/lane, still depends on job_synth).
 	replacement := "sess_panel_replacement"
 	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, replacement, "reviewer", "claude", []string{"interrogate"}, "active", 4)
+	// dbf2013b: record-verdict requires a live attested lane backend; attest the
+	// replacement reviewer so it can reach a verdict.
+	intgAttest(t, ctx, runner, repoID, runID, replacement, "claude")
 	if err := runner.Exec(ctx, `
 		UPDATE striatumd.jobs SET state='running', completed_at=NULL
 		 WHERE repository_id=$1 AND job_id=$2`, repoID, reviewJobs[0]); err != nil {

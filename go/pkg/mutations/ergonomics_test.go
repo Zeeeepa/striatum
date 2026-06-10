@@ -292,6 +292,9 @@ func seedReviewExpectedArtifactFixture(
 		t.Fatalf("update run repo root: %v", err)
 	}
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "reviewer", "reviewer", []string{"review"}, "active")
+	// dbf2013b: submit-review requires a live attested lane backend; attest the
+	// reviewer session so the backend gate passes.
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "reviewer")
 	now := time.Now().UTC()
 	laneSelectorArg, err := db.JSONBArg(runner, map[string]any{"lane_id": "reviewer"})
 	if err != nil {

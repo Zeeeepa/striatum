@@ -848,19 +848,72 @@ func (r claimBackendGateRow) Scan(dest ...any) error {
 	return r.err
 }
 
+// cleanupFakeRunner is a minimal db.Runner that records Exec calls, for asserting
+// the backend gate's deferred cleanup (which runs on the pooled runner, not the
+// rolled-back work tx).
+type cleanupFakeRunner struct {
+	execs []claimBackendGateExec
+}
+
+func (r *cleanupFakeRunner) Exec(ctx context.Context, sql string, args ...any) error {
+	r.execs = append(r.execs, claimBackendGateExec{sql: sql, args: append([]any{}, args...)})
+	return nil
+}
+
+func (r *cleanupFakeRunner) QueryRow(ctx context.Context, sql string, args ...any) db.Row {
+	return claimBackendGateRow{err: pgx.ErrNoRows}
+}
+
+func (r *cleanupFakeRunner) QueryScalar(ctx context.Context, sql string, args ...any) (string, error) {
+	return "", nil
+}
+
+func (r *cleanupFakeRunner) BeginTx(ctx context.Context) (db.TxRunner, error) {
+	return &claimBackendGateFakeTx{}, nil
+}
+
+func (r *cleanupFakeRunner) sawSessionUpdateArg(arg any) bool {
+	for _, exec := range r.execs {
+		if !strings.Contains(exec.sql, "UPDATE striatumd.sessions") {
+			continue
+		}
+		for _, item := range exec.args {
+			if item == arg {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func TestEnsureWorkSessionBackendExpiresMissingSupervisor(t *testing.T) {
 	tx := &claimBackendGateFakeTx{}
 
 	err := ensureWorkSessionBackend(context.Background(), tx, "repo_1", "sess_1", "claim")
-	var rpcErr *rpc.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
-		t.Fatalf("backend gate err = %v, want invalid_transition", err)
+	var gate *sessionBackendGateError
+	if !errors.As(err, &gate) {
+		t.Fatalf("backend gate err = %v, want *sessionBackendGateError", err)
 	}
-	if !tx.sawSessionUpdateArg("expired") {
-		t.Fatalf("missing session expired update, execs=%#v", tx.execs)
+	if gate.rpcErr == nil || gate.rpcErr.Code != "invalid_transition" {
+		t.Fatalf("gate rpcErr = %v, want invalid_transition", gate.rpcErr)
 	}
-	if !tx.sawSessionUpdateArg("claim refused: no_attached_supervisor") {
-		t.Fatalf("missing close_reason update, execs=%#v", tx.execs)
+	// The gate must NOT mutate the work tx — that write would be rolled back with
+	// the refusal. The expiry is deferred to cleanup on the pooled runner.
+	if tx.sawSessionUpdateArg("expired") {
+		t.Fatalf("gate must not expire inside the work tx; execs=%#v", tx.execs)
+	}
+	if gate.cleanup == nil {
+		t.Fatalf("gate cleanup must be set to commit the session expiry")
+	}
+	cleanup := &cleanupFakeRunner{}
+	if err := gate.cleanup(context.Background(), cleanup); err != nil {
+		t.Fatalf("cleanup: %v", err)
+	}
+	if !cleanup.sawSessionUpdateArg("expired") {
+		t.Fatalf("cleanup missing session expired update, execs=%#v", cleanup.execs)
+	}
+	if !cleanup.sawSessionUpdateArg("claim refused: no_attached_supervisor") {
+		t.Fatalf("cleanup missing close_reason update, execs=%#v", cleanup.execs)
 	}
 }
 

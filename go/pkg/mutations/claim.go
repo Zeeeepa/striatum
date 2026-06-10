@@ -276,12 +276,43 @@ func claimChosenJob(ctx context.Context, tx db.TxRunner, repositoryID, sessionID
 	return claimNextResult(sessionID, packetID, packet, selfDriving), nil
 }
 
+// sessionBackendGateError signals that the session backend gate refused work and
+// that a terminal session/supervisor transition must be COMMITTED as cleanup.
+// The transition cannot run inside the work tx — that tx returns this error and
+// rolls back, undoing the write — nor in a concurrent side tx, because the work
+// tx holds the session row FOR UPDATE. withTx therefore rolls the work tx back
+// first, then runs cleanup on a fresh pooled connection and surfaces rpcErr.
+type sessionBackendGateError struct {
+	rpcErr  *rpc.Error
+	cleanup func(ctx context.Context, runner db.Runner) error
+}
+
+func (e *sessionBackendGateError) Error() string { return e.rpcErr.Error() }
+
+func (e *sessionBackendGateError) Unwrap() error { return e.rpcErr }
+
+// missingBackendGateError refuses work and defers expiring the active session
+// (no attached supervisor / no readable backend) until the work tx rolls back.
+func missingBackendGateError(repositoryID, sessionID, phase, reason string) *sessionBackendGateError {
+	return &sessionBackendGateError{
+		rpcErr: rpc.NewError("invalid_transition", "session cannot "+phase+" work without an attached supervisor; start or register a fresh session", nil),
+		cleanup: func(ctx context.Context, runner db.Runner) error {
+			return markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
+				RepositoryID: repositoryID,
+				SessionID:    sessionID,
+				State:        "expired",
+				Reason:       phase + " refused: " + reason,
+			})
+		},
+	}
+}
+
 func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, phase string) error {
 	supervisor, err := requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
 	if err != nil {
 		var rpcErr *rpc.Error
 		if errors.As(err, &rpcErr) && rpcErr.Code == "invalid_transition" {
-			return expireActiveSessionForMissingBackend(ctx, tx, repositoryID, sessionID, phase, "no_attached_supervisor")
+			return missingBackendGateError(repositoryID, sessionID, phase, "no_attached_supervisor")
 		}
 		return err
 	}
@@ -294,7 +325,7 @@ func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID,
 	health, err := checker.Check(ctx, tx, repositoryID, sessionID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return expireActiveSessionForMissingBackend(ctx, tx, repositoryID, sessionID, phase, "no_attached_supervisor")
+			return missingBackendGateError(repositoryID, sessionID, phase, "no_attached_supervisor")
 		}
 		return err
 	}
@@ -305,17 +336,24 @@ func ensureWorkSessionBackend(ctx context.Context, tx db.TxRunner, repositoryID,
 	if reason == "" {
 		reason = "unattested_lane_backend"
 	}
+	refusal := rpc.NewError("invalid_transition", "session cannot "+phase+" work without a live attested lane backend: "+reason, nil)
 	if backendLossShouldMarkSessionLost(health.Reason) {
-		if err := markSupervisorLostInTx(ctx, tx, repositoryID, supervisor.SupervisorID, supervisor.RunID, supervisor.SessionID, phase+" refused: "+reason, supervisor.PID, map[string]any{
+		sup := supervisor
+		lostReason := phase + " refused: " + reason
+		lostPayload := map[string]any{
 			"phase":               "work." + phase,
 			"lane_attestation":    "unattested",
 			"attestation_reason":  reason,
 			"supervisor_liveness": health.LivenessClass,
-		}); err != nil {
-			return err
+		}
+		return &sessionBackendGateError{
+			rpcErr: refusal,
+			cleanup: func(ctx context.Context, runner db.Runner) error {
+				return markSupervisorLost(ctx, runner, repositoryID, sup.SupervisorID, sup.RunID, sup.SessionID, lostReason, sup.PID, lostPayload)
+			},
 		}
 	}
-	return rpc.NewError("invalid_transition", "session cannot "+phase+" work without a live attested lane backend: "+reason, nil)
+	return refusal
 }
 
 func backendLossShouldMarkSessionLost(reason lanehealth.LaneReason) bool {
@@ -325,18 +363,6 @@ func backendLossShouldMarkSessionLost(reason lanehealth.LaneReason) bool {
 	default:
 		return false
 	}
-}
-
-func expireActiveSessionForMissingBackend(ctx context.Context, runner any, repositoryID, sessionID, phase, reason string) error {
-	if err := markActiveSessionTerminal(ctx, runner, activeSessionTerminalUpdate{
-		RepositoryID: repositoryID,
-		SessionID:    sessionID,
-		State:        "expired",
-		Reason:       phase + " refused: " + reason,
-	}); err != nil {
-		return err
-	}
-	return rpc.NewError("invalid_transition", "session cannot "+phase+" work without an attached supervisor; start or register a fresh session", nil)
 }
 
 func claimNextResult(sessionID, packetID string, packet map[string]any, selfDrivingSupervisor bool) map[string]any {

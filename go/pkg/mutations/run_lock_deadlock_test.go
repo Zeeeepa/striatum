@@ -207,19 +207,23 @@ func resetRunLockRace(t *testing.T, ctx context.Context, runner db.Runner, fx *r
 	exec("sessions active", `UPDATE striatumd.sessions SET state='active', closed_at=NULL, close_reason=NULL
 		 WHERE repository_id=$1 AND session_id = ANY($2)`,
 		fx.repoID, []string{fx.reviewerSession, fx.claimantSession})
-	resetRunLockClaimantBackend(t, ctx, runner, fx, now)
+	// dbf2013b: claim AND record-verdict require a live attested lane backend, so
+	// re-establish a backend for both the claimant and the verdict-recording
+	// reviewer each iteration (the run-completing verdict closes both sessions).
+	resetRunLockSessionBackend(t, ctx, runner, fx.repoID, fx.runID, fx.claimantSession, now)
+	resetRunLockSessionBackend(t, ctx, runner, fx.repoID, fx.runID, fx.reviewerSession, now)
 	// Clear the prior round's verdict so the next accept can be recorded.
 	exec("clear verdicts", `DELETE FROM striatumd.verdicts WHERE repository_id=$1 AND job_id=$2`, fx.repoID, fx.reviewJob)
 }
 
-func resetRunLockClaimantBackend(t *testing.T, ctx context.Context, runner db.Runner, fx *runLockRaceFixture, now time.Time) {
+func resetRunLockSessionBackend(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, sessionID string, now time.Time) {
 	t.Helper()
 	pid := os.Getpid()
-	supervisorID := "sup_" + fx.claimantSession
-	daemonSupervisorID := "dsup_" + fx.claimantSession
+	supervisorID := "sup_" + sessionID
+	daemonSupervisorID := "dsup_" + sessionID
 	exec := func(what, sql string, args ...any) {
 		if err := runner.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("reset claimant backend %s: %v", what, err)
+			t.Fatalf("reset backend %s: %v", what, err)
 		}
 	}
 	exec("process supervisor", `
@@ -234,7 +238,7 @@ func resetRunLockClaimantBackend(t *testing.T, ctx context.Context, runner db.Ru
 		      heartbeat_at = EXCLUDED.heartbeat_at,
 		      ended_at = NULL,
 		      stop_reason = NULL`,
-		fx.repoID, supervisorID, fx.runID, fx.claimantSession, pid, now)
+		repoID, supervisorID, runID, sessionID, pid, now)
 	exec("pointer", `
 		INSERT INTO striatumd.process_supervisor_pointers (
 		  repository_id, supervisor_id, daemon_supervisor_id, run_id, session_id,
@@ -247,7 +251,7 @@ func resetRunLockClaimantBackend(t *testing.T, ctx context.Context, runner db.Ru
 		      state = 'attached',
 		      updated_at = EXCLUDED.updated_at,
 		      metadata_json = EXCLUDED.metadata_json`,
-		fx.repoID, supervisorID, daemonSupervisorID, fx.runID, fx.claimantSession, pid, now)
+		repoID, supervisorID, daemonSupervisorID, runID, sessionID, pid, now)
 	exec("daemon supervisor", `
 		INSERT INTO striatumd.daemon_supervisors (
 		  daemon_supervisor_id, repository_id, run_id, session_id, repo_supervisor_id,
@@ -261,5 +265,5 @@ func resetRunLockClaimantBackend(t *testing.T, ctx context.Context, runner db.Ru
 		      heartbeat_at = EXCLUDED.heartbeat_at,
 		      ended_at = NULL,
 		      stop_reason = NULL`,
-		daemonSupervisorID, fx.repoID, fx.runID, fx.claimantSession, supervisorID, pid, now)
+		daemonSupervisorID, repoID, runID, sessionID, supervisorID, pid, now)
 }
