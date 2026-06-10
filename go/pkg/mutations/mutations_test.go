@@ -102,6 +102,7 @@ func TestRegisterInstallsInitialMutationHandlers(t *testing.T) {
 		"recovery.auto_publish_stale_artifacts",
 		"recovery.auto",
 		"recovery.auto_finalize",
+		"recovery.invalidate_job",
 		"supervise.report",
 		"work.await_packet",
 	} {

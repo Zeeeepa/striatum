@@ -56,6 +56,7 @@ var generatedRoutes = []Route{
 	{Command: "recovery", Subcommand: "auto", Method: "recovery.sweep", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "auto-publish", Method: "recovery.auto_publish_stale_artifacts", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "auto-finalize", Method: "recovery.auto_finalize", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "recovery", Subcommand: "invalidate-job", Method: "recovery.invalidate_job", ParamsGroup: "recovery_invalidate", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "evidence", Subcommand: "export", Method: "evidence.export", ParamsGroup: "evidence_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "corpus", Subcommand: "export", Method: "corpus.export", ParamsGroup: "corpus_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "archive", Subcommand: "create", Method: "archive.create", ParamsGroup: "archive_create", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},

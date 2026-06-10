@@ -120,6 +120,7 @@
 | `recovery.auto` | `recovery` | `single_repo` | 1 | 1 | yes |
 | `recovery.auto_publish_stale_artifacts` | `recovery` | `single_repo` | 1 | 1 | no |
 | `recovery.auto_finalize` | `recovery` | `single_repo` | 1 | 1 | no |
+| `recovery.invalidate_job` | `recovery` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.show` | `read` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.verify` | `read` | `single_repo` | 1 | 1 | no |
 | `repo.add` | `admin` | `daemon_global` | 1 | 1 | no |
@@ -201,6 +202,7 @@
 | `recovery auto` | `recovery.sweep` | `recovery` | `single_repo` |
 | `recovery auto-publish` | `recovery.auto_publish_stale_artifacts` | `recovery` | `single_repo` |
 | `recovery auto-finalize` | `recovery.auto_finalize` | `recovery` | `single_repo` |
+| `recovery invalidate-job` | `recovery.invalidate_job` | `recovery` | `single_repo` |
 | `evidence export` | `evidence.export` | `read` | `single_repo` |
 | `corpus export` | `corpus.export` | `read` | `single_repo` |
 | `archive create` | `archive.create` | `read` | `single_repo` |

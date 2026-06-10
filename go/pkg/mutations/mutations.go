@@ -128,6 +128,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.auto_publish_stale_artifacts", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto_finalize", makeHandler(runner, HandleRecoveryAutoFinalize))
+	server.Register("recovery.invalidate_job", makeHandler(runner, HandleRecoveryInvalidateJob))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
 	server.Register("interrogation.open", makeHandler(runner, HandleInterrogationOpen))
 	server.Register("interrogation.ask", makeHandler(runner, HandleInterrogationAsk))
@@ -771,9 +772,13 @@ func asList(value any) []any {
 }
 
 func latestVerdict(ctx context.Context, runner any, repositoryID, jobID string) (string, error) {
+	// Superseded rows (checkpoint.override supersession, RFC 0118 P1-6
+	// invalidation receipts) never gate anything: the active verdict is the
+	// newest non-superseded row.
 	row, err := oneRow(ctx, runner, `
 		SELECT verdict FROM striatumd.verdicts
 		 WHERE repository_id = $1 AND job_id = $2
+		   AND superseded_by_decision_id IS NULL
 		 ORDER BY created_at DESC, verdict_id DESC
 		 LIMIT 1`, repositoryID, jobID)
 	if errors.Is(err, pgx.ErrNoRows) {

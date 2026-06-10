@@ -172,6 +172,8 @@ func positionalNames(group string) []string {
 		return []string{"session_id", "job_id", "verdict"}
 	case "recovery":
 		return []string{"run_id"}
+	case "recovery_invalidate":
+		return []string{"job_id", "decision_id"}
 	case "evidence_export", "corpus_export", "archive_create":
 		return []string{"run_id", "out"}
 	case "decision_record":

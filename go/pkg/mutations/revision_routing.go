@@ -319,6 +319,21 @@ func resetJobToBlocked(ctx context.Context, runner any, repositoryID, jobID, now
 // leases.release_reason); the reset itself is identical regardless of which
 // re-open path invoked it.
 func resetJobToBlockedWithReason(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
+	return resetJobToBlockedCore(ctx, runner, repositoryID, jobID, now, releaseReason, false)
+}
+
+// resetJobToBlockedPreservingVerdicts is the RFC 0118 P1-6 reopen variant:
+// the caller has just superseded the job's verdict rows as the DURABLE
+// invalidation receipt, so the reset must NOT delete them. latestVerdict and
+// the run-completion gate ignore superseded rows, and the (job, session)
+// verdict uniqueness deliberately keeps the invalidated session from
+// re-recording on the fresh attempt (the fresh-review lineage gate demands a
+// different claimant anyway).
+func resetJobToBlockedPreservingVerdicts(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
+	return resetJobToBlockedCore(ctx, runner, repositoryID, jobID, now, releaseReason, true)
+}
+
+func resetJobToBlockedCore(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string, preserveVerdicts bool) error {
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
@@ -367,11 +382,16 @@ func resetJobToBlockedWithReason(ctx context.Context, runner any, repositoryID, 
 	// (repository_id, job_id, session_id) uniqueness constraint so a re-claiming
 	// session can record again. Verdict rows are not referenced by any FK
 	// (events carry verdict_id in payload only), so deletion is safe.
-	if err := exec.Exec(ctx, `
-		DELETE FROM striatumd.verdicts
-		 WHERE repository_id = $1 AND job_id = $2`,
-		repositoryID, jobID); err != nil {
-		return err
+	// The P1-6 invalidate path preserves the rows instead — they were just
+	// superseded as the durable invalidation receipt, and superseded rows are
+	// invisible to latestVerdict and the run-completion gate.
+	if !preserveVerdicts {
+		if err := exec.Exec(ctx, `
+			DELETE FROM striatumd.verdicts
+			 WHERE repository_id = $1 AND job_id = $2`,
+			repositoryID, jobID); err != nil {
+			return err
+		}
 	}
 	// Reset the job to a clean blocked state and bump the attempt. enqueueJob
 	// (or the normal downstream gating) transitions blocked->queued and attaches
