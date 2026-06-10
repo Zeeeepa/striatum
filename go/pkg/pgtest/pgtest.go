@@ -259,14 +259,20 @@ func ensureRuntimeRole(t *testing.T, ctx context.Context, baseURL string) {
 		t.Fatalf("connect to ensure runtime role: %v", err)
 	}
 	defer adminPool.Close()
-	// duplicate_object (42710) means a parallel worker won the race — benign.
+	// A concurrent creator is benign, but it surfaces two different SQLSTATEs and
+	// we must swallow both. CREATE ROLE on an already-present role raises
+	// duplicate_object (42710); but the IF NOT EXISTS check is TOCTOU, so when two
+	// packages both pass the pg_roles probe and both issue CREATE ROLE, the loser's
+	// pg_authid insert collides on pg_authid_rolname_index and raises
+	// unique_violation (23505) instead. Catching only 42710 let 23505 escape and
+	// fail parallel packages intermittently. It never drops striatumd_rw.
 	if _, err := adminPool.Exec(ctx, `
 		DO $$
 		BEGIN
 		  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'striatumd_rw') THEN
 		    CREATE ROLE striatumd_rw;
 		  END IF;
-		EXCEPTION WHEN duplicate_object THEN
+		EXCEPTION WHEN duplicate_object OR unique_violation THEN
 		  NULL;
 		END
 		$$;`); err != nil {
