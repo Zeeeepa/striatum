@@ -14,6 +14,14 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// RunCompletionRedriveHook re-drives the RFC 0118 P0-3 run-completion
+// re-verification after an escalation resolve flips a needs_operator run
+// back to running. With every job already terminal nothing else will ever
+// call the completion path again, so the resolve must re-invoke it or the
+// run sits running-but-inert forever. Wired by mutations.Register (the reads
+// package cannot import mutations — mutations imports reads).
+var RunCompletionRedriveHook func(ctx context.Context, tx db.TxRunner, repositoryID, runID string) error
+
 func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -143,6 +151,11 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 				"from_state":    "needs_operator",
 			}); err != nil {
 				return nil, err
+			}
+			if RunCompletionRedriveHook != nil {
+				if err := RunCompletionRedriveHook(ctx, tx, repositoryID, runID); err != nil {
+					return nil, err
+				}
 			}
 		}
 		return map[string]any{}, nil

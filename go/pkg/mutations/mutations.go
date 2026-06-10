@@ -58,6 +58,9 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	reads.DrainHelperEventsHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, supervisorID string) error {
 		return drainHelperEvents(ctx, tx, repositoryID, supervisorID, 0)
 	}
+	reads.RunCompletionRedriveHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, runID string) error {
+		return maybeCompleteRun(ctx, tx, repositoryID, runID)
+	}
 	var o Options
 	if len(opts) > 0 {
 		o = opts[0]
@@ -904,9 +907,33 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 		payload = nil
 	}
 	if state == "completed" {
+		// RFC 0118 P0-3: re-verify every provenance-required review gate
+		// against the frozen verdict stamp before choosing a clean completion.
+		// A failing gate routes the run to needs_operator instead of completed;
+		// the ledger of passing gates is recorded on the run.completed event.
+		ledger, failingGates, err := verifyRunCompletionProvenance(ctx, runner, repositoryID, runID)
+		if err != nil {
+			return err
+		}
+		if len(failingGates) > 0 {
+			return escalateProvenanceGateFailure(ctx, runner, repositoryID, runID, failingGates)
+		}
+		completionMode := "lanes_attested"
+		for _, entry := range ledger {
+			if entry["basis"] == "override" {
+				completionMode = "operator_override"
+				break
+			}
+		}
+		payload = map[string]any{
+			"completion_mode": completionMode,
+			"provenance_gate": ledger,
+		}
+		// stop_reason may carry 'provenance_gate_failed' from an earlier
+		// escalation of this run; a clean (re-driven) completion clears it.
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.runs
-			   SET state = $1, completed_at = $2
+			   SET state = $1, completed_at = $2, stop_reason = NULL
 			 WHERE repository_id = $3 AND run_id = $4`, state, now, repositoryID, runID); err != nil {
 			return err
 		}

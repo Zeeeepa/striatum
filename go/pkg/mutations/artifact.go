@@ -853,5 +853,7 @@ func isEscalationClassBlocker(blocker map[string]any) bool {
 		kind == "override_required" ||
 		kind == "ai_self_declared" ||
 		// RFC 0101 Phase 4: daemon-authored recovery-exhausted escalation.
-		kind == recoveryExhaustedBlockerKind
+		kind == recoveryExhaustedBlockerKind ||
+		// RFC 0118 P0-3: run-completion provenance gate escalation.
+		kind == provenanceGateFailedBlockerKind
 }

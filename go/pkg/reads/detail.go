@@ -634,7 +634,7 @@ func escalationPredicate() string {
 	// a job the autonomous recovery loop could not reclaim within its per-job
 	// budget; including it here makes HandleEscalationResolve able to find and
 	// resolve it (which clears the run's needs_operator state).
-	return "(b.severity = 'human_checkpoint' OR b.blocker_kind IN ('ai_self_declared', 'ambiguous_goal', 'committee_stalemate', 'contradicting_decisions', 'missing_authority', 'no_available_reviewer_lane', 'override_required', 'recovery_exhausted'))"
+	return "(b.severity = 'human_checkpoint' OR b.blocker_kind IN ('ai_self_declared', 'ambiguous_goal', 'committee_stalemate', 'contradicting_decisions', 'missing_authority', 'no_available_reviewer_lane', 'override_required', 'recovery_exhausted', 'provenance_gate_failed'))"
 }
 
 func placeholder(index int) string {
