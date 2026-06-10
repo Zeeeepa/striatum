@@ -36,6 +36,13 @@ stops terminal or superseded launched lanes before registering fresh reviewers.
 It is not a daemon RPC method and does not call rescue verbs or force non-fresh
 sessions.
 
+`run pause [run-id]`, `run resume [run-id]`, and `run cancel [run-id]`
+transition an existing run's lifecycle (capability `admin`). `run retry-job
+[run-id] [job-id]` requeues a single failed job (capability `admin`).
+`run integrate [run-id]` integrates completed run output into the target
+branch (capability `apply`). All five are daemon RPC methods; pass the run id
+(and job id) positionally or as `--run-id` / `--job-id`.
+
 `operator bootstrap [--operator-docs-root <path>] [--limit N]
 [--markdown|--json]`
 is a bounded AI-operator cold-start packet. It is a local read-only
@@ -230,7 +237,7 @@ capabilities, preserves audit rows, and never reuses
 `repository_id`; re-adding allocates a fresh id.
 
 The resident recovery sweep runs inside `striatumd`. Use the daemon-backed
-`recovery auto` / `recovery watch` family for explicit recovery diagnostics
+`recovery auto` family for explicit recovery diagnostics
 where applicable; there is no `striatum daemon sweep` CLI command.
 
 RFC 0033 V2 accepts system PostgreSQL as the daemon-owned
@@ -398,7 +405,6 @@ striatum run graph
 striatum recovery auto
 striatum recovery auto-publish
 striatum recovery auto-finalize
-striatum recovery watch
 striatum recovery stale-leases
 striatum recovery requeue-stale
 striatum recovery cancel-job
@@ -442,9 +448,7 @@ the configured `recovery_policy.escalation_hook` in live sweeps; dry-runs
 report the hook kind without side effects, and hook failures are reported
 inside `escalations[]`. `recovery auto-publish` emits the explicit
 `recovery.auto_publish_stale_artifacts` method; the deprecated `recovery.auto`
-alias is not emitted by the current CLI. `recovery watch` is a CLI-local
-foreground scheduler that repeatedly calls daemon `recovery.sweep`; it is not
-a registered daemon RPC method.
+alias is not emitted by the current CLI.
 
 ## Corpus export (RFC 0044 V1 / RFC 0057 contract)
 

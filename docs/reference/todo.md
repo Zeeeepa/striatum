@@ -274,10 +274,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
 
 2. **Adapter constraint enforcement.** Workflow validation supports lane
    `required_enforcement` and rejects lanes whose adapters cannot satisfy it
-   (`src/striatum/workflow.py:1576-1682` `_validate_lane_constraints`
-   rejects unknown constraint keys + unsatisfiable enforcement levels;
-   constraint vocabulary at `workflow.py:55-57`; adapter-side matrix at
-   `src/striatum/repo_policy.py`). The four-level model (`enforced`,
+   (lane-constraint validation lives in the Go workflow validator
+   `go/pkg/workflowauthoring/workflow.go`, which rejects unknown constraint
+   keys + unsatisfiable enforcement levels; the retired Python
+   `src/striatum/workflow.py`/`repo_policy.py` were deleted in the RFC 0078
+   Go-only cutover). The four-level model (`enforced`,
    `advisory_strict`, `advisory`, `unsupported`) is in place; the process
    adapter graduates `network` and `repo_scope` to `advisory_strict` via
    proxy-env scrubbing and sentinel env vars. The 2026-05-23 TODO 2 closure
@@ -621,6 +622,11 @@ Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · �
     daemon start` launches the Go daemon after active contract-method
     parity; D111 retires the Python daemon selector. The Python CLI may remain
     a client.
+    ✅ SUPERSEDED/DONE (RFC 0078): the Go daemon `striatumd` is the production
+    daemon, started via systemd — the `striatum daemon start` and `daemon
+    doctor` CLI verbs are retired (the top-level `striatum doctor`, `daemon
+    status`, and `daemon migrate-db` remain). The Python runtime and CLI were
+    fully removed in the Go-only cutover; there is no longer a Python client.
 
 26. ~~**Harness improvement: forbid codex/codex implementer+reviewer
     pairing in workflow validator.**~~ ✅ Done: cycle-exhaustion observed three
@@ -1504,6 +1510,11 @@ F35. Review remaining `src/striatum/web` residue. RFC 0078/0079 cleanup removed
     (`src/striatum/web/frontend`) and the bundle pipeline
     (`src/striatum/web/static/build`, gated by `make ui-check-bundle`).
     Remaining architectural finding split out as F36.
+    ✅ FULLY CLOSED (RFC 0078 Go-only cutover): the entire `src/` tree —
+    including `src/striatum/web/{static,static/build,templates,frontend}` and
+    its Node/Vite bundle pipeline — was deleted. No `src/striatum/` residue
+    remains tracked; the Go web service ships only its embedded
+    `go/pkg/webassets/{static,templates}` assets. F36 is resolved alongside it.
 
 F36. Decide and wire the Go web service's served assets. `go/pkg/webassets`
     embeds only three hand-authored files (`app.js`, `base.css`, `page.html`);
@@ -1514,6 +1525,12 @@ F36. Decide and wire the Go web service's served assets. `go/pkg/webassets`
     and extend the embed + `page.html` island mounts) or whether the minimal
     server-rendered surface is the intended product. This is a web-UI product
     decision (likely a short RFC), not residue cleanup. Surfaced 2026-05-25.
+    ✅ RESOLVED BY RFC 0078: the React/Vite islands bundle and its
+    `src/striatum/web/static/build` output were deleted in the Go-only cutover
+    rather than embedded, so the minimal server-rendered Go surface is the
+    intended product. `go/pkg/webassets` embeds `static/{app.js,base.css}` plus
+    `templates/{page,conversation,interrogation}.html` (`//go:embed`); no Vite/
+    Node bundle pipeline remains and no web-UI decision is pending here.
 
 F37. Full `docs/CLI_REFERENCE.md` audit against the Go command surface. The
     2026-05-25 doc scrub corrected the workflow-authoring verbs (`validate`,

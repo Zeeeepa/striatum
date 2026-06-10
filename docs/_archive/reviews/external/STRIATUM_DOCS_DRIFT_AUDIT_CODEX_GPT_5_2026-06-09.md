@@ -388,3 +388,71 @@ Residual / follow-ups:
   (`go/pkg/cli/routes/usage.go` `repo_add` group); the new error strings now
   reference it, so adding it to the usage table would make help self-consistent.
 - `make lint` still not run (`golangci-lint` absent on PATH).
+
+## 11. Status-Lifecycle Pass + "The Rest" Closeout Addendum
+
+Continuation session: 2026-06-10, Claude Opus 4.8. This discharges the
+"separate status-lifecycle pass" deferred in section 10 and the section 8
+follow-ups. Items 1, 2, 5, 6 of the handoff landed earlier
+(`dcc141ce` rpc-registry header + `repo add --apply-blob-creation` help;
+`5da9cec8` this ledger archived/generalized; `golangci-lint` v2.12.2 installed,
+`make -C go lint` = 0 issues).
+
+Ground truth re-established before editing (the prior round had one stale
+premise): `src/` is entirely gone (0 tracked files, absent on disk), the
+Python generator scripts are gone, and `contracts/daemon_methods.json` is
+present and the live generation source. `striatum daemon start` and
+`daemon doctor` are confirmed retired; `daemon status`/`migrate-db` remain.
+
+Item 3 — active-vs-historical resolution:
+
+- `docs/reference/todo.md` (Status: active): F35 and F36 marked closed — the
+  whole `src/striatum/web/{static,static/build,templates,frontend}` Node/Vite
+  surface was deleted in the RFC 0078 cutover (not embedded), so the minimal
+  server-rendered Go surface (`go/pkg/webassets`, `//go:embed`) is the product
+  and no web-UI decision is pending. Item 2's dead Python `workflow.py`/
+  `repo_policy.py` file:line citations were repointed to the Go validator
+  `go/pkg/workflowauthoring/workflow.go`. Item 25's stale "Python CLI may remain
+  a client" / `daemon start` framing was closed (systemd-managed `striatumd`).
+- `docs/decisions/decision-log.md` D108: the present-tense reference to the
+  deleted `tests/architecture/test_authority_guardrails.py` was replaced with
+  the four live Go guardrails (`registry_contract_test.go`,
+  `routes_freshness_test.go`, `error_catalog_test.go`, `routes_test.go`), and
+  the entry now states honestly that the curated matrix's human-classified
+  columns are review-owned and not directly drift-tested.
+- Dangling-link batch decision — LEAVE, now recorded so it is not re-deferred:
+  the 15 remaining links to `architecture/DAEMON_METHOD_TABLES.md` all sit in
+  point-in-time/frozen records — the four `docs/_archive/reviews/*` external
+  reviews, the dated operator artifacts/workflows/plans/gate-prompts (all for
+  completed RFCs 0050/0076/0078, which no agent re-runs), the RFC 0060 body
+  (which also still says "Python loads METHOD_REGISTRY", so a path-only fix
+  would be a mixed-vintage Frankenstatement), `docs/reference/roadmap.md` (a
+  banner-flagged frozen `v1.57.0` snapshot whose own header says "treat the
+  sequencing below as historical"), and `todo.md`'s struck-through item-50
+  changelog bullet. Per the section 5/section 10 historical-ok policy these are
+  dangling by design; the file was moved, not deleted, and the links were
+  correct when written.
+
+Item 4 — section 8 follow-ups:
+
+- `examples/implementation-panel-flow/workflow.json` validates
+  (`workflow validate --json` → `valid: true`); a deeper run needs a live
+  daemon and was not exercised.
+- CLI contract audit against generated routes + live `striatum --help`: fixed
+  two verified `cli-reference.md` drifts — removed the phantom `recovery watch`
+  (no route, no localcommand, `unknown command` at runtime; the other eight
+  `recovery *` verbs are real) and documented the previously-undocumented
+  run-control verbs `run pause|resume|cancel|retry-job|integrate` (verified
+  present in `routes_generated.go` and live help). NOT changed: `repo add
+  --no-migrate` (real, accepted compatibility flag) and the `adapter` section
+  (already framed as retired) — both were flagged by a fan-out auditor but
+  disproved on direct check. Remaining coverage gaps (the `escalation`,
+  `interrogation`, and `conversation` command groups are undocumented in
+  `cli-reference.md`) are a bounded follow-up; left for a dedicated CLI-doc
+  pass rather than bulk-edited here, since the active reference doc warrants
+  per-claim verification. The `REPO_HYGIENE.md`-style historical-surface sweep
+  remains optional/deferred.
+
+Validation: `git diff --check` clean; no generated file or generator was
+touched, so the `go generate ./...` drift gate is unaffected; the
+authority-matrix guardrail (`go test ./pkg/rpc`) does not read any edited file.
