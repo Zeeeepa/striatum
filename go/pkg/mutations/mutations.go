@@ -933,8 +933,9 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 		// escalation of this run; a clean (re-driven) completion clears it.
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.runs
-			   SET state = $1, completed_at = $2, stop_reason = NULL
-			 WHERE repository_id = $3 AND run_id = $4`, state, now, repositoryID, runID); err != nil {
+			   SET state = $1, completed_at = $2, stop_reason = NULL,
+			       completion_mode = $3
+			 WHERE repository_id = $4 AND run_id = $5`, state, now, completionMode, repositoryID, runID); err != nil {
 			return err
 		}
 	} else if err := exec.Exec(ctx, `

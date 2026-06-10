@@ -218,6 +218,16 @@ func TestRunCompletionOverrideBasisCompletesAsOperatorOverride(t *testing.T) {
 	if gate["basis"] != "override" || fmt.Sprint(gate["override_decision_id"]) != "dec_gate_override" {
 		t.Fatalf("ledger entry = %#v, want override basis bound to dec_gate_override", gate)
 	}
+	// RFC 0118 P0-4: the durable runs.completion_mode column records the mode.
+	mode, err := oneRow(ctx, runner, `
+		SELECT completion_mode FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read completion_mode: %v", err)
+	}
+	if got := fmt.Sprint(mode["completion_mode"]); got != "operator_override" {
+		t.Fatalf("runs.completion_mode = %q, want operator_override", got)
+	}
 }
 
 // A fully attested provenance-required gate completes as lanes_attested.
@@ -248,6 +258,15 @@ func TestRunCompletionAttestedRequiredGateCompletesLanesAttested(t *testing.T) {
 	}
 	if payload := asMap(event["payload_json"]); payload["completion_mode"] != "lanes_attested" {
 		t.Fatalf("completion_mode = %v, want lanes_attested", payload["completion_mode"])
+	}
+	mode, err := oneRow(ctx, runner, `
+		SELECT completion_mode FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read completion_mode: %v", err)
+	}
+	if got := fmt.Sprint(mode["completion_mode"]); got != "lanes_attested" {
+		t.Fatalf("runs.completion_mode = %q, want lanes_attested", got)
 	}
 }
 

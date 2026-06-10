@@ -57,4 +57,33 @@ func TestRunSummaryVerdictsCarryFrozenProvenanceStamp(t *testing.T) {
 	if got := fmt.Sprint(row["supervisor_id_at_record"]); got != "sup_stamp" {
 		t.Fatalf("supervisor_id_at_record = %q, want sup_stamp", got)
 	}
+
+	// RFC 0118 P0-4: run.summary surfaces the run's completion_mode and an
+	// overrides[] block listing every override-cleared verdict with its
+	// authorizing decision.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs SET state = 'completed', completion_mode = 'operator_override'
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID); err != nil {
+		t.Fatalf("set completion_mode: %v", err)
+	}
+	result, err = HandleRunSummary(ctx, runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": repoID, "run_id": runID},
+	})
+	if err != nil {
+		t.Fatalf("HandleRunSummary after completion: %v", err)
+	}
+	run, ok := result["run"].(map[string]any)
+	if !ok {
+		t.Fatalf("run block = %#v", result["run"])
+	}
+	if got := fmt.Sprint(run["completion_mode"]); got != "operator_override" {
+		t.Fatalf("run.completion_mode = %q, want operator_override", got)
+	}
+	overrides, ok := result["overrides"].([]map[string]any)
+	if !ok || len(overrides) != 1 {
+		t.Fatalf("overrides = %#v, want exactly one override-cleared verdict", result["overrides"])
+	}
+	if got := fmt.Sprint(overrides[0]["review_provenance_decision_id"]); got != "dec_stamp" {
+		t.Fatalf("overrides[0].review_provenance_decision_id = %q, want dec_stamp", got)
+	}
 }

@@ -28,7 +28,7 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 
 	runs, err := collectRows(ctx, runner,
 		`SELECT run_id, workflow_snapshot_id, repo_root, state, branch_name,
-		        created_at, started_at, completed_at, stop_reason
+		        created_at, started_at, completed_at, stop_reason, completion_mode
 		   FROM striatumd.runs WHERE repository_id = $1 AND run_id = $2`,
 		repositoryID, runID,
 	)
@@ -78,6 +78,23 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		return nil, err
 	}
 
+	// RFC 0118 P0-4: the override-cleared verdicts, with their authorizing
+	// decisions, read from the frozen P0-1 stamps — the run's operator
+	// overrides are auditable from the summary alone.
+	overrides, err := collectRows(ctx, runner,
+		`SELECT verdict_id, job_id, session_id, verdict, posture,
+		        lane_attestation_at_record, review_provenance_decision_id,
+		        created_at AS recorded_at
+		   FROM striatumd.verdicts
+		  WHERE repository_id = $1 AND run_id = $2
+		    AND (review_provenance_override = true OR posture = 'override')
+		  ORDER BY created_at`,
+		repositoryID, runID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	doctor, err := HandleDoctor(ctx, runner, envelope)
 	if err != nil {
 		doctor = map[string]any{"ok": false, "error": err.Error()}
@@ -92,6 +109,7 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		"jobs":          jobs,
 		"artifacts":     artifacts,
 		"verdicts":      verdicts,
+		"overrides":     overrides,
 		"doctor":        doctor,
 		"operator_mode": workflowOperatorMode(workflow),
 	}, nil
