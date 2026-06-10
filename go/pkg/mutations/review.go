@@ -504,7 +504,7 @@ func recordVerdict(
 		}
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("%s job must be running before verdict", label), nil)
 	}
-	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "recording a verdict", options.ReviewProvenanceDecisionID)
+	reviewProvenance, gateAttestation, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "recording a verdict", options.ReviewProvenanceDecisionID)
 	if err != nil {
 		return nil, err
 	}
@@ -542,7 +542,7 @@ func recordVerdict(
 			return nil, rpc.NewError("invalid_transition", "findings artifact belongs to a different job", nil)
 		}
 	}
-	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale, reviewProvenance)
+	return applyVerdict(ctx, runner, repositoryID, sessionID, jobID, leaseID, verdict, job, findingsArtifactID, rationale, reviewProvenance, gateAttestation)
 }
 
 type recordVerdictOptions struct {
@@ -561,7 +561,7 @@ type recordVerdictOptions struct {
 // mutation it performs (completeReviewJob / failReviewJob / routeRevisionCycle) is
 // lease-state-tolerant (unconditional UPDATEs keyed by id), so it is safe on a
 // stale lane.
-func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID, verdict string, job map[string]any, findingsArtifactID, rationale any, reviewProvenance map[string]any) (map[string]any, error) {
+func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobID, leaseID, verdict string, job map[string]any, findingsArtifactID, rationale any, reviewProvenance, gateAttestation map[string]any) (map[string]any, error) {
 	verdictID, err := newID("verdict")
 	if err != nil {
 		return nil, err
@@ -570,6 +570,43 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	posture, err := resolveReviewPosture(ctx, runner, repositoryID, job)
 	if err != nil {
 		return nil, err
+	}
+	// RFC 0118 P0-1: the frozen stamp records the SAME attestation map the
+	// admission gate decided on. Only the recovery path (#144), which by
+	// construction runs without an admission gate, probes here — once, before
+	// the INSERT, so the stamp and the verdict.recorded event cannot disagree.
+	attestation := gateAttestation
+	if attestation == nil {
+		attestation = sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
+	}
+	// RFC 0118 reconciliation note 1: a session that claimed this job via the
+	// admin work.claim_override escape (#222) is a non-independent claimant by
+	// operator decision; carry the claim's authorizing decision onto the frozen
+	// stamp even when the lane is attested at record time. A verdict-time gate
+	// decision already in reviewProvenance takes precedence for the decision_id.
+	if reviewProvenance["review_provenance_override"] != true {
+		claim, err := oneRow(ctx, runner, `
+			SELECT payload_json->>'decision_id' AS decision_id
+			  FROM striatumd.events
+			 WHERE repository_id = $1
+			   AND job_id = $2
+			   AND actor_session_id = $3
+			   AND event_type = 'work.claim_overridden'
+			 ORDER BY event_id DESC
+			 LIMIT 1`, repositoryID, jobID, sessionID)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if err == nil {
+			merged := map[string]any{
+				"review_provenance_override":    true,
+				"review_provenance_decision_id": claim["decision_id"],
+			}
+			for key, value := range reviewProvenance {
+				merged[key] = value
+			}
+			reviewProvenance = merged
+		}
 	}
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
@@ -580,9 +617,11 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.verdicts (
 		  repository_id, verdict_id, run_id, job_id, session_id, verdict,
-		  rationale, findings_artifact_id, created_at, posture
+		  rationale, findings_artifact_id, created_at, posture,
+		  lane_attestation_at_record, review_provenance_override,
+		  review_provenance_decision_id, supervisor_id_at_record
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
 		repositoryID,
 		verdictID,
 		job["run_id"],
@@ -593,10 +632,13 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 		findingsArtifactID,
 		now,
 		posture,
+		attestation["state"],
+		reviewProvenance["review_provenance_override"] == true,
+		nullable(reviewProvenance["review_provenance_decision_id"]),
+		attestation["supervisor_id"],
 	); err != nil {
 		return nil, err
 	}
-	attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
 	payload := map[string]any{
 		"verdict":          verdict,
 		"posture":          posture,
@@ -792,7 +834,7 @@ func prevalidateSubmitReview(ctx context.Context, runner db.TxRunner, repository
 	if _, err := activeLeaseFor(ctx, runner, repositoryID, leaseID, sessionID, fmt.Sprint(job["job_id"])); err != nil {
 		return nil, err
 	}
-	reviewProvenance, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "publishing review artifacts and recording an accepting verdict", reviewProvenanceDecisionID)
+	reviewProvenance, _, err := enforceReviewProvenancePolicy(ctx, runner, repositoryID, job, sessionID, verdict, "publishing review artifacts and recording an accepting verdict", reviewProvenanceDecisionID)
 	if err != nil {
 		return nil, err
 	}
@@ -1156,25 +1198,31 @@ func enforceRequiredAttestationForArtifactPublishWithOverride(ctx context.Contex
 	return reviewAttestationError(sessionID, "publishing review artifacts", attestation, false)
 }
 
-func enforceReviewProvenancePolicy(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, verdict, action, decisionID string) (map[string]any, error) {
+// enforceReviewProvenancePolicy returns the override evidence (nil when no
+// override is in play) AND the lane-attestation map it probed to decide. The
+// caller threads that attestation map down to applyVerdict so the frozen
+// verdict stamp records the SAME probe value the gate decided on — a second
+// probe could disagree with the gate if the lane flips in between (RFC 0118
+// P0-1 TOCTOU).
+func enforceReviewProvenancePolicy(ctx context.Context, runner any, repositoryID string, job map[string]any, sessionID, verdict, action, decisionID string) (map[string]any, map[string]any, error) {
 	def, err := workflowJobDefinitionForRow(ctx, runner, repositoryID, job)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	attestation := sessionLaneAttestation(ctx, runner, repositoryID, sessionID)
 	if attestation["attested"] == true {
-		return nil, nil
+		return nil, attestation, nil
 	}
 	requiresAttestedLane := def["require_attested_lane"] == true
 	requiresOverride := requiresAttestedLane || (isAcceptingVerdict(verdict) && reviewRequiresIndependentProvenance(job, def))
 	if !requiresOverride {
-		return nil, nil
+		return nil, attestation, nil
 	}
 	if strings.TrimSpace(decisionID) == "" {
 		if requiresAttestedLane {
-			return nil, reviewAttestationError(sessionID, action, attestation, true)
+			return nil, attestation, reviewAttestationError(sessionID, action, attestation, true)
 		}
-		return nil, rpc.NewError(
+		return nil, attestation, rpc.NewError(
 			"review_provenance_override_required",
 			"unattested/operator-authored accepting verdict for a fresh review job requires --review-provenance-decision-id referencing an accepting run-level decision with escape_surface=review_provenance",
 			map[string]any{
@@ -1186,9 +1234,9 @@ func enforceReviewProvenancePolicy(ctx context.Context, runner any, repositoryID
 	}
 	evidence, err := verifyReviewProvenanceDecision(ctx, runner, repositoryID, fmt.Sprint(job["run_id"]), decisionID)
 	if err != nil {
-		return nil, err
+		return nil, attestation, err
 	}
-	return evidence, nil
+	return evidence, attestation, nil
 }
 
 func workflowJobDefinitionForRow(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {

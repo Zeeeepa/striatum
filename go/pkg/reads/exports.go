@@ -66,7 +66,9 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 
 	verdicts, err := collectRows(ctx, runner,
 		`SELECT verdict_id, job_id, session_id, verdict,
-		        posture AS review_posture, created_at AS recorded_at
+		        posture AS review_posture, created_at AS recorded_at,
+		        lane_attestation_at_record, review_provenance_override,
+		        review_provenance_decision_id, supervisor_id_at_record
 		   FROM striatumd.verdicts
 		  WHERE repository_id = $1 AND run_id = $2
 		  ORDER BY created_at`,
