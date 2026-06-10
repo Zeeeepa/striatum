@@ -113,6 +113,81 @@ If you are the *supervised role*, use the daemon MCP endpoint and token
 exported by the supervisor. The packet's `commands` block remains the exact
 CLI fallback and argument reference; do not invent equivalent shell commands.
 
+### Peer Communication: Conversations and Interrogations (RFC 0082 / RFC 0086)
+
+While Operator Chat Tools are for external control, active worker sessions (supervised lanes) can communicate with each other during a run using Peer-to-Peer Interrogations (RFC 0082) or N-party Conversations (RFC 0086). Turns are exchanged via the queue message bus as curated dialogue, preserving D028 compliance (no raw provider output).
+
+#### Peer-to-Peer Interrogations (1-to-1 Q&A)
+An active reviewer lane can query a writer lane (the target session) whose context has been preserved in the `awaiting_interrogation` window. The target session is kept live in its window until all reviewer/consumer jobs depending on it finish.
+* **Open an interrogation** (capability: `write`, target must be active/live):
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"interrogation.open","arguments":{"session_id":"session_reviewer_1","target_session_id":"session_writer_1","topic":"Clarify DB schema"}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum interrogation open session_reviewer_1 session_writer_1 --topic "Clarify DB schema" --json
+    ```
+* **Ask a question** (capability: `write`, interrogator only):
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"interrogation.ask","arguments":{"session_id":"session_reviewer_1","interrogation_id":"intg_001","body":"Why did you choose this data structure?"}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum interrogation ask session_reviewer_1 intg_001 --body "Why did you choose this data structure?" --json
+    ```
+* **Receive and Answer a question** (capability: `write`, target session only):
+  When a target session calls `work.await_packet` (or listens to the bus), it receives a message of type `conversation_message` with `your_turn: true` and the question body. It replies:
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"interrogation.answer","arguments":{"session_id":"session_writer_1","interrogation_id":"intg_001","body":"To guarantee O(1) lookup times."}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum interrogation answer session_writer_1 intg_001 --body "To guarantee O(1) lookup times." --json
+    ```
+* **Close an interrogation** (capability: `write`, interrogator only):
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"interrogation.close","arguments":{"session_id":"session_reviewer_1","interrogation_id":"intg_001"}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum interrogation close session_reviewer_1 intg_001 --json
+    ```
+
+#### N-Party Conversations (Round-Robin Floor)
+For symmetric round-robin dialogue across three or more active sessions, use conversations:
+* **Open a conversation** (capability: `write`):
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"conversation.open","arguments":{"participant_session_ids":["session-1","session-2"],"topic":"Architecture Review","max_rounds":3}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum conversation open --participants session-1 --participants session-2 --topic "Architecture Review" --max-rounds 3 --json
+    ```
+* **Say something on your turn** (capability: `write`, floor-holder only):
+  Only the current floor-holder (indicated by `next_floor`) may speak. It receives the turn via `conversation_message`. It posts its message:
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"conversation.say","arguments":{"session_id":"session-1","conversation_id":"conv_001","body":"I propose moving the interface definition to api.go."}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum conversation say session-1 conv_001 "I propose moving the interface definition to api.go." --json
+    ```
+* **Close a conversation early** (capability: `write`, any participant):
+  * **MCP**:
+    ```json
+    {"method":"tools/call","params":{"name":"conversation.close","arguments":{"session_id":"session-1","conversation_id":"conv_001"}}}
+    ```
+  * **CLI fallback**:
+    ```bash
+    striatum conversation close session-1 conv_001 --json
+    ```
+
 ## Reading the work packet
 
 Every claimed packet is a JSON object with these keys you must
@@ -199,6 +274,45 @@ provenance. Operators can inspect it with `striatum supervise trajectory
 --session-id <id> --tail`; the supervisor never parses your output for state. Use
 `supervise.stop` or its CLI fallback to shut the supervisor down. Do not `kill`
 the process directly.
+
+## Mediated Mutations and Local Verification
+
+In constrained execution environments, coding agents may not have direct file write or command execution access. Files must be written and commands executed via the daemon.
+
+### Mediated Repository Write (repo.write)
+To write files atomically to the repository, use `repo.write` (capability: `write`). The path must be within the job's `write_scope.allowed_paths`, and you must hold an active lease. Direct filesystem writes are blocked by the sandbox:
+- **MCP**:
+  ```json
+  {"method":"tools/call","params":{"name":"repo.write","arguments":{"session_id":"<session_id>","job_id":"<job_id>","lease_id":"<lease_id>","path":"src/main.go","content":"package main\n\nfunc main() {}\n"}}}
+  ```
+- **CLI fallback**:
+  ```bash
+  striatum repo write <session_id> <job_id> <lease_id> src/main.go --content "package main\n\nfunc main() {}\n" --json
+  ```
+
+### Mediated Process Execution (process.run)
+To run a command (e.g., test suite or compilation) inside the active job's worktree, use `process.run` (capability: `write`). Requires `process_execution=true` or `test_execution=true` in the job's capability requirements, or a matching escape decision:
+- **MCP**:
+  ```json
+  {"method":"tools/call","params":{"name":"process.run","arguments":{"session_id":"<session_id>","job_id":"<job_id>","lease_id":"<lease_id>","command":["go","test","./..."],"timeout_seconds":300}}}
+  ```
+- **CLI fallback** (using trailing command args after `--`):
+  ```bash
+  striatum process run <session_id> <job_id> <lease_id> -- go test ./...
+  ```
+Only SHA-256 hashes of stdout and stderr are recorded in `process_executions` (preserving D028/privacy).
+
+### Pre-Completion Scope Checking (scope-check)
+To avoid having `complete` refused due to write scope violations, you can run a local read-only diagnostic to check for out-of-scope modifications before calling `work.complete`. This command runs daemon-free and requires no token:
+- **Run using the claimed work packet file** (recommended):
+  ```bash
+  striatum scope-check --packet-file /path/to/claimed-packet.json
+  ```
+- **Run with explicit allowed/forbidden paths**:
+  ```bash
+  striatum scope-check --allowed src/ --allowed docs/ --forbidden docs/decisions/
+  ```
+If any modified file escapes the write scope, the command exits non-zero and lists the offending files. Correct them or ask the operator to widen the job's allowed paths before completing.
 
 ## When something goes wrong
 

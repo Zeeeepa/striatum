@@ -53,6 +53,10 @@ references:
 striatum --repo "$TARGET_REPO" escalation show --escalation-id <escalation_id> --json
 striatum --repo "$TARGET_REPO" why <blocker_or_job_or_session_id> --json
 striatum --repo "$TARGET_REPO" run summary --run-id <run_id> --json
+
+# Follow the live derived dialogue or provenance trajectory of a run:
+striatum --repo "$TARGET_REPO" trajectory watch <run_id> dialogue --since-seq 0
+striatum --repo "$TARGET_REPO" trajectory export <run_id> provenance --json
 ```
 
 `why` includes the active blockers with their `kind` and `reason`.
@@ -132,8 +136,9 @@ with. Use `override-verdict` per RFC 0047:
 
 ```bash
 striatum --repo "$TARGET_REPO" override-verdict \
-  --job-id <job_id> \
-  --verdict accept \
+  <session_id> \
+  <job_id> \
+  <verdict> \
   --rationale "<why this overrides>" \
   --auto-fresh-session \
   --json
@@ -552,6 +557,49 @@ the rationale lives entirely in the referenced decision artifact. Use
   --run-id <run_id> --path "$OUTPUT_DIR/RUN_EVIDENCE.md" --json
 ```
 
+### Inspect and export run trajectories (RFC 0080)
+
+The run trajectory is a read-only projection of a run's history from PostgreSQL. It provides a structured timeline of events (messages, event logs, artifacts, verdicts, blockers).
+
+Two profiles are supported:
+- `dialogue`: contains only agent-authored messages and published artifacts.
+- `provenance`: contains dialogue records plus system lifecycle events, verdicts, and blockers.
+
+* **Export the trajectory** (capability: `read`):
+  ```bash
+  # Export dialogue timeline
+  "$RUNNER" --repo "$TARGET_REPO" trajectory export <run_id> dialogue --json
+
+  # Export system provenance timeline
+  "$RUNNER" --repo "$TARGET_REPO" trajectory export <run_id> provenance --json
+  ```
+* **Watch/tail new trajectory events** (capability: `read`):
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" trajectory watch <run_id> provenance --since-seq 25 --json
+  ```
+
+> **Note**: `trajectory export` and `trajectory watch` pull structured events from PostgreSQL. This is distinct from `supervise trajectory --session-id <session_id>`, which tails raw console output from the local PTY log scratch file.
+
+### Inspect Dialogue and Work Packets
+
+To inspect dialogue Q&A, transcripts, and work packets without attaching to tmux panes:
+
+- **List and Show Interrogations**:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" interrogation list <run_id> --json
+  "$RUNNER" --repo "$TARGET_REPO" interrogation show <interrogation_id> --json
+  ```
+- **List and Show Conversations**:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" conversation list <run_id> --json
+  "$RUNNER" --repo "$TARGET_REPO" conversation show <conversation_id> --json
+  ```
+- **Inspect Work Packets**:
+  Work packets carry task prompts, allowed paths, and metadata. By default, task prose is omitted to avoid terminal noise. Pass `--raw` to include the full `packet_json`:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" work packet-show --job-id <job_id> --raw --json
+  ```
+
 To explicitly cancel a non-terminal job (and optionally its
 blocked-only-through-this dependents), use `striatum recovery
 cancel-job`:
@@ -609,33 +657,18 @@ Common recovery paths are:
 | Human checkpoint or revision-routing blocker. | `why <blocker_id> --run-id <run_id>` plus artifacts. | `decision record`, then `checkpoint resolve --blocker-id <id> --action continue\|cancel`. For a `revision_routing` checkpoint you can instead `--action override --decision-id <id>` to accept the verdict as superseded without re-running the review. |
 | Escalation artifact or principal inbox item. | `inbox --json` and `escalation show --escalation-id <id> --json`. | `decision record`, then `escalation resolve --escalation-id <id> --decision-id <decision_id>`. |
 | Terminal run with active sessions. | `doctor --run-id <run_id> --verbose --json`. | `session close --session-id <session_id> --reason terminal-run-cleanup`. |
+| Review-panel cycle block (#222 fresh-review gate) or manual lane re-claims. | `work packet-show --job-id <job_id> --raw` | Record a scoped decision: `decision record <run_id> <path> accepted "Override claim" --subject-session-id <session_id> --subject-job-id <job_id>`, then `work claim-override <session_id> <job_id> <decision_id>`. |
 
-For unattended runs against a **single** repo, `recovery watch`
-is a foreground scheduler that calls daemon `recovery.sweep` in a sleep
-loop. It keeps one pidfile per run
-(`.striatum/scratch/recovery-watch-<run_id>.pid`); `SIGTERM` /
-`SIGINT` shuts it down cleanly. Exits when the run reaches a
-terminal state by default. Because each iteration is a normal
-`recovery.sweep`, live checkpoint-timeout escalation hooks may write their
-configured marker file, call their configured webhook, or run their
-configured shell command; dry-run sweeps report hook eligibility without
-side effects, and hook failures remain in the sweep envelope's
-`escalations[]` list for operator inspection.
+For unattended recovery sweeps, the resident daemon sweeps recovery across active runs automatically (configured via the `--sweep-interval-seconds` daemon option).
+To manually trigger a single recovery sweep against a specific run, use `recovery auto`:
 
 ```bash
-"$RUNNER" --repo "$TARGET_REPO" recovery watch \
+"$RUNNER" --repo "$TARGET_REPO" recovery auto \
   --run-id <run_id> \
-  --interval-seconds 60 \
-  --json | tee "$OUTPUT_DIR/watch.jsonl"
+  --json
 ```
 
-Add `--max-sweeps N` to cap iterations (useful for tests and
-probes), `--no-exit-on-terminal` to keep looping past terminal,
-or any of the same overrides as `recovery auto`
-(`--autonomous-review-requeue`, `--checkpoint-timeout`, etc.).
-A pidfile collision with an alive watcher exits 4 with a
-documented message; stale pidfiles (dead PIDs) are overwritten
-cleanly.
+Add `--dry-run` to report sweep eligibility without side effects.
 
 ### Close active sessions
 
@@ -652,6 +685,36 @@ session explicitly:
 Closing a session records the lifecycle transition; it does not
 delete artifacts, verdicts, or events. If `doctor` reports several
 active sessions on terminal runs, close each listed `session_id`.
+
+## Drive or inspect peer communication (conversations and interrogations)
+
+Active runs can have live peer communication between agent sessions. As a human principal or operator, you can list, inspect, or close these communications. If needed, you can use the operator override to answer an interrogation on behalf of a lane.
+
+### List and inspect conversations
+* List all conversations in a run:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" conversation list <run_id> --json
+  ```
+* View conversation metadata and the full transcript:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" conversation show <conversation_id> --json
+  ```
+
+### List and inspect interrogations
+* List all interrogations in a run:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" interrogation list <run_id> --json
+  ```
+* View interrogation metadata and transcript:
+  ```bash
+  "$RUNNER" --repo "$TARGET_REPO" interrogation show <interrogation_id> --json
+  ```
+
+### Operator override for interrogation
+If a lane is stuck or offline and you must answer an interrogation on its behalf, you can answer the interrogation from an admin/operator session. The reply is recorded in the transcript with honest provenance (`responder: operator`):
+```bash
+"$RUNNER" --repo "$TARGET_REPO" interrogation answer <operator_session_id> <interrogation_id> --body "Here is the override answer." --json
+```
 
 ## Daemon / multi-repo coordination (RFC 0028 V1)
 
@@ -834,8 +897,8 @@ For chat-assisted workflow generation over the daemon-mounted web service, set
 only when you want the web surface to write generated workflow files.
 `POST /workflows/generate/preview` remains read-only; `POST
 /workflows/generate` fails closed unless web mutations are enabled.
-- It is not a replacement for `recovery watch` against a
-  single repo, only for multi-repo sweeping.
+- It is not a replacement for daemon sweeping, which handles
+  automated recovery sweeps across registered repositories.
 
 ### Daemon storage substrate (RFC 0033 + D094 / RFC 0043)
 
