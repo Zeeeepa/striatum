@@ -27,6 +27,28 @@
 
 ### Fixed
 
+- `work.complete` retried after a verdict-driven session close folds into the
+  idempotent `already_completed` answer again instead of refusing with
+  `session_inactive`; genuinely new state-changing work from inactive sessions
+  is still refused. Restores the idempotency broken alongside the
+  closed-session recovery guidance. (RFC 0120 adversarial review)
+- `run drive` now drops `launched` slot entries whose session is no longer
+  active, so a recovery `requeue_same_attempt`, a lane that died before
+  claiming, or a pause/resume no longer wedges the slot until the driver
+  restarts — the freed slot relaunches through the normal adopt/register path
+  on the same reconcile pass, and the driver no longer retries
+  `supervise.stop` forever against an already-gone session. (RFC 0120
+  adversarial review)
+- `work.await_packet` answers every non-active session state (`closed`,
+  `expired`, `lost` — not just `stopped`) with the in-band `session_terminal`
+  no-work envelope instead of a retryable RPC error, and no longer records
+  session liveness for terminal sessions, so an agent-loop receiver can never
+  error-loop against a finished session. Lanes also treat any unrecognized
+  non-empty `idle_behavior` value as `exit_session` (fail closed). (RFC 0120
+  adversarial review)
+- The frozen-write-scope drift refusal names the pinned `frozen write_scope`
+  guidance again, matching the sibling guard message and un-redding the
+  frozen-attempt-scope regression tests on main.
 - `work.await_packet` terminal idle envelopes now include
   `idle_behavior=exit_session`, and agent-loop bootstrap instructions no longer
   tell lanes to keep polling after `no_work`. The PTY daemon receiver also exits
