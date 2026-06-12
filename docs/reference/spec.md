@@ -829,6 +829,17 @@ request to keep the model process resident and poll again; `run drive` or a
 future wake mechanism is responsible for starting a fresh session when work is
 queued later.
 
+If a supervised agent exits before its first await and the session is already
+`stopped`, `work.await_packet` returns a typed `status: "no_work"` envelope with
+`reason: "session_stopped"`, `session_state: "stopped"`, and
+`next_action: "register_fresh_session"` rather than surfacing a transport-level
+transition error. The envelope still carries `idle_behavior: "exit_session"` so
+the receiver exits cleanly and leaves queued work for a replacement session.
+If the first await arrives before `supervise.start` has attached the session
+backend, the await loop waits through the long-poll window and, if the backend
+still is not attached, returns `reason: "session_backend_not_ready"` without
+claiming work or expiring the session.
+
 Required transition commands:
 
 - `ack`

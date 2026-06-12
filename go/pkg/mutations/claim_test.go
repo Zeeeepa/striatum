@@ -809,6 +809,109 @@ func TestClaimNextRefusesClosedSession(t *testing.T) {
 	}
 }
 
+// TestAwaitPacketDoesNotExpireSessionBeforeSupervisorAttaches guards GH #245:
+// the first autonomous await can race with supervise.start's backend attach.
+// work.await_packet must wait through that claim race instead of delegating to
+// claim_next's direct-operator backend cleanup, which expires the fresh session
+// and leaves the lane holding a dead session-bound token.
+func TestAwaitPacketDoesNotExpireSessionBeforeSupervisorAttaches(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_await_backend_race"
+	runID := "run_await_backend_race"
+	sessionID := "sess_backend_race"
+	role := "worker"
+	lane := "claude"
+	jobID := "job_backend_race"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "active")
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, jobID, "work", role, lane)
+
+	restoreTimeout := awaitPacketTimeout
+	restorePoll := awaitPacketPollInterval
+	awaitPacketTimeout = 20 * time.Millisecond
+	awaitPacketPollInterval = 5 * time.Millisecond
+	t.Cleanup(func() {
+		awaitPacketTimeout = restoreTimeout
+		awaitPacketPollInterval = restorePoll
+	})
+
+	env, err := HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("await_packet should not expire a pre-attach session: %v", err)
+	}
+	if env["type"] != "none" || env["status"] != "no_work" {
+		t.Fatalf("backend-race envelope shape = %#v", env)
+	}
+	if env["reason"] != "session_backend_not_ready" {
+		t.Fatalf("backend-race reason = %#v, want session_backend_not_ready; env=%#v", env["reason"], env)
+	}
+	if got := intgSessionState(t, ctx, runner, repoID, sessionID); got != "active" {
+		t.Fatalf("session state = %q, want active (await must not run claim cleanup)", got)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "queued" {
+		t.Fatalf("job state = %q, want queued", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("active lease count = %d, want 0", n)
+	}
+}
+
+// TestAwaitPacketStoppedSessionReturnsActionableEnvelope guards GH #245: a
+// supervised agent can exit and mark its session stopped before the lane reaches
+// its first work.await_packet call. Awaiting that stopped session must not
+// strand the lane behind an RPC error, and it must not claim queued work on a
+// dead session. The envelope tells the receiver to exit and lets run drive start
+// a fresh session.
+func TestAwaitPacketStoppedSessionReturnsActionableEnvelope(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_await_stopped_session"
+	runID := "run_await_stopped_session"
+	sessionID := "sess_stopped_before_await"
+	role := "worker"
+	lane := "claude"
+	jobID := "job_waiting_for_fresh_lane"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "stopped")
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, jobID, "work", role, lane)
+
+	env, err := HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("await_packet against stopped session returned error: %v", err)
+	}
+	if env["type"] != "session_terminal" || env["status"] != "no_work" {
+		t.Fatalf("stopped-session envelope shape = %#v", env)
+	}
+	if env["reason"] != "session_stopped" || env["session_state"] != "stopped" {
+		t.Fatalf("stopped-session reason/state = %#v", env)
+	}
+	if env["idle_behavior"] != "exit_session" || env["next_action"] != "register_fresh_session" {
+		t.Fatalf("stopped-session action fields = %#v", env)
+	}
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "fresh session") {
+		t.Fatalf("hint = %q, want fresh-session guidance", hint)
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "queued" {
+		t.Fatalf("job state = %q, want queued (stopped session must not claim work)", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("active lease count = %d, want 0", n)
+	}
+}
+
 type claimBackendGateExec struct {
 	sql  string
 	args []any

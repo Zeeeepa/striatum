@@ -34,6 +34,7 @@ func TestAwaitPacketSwallowsStatementTimeoutAsTransient(t *testing.T) {
 		"lanes":       map[string]any{"claude": map[string]any{"display_model": "Claude"}},
 	})
 	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "worker", "claude", nil, "active")
+	intgAttest(t, ctx, runner, repoID, runID, sessionID, "claude")
 
 	// Inject a Postgres statement-timeout error from the claim step on every
 	// attempt, and shrink the loop so the deadline path runs fast.

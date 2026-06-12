@@ -1600,13 +1600,17 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
 		return nil, err
 	}
-	// RFC 0095 §4 (F-I/#81): refuse the await loop for a closed/expired/stopped/
-	// lost session before it can be delivered work, an interrogation question, or
-	// a conversation turn. The supervised process of a closed session must reach a
-	// terminal no_work state rather than reclaim a revision-cycle job.
+	// RFC 0095 §4 (F-I/#81): refuse the await loop for a closed/expired/lost
+	// session before it can be delivered work, an interrogation question, or a
+	// conversation turn. A stopped session is the #245 first-await race: the
+	// supervised process already exited, so return an in-band terminal envelope
+	// that tells the receiver to stop and lets run drive register a replacement.
 	if state, err := sessionState(ctx, runner, repositoryID, sessionID); err != nil {
 		return nil, err
 	} else if state != "active" {
+		if state == "stopped" {
+			return awaitStoppedSessionEnvelope(), nil
+		}
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
 	}
 
@@ -1616,6 +1620,26 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	sawTransientLoad := false
 
 	for {
+		backendReady, backendReason, err := awaitSessionBackendReady(ctx, runner, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if !backendReady {
+			if time.Now().After(deadline) {
+				env := awaitNoneEnvelope()
+				env["reason"] = "session_backend_not_ready"
+				env["backend_reason"] = backendReason
+				env["hint"] = "session backend is not attached yet; keep queued work unclaimed and let supervise.start finish or run drive register/start a replacement session"
+				return env, nil
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(pollInterval):
+			}
+			continue
+		}
+
 		// RFC 0082: a worker's single subscribe loop receives either work or a
 		// pending interrogation question addressed to its session. Delivery
 		// prefers a pending interrogation question over new work so
@@ -1728,6 +1752,28 @@ func awaitWorkEnvelope(res map[string]any) map[string]any {
 	return out
 }
 
+func awaitSessionBackendReady(ctx context.Context, runner any, repositoryID, sessionID string) (bool, string, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT ps.state AS state
+		  FROM striatumd.process_supervisors ps
+		 WHERE ps.repository_id = $1
+		   AND ps.session_id = $2
+		   AND ps.state IN ('starting','attached','detached')
+		 ORDER BY ps.started_at DESC, ps.supervisor_id DESC
+		 LIMIT 1`, repositoryID, sessionID)
+	if err != nil {
+		return false, "", err
+	}
+	if len(rows) == 0 {
+		return false, "supervisor_not_started", nil
+	}
+	state := fmt.Sprint(rows[0]["state"])
+	if state != "attached" {
+		return false, "supervisor_" + state, nil
+	}
+	return true, "", nil
+}
+
 // freshSessionBlockedWorkflowJob returns the workflow_job_id of a pending job
 // for this (role, lane) that is fresh_session_required and that the given
 // session cannot claim because it has already worked another job in this run
@@ -1786,6 +1832,18 @@ func awaitNoneEnvelope() map[string]any {
 		"status":        "no_work",
 		"idle_behavior": "exit_session",
 		"hint":          "no work is available for this session; stop this lane and let run drive or a future wake mechanism start a fresh session when work is queued",
+	}
+}
+
+func awaitStoppedSessionEnvelope() map[string]any {
+	return map[string]any{
+		"type":          "session_terminal",
+		"status":        "no_work",
+		"reason":        "session_stopped",
+		"session_state": "stopped",
+		"idle_behavior": "exit_session",
+		"next_action":   "register_fresh_session",
+		"hint":          "this session is stopped; stop this lane and let run drive register and start a fresh session for remaining work",
 	}
 }
 
