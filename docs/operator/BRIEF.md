@@ -1,266 +1,207 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-01d_rfc0101-complete-v2.9.0"
-supersedes: "brief_2026-06-01c_rfc0101-phase1-2-landed"
-scope_links: ["docs/rfcs/0101-robust-autonomous-workflow-execution.md", "docs/rfcs/0102-operator-attention-economy.md", "docs/rfcs/0095-revision-safe-workflow-lifecycle.md", "docs/rfcs/0098-adjudicated-constraint-extraction-loop.md", "docs/rfcs/0097-full-workflow-run-orchestration.md", "dogfoods/rfc-0101-l2-conformance/OPERATOR_REPORT.md", "dogfoods/rfc-0101-l2-conformance/artifacts/DESIGN_SYNTHESIS.md", "CHANGELOG.md", "docs/rfcs/README.md"]
+brief_id: "brief_2026-06-12_v2.31.0-rfc0118-0120-arch-review"
+supersedes: "brief_2026-06-01d_rfc0101-complete-v2.9.0"
+scope_links: ["STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md", "docs/rfcs/0119-warm-tier-memory-boundary.md", "docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
 ---
 
 # Operator Brief
-author: operator-claude-001
+author: operator-claude-fable-5-001
 
 ## State
 
-Striatum's live-state boundary is daemon-owned PostgreSQL; Go is the only
-runtime (RFC 0078 closed — no Python runtime/packaging/tests). Repository files
-are durable provenance; `.striatum/` is operational scratch only. Latest
-release is **v2.9.3 (2026-06-02)** — RFC 0103 **W1 (supervised-lane sandbox)**:
-#135 (lane authenticates with its own session-bound token, injected at
-`supervise start`; the cross-session guard now covers the whole session-scoped
-surface), #70 (agy MCP bearer kept out of git provenance via a worktree-local
-exclude), #87 *partial* (`doctor` `lane_sandbox` block + `lane_pg_reachable`
-warning + `docs/how-to/lane-sandbox.md` adoption runbook; OS-user close stays an
-operator step). Deployed at **schema 22** (no schema change). Prior **v2.9.2**
-was a bug-fix/hardening release (list-workflows schema fix #142,
-register-session recovery-deadlock retry #133, review verdict semantics
-#127/#132/#140 + D158, #101 lane-env); **v2.9.1** shipped the RFC 0101
-robust-autonomous-execution arc (Phases 1–5) + RFC 0096 V2's first security
-slice (#135 per-session capability-token *mechanism*).
+Latest release is **v2.31.0 (2026-06-07)**, deployed (runtime schema 26 +
+owner bundles 0001–0006). `main` is ~50 commits past the v2.31.0 tag and
+carries unreleased work: the **RFC 0118 implementation** (#240,
+run-completion provenance gate, P0-1 through P1-6), the **RFC 0119/0120
+acceptances** (D179/D180), **RFC 0120 Phase 1** (await-packet idle exit),
+and a CLI-reference/doc-truth pass. The prior brief stopped at v2.9.3
+(2026-06-02); everything below is the delta.
 
-**CI/release pipeline unbroken 2026-06-02:** `main` had been silently red — the
-`release.yml` YAML parse error masked that `ci.yml` failed on every commit
-(two `errcheck` violations on `resp.Body.Close` in `adapterconformance`). Fixed
-the errcheck findings, the release.yml YAML + CHANGELOG-slice v-prefix match, and
-dropped release.yml's redundant `make check` (ci.yml is the gate). Both workflows
-green; v2.9.2 published with archives. **Note:** `golangci-lint` is not installed
-locally so `make check`'s lint phase can't run here — `go install
-github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2` to reproduce the
-CI lint before pushing (a red CI lint is otherwise invisible locally).
+**The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
 
-Since the prior brief (which stopped at RFC 0078) the work has been the
-**live-collaboration → autonomous-execution arc**:
+- **Autonomy cluster (v2.10–v2.14):** RFC 0103 workstreams closed; RFC 0104
+  per-run serialization invariant; RFC 0105 standing reliability harness
+  (D161). **Unattended DoD met:** `scripts/dod/driver.py` drove 10/10
+  consecutive clean zero-rescue runs, verified in the daemon.
+- **RFC 0111** in-band failure legibility (v2.16.0, D165): 72-code error
+  catalog + `rpc.Error.Suggestion` remediation on every denial.
+- **RFC 0110** daemon→PG auth + DB-enforced write boundary: v3 flip live on
+  prod (v2.18.x, D164). A leaked runtime DSN can no longer forge artifacts
+  or rewrite the hash chain.
+- **RFC 0108** parallel independent runs, all 5 phases (v2.19–v2.23):
+  isolation, collision, multi-run view, gated `run.integrate`.
+- **RFC 0106** shape governance: new-shape FREEZE + one genuine reliability
+  fixture per graduation. Graduated since: `implementation_panel` (D166),
+  `falsification_gate` (D168), `cross_examination` (D169/D170 isomorphism
+  proof), `adjudicated_constraint_extraction` (D172, v2.28.0, 4-cell
+  interrogation fixture). Catalog: 7 supported / 6 experimental. Freeze holds.
+- **RFC 0112** explicit interrogation consumers: accepted (D171) +
+  implemented (v2.27.0). Lane run-as (cross-user lanes) landed alongside.
+- **Seats:** agy graduated (D163) → demoted (D174) → re-promoted supported
+  (D177). Supported seats = **codex + agy**. Claude has NO installed-CLI
+  conformance fixture (see review finding below).
+- **Triage-execution waves** v2.29.0 (17 issues) + v2.30.0 (13 issues from
+  multi-run load): the **#198 daemon-load convoy** root-caused — the 60s
+  recovery sweep held run advisory locks while shelling tmux/proc probes;
+  fixed with a pre-transaction liveness oracle. Plus #197 transient-load
+  classification, #193 bounded status payloads, #203 revision-cycle
+  auto-publish integrity. RFC 0115 supervised token-usage telemetry landed.
+- **RFC 0116** zero-operator-touch DAG (D175): **`striatum run drive`** —
+  foreground idempotent reconcile loop (productized driver.py) — accepted
+  and implemented. Daemon auto-spawn explicitly DEFERRED (#212, three-part
+  evidence trigger).
+- **RFC 0117** worktree/branch ref-safety (D176): completed job commit
+  stacks always reachable from a durable ref (FF-or-pin under
+  `refs/striatum/`); closed the **#186 silent data-loss** incident and #184;
+  `worktree gc` companion (D178).
+- **v2.31.0 — RFC 0114** identity read-scope (#164 CLOSED): owner bundle
+  0006 transfers `principals`/`principal_clients`/`client_sessions`
+  ownership + SECURITY DEFINER projections; doctor
+  `pg_read_scope.posture=partial_projection_gated` (derived, not
+  hard-coded). `private_read_denial` stays false — RFC 0113 R2/R3 open.
 
-- Interrogating panels + chat UI (v2.4.x), N-party conversation (v2.5.0),
-  conversation turn-drivers (v2.6/2.7), and the RFC 0088/0089 agent-loop PTY
-  launcher (claude/codex/agy lanes complete agent-loop packets end-to-end).
-- **RFC 0093** structured live-collaboration shapes — accepted, V1 landed
-  (collaboration_ledger.v1 + adjudicator substance-gate).
-- **RFC 0095** revision-safe lifecycle — Phases 1-3 landed in source (#84
-  attempt-scoped artifacts deployed at **schema 18**; #65 panel-owned
-  interrogation window; closed-session/write-scope/idempotent-publish guards).
-- **RFC 0096** supervised-lane trust boundary — Phase 1 landed (allowlist lane
-  env, work-tree hygiene); the PG-less lane OS user (V2) is not built.
-- **RFC 0098** adjudicated constraint-extraction loop — V1 landed (slices 1-3,
-  productive-refusal gate + discharge-verifying final review); #89 closed.
-- **RFC 0100** self-describing artifact contracts — P1 landed (front-matter
-  schema surfaced + enriched validation errors).
+**Issue burn-down:** 32 → 12 open. The ready-for-human cluster
+(#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10. Every
+survivor is a live operational finding from real multi-run load, not a
+feature wish.
 
-**Doc-vs-source drift to fix on contact:** `docs/rfcs/README.md` still marks
-0095 / 0098 / 0100 as `proposed` though their V1/phases have landed and
-deployed. Reconcile the RFC index status column when you next touch it (AGENTS
-rule: fix the doc when it disagrees with source).
+## Deep architecture review 2026-06-11 — the standing work-list
 
-## Landed 2026-06-01 — RFC 0101 COMPLETE (v2.9.0, deployed at schema 21)
+`STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md`
+(`0e8671ed`, Claude Fable 5, partitioned exhaustive read at `076c5eec`):
+verdict **ROUGHLY RIGHT-SIZED · ON TRACK** (medium-high confidence),
+reversing 06-02's OVERBUILT·DRIFTING. The core state machine is earned,
+incident-pinned complexity; risk has migrated to **verification capacity**
+and the **orientation/meta layer** (this brief's 22-release staleness was a
+named SERIOUS finding — this revision is part of the remedy). Its ranked
+asks:
 
-The full **RFC 0101 robust-autonomous-execution arc (Phases 1–5)** is landed,
-deployed, and released as **v2.9.0** (tag pushed). Vehicle: bootstrap-via-subagent
-(worktree + background) with every diff operator-reviewed before integration.
-
-- **Phase 1 — honest liveness** (schema 19): PTY-activity + tool-call boundary
-  recording, precise classifier states (`working_protocol/working_local/
-  working_tool/quiet/stalled/dead`), lease auto-heartbeat. Closes #80/#83/#117/#136.
-- **Phase 2 — adapter conformance** fake-agent fixture (`go/pkg/adapterconformance/`):
-  C0 #101 argv-bootstrap gate + C2 env-leak golden + C3–C10/C7 live taxonomy.
-- **Phase 0a — 40P01 interrogation deadlock ROOT-FIXED** (`e1e95ac3`): the
-  `sessions⇄runs` cycle between the claim path and `interrogation.answer`. Per-run
-  advisory lock (taken first, only for live interrogation targets) + `withTxRetryOnDeadlock`
-  on all interrogation handlers; 50-iteration regression test; the conformance
-  `InterrogationReady` workaround removed. Clears the #130/#131/#133/#134/#137 cluster root.
-- **Phase 3 — autonomous in-daemon recovery supervisor** (schema 20): the existing
-  60s `recovery.sweep` now ACTS on classifier states with PG-persisted per-job
-  budgets — `requeueJobSameAttempt` (dead/closed/absent lane → requeue, no attempt
-  bump), stalled-but-active-session recovery (+ close the parked session),
-  transfer, leaked-window close. Closes **#121** (the acute blocker) + the
-  operator verb `recovery requeue-stale --force` for dead-lane repo-write + `session
-  close --requeue-job`. Files: `recovery.go` (`requeueJobSameAttempt`),
-  `recovery_decision_tree.go` (`recoverStuckJobs`), migration `0020 job_recovery_state`.
-- **Phase 4 — loud structured escalation** (schema 21): a `needs_operator` run
-  state. On budget exhaustion the sweep raises a `recovery_exhausted` blocker +
-  `escalation_inbox` row (structured `striatum.recovery_escalation.v1` payload) and
-  flips the run `running → needs_operator`; `escalation resolve` clears it; doctor
-  surfaces needs_operator runs as **problems**. Files: `recovery_escalation.go`,
-  migration `0021 run_needs_operator`.
-- **Phase 5 — fault-injection chaos suite** (`adapterconformance/chaos_test.go`,
-  PG-gated): drives the real fake-agent lifecycle through the in-process daemon,
-  injects dead/stalled-lane faults (deterministic time-warp), runs the sweep, and
-  asserts self-recover (fresh lane completes, attempt preserved) OR escalate-loudly
-  within budget — RFC 0101 acceptance #2/#3/#4. **It caught a real bug in deployed
-  Phase 3 recovery** (a duplicate-message 23505 sweep-wedge: `HandleClaimNext`
-  doesn't stamp `jobs.current_message_id`, so requeue must resolve the live work
-  message directly — now fixed in `recovery.go`).
+- **BLOCKER:** sweep-error daemon suicide — any sweep iteration error
+  cancels the whole daemon (`pkg/recovery/scheduler.go:53-55` +
+  `cmd/striatumd/main.go:698-701`); plus in-tx git subprocesses in the sweep
+  (`recovery.go:2051`, the #198 convoy class one layer down). Aggravated by
+  #246 (abandoned runs accumulate, adding sweep load).
+- **P0 untested spine:** `work.heartbeat` has zero behavioral tests;
+  `worktree.create` composition untested; 4 packet-content blocks
+  unasserted; `escalation_resolve.go:156` re-drives completion **without
+  `lockRun`** (the one unguarded RFC 0104 door).
+- **P1 deletion pass (~4-5K LOC):** inert crossrepo pkg; dead supervisor
+  liveness twin; one-shot migration RPCs; auto-finalize circuit breaker;
+  conversation gating + per-poll query; 10 deprecated aliases; installer
+  template dedupe (~800 lines); 6 stale example dirs.
+- **P1 token-out-of-argv:** lane env incl. `STRIATUM_MCP_TOKEN` passes
+  through tmux/sudo argv — world-readable via `/proc/*/cmdline`
+  (`supervisor/pty.go`).
+- **P1 conformance honesty:** scheduled installed-CLI CI runs agy only;
+  claude (the flagship adapter) has no fixture; the "tier cannot lie" guard
+  checks registry↔registry, not registry↔CI.
+- **P1 truth mechanization:** guard-test BRIEF freshness / README status
+  (still says v2.9.x) / docs index / authority matrix (missing 16 live
+  methods; `supervise.rebridge` bypassed the contract); retire
+  roadmap.md/todo.md to archive.
+- **P2:** relocate `docs/operator/` exhaust (44% of tracked files);
+  boundary-hygiene batch (CLI suggestion surfacing, read deadlines,
+  `seenRequests` bound, FIFO delivered-lie, `--apply-blob-creation` no-op,
+  CSP-dead dashboard JS).
 
 ## Current Frontier
 
-RFC 0101 is **complete + live (v2.9.0, schema 21)**: recovery + escalation run
-autonomously in the daemon; the chaos suite is the hermetic regression gate. The
-frontier is now the **capstone + backlog**:
-
-- **RFC 0097 self-hosting milestone (acceptance #5): PROVEN LIVE 2026-06-01**
-  (`8e9ac86b`). `dogfoods/rfc-0097-self-hosting/` — a minimal single-claude-lane
-  document dogfood — was driven end-to-end through the production handlers
-  hands-off (prepare → confirm → start → register → supervise → lane self-drives
-  claim → publish → complete → **run auto-finalized to `completed`**); artifact
-  `content_sha256` matched the on-disk file exactly. #101 confirmed live (lane
-  bootstrapped past the update screen). The chaos suite already proved this at the
-  DAEMON level; this closes the full live CLI proof. Finding: a self-driving
-  claude lane needs `--dangerously-skip-permissions` (bare `["claude"]` parks on
-  an MCP permission prompt) — a stale-scaffold mistake, not a runner bug (#113
-  CLOSED already fixed the real examples). See
-  `dogfoods/rfc-0097-self-hosting/OPERATOR_REPORT.md`.
-- **Backlog** (see `~/.claude/plans/golden-hugging-teacup.md`): **RFC 0096 V2**
-  security (#70/#87/#135 token-binding, PG-less lane sandbox), **RFC 0100 P2** DX
-  (#126/#128/#132), **RFC 0097** orchestration (#115/#138), **RFC 0099/0102**
-  operator side (#92). Confirm-and-close the deployed Phase-1 issues (#80/#83/#117/#136)
-  and the fixed-but-open #120/#123 against live behavior.
-
-### Original framing (RFC 0101 L2 dogfood, 2026-05-31)
-RFC 0101 frames the recurring dogfood failure taxonomy as one run-level
-property and supplies five defense layers: (1) honest liveness, (2) adapter
-conformance + persistent turn-driver in CI, (3) bounded autonomous
-self-recovery, (4) loud structured escalation, (5) a fault-injection chaos
-suite. **RFC 0097** (run self-orchestration) sits on top and hard-depends on
-RFC 0095 + 0096.
-
-### RFC 0101 L2 dogfood reality (2026-05-31)
-
-`dogfoods/rfc-0101-l2-conformance/` reached an **accepted design synthesis** —
-the 3-model design panel cleared clean after the #120 reviewer-interrogate-grant
-fix landed (commit `259482d0`). Then the **implement repo-write lane wedged** on
-a Claude welcome-screen stall (#101 class) at spawn, and there is **no
-same-attempt recovery verb** to rescue it (#121). #120's fix is proven; **#121
-is the acute open blocker** and the named RFC 0101 L3 gap. No harness Go was
-built — the self-hosting paradox held again (a broken runner can't reliably
-dogfood its own fixes).
-
-## Issue burn-down 2026-06-01 (32 → 17 open)
-
-A `max-closed-count-first` burn-down pass (plan `~/.claude/plans/typed-shimmying-diffie.md`):
-
-- **Phase 1 confirm-and-close (9):** #80/#83/#117/#120/#121/#123/#130/#136/#137 —
-  verified fix-commit ancestry + repro/test before closing. **Reopened 3** that were
-  over-attributed to the RFC 0101 Phase 0a deadlock commit: #131/#134 are the #65
-  interrogation-window-closure family (not the 40P01 deadlock); #133 was a real
-  register-session deadlock the Phase 0a fix did not cover.
-- **Phase 2 fixes (deployed @ `988b9653`, schema 22):** #142 (`list workflows`
-  42703 — column alias), #133 (register-session retries on recovery deadlock),
-  #127/#132/#140 (verdict semantics — idempotent complete, synonym vocab, recoverable
-  reject; **D158**), #118 (closed obsolete — single_shot/turn-driver retired by D150).
-  All with regression tests; full `pkg/mutations` suite green.
-- **Deploy lesson:** `make install` does NOT restart the running daemon — needs
-  `systemctl --user restart striatumd`; verify the RUNNING `/proc/<pid>/exe` sha,
-  not just the file. (Cost a live false-negative on #142.)
-
-**Remaining 17, heavier/architectural (route via dogfood or bootstrap-subagent w/ review):**
-#141 (agent-loop receiver reconnect across daemon socket recreation + supervisor
-re-bind), #125 (codex readiness-vs-`work.ack` guard); **RFC 0096 V2** security
-#135/#70/#87; **RFC 0100 P2** #126/#128; **RFC 0097** #115/#138; **RFC 0099/0102**
-#92/#112; the **agy cluster** #139/#76/#85/#95; and the reopened #131/#134
-window-closure family (RFC 0095).
-These 17 are **consolidated into [RFC 0103 — self-hosting production hardening](../rfcs/0103-self-hosting-production-hardening.md)**
-(seven workstreams W1–W7; all 17 labeled `rfc-0103`) — the dogfoodable spine for
-the rest. **RFC 0103 is ACCEPTED (2026-06-02)**, reviewed **live through the
-runner** by a real multi-lane panel (`dogfoods/rfc-0103-review/`, run
-`run_05c653…`: claude presenter + codex/claude reviewers, both `needs_revision`
-through production handlers). The panel confirmed the partition exact and scoped
-its objection to the acceptance framework; all R1/R2 + F1–F5 findings were
-reconciled (rigor taxonomy, hermetic cross-session-token gate for W1, real
-socket-recreation gate for W3, audited-escape proxy for W7, two-tier
-floor/ceiling umbrella). This cleared the **multi-lane review-gated half of RFC
-0103's umbrella floor**; remaining for the floor = a live-interrogation revision
-cycle (W4/#131/#134) + an injected fault (W3).
-
-**W1 (lane sandbox) LANDED + deployed (v2.9.3, 2026-06-02):** #135 (CLOSED) wired
-the session-bound token into the lane env at `supervise start` and dropped the
-shared-token passthrough, and `enforceSessionBinding` now covers
-claim_next/await/ack/heartbeat/release/complete/block/send_message/artifact.publish
-(not just interrogation.answer); #70 (CLOSED) keeps the agy MCP bearer out of git
-provenance via a worktree-local `.git/info/exclude`; #87 (OPEN, honest proxy)
-added a `doctor` `lane_sandbox` block + `lane_pg_reachable` warning +
-`docs/how-to/lane-sandbox.md` adoption runbook — the OS-user PG-deny remains an
-explicit operator adoption step. Hermetic gates green (conformance C2 golden + env
-golden + PG-gated cross-session-rejection tests for publish/claim +
-enforceSessionBinding contract). Live "lane S can't act as S′ in a live run" is
-folded into the next umbrella-floor dogfood (corroboration, not the gate).
-
-**Next: W2/W3/W4** — the umbrella's critical path (multi-lane viability: agy
-seats / transport-churn survival / interrogation-window liveness; W2/agy is the
-most deferrable). W1 was sequenced first by risk, not on the critical path.
+- **RFC 0120 (await-packet idle exit + wake boundary, D180) — LIVE WORK.**
+  Phase 1 implemented on main: terminal idle envelopes carry
+  `idle_behavior=exit_session`; bootstrap no longer tells lanes to poll
+  after `no_work`; the PTY receiver exits the lane cleanly. `run drive`
+  stays the operator-authorized wake surface. **Phase 2 (notify-only wake
+  bus) is in flight:** run `run_7a8b4f646d35bf076e673e40724d9fd1`
+  (`issue-248-wake-bus-implementation`, draft → review → apply) is
+  `running` with the draft job claimable. The workflow scaffold under
+  `docs/operator/workflows/issue-248-wake-bus-implementation/` is untracked
+  — commit it with the run's work. Wake events stay hints over committed
+  state, never authoritative.
+- **RFC 0119 (warm-tier memory boundary, D179) — accepted, implementation
+  gated.** Authorizes the `hippo`/`fornix` warm-tier adjunct (separate
+  repo, `~/git/hippo`) + a striatum-native read-only hot tier (`recall.*`
+  over the daemon's own artifact stream, scaffold-time digest injection,
+  default-off redacted `lane_trajectory` export, `progress_note`-only git
+  eviction). D179 lists hard test obligations before any Go lands; no
+  `memory.*` capability, no retrieval-dependent state transition.
+- **RFC 0118 (#240)** implementation is on main (frozen verdict provenance
+  stamps, override posture/basis, completion provenance gate +
+  `needs_operator` escalation, durable `run_completion_record`,
+  `recovery.invalidate_job` supersede receipts). Issue open pending live
+  verification + close; release the accumulated post-tag work as the next
+  minor.
+- **Live housekeeping:** doctor reports 6 problems — an unanchored
+  completed-job worktree HEAD on `run_6532226d` (`worktree_head_unreachable`
+  + `job_completed_without_anchor`; re-run `work.complete` to anchor while
+  the worktree exists) — and a stale prepared run
+  `run_8e4e5487036601a540ea720f11d2f069` (`striatum/rfc-ledger-cleanup`)
+  parked at `needs_branch_confirmation`: confirm or cancel.
 
 ## Next Actions
 
-1. **RFC 0097 self-hosting capstone — DONE (proven live 2026-06-01, `8e9ac86b`).**
-   The minimal single-claude-lane document dogfood completed end-to-end through
-   the production handlers, hands-off, run auto-finalized to `completed`, artifact
-   hash matched. #101 confirmed live. The next escalation is a *multi-lane* /
-   product-fix dogfood driven through the runner (now the preferred vehicle over
-   bootstrap-via-subagent) — gated on agy multi-turn (#95) for any agy seat; use
-   claude/codex seats until #95 lands. Lane shape lesson: claude seats need
-   `--dangerously-skip-permissions`.
-2. **Backlog (dependency-ordered; see `~/.claude/plans/golden-hugging-teacup.md`):**
-   **RFC 0096 V2** security — #135 per-session token-binding **DONE/deployed** (v2.9.1,
-   schema 22); remaining: lane-env wiring so live lanes USE their session-bound
-   token (fully closes #135 live), #70/#87 lane-PG-deny + PG-less lane OS user →
-   **RFC 0100 P2** DX (#126/#128/#132, single-implementer)
-   → **RFC 0097** orchestration (#115 frozen-snapshot signal, #138 shared-resource
-   packet/lint surfacing landed) → **RFC 0099/0102** operator side (#92 constrained operator
-   consumes the Phase-4 escalation). Confirm-and-close the deployed Phase-1 issues
-   (#80/#83/#117/#136) and the fixed-but-open #120/#123 against live behavior.
-3. **RFC 0102 levers:** narrow the operator loop to one control surface, one
-   high-signal `attention` view, `(run, workflow_job_id)` identifiers.
+1. **Drive RFC 0120 Phase 2:** `striatum run drive --run-id
+   run_7a8b4f646d35bf076e673e40724d9fd1` (draft is claimable now); commit
+   the untracked workflow scaffold; verify Phase-2 test obligations from
+   D180 (post-commit wake emission, `run drive` wake behavior,
+   missed-notification fallback).
+2. **Review P0s:** contain the sweep (error → log+backoff+skip, never
+   daemon cancel; git out of the sweep tx; #246 abandoned-run GC) and test
+   the spine (heartbeat, worktree.create, packet blocks, escalation-redrive
+   `lockRun` + guard coverage).
+3. **Review P1s:** deletion pass, token-out-of-argv, conformance honesty
+   (claude installed-CLI fixture + codex in the cron), truth mechanization
+   (make bootstrap brief-staleness fail; guard README/index/authority
+   matrix against the contract).
+4. **Housekeeping:** anchor the `run_6532226d` worktree; resolve
+   `run_8e4e5487`; tag the next release once RFC 0118 verification closes
+   #240.
 
-## Blockers
+## Blockers / Open Issues (12)
 
-- **#95** — agy self-driving session closes after the first turn and
-  re-registers a duplicate unattested session, breaking multi-turn (interrogating)
-  review/synthesis. (Relevant to a multi-lane self-hosting dogfood with agy.)
-- **Self-hosting paradox — substrate now landed.** RFC 0101 (recovery +
-  escalation, schema 21) is the robustness substrate the paradox waited on. The
-  chaos suite proves the recovery loop end-to-end at the daemon level; the
-  remaining open question is whether a full live multi-lane CLI dogfood clears the
-  lane-boundary friction (#101 welcome-screen lane-env hardening, #95 agy).
-  Vehicle for foundational fixes stays bootstrap-via-subagent until a live dogfood
-  is proven.
-
-**Resolved this release:** #121 (same-attempt repo-write recovery — Phase 3),
-the #130/#131/#133/#134/#137 deadlock-cluster root (Phase 0a).
+All operational findings from live multi-run load: **#251/#252** codex lane
+health (exit-1 with no pty.log diagnostic + orphan supervisors; auth-rot
+preflight), **#245** claim race (recovery stops a session before its first
+`await_packet`; follow-on to **#241** false `tmux_session_missing`
+liveness), **#246** abandoned-run GC (7 stuck runs biting today), **#242**
+run-drive commits via the operator's shared git index, **#244** owner-table
+migrations crash-loop a two-role prod daemon (CI-blind), **#240**
+close-pending (impl landed), **#247** committee operator-neutrality
+(design), **#248** Phase 2 in flight, **#217** blob-store-gated, **#212**
+parked auto-spawn (do not implement).
 
 ## Hazards / Do Not
 
-- **Operators scaffold dogfoods; they do not implement role artifacts.** Facing
-  implementation work → scaffold a fix-up dogfood (or a one-shot single-implementer
-  build) and launch it; do not author the role's artifact yourself.
-- **Revision-cycling interrogating panels wedge** (the #65/#84/#120/#121
-  family). When you need a fix to actually land, a one-shot single-implementer
-  build sidesteps the panel revision incoherence.
-- Stay on the daemon boundary: do not bypass the daemon, open Postgres directly,
-  treat tmux panes / terminal output / marker files as workflow state, or add
-  hosted services, telemetry, transcript capture, or external persistence
-  without a product decision.
-- Trust only returned JSON. Never fabricate session/run/lease ids or results;
-  verify every state-changer with a read; make state-changing calls sequentially.
+- **Operators scaffold dogfoods; they do not implement role artifacts.**
+- **Hold the anti-bets** (review §F.4 + decision log): no new shapes while
+  the RFC 0106 freeze holds; no daemon auto-spawn before the D175 evidence
+  trigger; no Engram/memory absorption (D179 boundary is narrow and
+  test-gated); no hosted/multi-tenant anything.
+- Stay on the daemon boundary: no direct Postgres, no tmux/marker-file
+  state, no telemetry/transcript capture without a product decision.
+- Trust only returned JSON; verify every state-changer with a read;
+  state-changing calls sequential.
+- `make install` does NOT restart the daemon — `systemctl --user restart
+  striatumd`, then verify the running `/proc/<pid>/exe` sha.
+- CI always runs pgtests; check `gh run list` before assuming green.
+  Reproduce lint locally with golangci-lint v2.12.2 (pinned in
+  `go/Makefile`; absent binary = invisible red).
+- Concurrent agents sweep the shared tree: commit deliverables same-turn;
+  land code via isolated worktrees off `origin/main`.
 
 ## Pointers
 
-- `docs/rfcs/0101-robust-autonomous-workflow-execution.md` (umbrella)
-- `docs/rfcs/0102-operator-attention-economy.md`
-- `docs/rfcs/0095-revision-safe-workflow-lifecycle.md`
-- `docs/rfcs/0096-supervised-lane-trust-boundary.md`
-- `docs/rfcs/0097-full-workflow-run-orchestration.md`
-- `docs/rfcs/0098-adjudicated-constraint-extraction-loop.md`
-- `docs/rfcs/0099-constrained-operator-mode.md`
-- `dogfoods/rfc-0101-l2-conformance/` (workflow, artifacts, OPERATOR_REPORT)
-- `CHANGELOG.md` (`Unreleased` + v2.x history)
-- `docs/rfcs/README.md` (RFC index — status column lags source; reconcile)
+- `STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md` — the
+  standing work-list (§E missing pieces, §G recommendations)
+- `docs/rfcs/0118-gate-run-completion-on-attested-provenance.md`
+- `docs/rfcs/0119-warm-tier-memory-boundary.md` (+ hippo RFC 0001)
+- `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
+- `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
+- `docs/decisions/decision-log.md` (D161–D180 cover this brief's span)
+- `CHANGELOG.md` (v2.10.0 → v2.31.0 + Unreleased)
+- `docs/reference/command-authority-matrix.md` (lags 16 live methods —
+  reconcile on contact, per AGENTS rule)
