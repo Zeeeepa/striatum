@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -324,7 +325,13 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		}
 	}
 
-	startDaemonReceiverLoop(ctx, cfg, laneCommand[0], ptmx, stderr)
+	var idleExitRequested atomic.Bool
+	startDaemonReceiverLoop(ctx, cfg, laneCommand[0], ptmx, stderr, func() {
+		idleExitRequested.Store(true)
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+	})
 
 	if stdin != nil {
 		go func() {
@@ -338,13 +345,20 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	err = cmd.Wait()
 	_ = ptmx.Close()
 	<-outputDone
+	return normalizeAgentExitError(err, idleExitRequested.Load())
+}
+
+func normalizeAgentExitError(err error, idleExitRequested bool) error {
 	if err != nil {
+		if idleExitRequested {
+			return nil
+		}
 		return fmt.Errorf("agent command exited: %w", err)
 	}
 	return nil
 }
 
-func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string, ptmx io.Writer, stderr io.Writer) {
+func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string, ptmx io.Writer, stderr io.Writer, requestIdleExit func()) {
 	if daemonReceiverDisabled(cfg.Env, adapter) || cfg.RepositoryID == "" || cfg.SessionID == "" {
 		return
 	}
@@ -391,6 +405,14 @@ func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string,
 			}
 			backoff = 2 * time.Second
 
+			if daemonEnvelopeRequestsIdleExit(envelope) {
+				_, _ = fmt.Fprintln(stderr, "agent-loop daemon receiver idle: exiting lane after no_work")
+				if requestIdleExit != nil {
+					requestIdleExit()
+				}
+				return
+			}
+
 			prompt := promptForDaemonEnvelope(envelope)
 			if prompt == "" {
 				sleepOrDone(ctx, 2*time.Second)
@@ -402,6 +424,13 @@ func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string,
 			}
 		}
 	}()
+}
+
+func daemonEnvelopeRequestsIdleExit(envelope map[string]any) bool {
+	if fmt.Sprint(envelope["status"]) != "no_work" {
+		return false
+	}
+	return fmt.Sprint(envelope["idle_behavior"]) == "exit_session"
 }
 
 func daemonReceiverReady(ctx context.Context, client rpcclient.Client, repositoryID, sessionID string) (bool, error) {

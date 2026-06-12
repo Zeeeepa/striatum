@@ -69,6 +69,19 @@ func TestAwaitPacketValidatesSessionID(t *testing.T) {
 	}
 }
 
+func TestAwaitNoneEnvelopeTellsLaneToExitIdleSession(t *testing.T) {
+	env := awaitNoneEnvelope()
+	if env["type"] != "none" || env["status"] != "no_work" {
+		t.Fatalf("idle envelope shape = %#v", env)
+	}
+	if env["idle_behavior"] != "exit_session" {
+		t.Fatalf("idle_behavior = %#v, want exit_session", env["idle_behavior"])
+	}
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "stop this lane") {
+		t.Fatalf("hint = %q, want stop-this-lane guidance", hint)
+	}
+}
+
 func TestPacketTaskPromptResolvesWorkflowLocalPath(t *testing.T) {
 	got := packetTaskPrompt(
 		map[string]any{"path": "prompts/demo.md"},

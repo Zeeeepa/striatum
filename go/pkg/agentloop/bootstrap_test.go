@@ -85,7 +85,8 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 		// lane and trip the discovery stall before any work is claimed.
 		"Do NOT spawn a background task to probe",
 		"interrogation_question",
-		"do not print \"await next packet\"",
+		"idle_behavior=exit_session",
+		"If work.await_packet returns no_work, do not poll.",
 		"session.report",
 		"instead of waiting silently in terminal text",
 		"will not claim, complete, release, or spoon-feed packet JSON",
@@ -99,6 +100,9 @@ func TestBuildBootstrapPromptNamesNativeMCPBoundary(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("bootstrap prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "keep waiting by calling tools/call for work.await_packet again after a short pause") {
+		t.Fatalf("bootstrap prompt still teaches no_work polling:\n%s", prompt)
 	}
 }
 

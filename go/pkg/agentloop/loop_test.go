@@ -2,6 +2,7 @@ package agentloop
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -217,6 +218,34 @@ func TestDaemonReceiverDisabledEnv(t *testing.T) {
 	}
 	if daemonReceiverDisabled(nil, "agy") {
 		t.Fatalf("non-codex adapters should keep the PTY-side daemon receiver by default")
+	}
+}
+
+func TestDaemonEnvelopeRequestsIdleExitOnlyForExplicitIdleBehavior(t *testing.T) {
+	if !daemonEnvelopeRequestsIdleExit(map[string]any{
+		"status":        "no_work",
+		"idle_behavior": "exit_session",
+	}) {
+		t.Fatalf("expected no_work + exit_session to request idle exit")
+	}
+	for _, envelope := range []map[string]any{
+		{"status": "no_work"},
+		{"status": "claimed", "idle_behavior": "exit_session"},
+		{"type": "work_packet"},
+	} {
+		if daemonEnvelopeRequestsIdleExit(envelope) {
+			t.Fatalf("unexpected idle exit for %#v", envelope)
+		}
+	}
+}
+
+func TestNormalizeAgentExitErrorTreatsRequestedIdleExitAsClean(t *testing.T) {
+	exitErr := errors.New("signal: terminated")
+	if err := normalizeAgentExitError(exitErr, true); err != nil {
+		t.Fatalf("idle-requested exit err = %v, want nil", err)
+	}
+	if err := normalizeAgentExitError(exitErr, false); err == nil || !strings.Contains(err.Error(), "agent command exited") {
+		t.Fatalf("non-idle exit err = %v, want wrapped error", err)
 	}
 }
 

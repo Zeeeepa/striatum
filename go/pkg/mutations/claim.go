@@ -1781,7 +1781,12 @@ func openEscalationBlockerForRun(ctx context.Context, runner any, repositoryID, 
 }
 
 func awaitNoneEnvelope() map[string]any {
-	return map[string]any{"type": "none", "status": "no_work"}
+	return map[string]any{
+		"type":          "none",
+		"status":        "no_work",
+		"idle_behavior": "exit_session",
+		"hint":          "no work is available for this session; stop this lane and let run drive or a future wake mechanism start a fresh session when work is queued",
+	}
 }
 
 // deliverPendingInterrogationQuestion returns the oldest pending interrogation

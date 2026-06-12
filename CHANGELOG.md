@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- `work.await_packet` terminal idle envelopes now include
+  `idle_behavior=exit_session`, and agent-loop bootstrap instructions no longer
+  tell lanes to keep polling after `no_work`. The PTY daemon receiver also exits
+  the lane on that explicit idle signal, preserving `run drive` as the
+  operator-authorized wake surface while avoiding model-side no-work loops.
+  (#248, RFC 0120)
+
 ## v2.31.0 — 2026-06-07
 
 ### Runtime read-scope least privilege — identity surfaces (#164, RFC 0114 / D173)

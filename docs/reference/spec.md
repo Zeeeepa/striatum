@@ -820,6 +820,15 @@ the supervisor and session `lost` and refuse the transition. Other unattested
 backend failures are refused without claiming or completing work. It returns a
 structured work packet and stores the packet JSON plus hash.
 
+`work.await_packet` is the autonomous MCP agent-loop acquisition surface over
+the same authoritative claim transition. When the long-poll wait reaches a
+terminal idle result with no eligible work for the session, it returns a
+`type: "none"`, `status: "no_work"` envelope with
+`idle_behavior: "exit_session"`. This is a clean lane-exit instruction, not a
+request to keep the model process resident and poll again; `run drive` or a
+future wake mechanism is responsible for starting a fresh session when work is
+queued later.
+
 Required transition commands:
 
 - `ack`
