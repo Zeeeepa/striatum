@@ -334,12 +334,13 @@ func (a *Agent) Run(ctx context.Context) (Result, error) {
 
 	// work.await_packet again — the receive loop continues to a clean terminal
 	// state. For a single-job run, completing the only job marks the run
-	// completed and closes the session, so the daemon refuses the re-await with
-	// "session is closed; register a fresh session". That refusal is the correct
-	// no-more-work terminal signal for a single-job lane (the loop reached its
-	// natural end), NOT a stall — distinct from a wedge, which would leave the
-	// session active but classified stalled. Treat both a no_work envelope and a
-	// run-completed session-closed refusal as ReachedIdle.
+	// completed and closes the session, so the daemon answers the re-await with
+	// the session_terminal no_work envelope (RFC 0120 Phase 1). That envelope is
+	// the correct no-more-work terminal signal for a single-job lane (the loop
+	// reached its natural end), NOT a stall — distinct from a wedge, which would
+	// leave the session active but classified stalled. Treat the no_work
+	// envelope — and, from a pre-RFC-0120 daemon, the legacy "session is closed"
+	// refusal — as ReachedIdle.
 	idle, err := a.call(ctx, "work.await_packet", map[string]any{
 		"session_id": res.SessionID,
 	})
@@ -357,9 +358,10 @@ func (a *Agent) Run(ctx context.Context) (Result, error) {
 }
 
 // isRunCompletedClose reports whether an await error is the benign
-// "session is closed" refusal a single-job run produces after its only job
-// completes (the run completes and closes the session). It is the terminal
-// no-more-work signal, not a protocol stall.
+// "session is closed" refusal a pre-RFC-0120 daemon produces after a
+// single-job run's only job completes (the run completes and closes the
+// session). Current daemons return the session_terminal no_work envelope
+// instead; this fallback keeps the harness honest against older builds.
 func isRunCompletedClose(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "session is closed")
 }

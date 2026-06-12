@@ -1601,21 +1601,22 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
 		return nil, err
 	}
-	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
-		return nil, err
-	}
 	// RFC 0095 §4 (F-I/#81): refuse the await loop for a closed/expired/lost
 	// session before it can be delivered work, an interrogation question, or a
-	// conversation turn. A stopped session is the #245 first-await race: the
-	// supervised process already exited, so return an in-band terminal envelope
-	// that tells the receiver to stop and lets run drive register a replacement.
+	// conversation turn. Every non-active state — stopped (the #245 first-await
+	// race: the supervised process already exited) and closed/expired/lost
+	// alike — returns an in-band terminal envelope rather than an RPC error,
+	// because the agent-loop receiver retries any await error after a backoff
+	// and would otherwise poll a terminal session forever (RFC 0120 Phase 1).
+	// The gate runs before the liveness write so a terminal session probing
+	// await does not keep refreshing last_await_packet_at.
 	if state, err := sessionState(ctx, runner, repositoryID, sessionID); err != nil {
 		return nil, err
 	} else if state != "active" {
-		if state == "stopped" {
-			return awaitStoppedSessionEnvelope(), nil
-		}
-		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("session is %s; register a fresh session", state), nil)
+		return awaitTerminalSessionEnvelope(state), nil
+	}
+	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastAwaitPacketAt); err != nil {
+		return nil, err
 	}
 
 	timeout := awaitPacketTimeout
@@ -1839,15 +1840,21 @@ func awaitNoneEnvelope() map[string]any {
 	}
 }
 
-func awaitStoppedSessionEnvelope() map[string]any {
+// awaitTerminalSessionEnvelope is the in-band terminal result work.await_packet
+// returns for any non-active session state (stopped, closed, expired, lost).
+// The reason keeps the established "session_stopped" spelling for stopped
+// sessions and extends the same "session_<state>" shape to the rest, so the
+// agent-loop receiver always sees a no_work/exit_session envelope instead of a
+// retryable RPC error (RFC 0120 Phase 1).
+func awaitTerminalSessionEnvelope(state string) map[string]any {
 	return map[string]any{
 		"type":          "session_terminal",
 		"status":        "no_work",
-		"reason":        "session_stopped",
-		"session_state": "stopped",
+		"reason":        "session_" + state,
+		"session_state": state,
 		"idle_behavior": "exit_session",
 		"next_action":   "register_fresh_session",
-		"hint":          "this session is stopped; stop this lane and let run drive register and start a fresh session for remaining work",
+		"hint":          fmt.Sprintf("this session is %s; stop this lane and let run drive register and start a fresh session for remaining work", state),
 	}
 }
 

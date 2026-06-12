@@ -221,15 +221,22 @@ func TestDaemonReceiverDisabledEnv(t *testing.T) {
 	}
 }
 
-func TestDaemonEnvelopeRequestsIdleExitOnlyForExplicitIdleBehavior(t *testing.T) {
-	if !daemonEnvelopeRequestsIdleExit(map[string]any{
-		"status":        "no_work",
-		"idle_behavior": "exit_session",
-	}) {
-		t.Fatalf("expected no_work + exit_session to request idle exit")
+func TestDaemonEnvelopeRequestsIdleExitFailsClosedOnIdleBehavior(t *testing.T) {
+	// Any non-empty idle_behavior on a no_work envelope requests an exit —
+	// including values this lane build does not recognize (fail closed).
+	for _, envelope := range []map[string]any{
+		{"status": "no_work", "idle_behavior": "exit_session"},
+		{"status": "no_work", "idle_behavior": "future_value"},
+	} {
+		if !daemonEnvelopeRequestsIdleExit(envelope) {
+			t.Fatalf("expected idle exit for %#v", envelope)
+		}
 	}
+	// Absent or empty idle_behavior (an older daemon) keeps the legacy
+	// polling behavior; non-no_work envelopes never request an exit.
 	for _, envelope := range []map[string]any{
 		{"status": "no_work"},
+		{"status": "no_work", "idle_behavior": ""},
 		{"status": "claimed", "idle_behavior": "exit_session"},
 		{"type": "work_packet"},
 	} {

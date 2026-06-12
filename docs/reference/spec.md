@@ -847,7 +847,10 @@ terminal idle result with no eligible work for the session, it returns a
 `idle_behavior: "exit_session"`. This is a clean lane-exit instruction, not a
 request to keep the model process resident and poll again; `run drive` or a
 future scheduler-principal mechanism is responsible for starting a fresh
-session when work is queued later. The D180 notify-only wake bus exposes
+session when work is queued later. Lanes treat any unrecognized non-empty
+`idle_behavior` value on a `no_work` envelope as `exit_session` (fail closed);
+only an absent `idle_behavior` preserves the legacy keep-polling behavior of
+older daemons. The D180 notify-only wake bus exposes
 `wake.wait` as a read-shaped hint surface so `run drive` can block until
 committed work, agent-message, or conversation-turn availability is signaled,
 then re-read authoritative daemon/PostgreSQL state before launching anything.
@@ -860,6 +863,9 @@ If a supervised agent exits before its first await and the session is already
 `next_action: "register_fresh_session"` rather than surfacing a transport-level
 transition error. The envelope still carries `idle_behavior: "exit_session"` so
 the receiver exits cleanly and leaves queued work for a replacement session.
+Every other non-active session state (`closed`, `expired`, `lost`) returns the
+same terminal envelope shape with `reason: "session_<state>"` and the matching
+`session_state`, so a receiver never error-loops against a finished session.
 If the first await arrives before `supervise.start` has attached the session
 backend, the await loop waits through the long-poll window and, if the backend
 still is not attached, returns `reason: "session_backend_not_ready"` without

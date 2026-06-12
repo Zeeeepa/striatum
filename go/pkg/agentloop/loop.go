@@ -430,7 +430,16 @@ func daemonEnvelopeRequestsIdleExit(envelope map[string]any) bool {
 	if fmt.Sprint(envelope["status"]) != "no_work" {
 		return false
 	}
-	return fmt.Sprint(envelope["idle_behavior"]) == "exit_session"
+	// Fail closed: any non-empty idle_behavior on a no_work envelope is an
+	// exit instruction, even when the value is unrecognized — an unknown
+	// future value must not silently fall back to the resident repoll loop.
+	// Only an absent idle_behavior (an older daemon) keeps the legacy polling
+	// behavior.
+	behavior, ok := envelope["idle_behavior"]
+	if !ok || behavior == nil {
+		return false
+	}
+	return fmt.Sprint(behavior) != ""
 }
 
 func daemonReceiverReady(ctx context.Context, client rpcclient.Client, repositoryID, sessionID string) (bool, error) {

@@ -738,8 +738,9 @@ func TestClaimNextProjectsExplicitInterrogationTargets(t *testing.T) {
 // TestClaimNextRefusesClosedSession verifies RFC 0095 §4 (F-I/#81): a session
 // closed with close_reason interrogation_window_closed (process still alive)
 // must never be granted a revision-cycle job via work.claim_next /
-// work.await_packet. Both must refuse with a clear "register a fresh session"
-// error instead of letting the prior author rewrite its own challenged work.
+// work.await_packet. claim_next refuses with a clear "register a fresh session"
+// error; await_packet returns the in-band terminal envelope (RFC 0120 Phase 1)
+// — neither lets the prior author rewrite its own challenged work.
 func TestClaimNextRefusesClosedSession(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
@@ -793,13 +794,15 @@ func TestClaimNextRefusesClosedSession(t *testing.T) {
 		t.Fatalf("claim_next message = %q, want it to mention 'register a fresh session'", rpcErr.Message)
 	}
 
-	// work.await_packet must also refuse it (no delivery of work/interrogation).
-	_, err = HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
-	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
-		t.Fatalf("await_packet err = %v, want invalid_transition", err)
+	// work.await_packet must not deliver work/interrogation either; it returns
+	// the terminal envelope (not an error) so the agent-loop receiver exits
+	// instead of error-looping (RFC 0120 Phase 1).
+	env, err := HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("await_packet against closed session returned error: %v", err)
 	}
-	if !strings.Contains(rpcErr.Message, "register a fresh session") {
-		t.Fatalf("await_packet message = %q, want it to mention 'register a fresh session'", rpcErr.Message)
+	if env["type"] != "session_terminal" || env["session_state"] != "closed" {
+		t.Fatalf("await_packet envelope = %#v, want session_terminal for closed session", env)
 	}
 
 	// The job must remain queued (not reclaimed by the closed session).
@@ -906,6 +909,65 @@ func TestAwaitPacketStoppedSessionReturnsActionableEnvelope(t *testing.T) {
 	}
 	if got := jobState(t, ctx, runner, repoID, jobID); got != "queued" {
 		t.Fatalf("job state = %q, want queued (stopped session must not claim work)", got)
+	}
+	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 0 {
+		t.Fatalf("active lease count = %d, want 0", n)
+	}
+}
+
+// TestAwaitPacketClosedSessionReturnsTerminalEnvelope guards RFC 0120 Phase 1:
+// awaiting a closed session used to return a plain invalid_transition error,
+// which the agent-loop daemon receiver treats as retry-after-backoff — an
+// infinite 2s error loop after a terminal session state. Every non-active
+// state must instead get the in-band terminal envelope so the receiver exits
+// cleanly, and the probe must not refresh the session's liveness columns.
+func TestAwaitPacketClosedSessionReturnsTerminalEnvelope(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_await_closed_session"
+	runID := "run_await_closed_session"
+	sessionID := "sess_closed_before_await"
+	role := "worker"
+	lane := "claude"
+	jobID := "job_waiting_after_close"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Claude"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, role, lane, nil, "closed")
+	intgSeedClaimableWork(t, ctx, runner, repoID, runID, jobID, "work", role, lane)
+
+	env, err := HandleAwaitPacket(ctx, runner, intgEnv(repoID, map[string]any{"session_id": sessionID}))
+	if err != nil {
+		t.Fatalf("await_packet against closed session returned error: %v", err)
+	}
+	if env["type"] != "session_terminal" || env["status"] != "no_work" {
+		t.Fatalf("closed-session envelope shape = %#v", env)
+	}
+	if env["reason"] != "session_closed" || env["session_state"] != "closed" {
+		t.Fatalf("closed-session reason/state = %#v", env)
+	}
+	if env["idle_behavior"] != "exit_session" || env["next_action"] != "register_fresh_session" {
+		t.Fatalf("closed-session action fields = %#v", env)
+	}
+	if hint, _ := env["hint"].(string); !strings.Contains(hint, "fresh session") {
+		t.Fatalf("hint = %q, want fresh-session guidance", hint)
+	}
+	// The terminal probe must not keep writing liveness for a dead session.
+	row, err := oneRow(ctx, runner, `
+		SELECT last_await_packet_at FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID)
+	if err != nil {
+		t.Fatalf("read session liveness: %v", err)
+	}
+	if row["last_await_packet_at"] != nil {
+		t.Fatalf("last_await_packet_at = %#v, want nil (no liveness write for closed session)", row["last_await_packet_at"])
+	}
+	if got := jobState(t, ctx, runner, repoID, jobID); got != "queued" {
+		t.Fatalf("job state = %q, want queued (closed session must not claim work)", got)
 	}
 	if n := activeLeaseCount(t, ctx, runner, repoID, jobID); n != 0 {
 		t.Fatalf("active lease count = %d, want 0", n)
