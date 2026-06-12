@@ -193,11 +193,17 @@ striatum worktree gc [--run-id <id>]
 striatum worktree list
 ```
 
-`worktree gc` removes only on-disk job worktrees whose jobs are terminal and
-whose HEAD is reachable from the run branch or a `refs/striatum/` pin; skipped
-rows are reported with reasons. Worktrees with no-blob published artifacts that
-are not present in the worktree `HEAD` are skipped until the artifact content is
-durable outside the per-job worktree.
+`worktree release --worktree-id <id>` removes reachable worktrees; `--force`
+explicitly discards unreachable worktrees and can retire a missing-on-disk row
+when the owning job is terminal. Missing-on-disk forced releases emit
+`worktree.force_released` with `missing_on_disk: true`.
+
+`worktree gc` removes terminal job worktrees whose on-disk HEAD is reachable
+from the run branch or a `refs/striatum/` pin; it also retires terminal rows
+whose path is already missing on disk. Skipped rows are reported with reasons.
+Worktrees with no-blob published artifacts that are not present in the worktree
+`HEAD` are skipped until the artifact content is durable outside the per-job
+worktree.
 
 ## Supervisor (RFC 0009)
 

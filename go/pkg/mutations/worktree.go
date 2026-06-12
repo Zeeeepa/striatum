@@ -222,12 +222,21 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 		return nil, err
 	}
 	if !pathExists(target) {
+		if force && terminalJobStates[fmt.Sprint(job["state"])] {
+			return forceReleaseMissingWorktree(ctx, runner, repositoryID, worktreeID, repoRoot)
+		}
+		if force {
+			return nil, missingWorktreeRequiresTerminalJobError(worktreeID, row, job)
+		}
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
-			"worktree %s path is missing on disk; active row left intact so artifact durability can be inspected",
+			"worktree %s path is missing on disk; pass --force after confirming the owning job is terminal to retire the row",
 			worktreeID,
 		), map[string]any{
 			"worktree_id":   worktreeID,
 			"worktree_path": row["worktree_path"],
+			"job_id":        job["job_id"],
+			"job_state":     job["state"],
+			"force":         false,
 		})
 	}
 	reachability, err := worktreeHeadReachability(ctx, repoRoot, target, row)
@@ -317,6 +326,93 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	return releaseResult, nil
 }
 
+func forceReleaseMissingWorktree(ctx context.Context, runner db.Runner, repositoryID, worktreeID, repoRoot string) (map[string]any, error) {
+	var releaseResult map[string]any
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		loaded, err := worktreeRow(ctx, tx, repositoryID, worktreeID, true)
+		if err != nil {
+			return nil, err
+		}
+		if fmt.Sprint(loaded["state"]) != "active" {
+			releaseResult = map[string]any{
+				"status":      "already_released",
+				"worktree_id": worktreeID,
+				"state":       fmt.Sprint(loaded["state"]),
+			}
+			return map[string]any{}, nil
+		}
+		job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(loaded["job_id"]), true)
+		if err != nil {
+			return nil, err
+		}
+		if !terminalJobStates[fmt.Sprint(job["state"])] {
+			return nil, missingWorktreeRequiresTerminalJobError(worktreeID, loaded, job)
+		}
+		target, err := worktreeTarget(repoRoot, fmt.Sprint(loaded["worktree_path"]))
+		if err != nil {
+			return nil, err
+		}
+		if pathExists(target) {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
+				"worktree %s path exists on disk; retry worktree release so reachability and artifact durability can be checked",
+				worktreeID,
+			), map[string]any{
+				"worktree_id":   worktreeID,
+				"worktree_path": loaded["worktree_path"],
+				"job_id":        job["job_id"],
+				"job_state":     job["state"],
+				"force":         true,
+			})
+		}
+		now := nowString()
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.job_worktrees
+			   SET state = 'removed', released_at = $1, removed_at = $2
+			 WHERE repository_id = $3 AND worktree_id = $4`,
+			now,
+			now,
+			repositoryID,
+			worktreeID,
+		); err != nil {
+			return nil, err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, loaded["run_id"], "worktree.force_released", nil, loaded["job_id"], nil, nil, loaded["lease_id"], map[string]any{
+			"worktree_id":     worktreeID,
+			"worktree_path":   fmt.Sprint(loaded["worktree_path"]),
+			"missing_on_disk": true,
+			"head":            nil,
+			"reachable":       false,
+			"checked_refs":    []string{},
+			"job_state":       fmt.Sprint(job["state"]),
+		}); err != nil {
+			return nil, err
+		}
+		releaseResult = map[string]any{
+			"status":          "force_released",
+			"worktree_id":     worktreeID,
+			"state":           "removed",
+			"missing_on_disk": true,
+		}
+		return map[string]any{}, nil
+	}); err != nil {
+		return nil, err
+	}
+	return releaseResult, nil
+}
+
+func missingWorktreeRequiresTerminalJobError(worktreeID string, worktree, job map[string]any) *rpc.Error {
+	return rpc.NewError("invalid_transition", fmt.Sprintf(
+		"worktree %s path is missing on disk and job %s is %s; missing-on-disk release requires a terminal job",
+		worktreeID, job["job_id"], job["state"],
+	), map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktree["worktree_path"],
+		"job_id":        job["job_id"],
+		"job_state":     job["state"],
+		"force":         true,
+	})
+}
+
 type worktreeAnchorTarget struct {
 	Worktree  map[string]any
 	RunBranch string
@@ -398,10 +494,11 @@ func HandleWorktreeAnchor(ctx context.Context, runner db.Runner, envelope rpc.En
 }
 
 type worktreeGCCheck struct {
-	Remove       bool
-	Reason       string
-	Target       string
-	Reachability worktreeReachability
+	Remove        bool
+	Reason        string
+	Target        string
+	MissingOnDisk bool
+	Reachability  worktreeReachability
 }
 
 func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -475,31 +572,33 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 				skipped = append(skipped, base)
 				continue
 			}
-			problems, err := publishedArtifactDurabilityProblems(ctx, tx, artifactDurabilityCheck{
-				RepositoryID: repositoryID,
-				RepoRoot:     repoRoot,
-				Job:          row,
-				Worktree:     row,
-			})
-			if err != nil {
-				return nil, err
-			}
-			if len(problems) > 0 {
-				base["reason"] = "published_artifact_not_durable"
-				base["head"] = nullableString(check.Reachability.Head)
-				base["reachable"] = check.Reachability.Reachable
-				base["checked_refs"] = check.Reachability.CheckedRefs
-				base["artifacts"] = publishedArtifactDurabilityProblemMaps(problems)
-				skipped = append(skipped, base)
-				continue
-			}
+			if !check.MissingOnDisk {
+				problems, err := publishedArtifactDurabilityProblems(ctx, tx, artifactDurabilityCheck{
+					RepositoryID: repositoryID,
+					RepoRoot:     repoRoot,
+					Job:          row,
+					Worktree:     row,
+				})
+				if err != nil {
+					return nil, err
+				}
+				if len(problems) > 0 {
+					base["reason"] = "published_artifact_not_durable"
+					base["head"] = nullableString(check.Reachability.Head)
+					base["reachable"] = check.Reachability.Reachable
+					base["checked_refs"] = check.Reachability.CheckedRefs
+					base["artifacts"] = publishedArtifactDurabilityProblemMaps(problems)
+					skipped = append(skipped, base)
+					continue
+				}
 
-			result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "remove", "--force", check.Target)
-			if err != nil {
-				return nil, err
-			}
-			if result.ExitCode != 0 && pathExists(check.Target) {
-				return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+				result, err := runGitWorktreeCommand(ctx, repoRoot, "worktree", "remove", "--force", check.Target)
+				if err != nil {
+					return nil, err
+				}
+				if result.ExitCode != 0 && pathExists(check.Target) {
+					return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+				}
 			}
 			now := nowString()
 			if err := tx.Exec(ctx, `
@@ -514,16 +613,21 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 				return nil, err
 			}
 			if _, err := appendEvent(ctx, tx, repositoryID, row["run_id"], "worktree.gc_removed", nil, row["job_id"], nil, nil, row["lease_id"], map[string]any{
-				"worktree_id":   row["worktree_id"],
-				"worktree_path": row["worktree_path"],
-				"head":          nullableString(check.Reachability.Head),
-				"reachable":     check.Reachability.Reachable,
-				"checked_refs":  check.Reachability.CheckedRefs,
-				"job_state":     row["job_state"],
+				"worktree_id":     row["worktree_id"],
+				"worktree_path":   row["worktree_path"],
+				"head":            nullableString(check.Reachability.Head),
+				"reachable":       check.Reachability.Reachable,
+				"checked_refs":    check.Reachability.CheckedRefs,
+				"job_state":       row["job_state"],
+				"missing_on_disk": check.MissingOnDisk,
 			}); err != nil {
 				return nil, err
 			}
 			base["status"] = "removed"
+			base["missing_on_disk"] = check.MissingOnDisk
+			if check.Reason != "" {
+				base["reason"] = check.Reason
+			}
 			base["head"] = nullableString(check.Reachability.Head)
 			base["reachable"] = check.Reachability.Reachable
 			base["checked_refs"] = check.Reachability.CheckedRefs
@@ -655,7 +759,7 @@ func worktreeGCDecision(ctx context.Context, repoRoot string, row map[string]any
 		return worktreeGCCheck{Reason: "invalid_path"}, err
 	}
 	if !pathExists(target) {
-		return worktreeGCCheck{Reason: "missing_on_disk", Target: target}, nil
+		return worktreeGCCheck{Remove: true, Reason: "missing_on_disk", Target: target, MissingOnDisk: true}, nil
 	}
 	reachability, err := worktreeHeadReachability(ctx, repoRoot, target, row)
 	if err != nil {

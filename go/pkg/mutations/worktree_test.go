@@ -1122,7 +1122,7 @@ func TestWorktreeReleaseRefusesPublishedArtifactOnlyInUncommittedWorktree(t *tes
 	}
 }
 
-func TestWorktreeReleaseRefusesMissingActiveWorktreePath(t *testing.T) {
+func TestWorktreeReleaseRefusesMissingActiveWorktreePathWithoutForce(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
 	}
@@ -1149,6 +1149,84 @@ func TestWorktreeReleaseRefusesMissingActiveWorktreePath(t *testing.T) {
 	if row["state"] != "active" {
 		t.Fatalf("worktree state = %#v, want active", row["state"])
 	}
+}
+
+func TestWorktreeReleaseForceRefusesMissingNonTerminalWorktreePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "release_missing_non_terminal", true)
+	gitRun(t, repoRoot, "worktree", "remove", "--force", ids.worktreeRoot)
+
+	_, err := HandleWorktreeRelease(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"worktree_id": ids.worktreeID,
+		"force":       true,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
+		!strings.Contains(rpcErr.Message, "requires a terminal job") {
+		t.Fatalf("release error = %v, want terminal-job refusal", err)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT state FROM striatumd.job_worktrees
+		 WHERE repository_id = $1 AND worktree_id = $2`, ids.repoID, ids.worktreeID)
+	if err != nil {
+		t.Fatalf("read worktree row: %v", err)
+	}
+	if row["state"] != "active" {
+		t.Fatalf("worktree state = %#v, want active", row["state"])
+	}
+}
+
+func TestWorktreeReleaseForceRemovesMissingTerminalWorktreePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "release_missing_terminal", true)
+	gitRun(t, repoRoot, "worktree", "remove", "--force", ids.worktreeRoot)
+	completeSeededWorktreeJobWithInactiveLease(t, ctx, runner, ids)
+
+	result, err := HandleWorktreeRelease(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"worktree_id": ids.worktreeID,
+		"force":       true,
+	}))
+	if err != nil {
+		t.Fatalf("HandleWorktreeRelease: %v", err)
+	}
+	if result["status"] != "force_released" || result["missing_on_disk"] != true {
+		t.Fatalf("release result = %#v, want force_released missing_on_disk", result)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT state, released_at, removed_at FROM striatumd.job_worktrees
+		 WHERE repository_id = $1 AND worktree_id = $2`, ids.repoID, ids.worktreeID)
+	if err != nil {
+		t.Fatalf("read worktree row: %v", err)
+	}
+	if row["state"] != "removed" || row["released_at"] == nil || row["removed_at"] == nil {
+		t.Fatalf("worktree row = %#v, want removed with release timestamps", row)
+	}
+	event, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND job_id = $3
+		   AND event_type = 'worktree.force_released'`, ids.repoID, ids.runID, ids.jobID)
+	if err != nil {
+		t.Fatalf("missing worktree.force_released event: %v", err)
+	}
+	payload := asMap(event["payload_json"])
+	if payload["missing_on_disk"] != true || payload["worktree_id"] != ids.worktreeID || payload["reachable"] != false {
+		t.Fatalf("event payload = %#v, want missing-on-disk force release", payload)
+	}
+	problems := doctorProblemsForRepo(t, ctx, runner, ids.repoID)
+	assertNotContainsString(t, problems, "worktree_head_unreachable")
 }
 
 func TestWorktreeCompletionStillRejectsOutOfScopeDirtInsideActiveWorktree(t *testing.T) {

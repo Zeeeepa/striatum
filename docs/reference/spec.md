@@ -2551,19 +2551,22 @@ the worktree HEAD at `refs/striatum/<run_id>/<job_id>`. The completion emits
 `striatum worktree release --worktree-id <id>` refuses to remove a worktree
 whose HEAD is not reachable from the run branch or a `refs/striatum/` pin,
 returning `worktree_head_unreachable`. Passing `--force` performs the
-discarding removal and emits `worktree.force_released`; otherwise a
-reachable release runs `git worktree remove --force`, emits
-`worktree.released`, and marks the row `removed`. Releasing an
-already-terminal row is a no-op. `striatum worktree list [--run-id <id>]`
+discarding removal and emits `worktree.force_released`. If the path is already
+missing on disk, `--force` may retire the row only when the owning job is
+terminal; the event payload records `missing_on_disk: true`. Otherwise a
+reachable release runs `git worktree remove --force`, emits `worktree.released`,
+and marks the row `removed`. Releasing an already-terminal row is a no-op.
+`striatum worktree list [--run-id <id>]`
 returns the rows plus each job's `workflow_job_id` and a read-only ref-safety
 projection: `head`, `reachable`, `anchor` (`run_branch`, `job_pin`, `none`, or
 `unreachable`), `anchored_ref`, and `checked_refs`.
 
-`striatum worktree gc [--run-id <id>]` removes only on-disk worktree
-directories for terminal jobs whose HEAD is already reachable from the run
-branch or a `refs/striatum/` pin. It skips non-terminal jobs, missing on-disk
-paths, probe failures, and unreachable HEADs, returns skipped rows with typed
-reasons, marks removed rows `removed`, and emits `worktree.gc_removed`.
+`striatum worktree gc [--run-id <id>]` removes on-disk worktree directories for
+terminal jobs whose HEAD is already reachable from the run branch or a
+`refs/striatum/` pin. It also retires terminal rows whose path is already
+missing on disk and records `missing_on_disk: true`. It skips non-terminal jobs,
+probe failures, and unreachable HEADs, returns skipped rows with typed reasons,
+marks removed rows `removed`, and emits `worktree.gc_removed`.
 
 `publish-artifact` continues to validate write scope and content against the
 logical repo-relative path, but when an active worktree exists for the job it
