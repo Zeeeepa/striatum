@@ -1428,13 +1428,16 @@ striatum adapter run
 Human read commands can pretty-print. `--json` returns stable machine-readable
 JSON. Mutation commands support JSON output for agent use.
 
-`striatum run drive --run-id <id> [--interval 15s] [--once] [--json]` is a
+`striatum run drive --run-id <id> [--interval 15s]
+[--provider-auth-gate auto|required|off] [--once] [--json]` is a
 CLI-local operator loop over existing daemon RPC methods. It re-reads run
 detail and sessions, registers/supervises fresh role-lane sessions as queued
 jobs unblock, adopts already-active matching sessions, and stops terminal or
-superseded launched lanes before fresh-reviewer registration. It is
-not a new daemon RPC method and does not use recovery, retry, override, or
-force-non-fresh verbs.
+superseded launched lanes before fresh-reviewer registration. It is not a new
+daemon RPC method and does not use recovery, retry, override, or force-non-fresh
+verbs. The provider-auth gate mode is forwarded to `supervise.start`; a blocking
+lane-provider-auth refusal closes the freshly registered session, reports a
+sanitized action, and stops the driver invocation.
 
 ## Introspection
 
@@ -1983,6 +1986,15 @@ retired. Supervision state and delivery are daemon-owned; supervised lane
 processes default to the daemon OS user, or launch as the configured
 `STRIATUM_LANE_OS_USER` through noninteractive sudo when the host adopts the
 PG-less lane-user profile.
+Before a supported Codex agent-loop lane is launched, `supervise.start` also
+applies the RFC 0121 lane provider-auth gate. The `provider_auth_gate` mode is
+`auto` by default, `required` to fail unsupported providers, and `off` only as
+an explicit rollback. The gate runs after frozen workflow/lane/run-as
+resolution and before supervisor scratch/FIFO creation, session-bound lane
+token minting/injection, supervisor rows/events, helper/tmux setup, or the real
+provider process. It returns only safe classification fields; raw provider
+stdout/stderr/final text, auth paths, provider account ids, environment values,
+token material, PTY logs, and tracebacks are never returned or persisted.
 
 The Python daemon is no longer a selectable production core. RFC 0039
 introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol
@@ -2222,11 +2234,14 @@ without blocking historical `stopped` or `lost` rows.
 
 The supervise CLI surface:
 
-- `striatum supervise start --session-id <id>` validates the session is
+- `striatum supervise start --session-id <id>
+  [--provider-auth-gate auto|required|off]` validates the session is
   active and that its lane uses the `process` adapter, refuses if the
   session already has a supervisor in `('starting','attached','detached')`
-  state, and forks the lane command in a daemon-owned persistent supervision
-  session. When `STRIATUM_LANE_OS_USER` names a distinct OS user, the daemon
+  state, applies the lane provider-auth gate for supported Codex agent-loop
+  lanes, and forks the lane command in a daemon-owned persistent supervision
+  session only after the gate passes or is explicitly off. When
+  `STRIATUM_LANE_OS_USER` names a distinct OS user, the daemon
   launches the lane command and any tmux session as that user with
   `sudo -n -u <lane-user> -- env -i ...`; otherwise it preserves the same-user
   behavior. It keeps raw provider output out of daemon/PostgreSQL state and
@@ -2411,6 +2426,9 @@ control-plane progress is stale. `striatum supervise stop` is idempotent
 against a supervisor whose latest row is already `lost` or `stopped`:
 rather than raising `InvalidTransitionError`, it returns the existing
 terminal row plus a `note` describing the prior state.
+`striatum doctor --lane-provider-auth codex --json` is an explicit diagnostic
+over the same provider-auth primitive; ordinary `doctor` and
+`doctor --verbose` never invoke provider CLIs.
 
 #### Supervised Lane Command Contract
 

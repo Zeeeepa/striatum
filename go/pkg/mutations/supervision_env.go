@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/agentloop"
+	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 )
 
 // supervisedEnv builds the full environment for a supervised lane process.
@@ -52,6 +53,42 @@ func supervisedPTYHelperSpecEnv(config supervisionStartConfig, supervisorID stri
 		return applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
 	}
 	return supervisedLaneEnv(config, supervisorID)
+}
+
+func providerAuthPreflightEnv(config supervisionStartConfig) []string {
+	base := os.Environ()
+	if strings.TrimSpace(config.RunAsUser) != "" {
+		base = providerAuthRunAsBaseEnv(config.RunAsUser)
+	}
+	if len(config.LaunchEnv) > 0 {
+		base = mergeEnvReplacing(base, commandEnvEntries(config.LaunchEnv))
+	}
+	return laneproviderauth.SanitizeEnv(base, config.LaunchPathPrefix)
+}
+
+func providerAuthRunAsBaseEnv(runAsUser string) []string {
+	base := providerAuthRunAsPassThrough(os.Environ())
+	updates := append([]string{"PATH=" + supervisedPath()}, laneUserIdentityEnv(runAsUser)...)
+	return mergeEnvReplacing(base, updates)
+}
+
+func providerAuthRunAsPassThrough(base []string) []string {
+	out := []string{}
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		switch key {
+		case "TERM", "COLORTERM", "LANG", "LANGUAGE", "TZ":
+			out = append(out, entry)
+		default:
+			if strings.HasPrefix(key, "LC_") {
+				out = append(out, entry)
+			}
+		}
+	}
+	return out
 }
 
 // applyLaneLaunchEnv layers the workflow-authored lane launch env (#223) onto an

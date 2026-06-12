@@ -44,6 +44,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
 	lintDeprecatedClaudePrintLane(workflow, &findings)
+	lintAdapterFlagMismatches(workflow, &findings)
 	lintExperimentalShape(workflow, &findings)
 	lintDegradedSeatLane(workflow, &findings)
 	lintInterrogationTargets(workflow, jobMap, &findings)
@@ -691,6 +692,107 @@ func RefuseClaudePrintLanes(workflow map[string]any) error {
 		}
 	}
 	return nil
+}
+
+type adapterFlagRule struct {
+	flag           string
+	allowedAdapter string
+	label          string
+}
+
+var adapterSpecificUnsafeFlags = []adapterFlagRule{
+	{
+		flag:           "--dangerously-skip-permissions",
+		allowedAdapter: "claude",
+		label:          "Claude",
+	},
+	{
+		flag:           "--permission-mode",
+		allowedAdapter: "claude",
+		label:          "Claude",
+	},
+	{
+		flag:           "--dangerously-bypass-approvals-and-sandbox",
+		allowedAdapter: "codex",
+		label:          "Codex",
+	},
+	{
+		flag:           "--yolo",
+		allowedAdapter: "codex",
+		label:          "Codex",
+	},
+}
+
+var knownAdapterFlagSeats = map[string]bool{
+	"agy":    true,
+	"claude": true,
+	"codex":  true,
+}
+
+// lintAdapterFlagMismatches refuses workflow-authored commands that put a
+// provider-specific unsafe flag on a different provider's lane. These mistakes
+// launch successfully enough to burn a run but fail inside the adapter CLI, so
+// the scaffold has to reject them before a supervised lane is spawned.
+func lintAdapterFlagMismatches(workflow map[string]any, findings *[]map[string]any) {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		adapter := laneAdapter(lane)
+		if !knownAdapterFlagSeats[adapter] {
+			continue
+		}
+		for _, flag := range laneCommandFlags(lane) {
+			rule, ok := adapterFlagRuleFor(flag)
+			if !ok || rule.allowedAdapter == adapter {
+				continue
+			}
+			*findings = append(*findings, map[string]any{
+				"rule":            "adapter_flag_mismatch",
+				"severity":        "refusal",
+				"message":         adapterFlagMismatchRefusalMessage(laneID, adapter, flag, rule),
+				"lane_id":         laneID,
+				"adapter":         adapter,
+				"flag":            flag,
+				"allowed_adapter": rule.allowedAdapter,
+			})
+		}
+	}
+}
+
+func adapterFlagMismatchRefusalMessage(laneID string, adapter string, flag string, rule adapterFlagRule) string {
+	return fmt.Sprintf("lane %q runs adapter %q with %s-only unsafe flag %q — REFUSED. Use an adapter-specific command for this lane; do not carry Claude or Codex unsafe flags across adapters.", laneID, adapter, rule.label, flag)
+}
+
+func adapterFlagRuleFor(flag string) (adapterFlagRule, bool) {
+	for _, rule := range adapterSpecificUnsafeFlags {
+		if rule.flag == flag {
+			return rule, true
+		}
+	}
+	return adapterFlagRule{}, false
+}
+
+func laneCommandFlags(lane map[string]any) []string {
+	flags := []string{}
+	for _, arg := range stringsFromSlice(lane["command"]) {
+		for _, field := range strings.Fields(arg) {
+			flag := strings.Trim(field, "\"'")
+			if !strings.HasPrefix(flag, "-") {
+				continue
+			}
+			if before, _, ok := strings.Cut(flag, "="); ok {
+				flag = before
+			}
+			flags = append(flags, flag)
+		}
+	}
+	return flags
 }
 
 // laneCommandIsClaudePrint reports whether a lane invokes the `claude` binary

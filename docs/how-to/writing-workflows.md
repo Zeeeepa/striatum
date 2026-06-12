@@ -394,7 +394,7 @@ remains the persistent FIFO mode for wrappers that handle multiple packets.
 "agy": {
   "adapter": "process",
   "display_model": "Antigravity",
-  "command": ["agy", "--dangerously-skip-permissions"],
+  "command": ["agy", "--sandbox"],
   "adapter_capabilities": {"agent_loop": true},
   "capabilities": ["write", "review"]
 }
@@ -413,6 +413,10 @@ warning is separate from the `claude --print` hard refusal below.
 Agent-loop lanes use the PTY helper; when `tmux` is available they are
 tmux-backed and operator-attachable by default, and status/doctor expose the
 local diagnostic log under `trajectory_log`.
+Do not copy unsafe flags across adapters: `workflow.lint` refuses
+adapter-specific unsafe flags such as Claude's `--dangerously-skip-permissions`
+or Codex's `--dangerously-bypass-approvals-and-sandbox` when they appear on an
+`agy` lane.
 
 ### `claude --print` lanes are refused
 

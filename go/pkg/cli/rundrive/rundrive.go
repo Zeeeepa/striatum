@@ -3,6 +3,7 @@ package rundrive
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
+	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 type Invoker interface {
@@ -19,17 +24,18 @@ type Invoker interface {
 }
 
 type Options struct {
-	RepositoryID string
-	RunID        string
-	RepoRoot     string
-	Interval     time.Duration
-	Once         bool
-	JSON         bool
-	Stdout       io.Writer
-	Stderr       io.Writer
-	Now          func() time.Time
-	Sleep        func(context.Context, time.Duration) error
-	PID          int
+	RepositoryID     string
+	RunID            string
+	RepoRoot         string
+	Interval         time.Duration
+	Once             bool
+	JSON             bool
+	Stdout           io.Writer
+	Stderr           io.Writer
+	Now              func() time.Time
+	Sleep            func(context.Context, time.Duration) error
+	PID              int
+	ProviderAuthGate string
 }
 
 type Driver struct {
@@ -59,6 +65,18 @@ type TerminalError struct {
 
 func (e TerminalError) Error() string {
 	return fmt.Sprintf("run %s reached terminal state %s", e.RunID, e.State)
+}
+
+type ProviderAuthRefusalError struct {
+	Code      string
+	SessionID string
+}
+
+func (e ProviderAuthRefusalError) Error() string {
+	if e.Code == "" {
+		return "lane provider auth preflight refused launch"
+	}
+	return "lane provider auth preflight refused launch: " + e.Code
 }
 
 type slotKey struct {
@@ -107,6 +125,9 @@ func New(invoker Invoker, options Options) *Driver {
 	}
 	if options.PID == 0 {
 		options.PID = os.Getpid()
+	}
+	if strings.TrimSpace(options.ProviderAuthGate) == "" {
+		options.ProviderAuthGate = "auto"
 	}
 	return &Driver{
 		invoker:  invoker,
@@ -181,7 +202,11 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 			return actions, state, false, err
 		}
 	}
-	actions = append(actions, d.launchQueued(ctx, jobs, workflow, sessions)...)
+	launchActions, err := d.launchQueued(ctx, jobs, workflow, sessions)
+	actions = append(actions, launchActions...)
+	if err != nil {
+		return actions, state, false, err
+	}
 	return actions, state, false, nil
 }
 
@@ -237,7 +262,7 @@ func (d *Driver) stopLaunchedSession(ctx context.Context, key slotKey, sessionID
 	return action
 }
 
-func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workflow map[string]any, sessions []map[string]any) []Action {
+func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workflow map[string]any, sessions []map[string]any) ([]Action, error) {
 	actions := []Action{}
 	activeBySlot := activeSessionsBySlot(sessions)
 	usedSessions := map[string]bool{}
@@ -300,7 +325,20 @@ func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workfl
 			SessionID: sessionID,
 			Result:    "attempted",
 		})
-		if _, err := d.invoke(ctx, "supervise.start", map[string]any{"session_id": sessionID}); err != nil {
+		if _, err := d.invoke(ctx, "supervise.start", map[string]any{
+			"session_id":         sessionID,
+			"provider_auth_gate": d.options.ProviderAuthGate,
+		}); err != nil {
+			if code, ok := providerAuthFailureCode(err); ok {
+				startAction.Result = "blocked"
+				startAction.Message = "lane provider auth preflight refused launch: " + code
+				actions = append(actions, startAction)
+				_, _ = d.invoke(ctx, "session.close", map[string]any{
+					"session_id": sessionID,
+					"reason":     "run drive provider auth preflight refused launch: " + code,
+				})
+				return actions, ProviderAuthRefusalError{Code: code, SessionID: sessionID}
+			}
 			startAction.Result = "error"
 			startAction.Message = err.Error()
 			actions = append(actions, startAction)
@@ -315,7 +353,7 @@ func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workfl
 		d.launched[key] = sessionID
 		usedSessions[sessionID] = true
 	}
-	return actions
+	return actions, nil
 }
 
 func (d *Driver) registerLane(ctx context.Context, role, lane string) (string, []Action, error) {
@@ -583,6 +621,34 @@ func isFreshPolicyRefusal(err error) bool {
 	text := err.Error()
 	return strings.Contains(text, "reviewer_context_policy: fresh") ||
 		strings.Contains(text, "--force-non-fresh")
+}
+
+func providerAuthFailureCode(err error) (string, bool) {
+	if err == nil {
+		return "", false
+	}
+	var rpcErr *rpc.Error
+	if errors.As(err, &rpcErr) && laneproviderauth.IsFailureClass(rpcErr.Code) {
+		return rpcErr.Code, true
+	}
+	var clientErr *rpcclient.Error
+	if errors.As(err, &clientErr) && laneproviderauth.IsFailureClass(clientErr.Code) {
+		return clientErr.Code, true
+	}
+	for _, code := range []string{
+		laneproviderauth.FailureAuthFailed,
+		laneproviderauth.FailureBinaryMissing,
+		laneproviderauth.FailureUnavailable,
+		laneproviderauth.FailureTimeout,
+		laneproviderauth.FailureLaunchFailed,
+		laneproviderauth.FailureUnsupported,
+		laneproviderauth.FailureUnexpectedResult,
+	} {
+		if strings.Contains(err.Error(), code) {
+			return code, true
+		}
+	}
+	return "", false
 }
 
 func safeFileComponent(value string) string {

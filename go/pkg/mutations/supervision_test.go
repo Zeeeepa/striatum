@@ -138,7 +138,11 @@ func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 			"supervisor_id": "sup_1",
 			"session_id":    "sess_1",
 			"event_type":    "agent_exited",
-			"payload":       map[string]any{"exit_code": 7},
+			"payload": map[string]any{
+				"exit_code":     7,
+				"pty_log_path":  "/tmp/striatum/sup_1/pty.log",
+				"pty_log_bytes": 55,
+			},
 		},
 	})
 	if err != nil {
@@ -177,6 +181,9 @@ func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 	nested, ok := payload["payload"].(map[string]any)
 	if !ok || nested["exit_code"] != 7 {
 		t.Fatalf("nested payload = %#v", payload["payload"])
+	}
+	if nested["pty_log_path"] != "/tmp/striatum/sup_1/pty.log" || nested["pty_log_bytes"] != 55 {
+		t.Fatalf("agent_exited did not retain pty log diagnostic fields: %#v", nested)
 	}
 }
 

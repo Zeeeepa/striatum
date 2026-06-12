@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
@@ -610,6 +611,93 @@ func TestSuperviseStartRefusesUnsupportedAgentLoopAdapter(t *testing.T) {
 	}
 }
 
+func TestSuperviseStartProviderAuthRefusalHasNoLaunchSideEffects(t *testing.T) {
+	origMkfifo := supervisionMkfifo
+	origLaunch := supervisionLaunch
+	origProviderAuth := supervisionProviderAuthCheck
+	defer func() {
+		supervisionMkfifo = origMkfifo
+		supervisionLaunch = origLaunch
+		supervisionProviderAuthCheck = origProviderAuth
+	}()
+	supervisionMkfifo = func(path string) error {
+		t.Fatalf("provider-auth refusal must happen before FIFO creation: %s", path)
+		return nil
+	}
+	supervisionLaunch = func(_ context.Context, _ supervisionStartConfig, _ string, _ string, _ string, _ string) (supervisionLaunchResult, error) {
+		t.Fatalf("provider-auth refusal must happen before launching the provider lane")
+		return supervisionLaunchResult{}, nil
+	}
+	supervisionProviderAuthCheck = func(_ context.Context, params laneproviderauth.Params) laneproviderauth.Result {
+		if params.RunID != "run_1" || params.LaneID != "lane_1" || params.Provider != laneproviderauth.ProviderCodex {
+			t.Fatalf("preflight params = %#v", params)
+		}
+		renderedEnv := strings.Join(params.Env, "\n")
+		for _, forbidden := range []string{"STRIATUM_MCP_TOKEN", "DATABASE_URL", "OPENAI_API_KEY"} {
+			if strings.Contains(renderedEnv, forbidden) {
+				t.Fatalf("preflight env leaked %s: %s", forbidden, renderedEnv)
+			}
+		}
+		return laneproviderauth.Result{
+			Checked:           true,
+			Provider:          laneproviderauth.ProviderCodex,
+			RunID:             params.RunID,
+			LaneID:            params.LaneID,
+			RunAsUser:         params.RunAsUser,
+			Status:            laneproviderauth.StatusFailed,
+			FailureClass:      laneproviderauth.FailureAuthFailed,
+			RawOutputReturned: false,
+			Network:           "provider_cli_may_use_network",
+			Costing:           "provider_tokens_may_be_spent",
+			Remediation:       "refresh the provider login for the lane OS user, then retry supervise.start",
+		}
+	}
+	t.Setenv("STRIATUM_MCP_TOKEN", "must-not-leak")
+	t.Setenv("DATABASE_URL", "postgres://must-not-leak")
+	t.Setenv("OPENAI_API_KEY", "must-not-leak")
+
+	repoRoot := t.TempDir()
+	tx1 := &superviseControlFakeTx{}
+	runner := &superviseControlFakeRunner{
+		repoRoot: repoRoot,
+		workflowLane: map[string]any{
+			"adapter_capabilities": map[string]any{"agent_loop": true},
+			"command":              []any{"codex"},
+		},
+		txs: []*superviseControlFakeTx{tx1},
+	}
+	_, err := HandleSuperviseStart(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_start_provider_auth_refused",
+		Method:        "supervise.start",
+		Params: map[string]any{
+			"repository_id":      "repo_1",
+			"session_id":         "sess_1",
+			"provider_auth_gate": "required",
+		},
+	})
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok || rpcErr.Code != laneproviderauth.FailureAuthFailed {
+		t.Fatalf("expected %s rpc error, got %#v", laneproviderauth.FailureAuthFailed, err)
+	}
+	if tx1.sawExec("INSERT INTO striatumd.process_supervisors") ||
+		tx1.sawExec("INSERT INTO striatumd.daemon_supervisors") ||
+		tx1.sawEventType("supervisor.starting") {
+		t.Fatalf("provider-auth refusal created supervisor state: %#v", tx1.execs)
+	}
+	if _, statErr := os.Stat(filepath.Join(repoRoot, ".striatum", "scratch")); !os.IsNotExist(statErr) {
+		t.Fatalf("provider-auth refusal must not create supervisor scratch; stat err=%v", statErr)
+	}
+	details := rpcErr.Details["lane_provider_auth"].(map[string]any)
+	if details["raw_output_returned"] != false || details["failure_class"] != laneproviderauth.FailureAuthFailed {
+		t.Fatalf("safe details = %#v", details)
+	}
+	renderedDetails, _ := json.Marshal(details)
+	if strings.Contains(string(renderedDetails), "must-not-leak") {
+		t.Fatalf("provider-auth details leaked secret material: %s", string(renderedDetails))
+	}
+}
+
 // TestSuperviseStartLabelsNonAgentLoopLaneAsPush guards #146: a lane that does
 // NOT use the agent loop is a stdin-FIFO/push consumer (it reads a delivered
 // packet then runs the agent), not a true self-driver that calls
@@ -961,6 +1049,70 @@ func TestSupervisedLaneEnvAppliesLaunchEnv(t *testing.T) {
 	}
 	if values["STRIATUM_MCP_TOKEN"] != "tok-123" {
 		t.Fatalf("STRIATUM_MCP_TOKEN = %q, want the injected bound token", values["STRIATUM_MCP_TOKEN"])
+	}
+}
+
+func TestProviderAuthPreflightEnvKeepsSafeLaunchEnvOnly(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("STRIATUM_MCP_TOKEN", "shared-operator-token")
+	t.Setenv("DATABASE_URL", "postgres://secret")
+	config := supervisionStartConfig{
+		LaunchPathPrefix: []string{"/opt/codex/bin"},
+		LaunchEnv: map[string]string{
+			"CODEX_HOME":     "/home/lane/.codex",
+			"OPENAI_API_KEY": "must-not-leak",
+		},
+	}
+
+	values := envValues(providerAuthPreflightEnv(config))
+	if values["CODEX_HOME"] != "/home/lane/.codex" {
+		t.Fatalf("CODEX_HOME = %q, want launch env value", values["CODEX_HOME"])
+	}
+	if !strings.HasPrefix(values["PATH"], "/opt/codex/bin"+string(os.PathListSeparator)) {
+		t.Fatalf("PATH = %q, want path_prefix prepended", values["PATH"])
+	}
+	for _, forbidden := range []string{"STRIATUM_MCP_TOKEN", "DATABASE_URL", "OPENAI_API_KEY"} {
+		if _, ok := values[forbidden]; ok {
+			t.Fatalf("provider auth preflight env leaked %s: %#v", forbidden, values)
+		}
+	}
+}
+
+func TestProviderAuthPreflightEnvRunAsUsesLaneAuthHome(t *testing.T) {
+	origLaneHome := laneOSUserHome
+	t.Cleanup(func() { laneOSUserHome = origLaneHome })
+	laneOSUserHome = func(name string) string {
+		if name == "striatum-lane" {
+			return "/home/striatum-lane"
+		}
+		return ""
+	}
+	t.Setenv("PATH", "/usr/bin")
+	t.Setenv("CODEX_HOME", "/home/operator/.codex")
+	t.Setenv("XDG_CONFIG_HOME", "/home/operator/.config")
+	t.Setenv("XDG_CACHE_HOME", "/home/operator/.cache")
+
+	values := envValues(providerAuthPreflightEnv(supervisionStartConfig{RunAsUser: "striatum-lane"}))
+	if values["HOME"] != "/home/striatum-lane" {
+		t.Fatalf("HOME = %q, want lane user home", values["HOME"])
+	}
+	for _, forbidden := range []string{"CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		if _, ok := values[forbidden]; ok {
+			t.Fatalf("run-as provider auth env inherited operator %s: %#v", forbidden, values)
+		}
+	}
+	if authHome := laneproviderauth.ResolveAuthHome(laneproviderauth.ProviderCodex, providerAuthPreflightEnv(supervisionStartConfig{RunAsUser: "striatum-lane"})); authHome != "/home/striatum-lane/.codex" {
+		t.Fatalf("auth home = %q, want lane HOME/.codex", authHome)
+	}
+
+	withLaunchHome := envValues(providerAuthPreflightEnv(supervisionStartConfig{
+		RunAsUser: "striatum-lane",
+		LaunchEnv: map[string]string{
+			"CODEX_HOME": "/srv/lane-codex",
+		},
+	}))
+	if withLaunchHome["CODEX_HOME"] != "/srv/lane-codex" {
+		t.Fatalf("LaunchEnv CODEX_HOME = %q, want explicit lane value", withLaunchHome["CODEX_HOME"])
 	}
 }
 

@@ -20,6 +20,8 @@ import (
 const (
 	tmuxSessionNameMaxLen  = 100
 	tmuxSessionNameHashLen = 12
+	launchEnvFileName      = "lane-env.sh"
+	launchEnvFileExec      = "set -a; . \"$1\"; shift; exec \"$@\""
 )
 
 // LaunchSpec describes a supervised child process. The fields mirror the
@@ -28,6 +30,7 @@ const (
 type LaunchSpec struct {
 	Command       []string          // exec argv
 	Env           []string          // additional KEY=VAL entries (merged with os.Environ)
+	EnvFilePath   string            // optional shell env file path used instead of argv-carried env
 	WorkingDir    string            // wd for the child
 	RunAsUser     string            // optional OS user for lane process/tmux execution
 	StdinPipePath string            // FIFO path; daemon writes packets here
@@ -49,6 +52,11 @@ type LaunchResult struct {
 	Metadata    map[string]any
 }
 
+type commandEnvironment struct {
+	entries  []string
+	filePath string
+}
+
 func getEnvValue(env []string, key string) string {
 	prefix := key + "="
 	for _, entry := range env {
@@ -60,7 +68,8 @@ func getEnvValue(env []string, key string) string {
 }
 
 func commandContext(ctx context.Context, spec LaunchSpec, program string, args ...string) *exec.Cmd {
-	path, cmdArgs, cmdEnv := commandInvocation(strings.TrimSpace(spec.RunAsUser), spec.Env, program, args...)
+	env := commandEnvironment{entries: spec.Env, filePath: spec.EnvFilePath}
+	path, cmdArgs, cmdEnv := commandInvocationWithEnvFile(strings.TrimSpace(spec.RunAsUser), env, program, args...)
 	cmd := exec.CommandContext(ctx, path, cmdArgs...)
 	cmd.Dir = spec.WorkingDir
 	cmd.Env = cmdEnv
@@ -68,22 +77,61 @@ func commandContext(ctx context.Context, spec LaunchSpec, program string, args .
 }
 
 func commandInvocation(runAsUser string, env []string, program string, args ...string) (string, []string, []string) {
+	return commandInvocationWithEnvFile(runAsUser, commandEnvironment{entries: env}, program, args...)
+}
+
+func commandInvocationWithEnvFile(runAsUser string, env commandEnvironment, program string, args ...string) (string, []string, []string) {
 	if strings.TrimSpace(runAsUser) == "" {
-		return program, append([]string(nil), args...), mergeEnv(os.Environ(), env)
+		return program, append([]string(nil), args...), mergeEnv(os.Environ(), env.entries)
+	}
+	if strings.TrimSpace(env.filePath) != "" {
+		wrapped := envFileWrappedCommand(strings.TrimSpace(env.filePath), append([]string{program}, args...))
+		sudoArgs := []string{"-n", "-u", strings.TrimSpace(runAsUser), "--", "env", "-i"}
+		sudoArgs = append(sudoArgs, wrapped...)
+		return "sudo", sudoArgs, nil
 	}
 	sudoArgs := []string{"-n", "-u", strings.TrimSpace(runAsUser), "--", "env", "-i"}
-	sudoArgs = append(sudoArgs, sanitizedRunAsEnv(env)...)
+	sudoArgs = append(sudoArgs, sanitizedRunAsEnv(env.entries)...)
 	sudoArgs = append(sudoArgs, program)
 	sudoArgs = append(sudoArgs, args...)
 	return "sudo", sudoArgs, nil
 }
 
 func sanitizedRunAsEnv(env []string) []string {
-	out := dedupeEnvLastWins(env)
+	out := nonSensitiveEnv(dedupeEnvLastWins(env))
 	if getEnvValue(out, "PATH") == "" {
 		out = append([]string{"PATH=" + defaultRunAsPath()}, out...)
 	}
 	return out
+}
+
+func nonSensitiveEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || sensitiveEnvKey(key) {
+			continue
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func sensitiveEnvKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	if upper == "" {
+		return true
+	}
+	switch upper {
+	case "STRIATUM_MCP_TOKEN", "STRIATUM_MCP_TOKEN_FILE", "DATABASE_URL", "PGPASSWORD":
+		return true
+	}
+	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "CREDENTIAL", "DSN"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func dedupeEnvLastWins(env []string) []string {
@@ -110,6 +158,124 @@ func defaultRunAsPath() string {
 		return path
 	}
 	return "/usr/local/bin:/usr/bin:/bin"
+}
+
+func prepareLaunchEnvFile(ctx context.Context, scratchDir string, supervisorID string, spec LaunchSpec) (LaunchSpec, func(), error) {
+	if strings.TrimSpace(spec.EnvFilePath) != "" || len(spec.Env) == 0 {
+		return spec, func() {}, nil
+	}
+	content, err := launchEnvFileContent(spec.Env)
+	if err != nil {
+		return spec, nil, err
+	}
+	var path string
+	var cleanup func()
+	if strings.TrimSpace(spec.RunAsUser) != "" {
+		path, cleanup, err = writeRunAsLaunchEnvFile(ctx, strings.TrimSpace(spec.RunAsUser), content)
+	} else {
+		path, cleanup, err = writeSameUserLaunchEnvFile(scratchDir, supervisorID, content)
+	}
+	if err != nil {
+		return spec, nil, err
+	}
+	spec.EnvFilePath = path
+	return spec, cleanup, nil
+}
+
+func writeSameUserLaunchEnvFile(scratchDir string, supervisorID string, content []byte) (string, func(), error) {
+	if strings.TrimSpace(scratchDir) == "" {
+		scratchDir = os.TempDir()
+	}
+	dir := filepath.Join(scratchDir, supervisorID)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", nil, err
+	}
+	path := filepath.Join(dir, launchEnvFileName)
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return "", nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		_ = os.Remove(path)
+		return "", nil, err
+	}
+	return path, func() { _ = os.Remove(path) }, nil
+}
+
+func writeRunAsLaunchEnvFile(ctx context.Context, runAsUser string, content []byte) (string, func(), error) {
+	script := strings.Join([]string{
+		"set -eu",
+		"tmpdir=${TMPDIR:-/tmp}",
+		"path=$(mktemp \"$tmpdir/striatum-supervisor-env.XXXXXX\")",
+		"chmod 600 \"$path\"",
+		"cat > \"$path\"",
+		"printf '%s' \"$path\"",
+	}, "; ")
+	cmd := exec.CommandContext(ctx, "sudo", "-n", "-u", runAsUser, "--", "sh", "-c", script)
+	cmd.Stdin = bytes.NewReader(content)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = err.Error()
+		}
+		return "", nil, fmt.Errorf("write run-as env file: %s", detail)
+	}
+	path := strings.TrimSpace(stdout.String())
+	if path == "" {
+		return "", nil, fmt.Errorf("write run-as env file: empty path")
+	}
+	cleanup := func() {
+		_ = exec.Command("sudo", "-n", "-u", runAsUser, "--", "rm", "-f", "--", path).Run()
+	}
+	return path, cleanup, nil
+}
+
+func launchEnvFileContent(env []string) ([]byte, error) {
+	var body strings.Builder
+	for _, entry := range dedupeEnvLastWins(env) {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || key == "" {
+			continue
+		}
+		if !validEnvKey(key) {
+			return nil, fmt.Errorf("supervisor: invalid env key %q", key)
+		}
+		body.WriteString("export ")
+		body.WriteString(key)
+		body.WriteByte('=')
+		body.WriteString(shellQuote(value))
+		body.WriteByte('\n')
+	}
+	return []byte(body.String()), nil
+}
+
+func validEnvKey(key string) bool {
+	for i, r := range key {
+		switch {
+		case r == '_':
+		case r >= 'A' && r <= 'Z':
+		case r >= 'a' && r <= 'z':
+		case i > 0 && r >= '0' && r <= '9':
+		default:
+			return false
+		}
+	}
+	return key != "" && (key[0] == '_' || key[0] >= 'A' && key[0] <= 'Z' || key[0] >= 'a' && key[0] <= 'z')
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func envFileWrappedCommand(envFilePath string, command []string) []string {
+	if strings.TrimSpace(envFilePath) == "" {
+		return append([]string(nil), command...)
+	}
+	wrapped := []string{"/bin/sh", "-c", launchEnvFileExec, "striatum-env", strings.TrimSpace(envFilePath)}
+	wrapped = append(wrapped, command...)
+	return wrapped
 }
 
 func runAsMetadata(runAsUser string) map[string]any {
@@ -153,8 +319,16 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 	}
 
 	if spec.UsePTY {
-		return launchPTY(ctx, supervisorID, spec)
+		return launchPTY(ctx, scratchDir, supervisorID, spec)
 	}
+
+	var cleanup func()
+	var err error
+	spec, cleanup, err = prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 
 	cmd := commandContext(ctx, spec, spec.Command[0], spec.Command[1:]...)
 
@@ -205,7 +379,14 @@ func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 // returns the master file we hand back to the daemon as StdinWriter — the
 // daemon writes packets to the master, the child reads them off the slave
 // as ordinary stdin.
-func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
+func launchPTY(ctx context.Context, scratchDir string, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
+	envSpec, cleanup, err := prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
+	if err != nil {
+		return nil, err
+	}
+	spec = envSpec
+	defer cleanup()
+
 	runID := getEnvValue(spec.Env, "STRIATUM_RUN_ID")
 	laneID := getEnvValue(spec.Env, "STRIATUM_LANE_ID")
 	if runID == "" || laneID == "" {
@@ -273,7 +454,7 @@ func launchPTY(ctx context.Context, supervisorID string, spec LaunchSpec) (*Laun
 	respawnArgs := []string{"respawn-pane", "-k", "-t", sessionName + ":0.0", "-c", spec.WorkingDir}
 	respawnArgs = append(respawnArgs, tmuxEnvArgs(spec.Env)...)
 	respawnArgs = append(respawnArgs, "--")
-	respawnArgs = append(respawnArgs, spec.Command...)
+	respawnArgs = append(respawnArgs, envFileWrappedCommand(spec.EnvFilePath, spec.Command)...)
 	respawnCmd := commandContext(ctx, spec, "tmux", respawnArgs...)
 	if err := runPreparedTmuxSetupCommand(ctx, respawnCmd, respawnArgs...); err != nil {
 		if spec.RequireTmux {
@@ -329,6 +510,10 @@ func attachTmuxPTY(ctx context.Context, identity TmuxIdentity, spec LaunchSpec) 
 func tmuxEnvArgs(env []string) []string {
 	args := make([]string, 0, len(env)*2)
 	for _, entry := range env {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok || key == "" || sensitiveEnvKey(key) {
+			continue
+		}
 		args = append(args, "-e", entry)
 	}
 	return args

@@ -201,7 +201,7 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessSessionMissing, "tmux session name missing", nil, 0)
 	}
 	if _, err := r.Run(ctx, "has-session", "-t", id.SessionName); err != nil {
-		if tmuxProbeUnavailable(err) {
+		if tmuxProbeUnavailable(err) || !tmuxSessionMissing(err) {
 			return tmuxLivenessFailure(ctx, r, id, TmuxLivenessUnavailable, tmuxProbeDetail(err), err, 0)
 		}
 		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessSessionMissing, tmuxProbeDetail(err), err, 0)
@@ -211,7 +211,7 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 	}
 	out, err := r.Run(ctx, "display-message", "-p", "-t", id.PaneID, "#{pane_id}|#{pane_pid}|#{pane_dead}|#{pane_start_time}")
 	if err != nil {
-		if tmuxProbeUnavailable(err) {
+		if tmuxProbeUnavailable(err) || !tmuxTargetMissing(err) {
 			return tmuxLivenessFailure(ctx, r, id, TmuxLivenessUnavailable, tmuxProbeDetail(err), err, 0)
 		}
 		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, tmuxProbeDetail(err), err, 0)
@@ -275,12 +275,14 @@ func tmuxLivenessFailure(ctx context.Context, r TmuxRunner, id TmuxIdentity, cla
 	if exitCode, ok := tmuxProbeExitCode(err); ok {
 		failure.ExitCode = &exitCode
 	}
-	if observedPID > 0 {
-		live := pidSignalable(observedPID)
-		failure.PaneProcessLive = &live
-	} else if panePID, live, ok := tmuxPaneProcessLive(ctx, r, id); ok {
-		failure.ObservedPanePID = panePID
-		failure.PaneProcessLive = &live
+	if class != TmuxLivenessUnavailable {
+		if observedPID > 0 {
+			live := pidSignalable(observedPID)
+			failure.PaneProcessLive = &live
+		} else if panePID, live, ok := tmuxPaneProcessLive(ctx, r, id); ok {
+			failure.ObservedPanePID = panePID
+			failure.PaneProcessLive = &live
+		}
 	}
 	if tmuxFailureIsDetachedProcessAlive(class, failure) {
 		class = TmuxLivenessHelperDetachedProcessAlive
@@ -480,6 +482,27 @@ func TmuxProbeFailurePayload(failure TmuxProbeFailure) map[string]any {
 
 func tmuxProbeUnavailable(err error) bool {
 	return errors.Is(err, exec.ErrNotFound) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func tmuxSessionMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "can't find session") ||
+		strings.Contains(text, "session not found") ||
+		strings.Contains(text, "no server running")
+}
+
+func tmuxTargetMissing(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return tmuxSessionMissing(err) ||
+		strings.Contains(text, "can't find window") ||
+		strings.Contains(text, "can't find pane") ||
+		strings.Contains(text, "pane not found")
 }
 
 func tmuxProbeDetail(err error) string {

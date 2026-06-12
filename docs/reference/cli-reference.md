@@ -28,13 +28,17 @@ striatum archive create
 default. The generated tree uses a single `local` process lane as a valid
 placeholder; edit lanes and job `lane_id` bindings for real agent runs.
 
-`run drive --run-id <id> [--interval 15s] [--once] [--json]` is a local
+`run drive --run-id <id> [--interval 15s]
+[--provider-auth-gate auto|required|off] [--once] [--json]` is a local
 operator loop over existing daemon RPC methods. It reads `run.detail` and
 `list.sessions`, registers and supervises one fresh session per queued
 role/lane as the DAG unblocks, adopts already-active matching sessions, and
 stops terminal or superseded launched lanes before registering fresh reviewers.
 It is not a daemon RPC method and does not call rescue verbs or force non-fresh
-sessions.
+sessions. `--provider-auth-gate` is forwarded to `supervise.start`; when a
+lane-provider-auth refusal blocks launch, the driver closes the fresh session,
+emits a sanitized failure action, and exits nonzero instead of retrying the same
+doomed launch.
 
 `run pause [run-id]`, `run resume [run-id]`, and `run cancel [run-id]`
 transition an existing run's lifecycle (capability `admin`). `run retry-job
@@ -198,13 +202,23 @@ durable outside the per-job worktree.
 ## Supervisor (RFC 0009)
 
 ```text
-striatum supervise start
+striatum supervise start <session-id> [--provider-auth-gate auto|required|off]
 striatum supervise send
 striatum supervise stop
 striatum supervise status
 striatum supervise list
 striatum supervise trajectory
 ```
+
+`supervise start` owns the lane provider-auth launch gate. The default
+`auto` mode runs the Codex smoke only for supported Codex agent-loop lanes under
+a distinct configured lane OS user; `required` blocks unsupported providers and
+all non-passing smoke results; `off` is the explicit rollback path.
+The gate runs before scratch/FIFO creation, session-bound lane token minting,
+supervisor rows/events, helper/tmux, or the provider lane process. Blocking
+results return a safe `lane_provider_auth` details block without stdout, stderr,
+final text, auth paths, provider account ids, environment values, token
+material, PTY logs, or tracebacks.
 
 ## Conversation (RFC 0086)
 
@@ -291,6 +305,7 @@ striatum daemon migrate-db [--admin-url <dsn>] [--json]
 striatum daemon owner-ddl apply [--owner-url <dsn>] [--json]
 striatum daemon token-create <capability>
 striatum doctor [--verbose] [--json]
+striatum doctor --lane-provider-auth codex [--run-id <id>] [--lane-id <id>] [--timeout 45s] --json
 striatumd [daemon-start options]
 systemctl --user start|stop|restart|status striatumd
 striatum repo add <path> [--init] [--display-name <name>] [--no-migrate] [--apply-blob-creation]
@@ -318,6 +333,12 @@ On first successful startup, `striatumd` bootstraps a single admin token when
 daemon-owned Postgres has no clients and writes a `0600` runtime
 `client-token` file. Token secrets are never read from environment variables,
 never logged to audit, and never stored in the registry.
+
+Ordinary `doctor` and `doctor --verbose` do not run provider CLIs. The
+provider-auth diagnostic is explicit-only because it may touch the network,
+spend provider tokens, trigger auth refresh, or hang on an interactive prompt.
+Its JSON result is the same private-safe block used by `supervise.start`, with
+`raw_output_returned=false`.
 Authorization uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.
@@ -359,7 +380,9 @@ distributions are deferred.
 
 `striatum doctor` is the daemon-backed health check. `doctor --verbose`
 includes structured `problem_records` alongside the stable string `problems`
-list.
+list. `doctor --lane-provider-auth codex [--run-id <id>] [--lane-id <id>]
+[--timeout 45s] --json` is an explicit provider-auth smoke for the lane
+identity; ordinary `doctor` and `doctor --verbose` never run provider CLIs.
 `striatum daemon status` is the local bootstrap summary for unit state and
 runtime paths; it folds in read-only doctor information when the daemon is
 reachable.

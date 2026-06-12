@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 func TestRunDriveReconcileIsIdempotent(t *testing.T) {
@@ -179,6 +182,48 @@ func TestRunDriveNeverCallsRescueVerbs(t *testing.T) {
 	}
 }
 
+func TestRunDriveStopsFastOnProviderAuthRefusal(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+	fake.startErr = rpc.NewError("lane_provider_auth_failed", "raw provider output must not be replayed", nil)
+	driver := New(fake, Options{
+		RepositoryID:     "repo_1",
+		RunID:            "run_1",
+		ProviderAuthGate: "required",
+		Now:              func() time.Time { return time.Date(2026, 6, 7, 12, 0, 0, 0, time.UTC) },
+	})
+
+	actions, _, _, err := driver.ReconcileOnce(ctx)
+	var providerErr ProviderAuthRefusalError
+	if !errors.As(err, &providerErr) || providerErr.Code != "lane_provider_auth_failed" {
+		t.Fatalf("err = %#v, want ProviderAuthRefusalError lane_provider_auth_failed", err)
+	}
+	if got := fake.count("session.register"); got != 1 {
+		t.Fatalf("session.register calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+	if got := fake.count("supervise.start"); got != 1 {
+		t.Fatalf("supervise.start calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+	if got := fake.count("session.close"); got != 1 {
+		t.Fatalf("session.close calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+	if len(actions) != 1 || actions[0].Action != "supervise.start" || actions[0].Result != "blocked" {
+		t.Fatalf("actions = %#v, want one blocked supervise.start action", actions)
+	}
+	if strings.Contains(actions[0].Message, "raw provider output") {
+		t.Fatalf("run-drive action replayed raw provider message: %#v", actions[0])
+	}
+	startCall := fake.calls[fake.first("supervise.start")]
+	if startCall.params["provider_auth_gate"] != "required" {
+		t.Fatalf("supervise.start params = %#v", startCall.params)
+	}
+	closeCall := fake.calls[fake.first("session.close")]
+	if !strings.Contains(fmt.Sprint(closeCall.params["reason"]), "lane_provider_auth_failed") {
+		t.Fatalf("session.close reason = %#v", closeCall.params["reason"])
+	}
+}
+
 func TestRunDriveRunUsesDefaultSleep(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -201,6 +246,7 @@ type fakeDrive struct {
 	calls         []fakeCall
 	nextID        int
 	freshRefusals int
+	startErr      error
 }
 
 type fakeCall struct {
@@ -235,6 +281,9 @@ func (f *fakeDrive) Invoke(_ context.Context, method string, params map[string]a
 		f.sessions = append(f.sessions, session(sessionID, role, lane, "active"))
 		return map[string]any{"session_id": sessionID}, nil
 	case "supervise.start":
+		if f.startErr != nil {
+			return nil, f.startErr
+		}
 		return map[string]any{"state": "attached", "session_id": params["session_id"]}, nil
 	case "supervise.stop":
 		sessionID := fmt.Sprint(params["session_id"])
@@ -245,6 +294,12 @@ func (f *fakeDrive) Invoke(_ context.Context, method string, params map[string]a
 		}
 		return map[string]any{"state": "stopped", "session_id": sessionID}, nil
 	case "session.close":
+		sessionID := fmt.Sprint(params["session_id"])
+		for _, sess := range f.sessions {
+			if fmt.Sprint(sess["session_id"]) == sessionID {
+				sess["state"] = "closed"
+			}
+		}
 		return map[string]any{"state": "closed", "session_id": params["session_id"]}, nil
 	default:
 		return nil, errors.New("unexpected method: " + method)

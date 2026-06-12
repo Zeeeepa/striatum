@@ -377,7 +377,7 @@ func curatedSuperviseReportPayload(event superviseReportEvent, now string) map[s
 		}
 		return payload
 	case gosupervisor.HelperEventAgentExited:
-		return copyAllowedPayloadFields(event.Payload, "exit_code", "error", "cause")
+		return copyAllowedPayloadFields(event.Payload, "exit_code", "error", "cause", "pty_log_path", "pty_log_bytes")
 	case gosupervisor.HelperEventProcessTerminated:
 		return copyAllowedPayloadFields(event.Payload, "phase", "reason", "signal", "method", "pid", "attach_pid", "tmux_session_name")
 	case gosupervisor.HelperEventAttachExited:

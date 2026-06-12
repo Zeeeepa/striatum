@@ -86,8 +86,15 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 	replace := boolParam(envelope, "replace")
+	providerAuthGate, err := providerAuthGateMode(envelope)
+	if err != nil {
+		return nil, err
+	}
 	config, err := loadSupervisionStartConfig(ctx, runner, repositoryID, sessionID)
 	if err != nil {
+		return nil, err
+	}
+	if err := runSuperviseProviderAuthGate(ctx, config, providerAuthGate); err != nil {
 		return nil, err
 	}
 	supervisorID, err := newID("sup")

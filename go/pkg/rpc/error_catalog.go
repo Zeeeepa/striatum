@@ -217,6 +217,41 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet.",
 	},
 	{
+		Code:       "lane_provider_auth_failed",
+		Meaning:    "The lane provider-auth preflight found missing, stale, expired, revoked, or unrefreshable provider credentials for the lane identity.",
+		Suggestion: "Refresh the provider login for the lane OS user, then retry supervise.start.",
+	},
+	{
+		Code:       "lane_provider_binary_missing",
+		Meaning:    "The lane provider-auth preflight could not find or execute the provider CLI under the lane launch environment.",
+		Suggestion: "Install the provider CLI for the lane launch environment or add the binary directory to lane path_prefix.",
+	},
+	{
+		Code:       "lane_provider_preflight_launch_failed",
+		Meaning:    "Striatum could not start the closed provider-auth smoke command under the intended lane identity.",
+		Suggestion: "Fix lane run-as user, sudo, home directory, and launch environment provisioning.",
+	},
+	{
+		Code:       "lane_provider_preflight_timeout",
+		Meaning:    "The lane provider-auth preflight timed out, including hung refresh paths or interactive prompts.",
+		Suggestion: "Inspect the lane provider login for an interactive prompt or hung refresh path.",
+	},
+	{
+		Code:       "lane_provider_preflight_unexpected_result",
+		Meaning:    "The lane provider-auth smoke command exited successfully but did not produce the expected bounded success signal.",
+		Suggestion: "Inspect the provider CLI manually; the smoke completed without the expected bounded success signal.",
+	},
+	{
+		Code:       "lane_provider_preflight_unsupported",
+		Meaning:    "The selected provider-auth gate mode requires a provider or lane shape that has no supported smoke.",
+		Suggestion: "Use --provider-auth-gate off or configure a provider with a supported auth preflight.",
+	},
+	{
+		Code:       "lane_provider_unavailable",
+		Meaning:    "Network, provider service, rate limit, or provider-side availability prevented the lane provider-auth preflight from reaching an auth conclusion.",
+		Suggestion: "Retry after provider or network availability recovers.",
+	},
+	{
 		Code:       "merge_conflict",
 		Meaning:    "Integrating a run's branch into the target mainline conflicts; the merge was refused and mainline left untouched (RFC 0108 Phase 4 never auto-resolves).",
 		Suggestion: "Rebase or resolve the run branch against the target on a branch a maintainer merges, then re-run run.integrate; the conflicting paths are in the error details.",

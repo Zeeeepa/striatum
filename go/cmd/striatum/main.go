@@ -18,6 +18,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	"github.com/halbritt/striatum/go/pkg/cli/rundrive"
 	cliskills "github.com/halbritt/striatum/go/pkg/cli/skills"
+	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 	"github.com/halbritt/striatum/go/pkg/workflowgenerate"
 	"github.com/halbritt/striatum/go/pkg/workflowtemplates"
@@ -283,6 +284,7 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 	interval := 15 * time.Second
 	once := false
 	jsonOutput := globals.JSONOutput
+	providerAuthGate := string(laneproviderauth.GateAuto)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if routes.IsHelpArg(arg) {
@@ -329,6 +331,21 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 			once = true
 		case "json":
 			jsonOutput = true
+		case "provider-auth-gate":
+			if !hasValue {
+				if i+1 >= len(args) {
+					_, _ = fmt.Fprintln(stderr, "--provider-auth-gate requires a value")
+					return 2
+				}
+				value = args[i+1]
+				i++
+			}
+			mode, err := laneproviderauth.ParseGateMode(value)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err.Error())
+				return 2
+			}
+			providerAuthGate = string(mode)
 		default:
 			_, _ = fmt.Fprintf(stderr, "unknown run drive flag: --%s\n", key)
 			return 2
@@ -371,14 +388,15 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 		return 1
 	}
 	err = rundrive.Run(ctx, client, rundrive.Options{
-		RepositoryID: repositoryID,
-		RunID:        runID,
-		RepoRoot:     repoRoot,
-		Interval:     interval,
-		Once:         once,
-		JSON:         jsonOutput,
-		Stdout:       stdout,
-		Stderr:       stderr,
+		RepositoryID:     repositoryID,
+		RunID:            runID,
+		RepoRoot:         repoRoot,
+		Interval:         interval,
+		Once:             once,
+		JSON:             jsonOutput,
+		Stdout:           stdout,
+		Stderr:           stderr,
+		ProviderAuthGate: providerAuthGate,
 	})
 	if err == nil {
 		return 0
@@ -410,7 +428,7 @@ func parseDriveInterval(value string) (time.Duration, error) {
 }
 
 func printRunDriveHelp(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "usage: striatum run drive --run-id <id> [--interval 15s] [--once] [--json]")
+	_, _ = fmt.Fprintln(out, "usage: striatum run drive --run-id <id> [--interval 15s] [--provider-auth-gate auto|required|off] [--once] [--json]")
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Drive one run by registering and supervising lanes as queued jobs unblock.")
 	_, _ = fmt.Fprintln(out, "This is a local operator loop over existing daemon RPC methods; it adds no daemon method.")

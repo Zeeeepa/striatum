@@ -147,8 +147,9 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 	cases := map[string][]string{
 		"supervise stop":       {"--session-id", "--reason", "required:"},
 		"register-session":     {"--capability", "--fresh", "run-id", "role", "lane"},
+		"doctor":               {"--lane-provider-auth", "codex", "--timeout", "doctor"},
 		"checkpoint resolve":   {"continue|cancel", "--decision-id", "blocker-id"},
-		"supervise start":      {"--session-id", "supervise.start"},
+		"supervise start":      {"--session-id", "--provider-auth-gate", "auto|required|off", "supervise.start"},
 		"supervise send":       {"--packet-id", "supervise.send"},
 		"supervise status":     {"--session-id", "supervise.status"},
 		"supervise trajectory": {"--session-id", "--tail", "--tail-lines", "supervise.trajectory"},
@@ -175,6 +176,49 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 				t.Fatalf("%s --help output missing %q:\n%s", cmd, want, out)
 			}
 		}
+	}
+}
+
+func TestDispatchDoctorLaneProviderAuthParams(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{
+		"--repository-id", "repo_1",
+		"doctor",
+		"--lane-provider-auth", "codex",
+		"--run-id", "run_1",
+		"--lane-id", "author",
+		"--timeout", "12s",
+	}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "doctor" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["lane_provider_auth"] != "codex" || params["run_id"] != "run_1" || params["lane_id"] != "author" || params["timeout"] != "12s" {
+		t.Fatalf("doctor params = %#v", params)
+	}
+}
+
+func TestDispatchSuperviseStartProviderAuthGateParam(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{
+		"--repository-id", "repo_1",
+		"supervise", "start", "sess_1",
+		"--provider-auth-gate", "required",
+	}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "supervise.start" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["session_id"] != "sess_1" || params["provider_auth_gate"] != "required" {
+		t.Fatalf("supervise.start params = %#v", params)
 	}
 }
 

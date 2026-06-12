@@ -62,6 +62,18 @@ var usageByGroup = map[string]Usage{
 			"By default the repo-wide view returns every active run plus the most recent terminal runs, and claimable_jobs / blocked_downstream_jobs exclude terminal runs (#193). Use --all-runs for the full history or --run-limit N to widen the terminal-run window.",
 		},
 	},
+	"doctor": {
+		Params: []Param{
+			{Name: "verbose", Bool: true, Help: "include structured problem_records alongside the stable problems string list"},
+			{Name: "lane-provider-auth", Values: []string{"codex"}, Help: "explicit opt-in provider-auth smoke for a lane provider; ordinary doctor and doctor --verbose do not run provider CLIs"},
+			{Name: "run-id", Help: "optional run whose frozen workflow lane should supply binary/path_prefix for the provider-auth smoke"},
+			{Name: "lane-id", Help: "optional lane in --run-id whose provider binary/path_prefix should be used"},
+			{Name: "timeout", Help: "provider-auth smoke timeout; defaults to 45s"},
+		},
+		Notes: []string{
+			"Provider auth preflight may use network/provider tokens and is explicit-only: pass --lane-provider-auth codex, normally with --json.",
+		},
+	},
 	"why": {
 		Params: []Param{
 			{Name: "target-id", Positional: true, Required: true, Help: "id to explain — a run_id, job_id, session_id, message_id, lease_id, or blocker_id"},
@@ -318,6 +330,7 @@ var usageByGroup = map[string]Usage{
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session whose lane to supervise"},
 			{Name: "replace", Bool: true, Help: "supersede any stale active supervisor for this session instead of refusing with a conflict error"},
+			{Name: "provider-auth-gate", Values: []string{"auto", "required", "off"}, Help: "provider-auth preflight gate mode; default auto, required fails unsupported providers, off is the explicit rollback path"},
 		},
 	},
 	"supervise_send": {

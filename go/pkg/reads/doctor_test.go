@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/installers"
+	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
 )
@@ -72,6 +74,140 @@ func TestHandleDoctorReadsSubstrateVersionFromSchemaMetaKey(t *testing.T) {
 	if len(runner.scalarQueries) == 0 || !strings.Contains(runner.scalarQueries[0], "substrate_version") {
 		t.Fatalf("doctor did not read schema_meta substrate_version first: %#v", runner.scalarQueries)
 	}
+}
+
+func TestHandleDoctorDoesNotRunProviderAuthByDefaultOrVerbose(t *testing.T) {
+	orig := doctorLaneProviderAuthCheck
+	t.Cleanup(func() { doctorLaneProviderAuthCheck = orig })
+	doctorLaneProviderAuthCheck = func(context.Context, laneproviderauth.Params) laneproviderauth.Result {
+		t.Fatal("ordinary doctor must not run provider auth preflight")
+		return laneproviderauth.Result{}
+	}
+
+	for _, params := range []map[string]any{
+		{},
+		{"verbose": true},
+	} {
+		if _, err := HandleDoctor(context.Background(), &doctorFakeRunner{}, rpc.Envelope{Params: params}); err != nil {
+			t.Fatalf("HandleDoctor(%#v): %v", params, err)
+		}
+	}
+}
+
+func TestHandleDoctorLaneProviderAuthOptInShape(t *testing.T) {
+	orig := doctorLaneProviderAuthCheck
+	t.Cleanup(func() { doctorLaneProviderAuthCheck = orig })
+	t.Setenv("STRIATUM_MCP_TOKEN", "must-not-leak")
+	t.Setenv("DATABASE_URL", "postgres://must-not-leak")
+	var captured laneproviderauth.Params
+	doctorLaneProviderAuthCheck = func(_ context.Context, params laneproviderauth.Params) laneproviderauth.Result {
+		captured = params
+		if params.Timeout != 12*time.Second {
+			t.Fatalf("timeout = %v, want 12s", params.Timeout)
+		}
+		renderedEnv := strings.Join(params.Env, "\n")
+		if strings.Contains(renderedEnv, "STRIATUM_MCP_TOKEN") || strings.Contains(renderedEnv, "DATABASE_URL") || strings.Contains(renderedEnv, "must-not-leak") {
+			t.Fatalf("provider auth env leaked secret material: %s", renderedEnv)
+		}
+		return laneproviderauth.Result{
+			Checked:           true,
+			Provider:          laneproviderauth.ProviderCodex,
+			RunID:             params.RunID,
+			LaneID:            params.LaneID,
+			Status:            laneproviderauth.StatusPassed,
+			RawOutputReturned: false,
+			Network:           "provider_cli_may_use_network",
+			Costing:           "provider_tokens_may_be_spent",
+			DurationMS:        7,
+			Remediation:       "none",
+		}
+	}
+
+	result, err := HandleDoctor(context.Background(), &doctorFakeRunner{}, rpc.Envelope{Params: map[string]any{
+		"lane_provider_auth": "codex",
+		"run_id":             "run_1",
+		"lane_id":            "author",
+		"timeout":            "12s",
+	}})
+	if err != nil {
+		t.Fatalf("HandleDoctor lane-provider-auth: %v", err)
+	}
+	if captured.Provider != laneproviderauth.ProviderCodex || captured.RunID != "run_1" || captured.LaneID != "author" {
+		t.Fatalf("captured params = %#v", captured)
+	}
+	if result["checked"] != true || result["provider"] != "codex" || result["status"] != laneproviderauth.StatusPassed || result["raw_output_returned"] != false {
+		t.Fatalf("opt-in result = %#v", result)
+	}
+	if result["failure_class"] != nil {
+		t.Fatalf("passed result failure_class = %#v", result["failure_class"])
+	}
+}
+
+func TestHandleDoctorLaneProviderAuthRunAsUsesLaneHome(t *testing.T) {
+	origCheck := doctorLaneProviderAuthCheck
+	origCurrentUser := currentUsername
+	origLookupHome := lookupOSUserHome
+	t.Cleanup(func() {
+		doctorLaneProviderAuthCheck = origCheck
+		currentUsername = origCurrentUser
+		lookupOSUserHome = origLookupHome
+	})
+	currentUsername = func() string { return "daemon-user" }
+	lookupOSUserHome = func(name string) (string, bool) {
+		if name == "striatum-lane" {
+			return "/home/striatum-lane", true
+		}
+		return "", false
+	}
+	t.Setenv(laneOSUserEnv, "striatum-lane")
+	t.Setenv("CODEX_HOME", "/home/operator/.codex")
+	t.Setenv("XDG_CONFIG_HOME", "/home/operator/.config")
+	t.Setenv("XDG_CACHE_HOME", "/home/operator/.cache")
+	var captured laneproviderauth.Params
+	doctorLaneProviderAuthCheck = func(_ context.Context, params laneproviderauth.Params) laneproviderauth.Result {
+		captured = params
+		return laneproviderauth.Result{
+			Checked:           true,
+			Provider:          laneproviderauth.ProviderCodex,
+			Status:            laneproviderauth.StatusPassed,
+			RawOutputReturned: false,
+			Network:           "provider_cli_may_use_network",
+			Costing:           "provider_tokens_may_be_spent",
+			Remediation:       "none",
+		}
+	}
+
+	if _, err := HandleDoctor(context.Background(), &doctorFakeRunner{}, rpc.Envelope{Params: map[string]any{
+		"lane_provider_auth": "codex",
+	}}); err != nil {
+		t.Fatalf("HandleDoctor lane-provider-auth: %v", err)
+	}
+	if captured.RunAsUser != "striatum-lane" {
+		t.Fatalf("RunAsUser = %q, want striatum-lane", captured.RunAsUser)
+	}
+	values := doctorEnvValues(captured.Env)
+	if values["HOME"] != "/home/striatum-lane" {
+		t.Fatalf("HOME = %q, want lane user home", values["HOME"])
+	}
+	for _, forbidden := range []string{"CODEX_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"} {
+		if _, ok := values[forbidden]; ok {
+			t.Fatalf("doctor provider auth env inherited operator %s: %#v", forbidden, values)
+		}
+	}
+	if authHome := laneproviderauth.ResolveAuthHome(laneproviderauth.ProviderCodex, captured.Env); authHome != "/home/striatum-lane/.codex" {
+		t.Fatalf("auth home = %q, want lane HOME/.codex", authHome)
+	}
+}
+
+func doctorEnvValues(env []string) map[string]string {
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok {
+			values[key] = value
+		}
+	}
+	return values
 }
 
 type doctorSkillsFakeRunner struct {

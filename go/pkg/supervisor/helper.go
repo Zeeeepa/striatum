@@ -8,13 +8,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
 
-const defaultProgressReadSize = 4096
+const (
+	defaultProgressReadSize = 4096
+	helperAgentExitCause    = "agent_exit"
+	helperExitProbeAttempts = 3
+)
 
 var (
 	helperLaunch        = Launch
@@ -34,6 +40,47 @@ type readWriteCloser interface {
 	io.Reader
 	io.Writer
 	io.Closer
+}
+
+type countingWriter struct {
+	w     io.Writer
+	bytes atomic.Int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.w.Write(p)
+	if n > 0 {
+		w.bytes.Add(int64(n))
+	}
+	return n, err
+}
+
+func (w *countingWriter) Bytes() int64 {
+	if w == nil {
+		return 0
+	}
+	return w.bytes.Load()
+}
+
+type helperPTYLog struct {
+	Path  string
+	count *countingWriter
+	file  *os.File
+}
+
+func (l *helperPTYLog) Close() error {
+	if l == nil || l.file == nil {
+		return nil
+	}
+	return l.file.Close()
+}
+
+func (l *helperPTYLog) Annotate(payload map[string]any) {
+	if l == nil || strings.TrimSpace(l.Path) == "" {
+		return
+	}
+	payload["pty_log_path"] = l.Path
+	payload["pty_log_bytes"] = l.count.Bytes()
 }
 
 // HelperOptions contains test hooks and conservative lifecycle knobs for
@@ -93,6 +140,11 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 	if packetCloser != nil {
 		defer func() { _ = packetCloser.Close() }()
 	}
+	ptyOutput, ptyLog, err := helperPTYOutput(opts.PTYOutput, spec.PTYLogPath)
+	if err != nil {
+		return emitter.helperError(spec.SupervisorID, "pty_log", err)
+	}
+	defer func() { _ = ptyLog.Close() }()
 
 	launchSpec := LaunchSpec{
 		Command:     spec.Command,
@@ -147,7 +199,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 
 	progressDone := make(chan error, 1)
 	go func() {
-		progressDone <- pumpPTYProgress(ctx, ptmx, opts.PTYOutput, emitter, spec.SupervisorID, opts.ProgressReadSize)
+		progressDone <- pumpPTYProgress(ctx, ptmx, ptyOutput, emitter, spec.SupervisorID, opts.ProgressReadSize)
 	}()
 
 	packetDone := make(chan error, 1)
@@ -190,9 +242,7 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 				}
 			} else {
 				exitPayload := agentExitPayload(err)
-				if attachCause := tmuxExitCause(ctx, result, opts.TmuxRunner); attachCause != "" {
-					exitPayload["cause"] = attachCause
-				}
+				ptyLog.Annotate(exitPayload)
 				if emitErr := emitter.emit(newHelperEvent(HelperEventAgentExited, spec.SupervisorID, exitPayload)); emitErr != nil {
 					return emitErr
 				}
@@ -204,6 +254,25 @@ func RunHelper(ctx context.Context, launchReader io.Reader, eventWriter io.Write
 		}
 	}
 	return nil
+}
+
+func helperPTYOutput(base io.Writer, logPath string) (io.Writer, *helperPTYLog, error) {
+	if base == nil {
+		base = io.Discard
+	}
+	logPath = strings.TrimSpace(logPath)
+	if logPath == "" {
+		return base, nil, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o700); err != nil {
+		return nil, nil, fmt.Errorf("create PTY log dir: %w", err)
+	}
+	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open PTY log %q: %w", logPath, err)
+	}
+	counted := &countingWriter{w: io.MultiWriter(base, file)}
+	return counted, &helperPTYLog{Path: logPath, count: counted, file: file}, nil
 }
 
 func packetInput(decoder *json.Decoder, launchReader io.Reader, path string) (io.Reader, io.Closer, bool, error) {
@@ -356,7 +425,7 @@ func drainProgress(done <-chan error, delay time.Duration) {
 }
 
 func agentExitPayload(err error) map[string]any {
-	payload := map[string]any{}
+	payload := map[string]any{"cause": helperAgentExitCause}
 	if err == nil {
 		payload["exit_code"] = 0
 		return payload
@@ -373,7 +442,7 @@ func attachClientExitPayload(ctx context.Context, result *LaunchResult, err erro
 	if result == nil || result.AttachPID <= 0 {
 		return nil, false
 	}
-	live := ProbeLaneLiveness(ctx, runnerOrDefault(runner), result.Metadata, result.PID, "")
+	live := probeLaneLivenessForHelperExit(ctx, result, runner)
 	if live.Backed != "tmux" {
 		return nil, false
 	}
@@ -409,15 +478,15 @@ func attachClientExitPayload(ctx context.Context, result *LaunchResult, err erro
 	return payload, true
 }
 
-func tmuxExitCause(ctx context.Context, result *LaunchResult, runner TmuxRunner) string {
-	if result == nil || result.AttachPID <= 0 {
-		return ""
+func probeLaneLivenessForHelperExit(ctx context.Context, result *LaunchResult, runner TmuxRunner) LaneLiveness {
+	var live LaneLiveness
+	for attempt := 0; attempt < helperExitProbeAttempts; attempt++ {
+		live = ProbeLaneLiveness(ctx, runnerOrDefault(runner), result.Metadata, result.PID, "")
+		if live.Class != string(TmuxLivenessUnavailable) {
+			return live
+		}
 	}
-	live := ProbeLaneLiveness(ctx, runnerOrDefault(runner), result.Metadata, result.PID, "")
-	if live.Backed != "tmux" {
-		return ""
-	}
-	return live.Class
+	return live
 }
 
 func runnerOrDefault(runner TmuxRunner) TmuxRunner {

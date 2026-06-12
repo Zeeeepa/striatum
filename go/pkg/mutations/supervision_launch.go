@@ -124,6 +124,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 		WorkingDir:      config.RepoRoot,
 		RunAsUser:       config.RunAsUser,
 		PacketInputPath: pipePath,
+		PTYLogPath:      filepath.Join(scratch, "pty.log"),
 		RequireTmux:     config.RequireTmux,
 	}
 	specBody, err := json.Marshal(launchSpec)
@@ -237,6 +238,7 @@ func launchRebridgeHelper(ctx context.Context, supervisor supervisorControlRow, 
 		WorkingDir:      supervisorWorkingDir(supervisor),
 		RunAsUser:       supervisorRunAsUser(supervisor.Metadata),
 		PacketInputPath: supervisor.StdinPipePath,
+		PTYLogPath:      filepath.Join(filepath.Dir(eventPath), "pty.log"),
 		RebridgeTmux:    &identity,
 	}
 	specBody, err := json.Marshal(spec)

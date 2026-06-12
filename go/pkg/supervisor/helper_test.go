@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +83,58 @@ func TestRunHelperPTYCatPacketRoundTrip(t *testing.T) {
 	normalized := bytes.ReplaceAll(ptyOutput.Bytes(), []byte{'\r'}, nil)
 	if !bytes.Contains(normalized, bytes.TrimSpace(packet)) {
 		t.Fatalf("PTY output missing packet: got %q want substring %q", ptyOutput.String(), packet)
+	}
+}
+
+func TestRunHelperPersistsFastExitOutputToPTYLog(t *testing.T) {
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not present; skipping fast-exit PTY log test")
+	}
+	scratch := t.TempDir()
+	logPath := filepath.Join(scratch, "sup_fast_exit", "pty.log")
+	launchBody, err := json.Marshal(map[string]any{
+		"schema_version": HelperLaunchSchemaVersion,
+		"supervisor_id":  "sup_fast_exit",
+		"scratch_dir":    scratch,
+		"command":        []string{"/bin/sh", "-c", "printf '%s' lane-fast-output; exit 7"},
+		"pty_log_path":   logPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(launchBody, '\n')), &events, HelperOptions{}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	logBytes, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read pty log: %v", err)
+	}
+	if !bytes.Contains(logBytes, []byte("lane-fast-output")) {
+		t.Fatalf("pty log missing fast-exit output: %q", string(logBytes))
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var exitEvent *HelperControlEvent
+	for i := range decoded {
+		if decoded[i].EventType == HelperEventAgentExited {
+			exitEvent = &decoded[i]
+		}
+	}
+	if exitEvent == nil {
+		t.Fatalf("missing agent_exited event: %#v", decoded)
+	}
+	if exitEvent.Payload["exit_code"] != float64(7) && exitEvent.Payload["exit_code"] != 7 {
+		t.Fatalf("agent_exited exit_code = %#v", exitEvent.Payload)
+	}
+	if exitEvent.Payload["pty_log_path"] != logPath {
+		t.Fatalf("agent_exited pty_log_path = %#v, want %q", exitEvent.Payload["pty_log_path"], logPath)
+	}
+	if _, ok := exitEvent.Payload["pty_log_bytes"]; !ok {
+		t.Fatalf("agent_exited missing pty_log_bytes: %#v", exitEvent.Payload)
 	}
 }
 
@@ -514,8 +567,135 @@ func TestRunHelperAttachClientExitWithDeadPaneIsAgentExit(t *testing.T) {
 	if exitEvent == nil {
 		t.Fatalf("missing agent_exited event: %#v", decoded)
 	}
-	if exitEvent.Payload["cause"] != string(TmuxLivenessPaneDead) {
+	if exitEvent.Payload["cause"] != "agent_exit" {
 		t.Fatalf("agent_exited cause = %#v", exitEvent.Payload)
+	}
+}
+
+func TestRunHelperFastExitReportsAgentExitCause(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
+		cmd := exec.Command("sh", "-c", "exit 1")
+		if err := cmd.Start(); err != nil {
+			return nil, err
+		}
+		return &LaunchResult{
+			PID:         48211,
+			AttachPID:   cmd.Process.Pid,
+			Cmd:         cmd,
+			StdinWriter: eofPTY{},
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run-fast-exit",
+					"pane_id":          "%4",
+					"pane_pid":         48211,
+					"pane_start_token": "1748452211",
+				},
+			},
+		}, nil
+	}
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_fast_exit",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/false"},
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeTmuxRunner{responses: []fakeTmuxResponse{
+		{prefix: []string{"has-session"}, err: errors.New("can't find session: striatum-run-fast-exit")},
+	}}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{TmuxRunner: runner}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var exitEvent *HelperControlEvent
+	for i := range decoded {
+		if decoded[i].EventType == HelperEventAgentExited {
+			exitEvent = &decoded[i]
+		}
+	}
+	if exitEvent == nil {
+		t.Fatalf("missing agent_exited event: %#v", decoded)
+	}
+	if exitEvent.Payload["exit_code"] != float64(1) {
+		t.Fatalf("agent_exited payload = %#v, want exit_code=1", exitEvent.Payload)
+	}
+	if exitEvent.Payload["cause"] != "agent_exit" {
+		t.Fatalf("agent_exited cause = %#v, want agent_exit", exitEvent.Payload)
+	}
+}
+
+func TestRunHelperTransientTmuxProbeFailureRetriesWithoutAgentExit(t *testing.T) {
+	origLaunch := helperLaunch
+	defer func() { helperLaunch = origLaunch }()
+	attachCmd := exec.Command("sh", "-c", "exit 0")
+	if err := attachCmd.Start(); err != nil {
+		t.Fatalf("start attach surrogate: %v", err)
+	}
+	helperLaunch = func(context.Context, string, string, LaunchSpec) (*LaunchResult, error) {
+		return &LaunchResult{
+			PID:         48211,
+			AttachPID:   attachCmd.Process.Pid,
+			Cmd:         attachCmd,
+			StdinWriter: eofPTY{},
+			Metadata: map[string]any{
+				"tmux": map[string]any{
+					"state":            "backed",
+					"session_name":     "striatum-run-transient-probe",
+					"pane_id":          "%4",
+					"pane_pid":         48211,
+					"pane_start_token": "1748452211",
+				},
+			},
+		}, nil
+	}
+
+	launch := HelperLaunchSpec{
+		SchemaVersion: HelperLaunchSchemaVersion,
+		SupervisorID:  "sup_transient_probe",
+		ScratchDir:    t.TempDir(),
+		Command:       []string{"/bin/true"},
+	}
+	body, err := json.Marshal(launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := &transientTmuxProbeRunner{}
+	var events bytes.Buffer
+	if err := RunHelper(context.Background(), bytes.NewReader(append(body, '\n')), &events, HelperOptions{TmuxRunner: runner}); err != nil {
+		t.Fatalf("RunHelper: %v\nevents=%s", err, events.String())
+	}
+	decoded, err := helperEventsFromJSONL(events.Bytes())
+	if err != nil {
+		t.Fatalf("decode events: %v\nraw=%s", err, events.String())
+	}
+	var attachEvent *HelperControlEvent
+	for i := range decoded {
+		if decoded[i].EventType == HelperEventAgentExited {
+			t.Fatalf("transient probe failure must not emit agent_exited: %#v", decoded)
+		}
+		if decoded[i].EventType == HelperEventAttachExited {
+			attachEvent = &decoded[i]
+		}
+	}
+	if attachEvent == nil {
+		t.Fatalf("missing attach_client_exited event: %#v", decoded)
+	}
+	if runner.hasSessionCalls != helperExitProbeAttempts {
+		t.Fatalf("has-session probes = %d, want %d retries before classification", runner.hasSessionCalls, helperExitProbeAttempts)
+	}
+	if attachEvent.Payload["tmux_liveness"] != string(TmuxLivenessOK) {
+		t.Fatalf("attach payload = %#v, want tmux_ok after retry", attachEvent.Payload)
 	}
 }
 
@@ -639,6 +819,30 @@ type eofPTY struct{}
 func (eofPTY) Read([]byte) (int, error)    { return 0, io.EOF }
 func (eofPTY) Write(p []byte) (int, error) { return len(p), nil }
 func (eofPTY) Close() error                { return nil }
+
+type transientTmuxProbeRunner struct {
+	hasSessionCalls int
+}
+
+func (r *transientTmuxProbeRunner) Run(_ context.Context, args ...string) (string, error) {
+	if len(args) == 0 {
+		return "", exec.ErrNotFound
+	}
+	switch args[0] {
+	case "has-session":
+		r.hasSessionCalls++
+		if r.hasSessionCalls < 3 {
+			return "", errors.New("sudo: a password is required")
+		}
+		return "", nil
+	case "display-message":
+		return "%4|48211|0|1748452211\n", nil
+	case "list-panes":
+		return "", errors.New("sudo: a password is required")
+	default:
+		return "", exec.ErrNotFound
+	}
+}
 
 type lockedBuffer struct {
 	mu  sync.Mutex

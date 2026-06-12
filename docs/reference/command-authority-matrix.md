@@ -75,7 +75,7 @@ state changes must route through daemon RPC.
 | `daemon.describe` | n/a | read | daemon_global | direct | real | no | no | stable |
 | `status` | `status` | read | single_repo | pg | real | no | no | stable |
 | `why` | `why` | read | single_repo | pg | real | no | no | stable |
-| `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor` |
+| `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor`; explicit `--lane-provider-auth codex` is the only doctor mode that runs a provider CLI |
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
@@ -122,7 +122,7 @@ state changes must route through daemon RPC.
 | `work.ack` | `ack` | claim | single_repo | pg | real | no | no | stable |
 | `work.heartbeat` | `heartbeat` | claim | single_repo | pg | real | no | no | stable; records RFC 0077 work-heartbeat activity |
 | `work.release` | `release` | claim | single_repo | pg | real | no | no | stable |
-| `supervise.start` | `supervise start` | claim | single_repo | pg | real | no | no | Go process-control launch over PG supervisor rows and FIFO/helper transport |
+| `supervise.start` | `supervise start` | claim | single_repo | pg + provider-auth preflight | real | no | no | Go process-control launch over PG supervisor rows and FIFO/helper transport; `provider_auth_gate` runs before supervisor rows, scratch, lane tokens, helper/tmux, or provider process launch |
 | `supervise.send` | `supervise send` | claim | single_repo | pg | real | no | no | Go packet delivery with delivered-unacknowledged semantics |
 | `supervise.rebridge` | `supervise rebridge` | claim | single_repo | pg + local tmux | real | no | no | Runtime Go RPC/CLI route that rebuilds the helper-owned tmux delivery bridge in place only when the recorded pane is live; never kills or respawns the pane |
 | `supervise.report` | wrapper control report | claim | single_repo | pg | real | no | no | Go records direct control events and helper JSONL batches |
@@ -217,9 +217,10 @@ known response. They should not be emitted by current CLI routing.
 
 ## CLI-Only Or Out-Of-Band Commands
 
-These commands are implemented by `go/pkg/cli/localcommands` and are not
-production workflow mutation methods routed through daemon RPC. They are
-bootstrap, installer, or local workflow-authoring helpers.
+These commands are implemented by `go/pkg/cli/localcommands`,
+`go/pkg/cli/rundrive`, or local CLI dispatch and are not standalone production
+workflow mutation methods. When they affect workflow state, they do so by
+calling daemon RPC methods.
 
 | CLI command | Current authority | SQLite dependency | Classification |
 |---|---|---|---|
@@ -231,6 +232,7 @@ bootstrap, installer, or local workflow-authoring helpers.
 | `daemon status` | local unit/runtime layout plus read-only `striatum doctor` result | no workflow mutation | bootstrap_admin |
 | `daemon migrate-db` | applies pending PostgreSQL migrations via owner/admin DSN | no workflow state | bootstrap_admin |
 | `daemon owner-ddl apply` | applies owner-DDL bundles and reasserts protected grants | no workflow state | bootstrap_admin |
+| `run drive` | local operator loop over `run.detail`, `list.sessions`, `session.register`, `supervise.start`, `supervise.stop`, and `session.close`; forwards `provider_auth_gate` to `supervise.start` | no direct workflow state writes outside daemon RPC | local_operator_loop |
 | `workflow validate` | offline workflow JSON validation | no live state | local_file_authoring |
 | `workflow generate` | embedded catalog scaffold preview/write helper | no live state | local_file_authoring |
 | `workflow templates list` / `workflow templates show` | embedded workflow-template catalog reads | no live state | local_file_authoring |
@@ -352,6 +354,13 @@ remediation is sensible for that code.
 | `internal_error` | An unexpected daemon-side failure that does not map to a stable code. | Retry once; if it persists, report the failure with its audit_id. |
 | `invalid_transition` | The requested state transition is not legal from the current job, run, lease, or session state. | Re-read the live state (job.detail / run.detail, or `striatum status`) and take only the transition the current state allows. |
 | `key_rotation_unavailable` | daemon.key.rotate is not wired in this daemon build; signing keys were not modified. | — |
+| `lane_provider_auth_failed` | The lane provider-auth preflight found missing, stale, expired, revoked, or unrefreshable provider credentials for the lane identity. | Refresh the provider login for the lane OS user, then retry supervise.start. |
+| `lane_provider_binary_missing` | The lane provider-auth preflight could not find or execute the provider CLI under the lane launch environment. | Install the provider CLI for the lane launch environment or add the binary directory to lane path_prefix. |
+| `lane_provider_preflight_launch_failed` | Striatum could not start the closed provider-auth smoke command under the intended lane identity. | Fix lane run-as user, sudo, home directory, and launch environment provisioning. |
+| `lane_provider_preflight_timeout` | The lane provider-auth preflight timed out, including hung refresh paths or interactive prompts. | Inspect the lane provider login for an interactive prompt or hung refresh path. |
+| `lane_provider_preflight_unexpected_result` | The lane provider-auth smoke command exited successfully but did not produce the expected bounded success signal. | Inspect the provider CLI manually; the smoke completed without the expected bounded success signal. |
+| `lane_provider_preflight_unsupported` | The selected provider-auth gate mode requires a provider or lane shape that has no supported smoke. | Use --provider-auth-gate off or configure a provider with a supported auth preflight. |
+| `lane_provider_unavailable` | Network, provider service, rate limit, or provider-side availability prevented the lane provider-auth preflight from reaching an auth conclusion. | Retry after provider or network availability recovers. |
 | `lease_error` | The supplied lease is missing, expired, inactive, owned by another session, or bound to a different job. | Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet. |
 | `merge_conflict` | Integrating a run's branch into the target mainline conflicts; the merge was refused and mainline left untouched (RFC 0108 Phase 4 never auto-resolves). | Rebase or resolve the run branch against the target on a branch a maintainer merges, then re-run run.integrate; the conflicting paths are in the error details. |
 | `method_unknown` | The method has no registered handler. | Call tools/list and use a method the daemon actually exposes. |

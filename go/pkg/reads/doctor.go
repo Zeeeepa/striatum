@@ -18,6 +18,9 @@ const doctorSupervisorProbeTimeout = 5 * time.Second
 // the running daemon-pg state: schema version, append-only invariants
 // detected via probe queries, stale-lease + waiting-human counts.
 func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	if strings.TrimSpace(stringParam(envelope, "lane_provider_auth")) != "" {
+		return HandleDoctorLaneProviderAuth(ctx, runner, envelope)
+	}
 	repositoryID, _ := envelope.Params["repository_id"].(string)
 	verbose := boolValue(envelope.Params["verbose"])
 	problems := []string{}

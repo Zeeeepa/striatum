@@ -113,10 +113,21 @@ func TestRunDriveHelp(t *testing.T) {
 	if exitCode != 0 {
 		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
 	}
-	for _, want := range []string{"usage: striatum run drive", "--run-id", "--interval", "--once", "--json", "existing daemon RPC methods"} {
+	for _, want := range []string{"usage: striatum run drive", "--run-id", "--interval", "--provider-auth-gate", "auto|required|off", "--once", "--json", "existing daemon RPC methods"} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("help output missing %q; got:\n%s", want, stdout.String())
 		}
+	}
+}
+
+func TestRunDriveRejectsBadProviderAuthGate(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"run", "drive", "--run-id", "run_1", "--provider-auth-gate", "maybe"}, &stdout, &stderr)
+	if exitCode != 2 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "provider_auth_gate must be one of auto, required, off") {
+		t.Fatalf("stderr = %s", stderr.String())
 	}
 }
 

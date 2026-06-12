@@ -240,6 +240,34 @@ launch/attest:
   (e.g. a default ACL on the worktrees parent so new per-job worktrees inherit
   it).
 
+## Provider auth preflight (#252)
+
+Cross-user lanes must prove the provider CLI can authenticate as the lane OS
+user before a supervised lane is launched. `supervise start` accepts
+`--provider-auth-gate auto|required|off`:
+
+- `auto` is the default. It runs the Codex provider-auth smoke for supported
+  Codex agent-loop lanes only when `STRIATUM_LANE_OS_USER` names a distinct
+  lane user.
+- `required` blocks launch on any unsupported provider or non-passing smoke
+  result.
+- `off` explicitly bypasses the launch gate for emergency rollback.
+
+The smoke runs as the lane OS user with a sanitized `env -i` environment and
+does not pass Striatum MCP tokens, PostgreSQL DSNs, provider token variables, or
+raw workflow command output into the result. It may use the network and provider
+tokens, so ordinary `striatum doctor` and `doctor --verbose` do not run it.
+Operators can request the same primitive explicitly:
+
+```sh
+striatum doctor --lane-provider-auth codex --json
+```
+
+When a `run drive` launch hits a provider-auth refusal, the driver forwards the
+same gate mode to `supervise.start`, closes the freshly registered session with
+a sanitized reason, and exits nonzero instead of repeatedly spawning doomed
+lanes.
+
 ### The `.striatum/` contradiction, resolved
 
 `.striatum/` is daemon-owned operational scratch (PTY FIFOs, pidfiles, the
@@ -282,7 +310,7 @@ travels with the snapshot and stays auditable:
 "lanes": {
   "agy": {
     "adapter": "process",
-    "command": ["agy", "--dangerously-skip-permissions"],
+    "command": ["agy", "--sandbox"],
     "adapter_capabilities": { "agent_loop": true },
     "path_prefix": ["/opt/agy/bin"],
     "command_env": { "AGY_HOME": "/opt/agy" }
