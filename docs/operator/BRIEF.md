@@ -1,7 +1,7 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-12_v2.31.0-rfc0118-0120-arch-review"
+brief_id: "brief_2026-06-12_v2.31.0-rfc0120-landed"
 supersedes: "brief_2026-06-01d_rfc0101-complete-v2.9.0"
 scope_links: ["STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md", "docs/rfcs/0119-warm-tier-memory-boundary.md", "docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
@@ -17,10 +17,11 @@ author: operator-claude-fable-5-001
 Latest release is **v2.31.0 (2026-06-07)**, deployed (runtime schema 26 +
 owner bundles 0001–0006). `main` is ~50 commits past the v2.31.0 tag and
 carries unreleased work: the **RFC 0118 implementation** (#240,
-run-completion provenance gate, P0-1 through P1-6), the **RFC 0119/0120
-acceptances** (D179/D180), **RFC 0120 Phase 1** (await-packet idle exit),
-and a CLI-reference/doc-truth pass. The prior brief stopped at v2.9.3
-(2026-06-02); everything below is the delta.
+run-completion provenance gate, P0-1 through P1-6), the **RFC 0119
+acceptance** (D179), **RFC 0120 Phase 1 + Phase 2** (#248, D180:
+await-packet idle exit plus notify-only wake bus), the **session recovery edge
+fixes** (#253/#254/#255), and a CLI-reference/doc-truth pass. The prior brief
+stopped at v2.9.3 (2026-06-02); everything below is the delta.
 
 **The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
 
@@ -65,9 +66,10 @@ and a CLI-reference/doc-truth pass. The prior brief stopped at v2.9.3
   `pg_read_scope.posture=partial_projection_gated` (derived, not
   hard-coded). `private_read_denial` stays false — RFC 0113 R2/R3 open.
 
-**Issue burn-down:** 32 → 12 open. The ready-for-human cluster
-(#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10. Every
-survivor is a live operational finding from real multi-run load, not a
+**Issue burn-down:** 32 → 9 open. The ready-for-human cluster
+(#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10, and the
+2026-06-12 landing wave closed #240, #248, #253, #254, #255, and #258.
+Every survivor is a live operational finding from real multi-run load, not a
 feature wish.
 
 ## Deep architecture review 2026-06-11 — the standing work-list
@@ -111,17 +113,15 @@ asks:
 
 ## Current Frontier
 
-- **RFC 0120 (await-packet idle exit + wake boundary, D180) — LIVE WORK.**
-  Phase 1 implemented on main: terminal idle envelopes carry
-  `idle_behavior=exit_session`; bootstrap no longer tells lanes to poll
-  after `no_work`; the PTY receiver exits the lane cleanly. `run drive`
-  stays the operator-authorized wake surface. **Phase 2 (notify-only wake
-  bus) is in flight:** run `run_7a8b4f646d35bf076e673e40724d9fd1`
-  (`issue-248-wake-bus-implementation`, draft → review → apply) is
-  `running` with the draft job claimable. The workflow scaffold under
-  `docs/operator/workflows/issue-248-wake-bus-implementation/` is untracked
-  — commit it with the run's work. Wake events stay hints over committed
-  state, never authoritative.
+- **RFC 0120 (await-packet idle exit + wake boundary, D180) — LANDED.**
+  Phase 1 terminal idle envelopes carry `idle_behavior=exit_session`;
+  bootstrap no longer tells lanes to poll after `no_work`; the PTY receiver
+  exits the lane cleanly. Phase 2 landed on main in `81b51959`: the
+  notify-only wake bus adds read-shaped `wake.wait`, post-commit wake hints
+  for work/message/turn availability, and `run drive` wake waits with bounded
+  missed-notification fallback. Wake events stay hints over committed state,
+  never authoritative. The earlier `issue-248-wake-bus-implementation` runs
+  were canceled/superseded dogfood attempts; do not drive them as live work.
 - **RFC 0119 (warm-tier memory boundary, D179) — accepted, implementation
   gated.** Authorizes the `hippo`/`fornix` warm-tier adjunct (separate
   repo, `~/git/hippo`) + a striatum-native read-only hot tier (`recall.*`
@@ -129,26 +129,23 @@ asks:
   default-off redacted `lane_trajectory` export, `progress_note`-only git
   eviction). D179 lists hard test obligations before any Go lands; no
   `memory.*` capability, no retrieval-dependent state transition.
-- **RFC 0118 (#240)** implementation is on main (frozen verdict provenance
-  stamps, override posture/basis, completion provenance gate +
-  `needs_operator` escalation, durable `run_completion_record`,
-  `recovery.invalidate_job` supersede receipts). Issue open pending live
-  verification + close; release the accumulated post-tag work as the next
-  minor.
-- **Live housekeeping:** doctor reports 6 problems — an unanchored
-  completed-job worktree HEAD on `run_6532226d` (`worktree_head_unreachable`
-  + `job_completed_without_anchor`; re-run `work.complete` to anchor while
-  the worktree exists) — and a stale prepared run
-  `run_8e4e5487036601a540ea720f11d2f069` (`striatum/rfc-ledger-cleanup`)
-  parked at `needs_branch_confirmation`: confirm or cancel.
+- **RFC 0118 (#240)** implementation is on main and the issue is closed:
+  frozen verdict provenance stamps, override posture/basis, completion
+  provenance gate + `needs_operator` escalation, durable
+  `run_completion_record`, and `recovery.invalidate_job` supersede receipts.
+  Release the accumulated post-tag work as the next minor.
+- **Live housekeeping:** `doctor` is OK (0 problems) but still warns that
+  the local Codex config points at a stale MCP endpoint unless launched
+  through `striatum codex`. The remaining worktree-ref-safety residue is now
+  issue #259: missing-on-disk terminal worktree rows need a supported retire
+  path.
 
 ## Next Actions
 
-1. **Drive RFC 0120 Phase 2:** `striatum run drive --run-id
-   run_7a8b4f646d35bf076e673e40724d9fd1` (draft is claimable now); commit
-   the untracked workflow scaffold; verify Phase-2 test obligations from
-   D180 (post-commit wake emission, `run drive` wake behavior,
-   missed-notification fallback).
+1. **Stabilize run drive launch:** triage #260 first. Provider-auth preflight
+   now blocks otherwise-valid Codex launches with
+   `lane_provider_preflight_unexpected_result`; until that is resolved, AFK
+   self-hosting runs can wedge before claim.
 2. **Review P0s:** contain the sweep (error → log+backoff+skip, never
    daemon cancel; git out of the sweep tx; #246 abandoned-run GC) and test
    the spine (heartbeat, worktree.create, packet blocks, escalation-redrive
@@ -159,22 +156,18 @@ asks:
    `TestOperatorBriefStaysCurrent` reuses the bootstrap probe; remaining:
    guard README status / docs index / authority matrix against the
    contract).
-4. **Housekeeping:** anchor the `run_6532226d` worktree; resolve
-   `run_8e4e5487`; tag the next release once RFC 0118 verification closes
-   #240.
+4. **Housekeeping:** implement #259's missing-on-disk worktree-row retire
+   path, then tag the next release for the post-v2.31.0 landing set.
 
-## Blockers / Open Issues (12)
+## Blockers / Open Issues (9)
 
-All operational findings from live multi-run load: **#251/#252** codex lane
-health (exit-1 with no pty.log diagnostic + orphan supervisors; auth-rot
-preflight), **#245** claim race (recovery stops a session before its first
-`await_packet`; follow-on to **#241** false `tmux_session_missing`
-liveness), **#246** abandoned-run GC (7 stuck runs biting today), **#242**
-run-drive commits via the operator's shared git index, **#244** owner-table
-migrations crash-loop a two-role prod daemon (CI-blind), **#240**
-close-pending (impl landed), **#247** committee operator-neutrality
-(design), **#248** Phase 2 in flight, **#217** blob-store-gated, **#212**
-parked auto-spawn (do not implement).
+All operational findings from live multi-run load: **#260** provider-auth
+preflight false-positive blocks valid Codex launches, **#259** missing-on-disk
+worktree rows cannot be retired, **#257** mid-run write-scope drift blocker
+policy, **#247** committee operator-neutrality (design), **#246** abandoned-run
+GC, **#244** owner-table migrations crash-loop a two-role prod daemon
+(CI-blind), **#242** run-drive commits via the operator's shared git index,
+**#217** blob-store-gated, **#212** parked auto-spawn (do not implement).
 
 ## Hazards / Do Not
 
@@ -203,7 +196,7 @@ parked auto-spawn (do not implement).
 - `docs/rfcs/0119-warm-tier-memory-boundary.md` (+ hippo RFC 0001)
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
-- `docs/decisions/decision-log.md` (D161–D180 cover this brief's span)
+- `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
 - `CHANGELOG.md` (v2.10.0 → v2.31.0 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)
