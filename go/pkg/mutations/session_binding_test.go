@@ -226,3 +226,66 @@ func TestClosedPredecessorTokenReturnsStaleSessionRemediation(t *testing.T) {
 		})
 	}
 }
+
+func TestInactiveSessionPublishCompleteReturnRecoveryGuidance(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_inactive_session_recovery"
+	runID := "run_inactive_session_recovery"
+	sessionID := "sess_inactive_recovery"
+	jobID := "job_inactive_recovery"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"display_model": "Codex"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "worker", "codex", nil, "closed")
+
+	callers := []struct {
+		name string
+		call func() (map[string]any, error)
+	}{
+		{
+			name: "artifact.publish",
+			call: func() (map[string]any, error) {
+				return HandlePublishArtifact(boundCtx(ctx, repoID, sessionID), runner, intgEnv(repoID, map[string]any{
+					"session_id":   sessionID,
+					"job_id":       jobID,
+					"lease_id":     "lease_inactive_recovery",
+					"kind":         "finding",
+					"logical_name": "FINDING",
+					"path":         "FINDING.md",
+				}))
+			},
+		},
+		{
+			name: "work.complete",
+			call: func() (map[string]any, error) {
+				return HandleCompleteWork(boundCtx(ctx, repoID, sessionID), runner, intgEnv(repoID, map[string]any{
+					"session_id": sessionID,
+					"job_id":     jobID,
+					"lease_id":   "lease_inactive_recovery",
+					"summary":    "done",
+				}))
+			},
+		},
+	}
+
+	for _, caller := range callers {
+		t.Run(caller.name, func(t *testing.T) {
+			_, err := caller.call()
+			var rpcErr *rpc.Error
+			if !errors.As(err, &rpcErr) || rpcErr.Code != "session_inactive" {
+				t.Fatalf("%s err = %v, want session_inactive", caller.name, err)
+			}
+			if rpcErr.Details["job_id"] != jobID || rpcErr.Details["recovery"] != "requeue_same_attempt_then_fresh_session" {
+				t.Fatalf("%s details = %#v, want job/recovery guidance", caller.name, rpcErr.Details)
+			}
+			if !strings.Contains(rpcErr.Suggestion, "requeue-stale") || !strings.Contains(rpcErr.Suggestion, "--requeue-job") {
+				t.Fatalf("%s suggestion = %q, want daemon-backed requeue guidance", caller.name, rpcErr.Suggestion)
+			}
+		})
+	}
+}

@@ -898,6 +898,12 @@ artifact kind, and content hash. Transcript artifacts are rejected by default.
 Markdown artifacts may include YAML front matter or title-block `author:`
 metadata; when they do, the line must exactly match the work packet's lowercase
 author line. The publisher still records artifacts rather than rewriting them.
+If a lane tries to publish or complete after its Striatum session is already
+terminal, the daemon returns `session_inactive` before lease validation and
+points at the daemon-backed same-attempt recovery path: requeue the job, claim
+it from a fresh active session, and then retry the publish/complete from that
+session. This preserves the usual author-line, write-scope, and artifact
+durability checks instead of granting a closed session new write authority.
 Model-bylined artifacts require lane evidence: if the daemon supervisor has
 reported `artifact_observed` events for the session, one must match the
 published repo-relative path; otherwise clean `process_executions` rows from

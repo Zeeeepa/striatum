@@ -1102,6 +1102,9 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "work.complete"); err != nil {
 			return nil, err
 		}
+		if err := enforceActiveActingSession(ctx, tx, repositoryID, sessionID, jobID, "work.complete"); err != nil {
+			return nil, err
+		}
 		// RFC 0104: per-run advisory lock first — work.complete can complete the run
 		// (maybeCompleteRun -> closeRemainingSessions: runs -> sessions), which
 		// inverts against the claim path; serialize on the per-run lock.

@@ -342,6 +342,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Stop the stale lane and run supervise.start for the active successor session so it receives its own session-bound token; use supervise.rebridge only to repair that successor's existing supervisor, then retry from the successor lane.",
 	},
 	{
+		Code:       "session_inactive",
+		Meaning:    "A terminal or inactive session tried to publish or complete work after losing authority for the lane.",
+		Suggestion: "Recover through daemon state: requeue the job on the same attempt (`striatum recovery requeue-stale --run-id <run_id> --job-id <job_id> --force --justification \"...\"`), then register or supervise.start a fresh session and retry from that fresh session. If the session is still active but about to be closed, use `striatum session close --session-id <session_id> --reason \"...\" --requeue-job`.",
+	},
+	{
 		Code:       "sha256_mismatch",
 		Meaning:    "A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted).",
 		Suggestion: "Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying.",

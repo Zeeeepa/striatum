@@ -171,6 +171,7 @@ type sessionBinding struct {
 }
 
 const staleSessionTokenSuggestion = "Stop the stale lane and run supervise.start for the active successor session so it receives its own session-bound token; use supervise.rebridge only to repair that successor's existing supervisor, then retry from the successor lane."
+const inactiveSessionSuggestion = "Recover through daemon state: requeue the job on the same attempt (`striatum recovery requeue-stale --run-id <run_id> --job-id <job_id> --force --justification \"...\"`), then register or supervise.start a fresh session and retry from that fresh session. If the session is still active but about to be closed, use `striatum session close --session-id <session_id> --reason \"...\" --requeue-job`."
 
 // enforceSessionBinding is the per-session capability-token guard that closes
 // the cross-session impersonation vector (GH #135).
@@ -220,6 +221,32 @@ func enforceSessionBindingForSession(ctx context.Context, runner any, repository
 		return sessionBinding{}, err
 	}
 	return enforceSessionBinding(ctx, actSessionID)
+}
+
+func enforceActiveActingSession(ctx context.Context, runner any, repositoryID string, sessionID string, jobID string, method string) error {
+	session, err := sessionBindingLookup(ctx, runner, repositoryID, sessionID)
+	if err != nil {
+		return err
+	}
+	if fmt.Sprint(session["state"]) == "active" {
+		return nil
+	}
+	staleErr := rpc.NewError(
+		"session_inactive",
+		fmt.Sprintf("session %s is %s and cannot perform %s; requeue job %s on the same attempt, then retry from a fresh active session", sessionID, session["state"], method, jobID),
+		map[string]any{
+			"session_id":    sessionID,
+			"session_state": fmt.Sprint(session["state"]),
+			"run_id":        fmt.Sprint(session["run_id"]),
+			"role_id":       fmt.Sprint(session["role_id"]),
+			"lane_id":       fmt.Sprint(session["lane_id"]),
+			"job_id":        jobID,
+			"method":        method,
+			"recovery":      "requeue_same_attempt_then_fresh_session",
+		},
+	)
+	staleErr.Suggestion = inactiveSessionSuggestion
+	return staleErr
 }
 
 func staleSuccessorSessionTokenError(ctx context.Context, runner any, repositoryID string, boundSessionID string, requestedSessionID string, method string) error {

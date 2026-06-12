@@ -66,6 +66,9 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "artifact.publish"); err != nil {
 			return nil, err
 		}
+		if err := enforceActiveActingSession(ctx, tx, repositoryID, sessionID, jobID, "artifact.publish"); err != nil {
+			return nil, err
+		}
 		return publishArtifact(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText)
 	})
 }

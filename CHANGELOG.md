@@ -39,6 +39,10 @@
 - Session-scoped artifact, review, and work-complete writes now return a typed
   `session_token_stale` remediation when a closed predecessor session's bound
   token tries to act as the active successor for the same run/role/lane slot.
+- Closed sessions now fail `artifact.publish` and `work.complete` with a typed
+  `session_inactive` recovery envelope that points operators at same-attempt
+  requeue plus fresh-session retry, while preserving normal artifact and
+  write-scope validation on the recovered path. (#255)
 
 ## v2.31.0 — 2026-06-07
 

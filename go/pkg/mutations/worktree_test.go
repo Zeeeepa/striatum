@@ -1009,6 +1009,76 @@ func TestWorktreeCompleteAllowsPublishedArtifactCommittedInWorktree(t *testing.T
 	}
 }
 
+func TestClosedSessionRequeueLetsFreshSessionPublishExistingWorktreeArtifact(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "closed_requeue_publish", true)
+	artifactPath := "docs/recovered.md"
+	payload := []byte(findingArtifactPayload("accept"))
+	if err := os.MkdirAll(filepath.Join(ids.worktreeRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ids.worktreeRoot, filepath.FromSlash(artifactPath)), payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = NOW(), release_reason = 'operator_release_before_close'
+		 WHERE repository_id = $1 AND lease_id = $2`, ids.repoID, ids.leaseID); err != nil {
+		t.Fatalf("release old lease: %v", err)
+	}
+	closeResult, err := HandleCloseSession(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id":  ids.sessionID,
+		"reason":      "lane closed after writing artifact; requeue same attempt",
+		"requeue_job": true,
+	}))
+	if err != nil {
+		t.Fatalf("session close --requeue-job: %v", err)
+	}
+	if closeResult["state"] != "closed" || closeResult["requeued_job"] == nil {
+		t.Fatalf("close result = %#v, want closed with requeued job", closeResult)
+	}
+
+	freshSession := "sess_fresh_" + ids.repoID
+	intgSeedSessionOrdinal(t, ctx, runner, ids.repoID, ids.runID, freshSession, "author", "codex", []string{"write"}, "active", 2)
+	intgAttest(t, ctx, runner, ids.repoID, ids.runID, freshSession, "codex")
+	claim, err := HandleClaimNext(ctx, runner, intgEnv(ids.repoID, map[string]any{"session_id": freshSession}))
+	if err != nil {
+		t.Fatalf("fresh claim: %v", err)
+	}
+	if claim["status"] != "claimed" {
+		t.Fatalf("fresh claim = %#v, want claimed", claim)
+	}
+	leaseRow, err := oneRow(ctx, runner, `
+		SELECT lease_id
+		  FROM striatumd.leases
+		 WHERE repository_id = $1 AND owner_session_id = $2 AND state = 'active'
+		 LIMIT 1`, ids.repoID, freshSession)
+	if err != nil {
+		t.Fatalf("fresh active lease: %v", err)
+	}
+
+	published, err := HandlePublishArtifact(boundCtx(ctx, ids.repoID, freshSession), runner, intgEnv(ids.repoID, map[string]any{
+		"session_id":   freshSession,
+		"job_id":       ids.jobID,
+		"lease_id":     fmt.Sprint(leaseRow["lease_id"]),
+		"kind":         "finding",
+		"logical_name": "recovered",
+		"path":         artifactPath,
+	}))
+	if err != nil {
+		t.Fatalf("fresh publish of recovered worktree artifact: %v", err)
+	}
+	if published["artifact_id"] == nil {
+		t.Fatalf("publish result = %#v, want artifact_id", published)
+	}
+}
+
 func TestWorktreeReleaseRefusesPublishedArtifactOnlyInUncommittedWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
