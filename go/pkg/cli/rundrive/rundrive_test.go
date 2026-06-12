@@ -108,6 +108,93 @@ func TestRunDriveRefreshesSessionsAfterStoppingCompletedLane(t *testing.T) {
 	}
 }
 
+func TestRunDriveRelaunchesWhenLaunchedSessionDies(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+	driver := testDriver(fake)
+
+	if _, _, _, err := driver.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+	if got := fake.count("supervise.start"); got != 1 {
+		t.Fatalf("supervise.start calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+
+	// The lane process died before claiming; the daemon no longer lists the
+	// session, but the job is still queued in the same slot.
+	fake.sessions = nil
+
+	actions, _, _, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	if got := fake.count("session.register"); got != 2 {
+		t.Fatalf("session.register calls = %d, want relaunch of the wedged slot; calls=%#v actions=%#v", got, fake.calls, actions)
+	}
+	if got := fake.count("supervise.start"); got != 2 {
+		t.Fatalf("supervise.start calls = %d, want 2; calls=%#v actions=%#v", got, fake.calls, actions)
+	}
+	if got := fake.count("supervise.stop"); got != 0 {
+		t.Fatalf("supervise.stop calls = %d, want 0 against an already-gone session; calls=%#v", got, fake.calls)
+	}
+	forgot := false
+	for _, action := range actions {
+		if action.Action == "forget" && action.SessionID == "sess_1" && action.WorkflowJobID == "author_draft" && action.Attempt == 1 {
+			forgot = true
+		}
+	}
+	if !forgot {
+		t.Fatalf("actions = %#v, want a forget action for the dead launched session", actions)
+	}
+}
+
+func TestRunDriveRelaunchesSameAttemptRequeue(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+	driver := testDriver(fake)
+
+	if _, _, _, err := driver.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("first reconcile: %v", err)
+	}
+
+	// The lane claims the job, then stalls.
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "claimed", 1)}
+	actions, _, _, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("claimed reconcile: %v", err)
+	}
+	if len(actions) != 0 {
+		t.Fatalf("claimed reconcile should be quiet, got %#v", actions)
+	}
+
+	// Stale-lease recovery requeues the SAME (workflow_job_id, attempt) slot
+	// and closes the stalled session.
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+	fake.sessions[0]["state"] = "closed"
+
+	actions, _, _, err = driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("requeue reconcile: %v", err)
+	}
+	if got := fake.count("session.register"); got != 2 {
+		t.Fatalf("session.register calls = %d, want relaunch after same-attempt requeue; calls=%#v actions=%#v", got, fake.calls, actions)
+	}
+	if got := fake.count("supervise.start"); got != 2 {
+		t.Fatalf("supervise.start calls = %d, want 2; calls=%#v actions=%#v", got, fake.calls, actions)
+	}
+	started := false
+	for _, action := range actions {
+		if action.Action == "supervise.start" && action.Result == "started" && action.SessionID == "sess_2" {
+			started = true
+		}
+	}
+	if !started {
+		t.Fatalf("actions = %#v, want a fresh session started for the requeued slot", actions)
+	}
+}
+
 func TestRunDriveStopsSupersededLaunchedAttempt(t *testing.T) {
 	ctx := context.Background()
 	fake := newFakeDrive()

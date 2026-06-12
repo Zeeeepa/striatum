@@ -213,6 +213,7 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 		return nil, state, false, err
 	}
 	actions := []Action{}
+	actions = append(actions, d.forgetInactiveLaunched(sessions)...)
 	closeActions := d.closeFinishedLaunched(ctx, jobs)
 	actions = append(actions, closeActions...)
 	if anyStopped(closeActions) {
@@ -227,6 +228,34 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 		return actions, state, false, err
 	}
 	return actions, state, false, nil
+}
+
+// forgetInactiveLaunched drops launched-slot memory for sessions the daemon no
+// longer reports as active, so the slot becomes eligible for relaunch on this
+// same pass. Without this, a session that dies while its job is (or returns
+// to) queued — stale-lease requeue_same_attempt, a lane dying before claiming,
+// pause/resume idle-exits, an adopted-but-ineligible session — would make
+// launchQueued skip the slot forever. It must run before closeFinishedLaunched,
+// against the same sessions snapshot launchQueued adopts from, so it never
+// drops entries created later in the pass and closeFinishedLaunched never
+// retries supervise.stop against an already-gone session.
+func (d *Driver) forgetInactiveLaunched(sessions []map[string]any) []Action {
+	active := activeSessionIDs(sessions)
+	actions := []Action{}
+	for key, sessionID := range d.launched {
+		if active[sessionID] {
+			continue
+		}
+		delete(d.launched, key)
+		actions = append(actions, d.action("forget", Action{
+			WorkflowJobID: key.WorkflowJobID,
+			Attempt:       key.Attempt,
+			SessionID:     sessionID,
+			Result:        "forgotten",
+			Message:       "launched session is no longer active; slot eligible for relaunch",
+		}))
+	}
+	return actions
 }
 
 func (d *Driver) closeFinishedLaunched(ctx context.Context, jobs []map[string]any) []Action {
@@ -557,6 +586,19 @@ func activeSessionsBySlot(sessions []map[string]any) map[roleLane][]string {
 			continue
 		}
 		result[slot] = append(result[slot], stringValue(session["session_id"]))
+	}
+	return result
+}
+
+func activeSessionIDs(sessions []map[string]any) map[string]bool {
+	result := map[string]bool{}
+	for _, session := range sessions {
+		if stringValue(session["state"]) != "active" {
+			continue
+		}
+		if sessionID := stringValue(session["session_id"]); sessionID != "" {
+			result[sessionID] = true
+		}
 	}
 	return result
 }
