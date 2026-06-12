@@ -52,14 +52,23 @@ func assertDaemonSocketDirectory(socketPath string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("daemon socket directory %s is not a directory", dir)
 	}
-	if mode := info.Mode().Perm(); mode != 0o700 {
-		return fmt.Errorf("daemon socket directory %s mode %04o; want 0700", dir, mode)
+	if mode := info.Mode().Perm(); !daemonSocketDirectoryModeAccepted(mode) {
+		return fmt.Errorf("daemon socket directory %s mode %04o; want 0700 or 0710 ACL-mask traversal mode", dir, mode)
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if ok && int(stat.Uid) != os.Geteuid() {
 		return fmt.Errorf("daemon socket directory %s is owned by uid %d; want current uid %d", dir, stat.Uid, os.Geteuid())
 	}
 	return nil
+}
+
+func daemonSocketDirectoryModeAccepted(mode os.FileMode) bool {
+	switch mode.Perm() {
+	case 0o700, 0o710:
+		return true
+	default:
+		return false
+	}
 }
 
 func socketAcceptsConnections(socketPath string) bool {

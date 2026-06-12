@@ -19,16 +19,18 @@ type SweepOnceFunc func(context.Context) (map[string]any, error)
 type WaitFunc func(context.Context, time.Duration) bool
 
 type SchedulerOptions struct {
-	Interval    time.Duration
-	MinInterval time.Duration
-	MaxSweeps   *int
-	SweepOnce   SweepOnceFunc
-	Wait        WaitFunc
+	Interval     time.Duration
+	MinInterval  time.Duration
+	MaxSweeps    *int
+	SweepOnce    SweepOnceFunc
+	Wait         WaitFunc
+	OnSweepError func(error)
 }
 
 type SchedulerResult struct {
-	Sweeps int
-	Reason string
+	Sweeps       int
+	FailedSweeps int
+	Reason       string
 }
 
 func RunScheduler(ctx context.Context, opts SchedulerOptions) (SchedulerResult, error) {
@@ -50,10 +52,26 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions) (SchedulerResult, 
 		default:
 		}
 
-		if _, err := opts.SweepOnce(ctx); err != nil {
-			return result, err
-		}
 		result.Sweeps++
+		if _, err := opts.SweepOnce(ctx); err != nil {
+			if ctx.Err() != nil || errors.Is(err, context.Canceled) {
+				result.Reason = ReasonContextCanceled
+				return result, err
+			}
+			result.FailedSweeps++
+			if opts.OnSweepError != nil {
+				opts.OnSweepError(err)
+			}
+			if opts.MaxSweeps != nil && result.Sweeps >= *opts.MaxSweeps {
+				result.Reason = ReasonMaxSweepsReached
+				return result, nil
+			}
+			if !wait(ctx, interval) {
+				result.Reason = ReasonContextCanceled
+				return result, ctx.Err()
+			}
+			continue
+		}
 		if opts.MaxSweeps != nil && result.Sweeps >= *opts.MaxSweeps {
 			result.Reason = ReasonMaxSweepsReached
 			return result, nil

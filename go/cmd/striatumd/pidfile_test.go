@@ -109,6 +109,26 @@ func TestReserveDaemonRuntimeCreates0700SocketDirectory(t *testing.T) {
 	}
 }
 
+func TestReserveDaemonRuntimeAcceptsACLMaskTraversalMode(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("mkdir socket directory: %v", err)
+	}
+	if err := os.Chmod(dir, 0o710); err != nil {
+		t.Fatalf("chmod socket directory: %v", err)
+	}
+	socketPath := filepath.Join(dir, "daemon-go.sock")
+
+	cleanup, err := reserveDaemonRuntime(socketPath, 12345)
+	if err != nil {
+		t.Fatalf("reserveDaemonRuntime() error = %v, want ACL-mask traversal mode accepted", err)
+	}
+	defer cleanup()
+	if _, err := os.Stat(daemonPidfilePath(socketPath)); err != nil {
+		t.Fatalf("pidfile should be written for accepted ACL-mask traversal mode: %v", err)
+	}
+}
+
 func TestReserveDaemonRuntimeRefusesPermissiveSocketDirectory(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "runtime")
 	if err := os.Mkdir(dir, 0o700); err != nil {

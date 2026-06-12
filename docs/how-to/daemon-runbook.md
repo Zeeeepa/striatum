@@ -82,7 +82,8 @@ and `~/Library/Caches/striatum/runtime/` on macOS. Override with
 Clients resolve the socket from `${XDG_RUNTIME_DIR}/striatum/daemon-go.sock`
 by default; override with `--daemon-socket` or `STRIATUM_DAEMON_SOCKET`.
 At startup, `striatumd` asserts that the socket directory is owned by the daemon
-user and has mode `0700`. A custom socket path under a shared directory such as
+user and has mode `0700`, or `0710` when a POSIX ACL mask grants the dedicated
+lane user traversal only. A custom socket path under a shared directory such as
 `/tmp` is refused; create an owner-only directory first and point the socket
 there.
 
@@ -153,8 +154,8 @@ In the foreground recipe the daemon logs to stderr.
 - **Daemon won't start / no DSN.** `journalctl --user -u striatumd` shows the
   daemon refusing to bind without `postgres_url`. Set the DSN (above) and
   `systemctl --user restart striatumd`.
-- **Daemon won't start / runtime directory mode.** If logs show
-  `daemon socket directory ... mode 0775; want 0700`, rerun
+- **Daemon won't start / runtime directory mode.** If logs report mode `0775`
+  and say the daemon wanted `0700 or 0710 ACL-mask traversal mode`, rerun
   `striatum daemon install` to refresh the unit, or repair manually:
   `chmod 0700 "${XDG_RUNTIME_DIR}/striatum"` and
   `systemctl --user restart striatumd`.
@@ -166,8 +167,8 @@ In the foreground recipe the daemon logs to stderr.
   classifies auth failures as missing token, unreadable token, stale/revoked
   token, or daemon-side denial. For stale local runtime material, stop the
   daemon, remove the runtime files (`daemon-go.sock`, `client-token`,
-  `mcp-http-endpoint`, `discovery.json`), confirm the directory is `0700`, and
-  restart; the daemon regenerates them.
+  `mcp-http-endpoint`, `discovery.json`), confirm the directory is `0700` or the
+  provisioned `0710` ACL-mask shape, and restart; the daemon regenerates them.
 - **Migration on start.** The daemon applies pending schema migrations on
   startup as its runtime role (`striatumd_rw`); a slow first start after an
   upgrade is normal. Watch the log.

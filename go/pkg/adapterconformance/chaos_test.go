@@ -47,7 +47,9 @@ import (
 	"github.com/halbritt/striatum/go/pkg/adapterconformance/testagent"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
+	recoverypkg "github.com/halbritt/striatum/go/pkg/recovery"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // chaosSweepAuthor is the audit author the chaos sweeps record on their
@@ -82,6 +84,43 @@ func runSweep(t *testing.T, ctx context.Context, h *Harness, runID string) sweep
 		summary.escalationCount = intFromMap(es, "raised_count")
 	}
 	return summary
+}
+
+func TestRecoverySchedulerSurvivesPGConnectionKill(t *testing.T) {
+	ctx := context.Background()
+	maxSweeps := 2
+	calls := 0
+	adminShutdown := &pgconn.PgError{Code: "57P01", Message: "terminating connection due to administrator command"}
+	waited := 0
+
+	result, err := recoverypkg.RunScheduler(ctx, recoverypkg.SchedulerOptions{
+		Interval:    time.Millisecond,
+		MinInterval: time.Millisecond,
+		MaxSweeps:   &maxSweeps,
+		SweepOnce: func(context.Context) (map[string]any, error) {
+			calls++
+			if calls == 1 {
+				return nil, adminShutdown
+			}
+			return map[string]any{"status": "sweep_after_pg_reconnect"}, nil
+		},
+		Wait: func(context.Context, time.Duration) bool {
+			waited++
+			return true
+		},
+	})
+	if err != nil {
+		t.Fatalf("scheduler returned PG admin-shutdown as daemon-fatal error: %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("sweep calls = %d, want injected failure plus retry", calls)
+	}
+	if waited != 1 {
+		t.Fatalf("waits = %d, want one backoff between failed sweep and retry", waited)
+	}
+	if result.FailedSweeps != 1 || result.Sweeps != 2 {
+		t.Fatalf("scheduler result = %#v, want one contained failed sweep across two attempts", result)
+	}
 }
 
 // injectDeadLane simulates a HARD dead lane: the supervised pane died and its

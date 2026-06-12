@@ -551,6 +551,15 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if err != nil {
 		return nil, err
 	}
+	if !dryRun {
+		// Worktree anchoring shells out to git; compute it before lockRun so the
+		// sweep transaction only records the already-durable anchor payload.
+		worktreeAnchors, err := buildRunWorktreeAnchorOracle(ctx, runner, repositoryID, runID)
+		if err != nil {
+			return nil, err
+		}
+		ctx = withWorktreeAnchorOracle(ctx, worktreeAnchors)
+	}
 
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// Mark every call below as executing inside the sweep transaction (#198
@@ -1969,6 +1978,81 @@ func HandleRecoveryCancelJob(ctx context.Context, runner db.Runner, envelope rpc
 	})
 }
 
+type worktreeAnchorOracleKey struct{}
+
+type worktreeAnchorOracle struct {
+	byWorktreeID map[string]map[string]any
+}
+
+func withWorktreeAnchorOracle(ctx context.Context, oracle *worktreeAnchorOracle) context.Context {
+	return context.WithValue(ctx, worktreeAnchorOracleKey{}, oracle)
+}
+
+func worktreeAnchorOracleFromContext(ctx context.Context) *worktreeAnchorOracle {
+	oracle, _ := ctx.Value(worktreeAnchorOracleKey{}).(*worktreeAnchorOracle)
+	return oracle
+}
+
+func (o *worktreeAnchorOracle) lookup(worktreeID string) (map[string]any, bool) {
+	if o == nil || o.byWorktreeID == nil {
+		return nil, false
+	}
+	payload, ok := o.byWorktreeID[worktreeID]
+	return payload, ok
+}
+
+// buildRunWorktreeAnchorOracle anchors expired repo-write worktrees before the
+// sweep transaction opens. The in-transaction path may then abandon the worktree
+// row and emit provenance without running git under lockRun.
+func buildRunWorktreeAnchorOracle(ctx context.Context, runner db.Runner, repositoryID, runID string) (*worktreeAnchorOracle, error) {
+	oracle := &worktreeAnchorOracle{byWorktreeID: map[string]map[string]any{}}
+	rows, err := queryRows(ctx, runner, `
+		SELECT j.job_id, j.attempt,
+		       wt.worktree_id, wt.worktree_path, wt.base_branch
+		  FROM striatumd.leases l
+		  JOIN striatumd.jobs j
+		    ON j.repository_id = l.repository_id
+		   AND j.job_id = l.resource_id
+		  JOIN striatumd.job_worktrees wt
+		    ON wt.repository_id = j.repository_id
+		   AND wt.job_id = j.job_id
+		   AND wt.lease_id = l.lease_id
+		   AND wt.state = 'active'
+		 WHERE l.repository_id = $1
+		   AND l.run_id = $2
+		   AND l.state = 'active'
+		   AND l.expires_at < $3::timestamptz
+		 ORDER BY wt.worktree_id`,
+		repositoryID,
+		runID,
+		nowString(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return oracle, nil
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		worktreeID := fmt.Sprint(row["worktree_id"])
+		worktree := map[string]any{
+			"worktree_id":   worktreeID,
+			"worktree_path": row["worktree_path"],
+			"base_branch":   row["base_branch"],
+		}
+		payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(row["job_id"]), fmt.Sprint(row["base_branch"]), worktree, intValue(row["attempt"]))
+		if err != nil {
+			return nil, err
+		}
+		oracle.byWorktreeID[worktreeID] = payload
+	}
+	return oracle, nil
+}
+
 func expireLeases(ctx context.Context, runner any, repositoryID, runID string) ([]map[string]any, error) {
 	now := nowString()
 	rows, err := queryRows(ctx, runner, `
@@ -2044,13 +2128,20 @@ func expireLeases(ctx context.Context, runner any, repositoryID, runID string) (
 			if fmt.Sprint(worktree["lease_id"]) != fmt.Sprint(lease["lease_id"]) {
 				continue
 			}
-			repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
-			if err != nil {
-				return nil, err
-			}
-			anchorPayload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(job["job_id"]), fmt.Sprint(worktree["base_branch"]), worktree, intValue(job["attempt"]))
-			if err != nil {
-				return nil, err
+			anchorOracle := worktreeAnchorOracleFromContext(ctx)
+			anchorPayload, ok := anchorOracle.lookup(fmt.Sprint(worktree["worktree_id"]))
+			if !ok {
+				if anchorOracle != nil {
+					return nil, fmt.Errorf("missing precomputed worktree anchor for %s", worktree["worktree_id"])
+				}
+				repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+				if err != nil {
+					return nil, err
+				}
+				anchorPayload, err = anchorWorktreeCommitStack(ctx, repoRoot, runID, fmt.Sprint(job["job_id"]), fmt.Sprint(worktree["base_branch"]), worktree, intValue(job["attempt"]))
+				if err != nil {
+					return nil, err
+				}
 			}
 			if err := exec.Exec(ctx, `
 				UPDATE striatumd.job_worktrees

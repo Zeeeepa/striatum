@@ -177,8 +177,9 @@ phase nomenclature and claim-keying below are normative.
   a captured DSN string dies at the next restart; where owner==runtime (the
   documented live PEER posture) rotation is inert and surfaces as a doctor
   posture finding. A dedicated PG-less lane OS user plus a `0700` socket
-  directory make PostgreSQL unreachable from lanes as the hardened default; the
-  daemon asserts the owner-only socket directory at startup and refuses
+  directory (`0710` when the POSIX ACL mask grants lane traversal only) make
+  PostgreSQL unreachable from lanes as the hardened default; the daemon asserts
+  the owner-only socket directory at startup and refuses
   permissive/custom shared socket directories.
   The daemon consumes `STRIATUM_LANE_OS_USER` for supervised lane launch and
   records `run_as_user` metadata, but **GH #87 closes only when the host has the

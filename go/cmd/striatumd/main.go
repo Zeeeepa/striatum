@@ -692,6 +692,9 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 				Runner: runner,
 				Author: "striatumd-go",
 			}.SweepOnce,
+			OnSweepError: func(err error) {
+				log.Printf("recovery scheduler sweep failed; backing off until next interval: %v", err)
+			},
 		})
 		if err == nil {
 			log.Printf("recovery scheduler stopped after %d sweep(s): %s", result.Sweeps, result.Reason)
