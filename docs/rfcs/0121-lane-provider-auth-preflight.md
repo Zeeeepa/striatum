@@ -129,6 +129,11 @@ The shared primitive returns a private-safe block shaped like:
   "run_as_user": "striatum-lane",
   "status": "passed",
   "failure_class": null,
+  "probe": "codex_exec_output_last_message",
+  "exit_code": 0,
+  "stdout_bytes": 0,
+  "stderr_bytes": 0,
+  "success_signal": "matched",
   "raw_output_returned": false,
   "network": "provider_cli_may_use_network",
   "costing": "provider_tokens_may_be_spent",
@@ -152,14 +157,21 @@ Failure results use `status: "failed"` and one of these stable
   smoke command under the intended lane identity.
 - `lane_provider_preflight_unsupported` - the selected gate mode requires a
   provider that has no supported smoke.
-- `lane_provider_preflight_unexpected_result` - the command exited successfully
-  but did not produce the expected bounded success signal.
+- `lane_provider_preflight_unexpected_result` - the smoke reached an
+  unsupported result shape that cannot be classified as auth success, auth
+  failure, launch failure, timeout, binary missing, or provider unavailable.
 
 The RPC error `Code` for a blocking `supervise.start` refusal is the same stable
 classification when possible. Error `Details` may include the safe result block
 above. It must not include provider stdout, stderr, final text, auth paths,
 provider account ids, environment values, token material, raw PTY logs, or
 tracebacks.
+
+For Codex, a zero-exit smoke is treated as provider-auth success even when the
+bounded `--output-last-message` signal is missing, empty, or mismatched. That
+condition is returned as the safe `success_signal` diagnostic rather than a
+blocking auth refusal, because the provider CLI has already authenticated and
+completed the closed smoke.
 
 MCP endpoint drift, repository ACL failure, and lane sandbox failure remain
 separate classes. They must not be collapsed into
@@ -200,9 +212,10 @@ Rules:
   tokens, PostgreSQL DSNs, provider access tokens, or workflow-authored
   `command_env` secrets to the smoke.
 - Use a bounded timeout, default `45s`.
-- Read only the exit status and the bounded success signal needed to classify
-  the result. Delete temporary files after classification. Never persist or
-  return raw stdout, stderr, JSONL events, or final text.
+- Read only the exit status, stdout/stderr byte counts, and bounded success
+  signal state needed to classify or diagnose the result. Delete temporary
+  files after classification. Never persist or return raw stdout, stderr, JSONL
+  events, or final text.
 
 ## Ordering
 

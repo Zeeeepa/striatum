@@ -213,12 +213,16 @@ striatum supervise trajectory
 `supervise start` owns the lane provider-auth launch gate. The default
 `auto` mode runs the Codex smoke only for supported Codex agent-loop lanes under
 a distinct configured lane OS user; `required` blocks unsupported providers and
-all non-passing smoke results; `off` is the explicit rollback path.
+auth-negative smoke results; `off` is the explicit rollback path.
 The gate runs before scratch/FIFO creation, session-bound lane token minting,
 supervisor rows/events, helper/tmux, or the provider lane process. Blocking
-results return a safe `lane_provider_auth` details block without stdout, stderr,
-final text, auth paths, provider account ids, environment values, token
-material, PTY logs, or tracebacks.
+results return a safe `lane_provider_auth` details block. The block can include
+the probe name, exit code, stdout/stderr byte counts, and bounded success-signal
+state; it never includes raw stdout, stderr, final text, auth paths, provider
+account ids, environment values, token material, PTY logs, or tracebacks.
+For Codex, zero exit means the lane provider CLI authenticated successfully
+even if the bounded `--output-last-message` signal is missing or mismatched;
+that condition is diagnostic and does not block launch.
 
 ## Conversation (RFC 0086)
 
@@ -338,7 +342,9 @@ Ordinary `doctor` and `doctor --verbose` do not run provider CLIs. The
 provider-auth diagnostic is explicit-only because it may touch the network,
 spend provider tokens, trigger auth refresh, or hang on an interactive prompt.
 Its JSON result is the same private-safe block used by `supervise.start`, with
-`raw_output_returned=false`.
+`raw_output_returned=false`. A Codex zero-exit smoke with a missing or
+mismatched bounded success signal reports `success_signal` as `missing`,
+`empty`, or `mismatch`; it is not an auth failure.
 Authorization uses the closed daemon method capability vocabulary:
 `read`, `write`, `review`, `claim`, `apply`, `admin`, `recovery`, and
 `surgical_recovery`.

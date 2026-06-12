@@ -238,8 +238,8 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	},
 	{
 		Code:       "lane_provider_preflight_unexpected_result",
-		Meaning:    "The lane provider-auth smoke command exited successfully but did not produce the expected bounded success signal.",
-		Suggestion: "Inspect the provider CLI manually; the smoke completed without the expected bounded success signal.",
+		Meaning:    "The lane provider-auth smoke reached an unsupported result shape that cannot be classified as auth success, auth failure, launch failure, timeout, binary missing, or provider unavailable.",
+		Suggestion: "Inspect the provider CLI manually; the smoke completed with an unsupported result shape.",
 	},
 	{
 		Code:       "lane_provider_preflight_unsupported",

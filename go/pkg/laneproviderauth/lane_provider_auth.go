@@ -19,6 +19,14 @@ const (
 	StatusPassed = "passed"
 	StatusFailed = "failed"
 
+	ProbeCodexOutputLastMessage = "codex_exec_output_last_message"
+
+	SuccessSignalMatched  = "matched"
+	SuccessSignalMissing  = "missing"
+	SuccessSignalEmpty    = "empty"
+	SuccessSignalMismatch = "mismatch"
+	SuccessSignalNotRun   = "not_run"
+
 	FailureAuthFailed       = "lane_provider_auth_failed"
 	FailureBinaryMissing    = "lane_provider_binary_missing"
 	FailureUnavailable      = "lane_provider_unavailable"
@@ -110,6 +118,11 @@ type Result struct {
 	RunAsUser         string
 	Status            string
 	FailureClass      string
+	Probe             string
+	ExitCode          int
+	StdoutBytes       int
+	StderrBytes       int
+	SuccessSignal     string
 	RawOutputReturned bool
 	Network           string
 	Costing           string
@@ -127,6 +140,11 @@ func (r Result) ToMap() map[string]any {
 		"provider":            r.Provider,
 		"status":              r.Status,
 		"failure_class":       nil,
+		"probe":               r.Probe,
+		"exit_code":           r.ExitCode,
+		"stdout_bytes":        r.StdoutBytes,
+		"stderr_bytes":        r.StderrBytes,
+		"success_signal":      r.SuccessSignal,
 		"raw_output_returned": false,
 		"network":             r.Network,
 		"costing":             r.Costing,
@@ -345,6 +363,10 @@ func (ExecRunner) Run(ctx context.Context, spec CommandSpec) CommandResult {
 }
 
 func baseResult(params Params, provider string) Result {
+	probe := ""
+	if provider == ProviderCodex {
+		probe = ProbeCodexOutputLastMessage
+	}
 	return Result{
 		Checked:           true,
 		Provider:          provider,
@@ -352,6 +374,9 @@ func baseResult(params Params, provider string) Result {
 		LaneID:            params.LaneID,
 		RunAsUser:         strings.TrimSpace(params.RunAsUser),
 		Status:            StatusPassed,
+		Probe:             probe,
+		ExitCode:          0,
+		SuccessSignal:     SuccessSignalNotRun,
 		RawOutputReturned: false,
 		Network:           "provider_cli_may_use_network",
 		Costing:           "provider_tokens_may_be_spent",
@@ -360,6 +385,10 @@ func baseResult(params Params, provider string) Result {
 }
 
 func classifyCodexResult(base Result, run CommandResult, successSignal string, readErr error) Result {
+	base.ExitCode = run.ExitCode
+	base.StdoutBytes = len(run.Stdout)
+	base.StderrBytes = len(run.Stderr)
+	base.SuccessSignal = successSignalState(successSignal, readErr)
 	if run.TimedOut {
 		return failed(base, FailureTimeout)
 	}
@@ -382,10 +411,20 @@ func classifyCodexResult(base Result, run CommandResult, successSignal string, r
 			return failed(base, FailureAuthFailed)
 		}
 	}
-	if readErr != nil || strings.TrimSpace(successSignal) != "ok" {
-		return failed(base, FailureUnexpectedResult)
-	}
 	return base
+}
+
+func successSignalState(successSignal string, readErr error) string {
+	if readErr != nil {
+		return SuccessSignalMissing
+	}
+	if strings.TrimSpace(successSignal) == "ok" {
+		return SuccessSignalMatched
+	}
+	if strings.TrimSpace(successSignal) == "" {
+		return SuccessSignalEmpty
+	}
+	return SuccessSignalMismatch
 }
 
 func failed(base Result, failureClass string) Result {
@@ -410,7 +449,7 @@ func remediation(failureClass string) string {
 	case FailureUnsupported:
 		return "use --provider-auth-gate off or configure a provider with a supported auth preflight"
 	case FailureUnexpectedResult:
-		return "inspect the provider CLI manually; the smoke completed without the expected bounded success signal"
+		return "inspect the provider CLI manually; the smoke completed with an unsupported result shape"
 	default:
 		return "inspect the lane provider auth preflight result"
 	}

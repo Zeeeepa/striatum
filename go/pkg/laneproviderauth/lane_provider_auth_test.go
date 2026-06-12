@@ -77,50 +77,68 @@ func TestSanitizeEnvAndLaunchSpecUseEnvI(t *testing.T) {
 
 func TestCheckClassifiesCodexResults(t *testing.T) {
 	tests := []struct {
-		name          string
-		run           CommandResult
-		output        string
-		wantStatus    string
-		wantFailure   string
-		wantNoOutput  bool
-		wantReadError bool
+		name         string
+		run          CommandResult
+		output       string
+		wantStatus   string
+		wantFailure  string
+		wantSignal   string
+		wantExitCode int
 	}{
 		{
-			name:       "success",
-			run:        CommandResult{ExitCode: 0},
-			output:     "ok\n",
-			wantStatus: StatusPassed,
+			name:         "success",
+			run:          CommandResult{ExitCode: 0},
+			output:       "ok\n",
+			wantStatus:   StatusPassed,
+			wantSignal:   "matched",
+			wantExitCode: 0,
 		},
 		{
-			name:        "stale_auth",
-			run:         CommandResult{ExitCode: 1, Stderr: "not logged in; token expired", Err: errors.New("exit status 1")},
-			wantStatus:  StatusFailed,
-			wantFailure: FailureAuthFailed,
+			name:         "stale_auth",
+			run:          CommandResult{ExitCode: 1, Stderr: "not logged in; token expired", Err: errors.New("exit status 1")},
+			wantStatus:   StatusFailed,
+			wantFailure:  FailureAuthFailed,
+			wantSignal:   "missing",
+			wantExitCode: 1,
 		},
 		{
-			name:        "missing_binary",
-			run:         CommandResult{ExitCode: -1, Err: os.ErrNotExist},
-			wantStatus:  StatusFailed,
-			wantFailure: FailureBinaryMissing,
+			name:         "missing_binary",
+			run:          CommandResult{ExitCode: -1, Err: os.ErrNotExist},
+			wantStatus:   StatusFailed,
+			wantFailure:  FailureBinaryMissing,
+			wantSignal:   "missing",
+			wantExitCode: -1,
 		},
 		{
-			name:        "timeout",
-			run:         CommandResult{TimedOut: true, Err: context.DeadlineExceeded},
-			wantStatus:  StatusFailed,
-			wantFailure: FailureTimeout,
+			name:         "timeout",
+			run:          CommandResult{TimedOut: true, Err: context.DeadlineExceeded},
+			wantStatus:   StatusFailed,
+			wantFailure:  FailureTimeout,
+			wantSignal:   "missing",
+			wantExitCode: 0,
 		},
 		{
-			name:        "provider_unavailable",
-			run:         CommandResult{ExitCode: 1, Stderr: "service unavailable: 503", Err: errors.New("exit status 1")},
-			wantStatus:  StatusFailed,
-			wantFailure: FailureUnavailable,
+			name:         "provider_unavailable",
+			run:          CommandResult{ExitCode: 1, Stderr: "service unavailable: 503", Err: errors.New("exit status 1")},
+			wantStatus:   StatusFailed,
+			wantFailure:  FailureUnavailable,
+			wantSignal:   "missing",
+			wantExitCode: 1,
 		},
 		{
-			name:        "unexpected_success_output",
-			run:         CommandResult{ExitCode: 0},
-			output:      "hello",
-			wantStatus:  StatusFailed,
-			wantFailure: FailureUnexpectedResult,
+			name:         "successful_exit_with_output_drift",
+			run:          CommandResult{ExitCode: 0, Stdout: "{}\n", Stderr: "info\n"},
+			output:       "hello",
+			wantStatus:   StatusPassed,
+			wantSignal:   "mismatch",
+			wantExitCode: 0,
+		},
+		{
+			name:         "successful_exit_with_missing_signal_file",
+			run:          CommandResult{ExitCode: 0},
+			wantStatus:   StatusPassed,
+			wantSignal:   "missing",
+			wantExitCode: 0,
 		},
 	}
 	for _, tt := range tests {
@@ -142,12 +160,21 @@ func TestCheckClassifiesCodexResults(t *testing.T) {
 			if result.Status != tt.wantStatus || result.FailureClass != tt.wantFailure {
 				t.Fatalf("result = %#v, want status=%s failure=%s", result, tt.wantStatus, tt.wantFailure)
 			}
+			if result.SuccessSignal != tt.wantSignal || result.ExitCode != tt.wantExitCode {
+				t.Fatalf("diagnostics = signal=%q exit=%d, want signal=%q exit=%d", result.SuccessSignal, result.ExitCode, tt.wantSignal, tt.wantExitCode)
+			}
 			payload, err := json.Marshal(result.ToMap())
 			if err != nil {
 				t.Fatal(err)
 			}
 			if strings.Contains(string(payload), "not logged in") || strings.Contains(string(payload), "token expired") || strings.Contains(string(payload), "hello") {
 				t.Fatalf("safe result leaked raw provider output: %s", string(payload))
+			}
+			if result.ToMap()["probe"] != "codex_exec_output_last_message" {
+				t.Fatalf("probe = %#v", result.ToMap()["probe"])
+			}
+			if result.ToMap()["success_signal"] != tt.wantSignal {
+				t.Fatalf("success_signal = %#v, want %q", result.ToMap()["success_signal"], tt.wantSignal)
 			}
 			if result.ToMap()["raw_output_returned"] != false {
 				t.Fatalf("raw_output_returned = %#v", result.ToMap()["raw_output_returned"])

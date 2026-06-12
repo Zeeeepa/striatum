@@ -2015,9 +2015,13 @@ applies the RFC 0121 lane provider-auth gate. The `provider_auth_gate` mode is
 an explicit rollback. The gate runs after frozen workflow/lane/run-as
 resolution and before supervisor scratch/FIFO creation, session-bound lane
 token minting/injection, supervisor rows/events, helper/tmux setup, or the real
-provider process. It returns only safe classification fields; raw provider
-stdout/stderr/final text, auth paths, provider account ids, environment values,
-token material, PTY logs, and tracebacks are never returned or persisted.
+provider process. It returns only safe classification fields such as probe
+name, exit code, stdout/stderr byte counts, and bounded success-signal state;
+raw provider stdout/stderr/final text, auth paths, provider account ids,
+environment values, token material, PTY logs, and tracebacks are never returned
+or persisted. For Codex, a zero-exit smoke is provider-auth success; a missing,
+empty, or mismatched bounded `--output-last-message` signal is exposed as a
+diagnostic and does not block lane launch.
 
 The Python daemon is no longer a selectable production core. RFC 0039
 introduced `go/cmd/striatumd` behind the RFC 0030 envelope-v1 wire protocol

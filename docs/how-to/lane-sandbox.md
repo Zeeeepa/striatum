@@ -249,7 +249,7 @@ user before a supervised lane is launched. `supervise start` accepts
 - `auto` is the default. It runs the Codex provider-auth smoke for supported
   Codex agent-loop lanes only when `STRIATUM_LANE_OS_USER` names a distinct
   lane user.
-- `required` blocks launch on any unsupported provider or non-passing smoke
+- `required` blocks launch on any unsupported provider or auth-negative smoke
   result.
 - `off` explicitly bypasses the launch gate for emergency rollback.
 
@@ -257,6 +257,12 @@ The smoke runs as the lane OS user with a sanitized `env -i` environment and
 does not pass Striatum MCP tokens, PostgreSQL DSNs, provider token variables, or
 raw workflow command output into the result. It may use the network and provider
 tokens, so ordinary `striatum doctor` and `doctor --verbose` do not run it.
+For Codex, a zero-exit smoke proves the lane provider CLI could authenticate;
+missing or mismatched `--output-last-message` text is reported as a safe
+`success_signal` diagnostic rather than treated as an auth failure. Blocking
+results and doctor output include safe fields such as the probe name, exit
+code, stdout/stderr byte counts, and success-signal state, but never raw
+provider output.
 Operators can request the same primitive explicitly:
 
 ```sh
