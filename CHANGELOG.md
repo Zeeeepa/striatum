@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- RFC 0120 / D180 now includes the notify-only wake bus as Phase 2 of the
+  accepted design, rather than deferring it to a separate future RFC. Daemon
+  auto-spawn remains deferred to #212.
+
 ### Fixed
 
 - `work.await_packet` terminal idle envelopes now include
