@@ -5,11 +5,34 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 )
+
+const futureRuntimeMigrationOwnerDDLFloor = 27
+
+var runtimeMigrationOwnerDDLPattern = regexp.MustCompile(`(?is)\b(?:ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?striatumd\.[a-z_][a-z0-9_]*`)
+
+func runtimeMigrationOwnerDDLViolations(migration Migration) []string {
+	matches := runtimeMigrationOwnerDDLPattern.FindAllString(migration.SQL, -1)
+	violations := make([]string, 0, len(matches))
+	seen := map[string]bool{}
+	for _, match := range matches {
+		cleaned := strings.Join(strings.Fields(match), " ")
+		if seen[cleaned] {
+			continue
+		}
+		seen[cleaned] = true
+		violations = append(violations, cleaned)
+	}
+	sort.Strings(violations)
+	return violations
+}
 
 type fakeRow struct {
 	value string
@@ -342,6 +365,42 @@ func TestMigrationNineteenAddsPTYAndToolLivenessColumns(t *testing.T) {
 	}
 	if migration.Label == "" {
 		t.Fatal("migration 19 has no label")
+	}
+}
+
+func TestFutureRuntimeMigrationsDoNotCarryOwnerDDL(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	for _, migration := range migrations {
+		if migration.Version < futureRuntimeMigrationOwnerDDLFloor {
+			continue
+		}
+		if violations := runtimeMigrationOwnerDDLViolations(migration); len(violations) > 0 {
+			t.Fatalf("migration %d carries owner-table DDL forbidden in regular runtime migrations: %v", migration.Version, violations)
+		}
+	}
+}
+
+func TestRuntimeMigrationOwnerDDLGuardDetectsForbiddenDDL(t *testing.T) {
+	migration := Migration{
+		Version: futureRuntimeMigrationOwnerDDLFloor,
+		SQL: `
+			ALTER TABLE striatumd.runs ADD COLUMN IF NOT EXISTS unsafe text;
+			DROP TABLE IF EXISTS ONLY striatumd.sessions;
+			CREATE TABLE IF NOT EXISTS striatumd.new_runtime_table (id text PRIMARY KEY);
+		`,
+	}
+
+	violations := runtimeMigrationOwnerDDLViolations(migration)
+
+	expected := []string{
+		"ALTER TABLE striatumd.runs",
+		"DROP TABLE IF EXISTS ONLY striatumd.sessions",
+	}
+	if !reflect.DeepEqual(violations, expected) {
+		t.Fatalf("violations = %#v, want %#v", violations, expected)
 	}
 }
 

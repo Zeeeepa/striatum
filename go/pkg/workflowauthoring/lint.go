@@ -38,6 +38,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	jobMap := WorkflowJobMap(workflow)
 	findings := []map[string]any{}
 	lintSameModelReviewPairs(workflow, jobMap, &findings)
+	lintOperatorContentNeutrality(workflow, jobMap, &findings)
 	lintReviewFreshness(jobMap, &findings)
 	lintWriteScopeRisk(workflow, jobMap, &findings)
 	lintParallelSharedResources(jobMap, &findings)
@@ -92,19 +93,7 @@ func lintSameModelReviewPairs(workflow map[string]any, jobMap map[string]map[str
 	}
 	emitted := map[string]bool{}
 	familyForJob := func(job map[string]any) string {
-		laneID := stringValue(job["lane_id"])
-		if laneID == "" {
-			return ""
-		}
-		lane, ok := lanes[laneID].(map[string]any)
-		if !ok {
-			return ""
-		}
-		source := stringValue(lane["display_model"])
-		if source == "" {
-			source = laneID
-		}
-		return modelFamily(source)
+		return laneModelFamily(lanes, stringValue(job["lane_id"]))
 	}
 	edges, err := EdgeDependencyPairs(workflow)
 	if err == nil {
@@ -196,6 +185,58 @@ func lintSameModelReviewPairs(workflow map[string]any, jobMap map[string]map[str
 	}
 }
 
+func lintOperatorContentNeutrality(workflow map[string]any, jobMap map[string]map[string]any, findings *[]map[string]any) {
+	if strings.TrimSpace(stringValue(workflow["operator_content_neutrality_override_rationale"])) != "" {
+		return
+	}
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	coordinator, ok := workflow["coordinator"].(map[string]any)
+	if !ok {
+		return
+	}
+	coordinatorLaneID := stringValue(coordinator["lane_id"])
+	coordinatorFamily := laneModelFamily(lanes, coordinatorLaneID)
+	if coordinatorLaneID == "" || coordinatorFamily == "" {
+		return
+	}
+	for _, jobID := range sortedJobIDs(jobMap) {
+		job := jobMap[jobID]
+		if !isOperatorContentGateJob(job) {
+			continue
+		}
+		laneID := stringValue(job["lane_id"])
+		jobFamily := laneModelFamily(lanes, laneID)
+		if laneID == "" || jobFamily == "" || jobFamily != coordinatorFamily {
+			continue
+		}
+		*findings = append(*findings, map[string]any{
+			"rule":                "operator_content_role_model_overlap",
+			"severity":            "warning",
+			"message":             "coordinator lane '" + coordinatorLaneID + "' and content gate job '" + jobID + "' use the same model family '" + jobFamily + "'; keep operator/coordinator content-neutral or record operator_content_neutrality_override_rationale",
+			"job_id":              jobID,
+			"lane_id":             laneID,
+			"coordinator_lane_id": coordinatorLaneID,
+			"model_family":        jobFamily,
+		})
+	}
+}
+
+func isOperatorContentGateJob(job map[string]any) bool {
+	jobType := defaultString(job["type"], "generic")
+	if jobType == "synthesis" || jobType == "phase_synthesis" {
+		return true
+	}
+	if isCollaborationAdjudicatorJob(job) {
+		return true
+	}
+	jobID := strings.ToLower(stringValue(job["id"]))
+	roleID := strings.ToLower(stringValue(job["role_id"]))
+	return jobType == "review" && (strings.Contains(jobID, "final_review") || strings.Contains(roleID, "final"))
+}
+
 func isCollaborationAdjudicatorJob(job map[string]any) bool {
 	if stringValue(job["role_id"]) == "adjudicator" {
 		return true
@@ -231,14 +272,10 @@ func lintWriteScopeRisk(workflow map[string]any, jobMap map[string]map[string]an
 	laneMap, _ := workflow["lanes"].(map[string]any)
 	for _, jobID := range sortedJobIDs(jobMap) {
 		job := jobMap[jobID]
-		scope, ok := job["write_scope"].(map[string]any)
-		if !ok {
+		if !jobIsRepoWrite(job) {
 			continue
 		}
-		repoWrite := scope["repo_write"] == true || stringValue(scope["mode"]) == "repo_write"
-		if !repoWrite {
-			continue
-		}
+		scope := job["write_scope"].(map[string]any)
 		allowed := stringsFromSlice(scope["allowed_paths"])
 		broad := len(allowed) == 0
 		for _, item := range allowed {
@@ -260,8 +297,17 @@ func lintWriteScopeRisk(workflow map[string]any, jobMap map[string]map[string]an
 			*findings = append(*findings, map[string]any{
 				"rule":     "repo_write_without_worktree_isolation",
 				"severity": "warning",
-				"message":  "repo-write job '" + jobID + "' is not on a per-job worktree lane; parallel or revision work can collide in the main worktree",
+				"message":  "repo-write job '" + jobID + "' is not on a per-job worktree lane; parallel or revision work can collide in the main worktree, and supervised/agent-loop repo-write lanes are refused unless they record a shared-checkout compatibility override",
 				"job_id":   jobID,
+			})
+		}
+		if lane != nil && laneIsAutonomousOrSupervised(lane) && lane["worktree_isolation"] != "per_job" && LaneAllowsSharedCheckoutRepoWrite(lane) {
+			*findings = append(*findings, map[string]any{
+				"rule":     "shared_checkout_repo_write_override",
+				"severity": "warning",
+				"message":  "repo-write job '" + jobID + "' uses supervised/agent-loop lane '" + laneID + "' in the shared checkout under allow_shared_checkout_repo_write; keep this for explicit interactive-human compatibility only",
+				"job_id":   jobID,
+				"lane_id":  laneID,
 			})
 		}
 	}
@@ -590,11 +636,75 @@ func laneAdapter(lane map[string]any) string {
 }
 
 func laneDeclaresAgentLoop(lane map[string]any) bool {
+	if lane["agent_loop"] == true {
+		return true
+	}
 	caps, ok := lane["adapter_capabilities"].(map[string]any)
 	if !ok {
 		return false
 	}
 	return caps["agent_loop"] == true
+}
+
+func laneHasSupervision(lane map[string]any) bool {
+	_, exists := lane["supervision"]
+	return exists
+}
+
+func laneIsAutonomousOrSupervised(lane map[string]any) bool {
+	return laneDeclaresAgentLoop(lane) || laneHasSupervision(lane)
+}
+
+// LaneAllowsSharedCheckoutRepoWrite reports whether a lane records the explicit
+// interactive-human compatibility override that permits a supervised/agent-loop
+// repo-write lane to use the shared checkout. Validate enforces the rationale;
+// this helper repeats the non-empty check so runtime snapshots fail closed when
+// they were prepared before the validation rule existed.
+func LaneAllowsSharedCheckoutRepoWrite(lane map[string]any) bool {
+	return lane["allow_shared_checkout_repo_write"] == true &&
+		strings.TrimSpace(stringValue(lane["shared_checkout_repo_write_rationale"])) != ""
+}
+
+// LaneRequiresWorktreeIsolationForAutonomousRepoWrite is the exported runtime
+// predicate for the #242 launch gate. Plain operator-by-hand lanes remain
+// warning-only; supervised or agent-loop lanes must either use per-job worktrees
+// or carry the recorded shared-checkout compatibility override.
+func LaneRequiresWorktreeIsolationForAutonomousRepoWrite(lane map[string]any) bool {
+	if !laneIsAutonomousOrSupervised(lane) {
+		return false
+	}
+	if lane["worktree_isolation"] == "per_job" {
+		return false
+	}
+	return !LaneAllowsSharedCheckoutRepoWrite(lane)
+}
+
+func AutonomousWorktreeIsolationRefusalMessage(jobID string, laneID string) string {
+	return "repo-write job '" + jobID + "' uses supervised/agent-loop lane '" + laneID + "' without worktree_isolation: per_job; autonomous repo-write lanes must use per-job worktrees. For an explicit interactive-human compatibility workflow, set lane allow_shared_checkout_repo_write=true and shared_checkout_repo_write_rationale to a non-empty reason."
+}
+
+func RefuseAutonomousSharedCheckoutRepoWrite(workflow map[string]any) error {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	jobMap := WorkflowJobMap(workflow)
+	for _, jobID := range sortedJobIDs(jobMap) {
+		job := jobMap[jobID]
+		if !jobIsRepoWrite(job) {
+			continue
+		}
+		laneID := stringValue(job["lane_id"])
+		if laneID == "" {
+			continue
+		}
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok || !LaneRequiresWorktreeIsolationForAutonomousRepoWrite(lane) {
+			continue
+		}
+		return errf("%s", AutonomousWorktreeIsolationRefusalMessage(jobID, laneID))
+	}
+	return nil
 }
 
 // laneCommandIsAgyPrint reports whether the lane command invokes the `agy`
@@ -963,6 +1073,32 @@ func modelFamily(value string) string {
 		return tokens[1]
 	}
 	return tokens[0]
+}
+
+func laneModelFamily(lanes map[string]any, laneID string) string {
+	if laneID == "" {
+		return ""
+	}
+	lane, ok := lanes[laneID].(map[string]any)
+	if !ok {
+		return ""
+	}
+	source := stringValue(lane["display_model"])
+	if source == "" {
+		source = stringValue(lane["model"])
+	}
+	if source == "" {
+		source = laneID
+	}
+	return modelFamily(source)
+}
+
+func jobIsRepoWrite(job map[string]any) bool {
+	scope, ok := job["write_scope"].(map[string]any)
+	if !ok {
+		return false
+	}
+	return scope["repo_write"] == true || stringValue(scope["mode"]) == "repo_write"
 }
 
 func effectiveFreshSessionRequired(job map[string]any) bool {

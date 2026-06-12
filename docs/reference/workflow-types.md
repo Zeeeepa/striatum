@@ -183,8 +183,12 @@ For each lane, decide:
   the adapter cannot enforce a declared constraint strongly enough.
 - **harness_profile_id**: optional tool-family metadata exposed in work
   packets.
-- **worktree_isolation**: use `per_job` for repo-write lanes that need
-  isolated worktrees.
+- **worktree_isolation**: use `per_job` for supervised, agent-loop, or
+  parallel repo-write lanes that need isolated worktrees. Non-isolated
+  supervised/agent-loop repo-write lanes are accepted only with
+  `allow_shared_checkout_repo_write: true` and a non-empty
+  `shared_checkout_repo_write_rationale` for explicit interactive-human
+  compatibility.
 
 Minimal lane example:
 

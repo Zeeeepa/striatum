@@ -32,6 +32,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Retry once; if it persists, check daemon PostgreSQL health with `striatum doctor` and report the audit_id.",
 	},
 	{
+		Code:       "autonomous_worktree_isolation_required",
+		Meaning:    "A supervised or agent-loop repo-write lane is configured to use the shared checkout without a recorded interactive-human compatibility override.",
+		Suggestion: "Set worktree_isolation: per_job on the repo-write lane, or set allow_shared_checkout_repo_write=true with a non-empty shared_checkout_repo_write_rationale for an explicit interactive-human compatibility workflow.",
+	},
+	{
 		Code:       "bad_host",
 		Meaning:    "The MCP endpoint rejected a request whose Host header is not loopback.",
 		Suggestion: "Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL.",

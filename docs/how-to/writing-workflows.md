@@ -144,8 +144,12 @@ Common lane sets:
   For single-prompt commands that require stdin EOF before doing work,
   set `supervision.stdin_delivery: "one_shot_eof"`.
 - **worktree-isolated lane**: a repo-write lane with
-  `worktree_isolation: "per_job"` when parallel writes need isolated
-  git worktrees.
+  `worktree_isolation: "per_job"` when autonomous or parallel writes
+  need isolated git worktrees. Supervised or agent-loop repo-write lanes
+  are refused without it unless the lane records
+  `allow_shared_checkout_repo_write: true` and a non-empty
+  `shared_checkout_repo_write_rationale` for an explicit
+  interactive-human compatibility workflow.
 - **shared external fixtures**: jobs in a `parallel_group` that use the same
   mutable database, device, or fixture should declare `shared_resources`. Use
   string entries for exclusive resources, or object entries with
@@ -328,6 +332,12 @@ pass their `--path` on the command line. They have to be inside
 the repo and outside `.striatum/`, but otherwise the runner does
 not enforce a layout. Putting them under
 `striatum/<workflow-slug>/` keeps the convention consistent.
+Keep the coordinator/operator lane content-neutral when possible. If the
+coordinator uses the same model family as a synthesis, phase-synthesis,
+collaboration adjudicator, or final-review content gate, `workflow lint`
+emits `operator_content_role_model_overlap`; set
+`operator_content_neutrality_override_rationale` only when the workflow
+intentionally accepts that overlap.
 
 ## Common graph shapes
 

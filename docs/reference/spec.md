@@ -313,6 +313,11 @@ pairings and revision cycles by default; operators can pass
 `--allow-same-model-pairing` to accept that workflow-authoring risk
 explicitly. This CLI-level refusal uses the advisory lint rules and does not
 change the pure `validate_workflow()` API or generator preview behavior.
+`workflow lint` also warns when the coordinator/operator lane uses the same
+model family as a synthesis, phase-synthesis, collaboration adjudicator, or
+final-review content gate. That `operator_content_role_model_overlap` warning
+is advisory; workflows that intentionally accept the risk may set a non-empty
+top-level `operator_content_neutrality_override_rationale`.
 
 Lane selection is workflow-authored. There is no provider-default lane and
 lane ids have no built-in semantic meaning. A job with `lane_id` is queued for
@@ -1884,6 +1889,12 @@ applies pending migrations and refuses to run when the on-disk
 daemon schema is newer than the daemon binary. `striatum doctor`
 reports substrate version, schema version, audit-chain status,
 and segment-manifest verification.
+Regular runtime migrations after schema version 26 must not carry owner-table
+`ALTER TABLE` or `DROP TABLE` DDL against `striatumd.*` tables. Owner-table
+shape changes, SECURITY DEFINER function updates, and grant/revoke repair live
+in owner/admin bundles or owner-applied helpers so split-role deployments do
+not crash-loop when the daemon starts under the runtime role. Historical
+migrations through version 26 remain deployed and hash-stable.
 
 The RFC 0033 daemon-global V1 registry and RFC 0043 repo-local SQLite cutover
 commands are retired operator surfaces. Legacy SQLite databases and their local-state
@@ -2557,8 +2568,14 @@ explicit form of what that proposal asked the runner to require.
 
 Lanes may opt into per-job filesystem isolation by setting
 `worktree_isolation: "per_job"`. The default is `"off"`, which keeps current
-single-worktree behavior. When a lane is configured for `per_job` isolation,
-work packets for repo-write jobs in that lane include
+single-worktree behavior for plain operator-by-hand workflows. Supervised or
+agent-loop lanes that perform repo-write work must use `per_job` isolation
+before `workflow validate`, `run prepare`, or `run start` will accept them,
+unless the lane records the explicit interactive-human compatibility override:
+`allow_shared_checkout_repo_write: true` plus a non-empty
+`shared_checkout_repo_write_rationale`. That override is for compatibility
+workflows only and still leaves a lint warning. When a lane is configured for
+`per_job` isolation, work packets for repo-write jobs in that lane include
 `worktree_required: true` and a `commands.worktree_create` invocation. The
 runner does not auto-create worktrees on claim; the agent must call
 `striatum worktree create` itself.

@@ -321,6 +321,7 @@ remediation is sensible for that code.
 |---|---|---|
 | `artifact_error` | An artifact operation (publish, read, validation, or flag contract) failed. | Read the message for the failing artifact constraint, fix the artifact (front matter, paths, required flags), and retry the publish. |
 | `audit_append_failed` | The daemon could not append the audit row, so the operation was refused or rolled back (fail-closed provenance). | Retry once; if it persists, check daemon PostgreSQL health with `striatum doctor` and report the audit_id. |
+| `autonomous_worktree_isolation_required` | A supervised or agent-loop repo-write lane is configured to use the shared checkout without a recorded interactive-human compatibility override. | Set worktree_isolation: per_job on the repo-write lane, or set allow_shared_checkout_repo_write=true with a non-empty shared_checkout_repo_write_rationale for an explicit interactive-human compatibility workflow. |
 | `bad_host` | The MCP endpoint rejected a request whose Host header is not loopback. | Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL. |
 | `bad_origin` | The MCP endpoint rejected a browser-style request whose Origin header is not loopback. | Send requests from a loopback origin or drop the Origin header. |
 | `base_head_mismatch` | The current git HEAD does not match the commit_request base_head. | Regenerate the commit_request against the current HEAD, then re-run git.commit_apply. |

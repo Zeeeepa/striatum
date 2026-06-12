@@ -576,6 +576,44 @@ func TestValidateWorkflowForPrepareAcceptsReferenceOnlyAugmentation(t *testing.T
 	}
 }
 
+func TestValidateWorkflowForPrepareRefusesAutonomousSharedCheckoutRepoWrite(t *testing.T) {
+	workflow := map[string]any{
+		"schema_version": "striatum.workflow.v1",
+		"workflow_id":    "wf-autonomous-shared-checkout",
+		"branch":         map[string]any{"mode": "confirm", "suggested_name": "wf/autonomous"},
+		"roles":          map[string]any{"worker": map[string]any{}},
+		"lanes": map[string]any{"lane_a": map[string]any{
+			"adapter_capabilities": map[string]any{"agent_loop": true},
+		}},
+		"jobs": []any{map[string]any{
+			"id":      "build",
+			"type":    "build",
+			"role_id": "worker",
+			"lane_id": "lane_a",
+			"write_scope": map[string]any{
+				"mode":       "repo_write",
+				"repo_write": true,
+			},
+			"expected_artifacts": []any{},
+		}},
+		"edges": []any{},
+	}
+
+	_, err := validateWorkflowForPrepare(workflow)
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "workflow_error" {
+		t.Fatalf("err = %v, want workflow_error", err)
+	}
+	if !strings.Contains(rpcErr.Message, "autonomous repo-write lanes must use per-job worktrees") {
+		t.Fatalf("error message = %q", rpcErr.Message)
+	}
+
+	workflow["lanes"].(map[string]any)["lane_a"].(map[string]any)["worktree_isolation"] = "per_job"
+	if _, err := validateWorkflowForPrepare(workflow); err != nil {
+		t.Fatalf("per-job isolated workflow rejected: %v", err)
+	}
+}
+
 func TestValidateWorkflowForPrepareRejectsRequiredAugmentation(t *testing.T) {
 	workflow := map[string]any{
 		"schema_version": "striatum.workflow.v1",

@@ -67,6 +67,14 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 		}
 		var warnings []string
 		if state == "ready" {
+			// #242: supervised/agent-loop repo-write lanes must never launch into
+			// the shared checkout unless the workflow records the explicit
+			// interactive-human compatibility override. This is independent of
+			// sibling concurrency: autonomous lanes can collide with the operator's
+			// own checkout even when they are the only active run.
+			if err := enforceAutonomousRepoWriteIsolation(ctx, tx, repositoryID, runID, workflow); err != nil {
+				return nil, err
+			}
 			// RFC 0108 Phase 2 — isolation by default under concurrency. Refuse to
 			// start a run that would write the SHARED main checkout while another run
 			// is already active on this repo. Checked BEFORE the state mutation so a
@@ -149,6 +157,48 @@ func enforceConcurrentRunIsolation(ctx context.Context, tx db.TxRunner, reposito
 	return rpc.NewError("concurrent_run_isolation_required", fmt.Sprintf(
 		"run %s is already active on this repository, and job %q does repo-write work on a lane without worktree_isolation: per_job — starting this run would share the main checkout with the active run. Set worktree_isolation: per_job on the repo-write lane (each run then gets its own detached worktree), or wait for the active run to finish.",
 		sibling, offender), nil)
+}
+
+func enforceAutonomousRepoWriteIsolation(ctx context.Context, runner any, repositoryID, runID string, workflow map[string]any) error {
+	jobID, laneID, err := firstAutonomousSharedCheckoutRepoWriteJob(ctx, runner, repositoryID, runID, workflow)
+	if err != nil {
+		return err
+	}
+	if jobID == "" {
+		return nil
+	}
+	return rpc.NewError("autonomous_worktree_isolation_required",
+		workflowauthoring.AutonomousWorktreeIsolationRefusalMessage(jobID, laneID), nil)
+}
+
+func firstAutonomousSharedCheckoutRepoWriteJob(ctx context.Context, runner any, repositoryID, runID string, workflow map[string]any) (string, string, error) {
+	jobs, err := queryRows(ctx, runner, `
+		SELECT job_id, write_scope_json, lane_selector_json
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2
+		 ORDER BY created_at, job_id`, repositoryID, runID)
+	if err != nil {
+		return "", "", err
+	}
+	lanes := asMap(workflow["lanes"])
+	for _, job := range jobs {
+		if !isRepoWrite(job) {
+			continue
+		}
+		laneID := jobLaneID(job)
+		if laneID == "" {
+			continue
+		}
+		laneRaw, exists := lanes[laneID]
+		if !exists {
+			continue
+		}
+		lane := asMap(laneRaw)
+		if workflowauthoring.LaneRequiresWorktreeIsolationForAutonomousRepoWrite(lane) {
+			return fmt.Sprint(job["job_id"]), laneID, nil
+		}
+	}
+	return "", "", nil
 }
 
 // otherActiveRunOnRepo returns the id of one OTHER run on the repo that is
@@ -1138,6 +1188,9 @@ func validateWorkflowForPrepare(workflow map[string]any) (phaseIndex, error) {
 	// invocation bills API tokens (real money per packet); the override is the
 	// inline lane option `allow_claude_print: true`.
 	if err := workflowauthoring.RefuseClaudePrintLanes(workflow); err != nil {
+		return phaseIndex{}, rpc.NewError("workflow_error", err.Error(), nil)
+	}
+	if err := workflowauthoring.RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {
 		return phaseIndex{}, rpc.NewError("workflow_error", err.Error(), nil)
 	}
 	index, err := workflowPhaseIndex(workflow, jobs, schemaVersion)

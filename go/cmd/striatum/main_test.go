@@ -490,6 +490,67 @@ func TestWorkflowValidateRefusesClaudePrintLane(t *testing.T) {
 	}
 }
 
+func TestWorkflowValidateRefusesAutonomousSharedCheckoutRepoWrite(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, autonomousSharedCheckoutWorkflow(false))
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(oldwd)
+	})
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	exitCode := run([]string{"workflow", "validate", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 8 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "autonomous repo-write lanes must use per-job worktrees") {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	overridePath := writeWorkflow(t, dir, autonomousSharedCheckoutWorkflow(true))
+	exitCode = run([]string{"workflow", "validate", filepath.Base(overridePath)}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("override exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+}
+
+func autonomousSharedCheckoutWorkflow(override bool) string {
+	overrideFields := ""
+	if override {
+		overrideFields = `, "allow_shared_checkout_repo_write": true, "shared_checkout_repo_write_rationale": "interactive-human compatibility fixture"`
+	}
+	return `{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "go-cli-test",
+  "workflow_version": "test",
+  "name": "Go CLI Test",
+  "context_docs": [],
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "lanes": {"codex": {"adapter": "process", "command": ["codex"], "model": "codex", "adapter_capabilities": {"agent_loop": true}` + overrideFields + `}},
+  "roles": {"coordinator": {"description": "Coordinator"}, "worker": {"description": "Worker"}},
+  "jobs": [{
+    "id": "build",
+    "type": "build",
+    "role_id": "worker",
+    "lane_id": "codex",
+    "task_prompt": {"inline": "do work"},
+    "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["out/"], "forbidden_paths": []},
+    "expected_artifacts": []
+  }],
+  "edges": [],
+  "cycles": []
+}`
+}
+
 func claudePrintWorkflow(override bool) string {
 	allow := ""
 	if override {

@@ -143,6 +143,127 @@ func TestValidateLaneLaunchEnv(t *testing.T) {
 	}
 }
 
+func TestRefuseAutonomousSharedCheckoutRepoWrite(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":              "process",
+		"command":              []any{"codex"},
+		"adapter_capabilities": map[string]any{"agent_loop": true},
+	}
+	err := RefuseAutonomousSharedCheckoutRepoWrite(workflow)
+	if err == nil || !strings.Contains(err.Error(), "worktree_isolation: per_job") {
+		t.Fatalf("expected autonomous repo-write isolation refusal, got %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":            "process",
+		"command":            []any{"operator-script"},
+		"worktree_isolation": "off",
+	}
+	if err := RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {
+		t.Fatalf("plain operator-by-hand repo-write lane should remain warning-only: %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":            "process",
+		"command":            []any{"codex"},
+		"worktree_isolation": "per_job",
+		"adapter_capabilities": map[string]any{
+			"agent_loop": true,
+		},
+	}
+	if err := RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {
+		t.Fatalf("per-job isolated autonomous repo-write lane rejected: %v", err)
+	}
+
+	workflow = validWorkflow()
+	lanes = workflow["lanes"].(map[string]any)
+	lanes["codex"] = map[string]any{
+		"adapter":                              "process",
+		"command":                              []any{"codex"},
+		"adapter_capabilities":                 map[string]any{"agent_loop": true},
+		"allow_shared_checkout_repo_write":     true,
+		"shared_checkout_repo_write_rationale": "interactive-human compatibility fixture",
+	}
+	if err := RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {
+		t.Fatalf("shared-checkout compatibility override rejected: %v", err)
+	}
+
+	payload, err := Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if !lintHasRule(payload, "shared_checkout_repo_write_override") {
+		t.Fatalf("expected shared_checkout_repo_write_override warning, got %#v", payload["warnings"])
+	}
+}
+
+func TestValidateSharedCheckoutOverrideRequiresRationale(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"].(map[string]any)["allow_shared_checkout_repo_write"] = true
+	err := Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), "shared_checkout_repo_write_rationale") {
+		t.Fatalf("expected missing shared_checkout_repo_write_rationale error, got %v", err)
+	}
+}
+
+func TestLintOperatorContentNeutrality(t *testing.T) {
+	workflow := validWorkflow()
+	lanes := workflow["lanes"].(map[string]any)
+	lanes["codex"].(map[string]any)["display_model"] = "Codex GPT-5"
+	jobs := workflow["jobs"].([]any)
+	jobs = append(jobs, map[string]any{
+		"id":      "synthesis",
+		"type":    "synthesis",
+		"role_id": "author",
+		"lane_id": "codex",
+		"write_scope": map[string]any{
+			"mode":            "review_only_artifact",
+			"allowed_paths":   []any{"reviews/"},
+			"forbidden_paths": []any{".striatum/"},
+		},
+		"expected_artifacts": []any{map[string]any{
+			"logical_name": "synthesis",
+			"kind":         "synthesis",
+			"path":         "reviews/SYNTHESIS.md",
+			"required":     true,
+		}},
+	})
+	workflow["jobs"] = jobs
+	workflow["edges"] = append(workflow["edges"].([]any), map[string]any{"from": "review", "to": "synthesis", "on": "completed"})
+	payload, err := Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint: %v", err)
+	}
+	if !lintHasRule(payload, "operator_content_role_model_overlap") {
+		t.Fatalf("expected operator_content_role_model_overlap warning, got %#v", payload["warnings"])
+	}
+
+	workflow["operator_content_neutrality_override_rationale"] = "single-model fixture, accepted by operator"
+	payload, err = Lint(workflow)
+	if err != nil {
+		t.Fatalf("Lint with override: %v", err)
+	}
+	if lintHasRule(payload, "operator_content_role_model_overlap") {
+		t.Fatalf("override should suppress operator content overlap warning: %#v", payload["warnings"])
+	}
+}
+
+func lintHasRule(payload map[string]any, rule string) bool {
+	for _, warning := range payload["warnings"].([]map[string]any) {
+		if warning["rule"] == rule {
+			return true
+		}
+	}
+	return false
+}
+
 func TestValidateRejectsInvalidLaneModel(t *testing.T) {
 	workflow := validWorkflow()
 	lanes := workflow["lanes"].(map[string]any)

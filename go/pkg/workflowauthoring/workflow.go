@@ -242,6 +242,12 @@ func Validate(workflow map[string]any) error {
 	if schema != SchemaV1 && schema != SchemaV11 {
 		return fieldErr("schema_version", "workflow schema_version must be one of: %s, %s", SchemaV1, SchemaV11)
 	}
+	if raw, exists := workflow["operator_content_neutrality_override_rationale"]; exists {
+		text, ok := raw.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return fieldErr("operator_content_neutrality_override_rationale", "operator_content_neutrality_override_rationale must be a non-empty string when set")
+		}
+	}
 	if _, err := object(workflow, "branch"); err != nil {
 		return err
 	}
@@ -426,6 +432,21 @@ func validateLanes(lanes map[string]any) error {
 		}
 		if mode := stringValue(lane["worktree_isolation"]); mode != "" && !worktreeIsolationValues[mode] {
 			return errf("lane %q worktree_isolation must be one of [off per_job]", laneID)
+		}
+		if raw, exists := lane["allow_shared_checkout_repo_write"]; exists {
+			allow, ok := raw.(bool)
+			if !ok {
+				return fieldErr(fmt.Sprintf("lanes.%s.allow_shared_checkout_repo_write", laneID), "lane %q allow_shared_checkout_repo_write must be a boolean", laneID)
+			}
+			if allow && strings.TrimSpace(stringValue(lane["shared_checkout_repo_write_rationale"])) == "" {
+				return fieldErr(fmt.Sprintf("lanes.%s.shared_checkout_repo_write_rationale", laneID), "lane %q allow_shared_checkout_repo_write requires a non-empty shared_checkout_repo_write_rationale", laneID)
+			}
+		}
+		if raw, exists := lane["shared_checkout_repo_write_rationale"]; exists {
+			text, ok := raw.(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				return fieldErr(fmt.Sprintf("lanes.%s.shared_checkout_repo_write_rationale", laneID), "lane %q shared_checkout_repo_write_rationale must be a non-empty string when set", laneID)
+			}
 		}
 		// #223: first-class lane launch env. path_prefix is an array of absolute
 		// directories prepended to the lane PATH; command_env is an object of

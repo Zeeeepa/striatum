@@ -648,6 +648,45 @@ func TestMultiRunIsolationRequiredWhenSiblingActive(t *testing.T) {
 	}
 }
 
+func TestRunStartRefusesAutonomousRepoWriteSharedCheckout(t *testing.T) {
+	repoID := "repo_multirun_p2_autonomous_isolation"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "docs/seed.md", "seed\n")
+	mrSeedRepoRow(t, ctx, h.Runner, repoID, repoRoot)
+
+	runA := mrSeedReadyAutonomousRepoWriteRun(t, ctx, h, repoID, "run_auto_a", "striatum/auto-a", "", false)
+	err := mrStartRun(ctx, h, runA)
+	if err == nil {
+		t.Fatal("agent-loop repo-write run started in the shared checkout without the compatibility override")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "autonomous_worktree_isolation_required" {
+		t.Fatalf("refusal = %v, want code autonomous_worktree_isolation_required", err)
+	}
+	if got := chaosRunState(t, ctx, h, runA.runID); got != "ready" {
+		t.Fatalf("refused run A state = %q, want ready", got)
+	}
+
+	runB := mrSeedReadyAutonomousRepoWriteRun(t, ctx, h, repoID, "run_auto_b", "striatum/auto-b", "", true)
+	if err := mrStartRun(ctx, h, runB); err != nil {
+		t.Fatalf("shared-checkout compatibility override was refused: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runB.runID); got != "running" {
+		t.Fatalf("run B state = %q, want running", got)
+	}
+
+	runC := mrSeedReadyAutonomousRepoWriteRun(t, ctx, h, repoID, "run_auto_c", "striatum/auto-c", "per_job", false)
+	if err := mrStartRun(ctx, h, runC); err != nil {
+		t.Fatalf("per-job isolated agent-loop repo-write run was refused: %v", err)
+	}
+	if got := chaosRunState(t, ctx, h, runC.runID); got != "running" {
+		t.Fatalf("run C state = %q, want running", got)
+	}
+}
+
 // TestMultiRunConcurrentUnisolatedStartsResolveToOne proves the Phase 2
 // precondition is race-free: when several unisolated repo-write runs call
 // run.start CONCURRENTLY on one repo, EXACTLY ONE wins the shared main checkout
@@ -723,7 +762,29 @@ func TestMultiRunConcurrentUnisolatedStartsResolveToOne(t *testing.T) {
 // `isolation` ("" leaves it off).
 func mrSeedReadyRepoWriteRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch, isolation string) *mrRun {
 	t.Helper()
-	return mrSeedReadyRun(t, ctx, h, repoID, runID, branch, isolation,
+	lane := map[string]any{"display_model": "Claude", "capabilities": []any{"claim", "write"}}
+	if isolation != "" {
+		lane["worktree_isolation"] = isolation
+	}
+	return mrSeedReadyRunWithLane(t, ctx, h, repoID, runID, branch, lane,
+		map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": []any{"docs"}})
+}
+
+func mrSeedReadyAutonomousRepoWriteRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch, isolation string, override bool) *mrRun {
+	t.Helper()
+	lane := map[string]any{
+		"display_model":        "Codex",
+		"capabilities":         []any{"claim", "write"},
+		"adapter_capabilities": map[string]any{"agent_loop": true},
+	}
+	if isolation != "" {
+		lane["worktree_isolation"] = isolation
+	}
+	if override {
+		lane["allow_shared_checkout_repo_write"] = true
+		lane["shared_checkout_repo_write_rationale"] = "interactive-human compatibility fixture"
+	}
+	return mrSeedReadyRunWithLane(t, ctx, h, repoID, runID, branch, lane,
 		map[string]any{"mode": "repo_write", "repo_write": true, "allowed_paths": []any{"docs"}})
 }
 
@@ -743,13 +804,18 @@ func mrSeedReadyDocumentRun(t *testing.T, ctx context.Context, h *Harness, repoI
 // state.
 func mrSeedReadyRun(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch, isolation string, writeScope map[string]any) *mrRun {
 	t.Helper()
-	now := time.Now().UTC()
-	r := &mrRun{repoID: repoID, runID: runID, branch: branch, implJob: "job_" + runID, implSession: "sess_" + runID}
-
 	lane := map[string]any{"display_model": "Claude", "capabilities": []any{"claim", "write"}}
 	if isolation != "" {
 		lane["worktree_isolation"] = isolation
 	}
+	return mrSeedReadyRunWithLane(t, ctx, h, repoID, runID, branch, lane, writeScope)
+}
+
+func mrSeedReadyRunWithLane(t *testing.T, ctx context.Context, h *Harness, repoID, runID, branch string, lane map[string]any, writeScope map[string]any) *mrRun {
+	t.Helper()
+	now := time.Now().UTC()
+	r := &mrRun{repoID: repoID, runID: runID, branch: branch, implJob: "job_" + runID, implSession: "sess_" + runID}
+
 	workflow := map[string]any{
 		"workflow_id": fixtureWorkflowID,
 		"roles":       map[string]any{mrImplementerRole: map[string]any{"summary": "implement"}},

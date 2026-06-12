@@ -747,6 +747,9 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repo
 	if err := workflowauthoring.RefuseClaudePrintLanes(workflow); err != nil {
 		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_lint_refused", err, 8)
 	}
+	if err := workflowauthoring.RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_lint_refused", err, 8)
+	}
 	if !allowSameModel {
 		if err := refuseSameModelLint(workflow); err != nil {
 			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_lint_refused", err, 8)

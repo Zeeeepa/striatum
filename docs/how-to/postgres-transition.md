@@ -118,6 +118,14 @@ Both commands are local bootstrap helpers, not daemon RPC calls. `owner-ddl
 apply` is also the documented grant-drift repair action because it reasserts
 the protected read/write revokes after applying bundles.
 
+Regular runtime migrations after schema version 26 must stay applicable by the
+daemon runtime role: do not add owner-table `ALTER TABLE` or `DROP TABLE` DDL
+against existing `striatumd.*` tables to those migrations. Put owner-table
+shape changes, SECURITY DEFINER function updates, and grant/revoke repair in
+owner bundles or owner/admin helpers, then run them with the owner/admin DSN.
+The Go migration tests enforce this forward boundary while preserving the
+hashes of deployed historical migrations.
+
 If a migration fails with an ownership or permission error during daemon
 startup, stop the service, rerun `daemon migrate-db` with an owner/admin DSN,
 then start the service again:
