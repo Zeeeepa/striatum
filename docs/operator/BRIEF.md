@@ -155,8 +155,10 @@ asks:
    `lockRun` + guard coverage).
 3. **Review P1s:** deletion pass, token-out-of-argv, conformance honesty
    (claude installed-CLI fixture + codex in the cron), truth mechanization
-   (make bootstrap brief-staleness fail; guard README/index/authority
-   matrix against the contract).
+   (brief-staleness CI guard landed 2026-06-12 —
+   `TestOperatorBriefStaysCurrent` reuses the bootstrap probe; remaining:
+   guard README status / docs index / authority matrix against the
+   contract).
 4. **Housekeeping:** anchor the `run_6532226d` worktree; resolve
    `run_8e4e5487`; tag the next release once RFC 0118 verification closes
    #240.

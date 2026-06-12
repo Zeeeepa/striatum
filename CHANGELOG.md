@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- CI guard for operator-brief freshness (`TestOperatorBriefStaysCurrent`):
+  the suite reuses the `operator bootstrap` freshness probe and fails when
+  `docs/operator/BRIEF.md` has invalid `operator_brief` front matter, is not
+  `status: current`, or does not mention the current `VERSION` — so a version
+  bump now requires refreshing the brief in the same change (2026-06-11
+  architecture review, truth-mechanization P1).
+
 ### Changed
 
 - RFC 0120 / D180 now includes the notify-only wake bus as Phase 2 of the
