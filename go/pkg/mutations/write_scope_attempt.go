@@ -7,7 +7,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-const writeScopeDriftMessage = "write_scope violation: this job attempt's effective write_scope is frozen at claim time. Use the path in the active work packet, clear or move out-of-scope changes, or route through audited recovery (`striatum recovery resume` for write-scope blockers, or a replacement/fresh attempt for legitimate scope changes); do not mutate historical scope for this attempt."
+const writeScopeDriftMessage = "write_scope violation: this path is outside the job attempt's frozen write_scope, fixed at claim time. Use the path in the active work packet, clear or move out-of-scope changes, or route through audited recovery (`striatum recovery resume` for write-scope blockers, or a replacement/fresh attempt for legitimate scope changes); do not mutate historical scope for this attempt."
 
 func frozenAttemptWriteScope(ctx context.Context, runner any, repositoryID string, job map[string]any, leaseID string) (scope map[string]any, baseline map[string]any, found bool) {
 	jobID := fmt.Sprint(job["job_id"])
