@@ -1639,6 +1639,12 @@ func requeueJobSameAttempt(ctx context.Context, tx db.TxRunner, repositoryID str
 		if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.requeued_same_attempt", nil, jobID, messageID, nil, leaseID, requeueSameAttemptEventPayload(opts, true)); err != nil {
 			return requeueSameAttemptResult{}, err
 		}
+		recordWake(tx, WakeEvent{
+			RepositoryID: repositoryID,
+			RunID:        fmt.Sprint(runID),
+			Kind:         "work_available",
+			MessageID:    fmt.Sprint(messageID),
+		})
 		return requeueSameAttemptResult{messageID: messageID, alreadyReclaimable: true, leaseID: leaseID}, nil
 	}
 
@@ -1670,6 +1676,12 @@ func requeueJobSameAttempt(ctx context.Context, tx db.TxRunner, repositoryID str
 	if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.requeued_same_attempt", nil, jobID, messageID, nil, leaseID, requeueSameAttemptEventPayload(opts, false)); err != nil {
 		return requeueSameAttemptResult{}, err
 	}
+	recordWake(tx, WakeEvent{
+		RepositoryID: repositoryID,
+		RunID:        fmt.Sprint(runID),
+		Kind:         "work_available",
+		MessageID:    fmt.Sprint(messageID),
+	})
 	return requeueSameAttemptResult{messageID: messageID, leaseID: leaseID}, nil
 }
 

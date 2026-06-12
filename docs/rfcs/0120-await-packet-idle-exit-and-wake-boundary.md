@@ -1,6 +1,6 @@
 # RFC 0120: Await-Packet Idle Exit and Wake Boundary
 
-Status: accepted (D180; Phase 1 implemented, Phase 2 accepted)
+Status: accepted (D180; Phase 1 implemented, Phase 2 implemented)
 Date: 2026-06-12
 author: operator-codex-gpt-5
 Context: GH #248; RFC 0116 / D175 (`run drive`, daemon auto-spawn deferred);
@@ -106,6 +106,12 @@ daemon-side polling while preserving `claim_next` as the source of truth.
 Notifications wake a driver or waiter so it can re-read authoritative daemon /
 PostgreSQL state; notifications do not claim, lease, complete, verdict, or
 otherwise mutate workflow state by themselves.
+
+Implementation: Phase 2 uses an in-process daemon wake broker plus the
+read-shaped `wake.wait` RPC. Mutation transactions collect wake hints and
+publish them only after commit. `run drive` waits on `wake.wait` between
+reconcile passes with its configured interval as the timeout; unsupported or
+missed notifications degrade to the existing bounded polling behavior.
 
 Defer only Lane A to #212 / a scheduler-principal RFC.
 

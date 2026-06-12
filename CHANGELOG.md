@@ -10,6 +10,14 @@
   `status: current`, or does not mention the current `VERSION` — so a version
   bump now requires refreshing the brief in the same change (2026-06-11
   architecture review, truth-mechanization P1).
+- RFC 0120 Phase 2 now has a read-shaped `wake.wait` daemon RPC and
+  post-commit in-process wake hints for newly available work, peer messages,
+  and conversation turns. `run drive` waits on that surface between reconcile
+  passes and falls back to the existing bounded polling interval when a daemon
+  does not support wake waits.
+- `striatum worktree anchor <run-id> <job-id> <worktree-id>` gives operators a
+  daemon-backed repair path for completed repo-write jobs whose worktree HEAD
+  still exists but was not anchored through the normal completion path.
 
 ### Changed
 
@@ -25,6 +33,12 @@
   the lane on that explicit idle signal, preserving `run drive` as the
   operator-authorized wake surface while avoiding model-side no-work loops.
   (#248, RFC 0120)
+- `session.register` now serializes behind the per-run lock and refuses
+  terminal runs; repeated `run cancel` calls also close leaked active sessions
+  and release active leases left behind on already-canceled runs. (#253)
+- Session-scoped artifact, review, and work-complete writes now return a typed
+  `session_token_stale` remediation when a closed predecessor session's bound
+  token tries to act as the active successor for the same run/role/lane slot.
 
 ## v2.31.0 — 2026-06-07
 

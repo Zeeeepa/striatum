@@ -2,9 +2,12 @@ package mutations
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // TestEnforceSessionBindingContract pins the per-session capability-token guard
@@ -120,5 +123,106 @@ func TestPublishArtifactRejectsCrossSessionBoundToken(t *testing.T) {
 	}))
 	if !isRPCCode(err, "capability_denied") {
 		t.Fatalf("cross-session publish: want capability_denied, got %v", err)
+	}
+}
+
+func TestClosedPredecessorTokenReturnsStaleSessionRemediation(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_stale_session_token"
+	runID := "run_stale_session_token"
+	oldSession := "sess_stale_old"
+	successorSession := "sess_stale_successor"
+	role := "worker"
+	lane := "codex"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{role: map[string]any{}},
+		"lanes":       map[string]any{lane: map[string]any{"display_model": "Codex"}},
+	})
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, oldSession, role, lane, nil, "closed", 1)
+	intgSeedSessionOrdinal(t, ctx, runner, repoID, runID, successorSession, role, lane, nil, "active", 2)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET closed_at = NOW(), close_reason = 'superseded'
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, oldSession); err != nil {
+		t.Fatalf("mark predecessor closed: %v", err)
+	}
+
+	callers := []struct {
+		name string
+		call func() (map[string]any, error)
+	}{
+		{
+			name: "artifact.publish",
+			call: func() (map[string]any, error) {
+				return HandlePublishArtifact(boundCtx(ctx, repoID, oldSession), runner, intgEnv(repoID, map[string]any{
+					"session_id":   successorSession,
+					"job_id":       "job_x",
+					"lease_id":     "lease_x",
+					"kind":         "finding",
+					"logical_name": "FINDING",
+					"path":         "FINDING.md",
+				}))
+			},
+		},
+		{
+			name: "review.submit",
+			call: func() (map[string]any, error) {
+				return HandleSubmitReview(boundCtx(ctx, repoID, oldSession), runner, intgEnv(repoID, map[string]any{
+					"session_id": successorSession,
+					"job_id":     "job_x",
+					"lease_id":   "lease_x",
+					"path":       "REVIEW.md",
+					"verdict":    "accept",
+				}))
+			},
+		},
+		{
+			name: "review.verdict",
+			call: func() (map[string]any, error) {
+				return HandleRecordVerdict(boundCtx(ctx, repoID, oldSession), runner, intgEnv(repoID, map[string]any{
+					"session_id": successorSession,
+					"job_id":     "job_x",
+					"lease_id":   "lease_x",
+					"verdict":    "accept",
+				}))
+			},
+		},
+		{
+			name: "work.complete",
+			call: func() (map[string]any, error) {
+				return HandleCompleteWork(boundCtx(ctx, repoID, oldSession), runner, intgEnv(repoID, map[string]any{
+					"session_id": successorSession,
+					"job_id":     "job_x",
+					"lease_id":   "lease_x",
+					"summary":    "done",
+				}))
+			},
+		},
+	}
+
+	for _, caller := range callers {
+		t.Run(caller.name, func(t *testing.T) {
+			_, err := caller.call()
+			var rpcErr *rpc.Error
+			if !errors.As(err, &rpcErr) || rpcErr.Code != "session_token_stale" {
+				t.Fatalf("%s err = %v, want session_token_stale", caller.name, err)
+			}
+			if got := rpcErr.Details["bound_session_id"]; got != oldSession {
+				t.Fatalf("%s bound_session_id = %v, want %s", caller.name, got, oldSession)
+			}
+			if got := rpcErr.Details["requested_session_id"]; got != successorSession {
+				t.Fatalf("%s requested_session_id = %v, want %s", caller.name, got, successorSession)
+			}
+			if got := rpcErr.Details["method"]; got != caller.name {
+				t.Fatalf("%s method detail = %v, want %s", caller.name, got, caller.name)
+			}
+			if !strings.Contains(rpcErr.Suggestion, "supervise.start") || !strings.Contains(rpcErr.Suggestion, "supervise.rebridge") {
+				t.Fatalf("%s suggestion = %q, want start/rebridge remediation", caller.name, rpcErr.Suggestion)
+			}
+		})
 	}
 }

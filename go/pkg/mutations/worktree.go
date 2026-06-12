@@ -317,6 +317,86 @@ func HandleWorktreeRelease(ctx context.Context, runner db.Runner, envelope rpc.E
 	return releaseResult, nil
 }
 
+type worktreeAnchorTarget struct {
+	Worktree  map[string]any
+	RunBranch string
+	Attempt   int
+}
+
+func HandleWorktreeAnchor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
+	repositoryID, err := requireRepositoryID(envelope)
+	if err != nil {
+		return nil, err
+	}
+	runID, err := requiredStringParam(envelope.Params, "run_id")
+	if err != nil {
+		return nil, err
+	}
+	jobID, err := requiredStringParam(envelope.Params, "job_id")
+	if err != nil {
+		return nil, err
+	}
+	worktreeID, err := requiredStringParam(envelope.Params, "worktree_id")
+	if err != nil {
+		return nil, err
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+
+	target, err := loadCompletedWorktreeAnchorTarget(ctx, runner, repositoryID, runID, jobID, worktreeID, false)
+	if err != nil {
+		return nil, err
+	}
+	worktreeRoot, err := worktreeTarget(repoRoot, fmt.Sprint(target.Worktree["worktree_path"]))
+	if err != nil {
+		return nil, err
+	}
+	if !pathExists(worktreeRoot) {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree %s path is missing on disk; cannot anchor completed job %s",
+			worktreeID, jobID,
+		), map[string]any{
+			"run_id":        runID,
+			"job_id":        jobID,
+			"worktree_id":   worktreeID,
+			"worktree_path": target.Worktree["worktree_path"],
+		})
+	}
+
+	anchorPayload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, target.RunBranch, target.Worktree, target.Attempt)
+	if err != nil {
+		return nil, err
+	}
+	anchorPayload["remediation"] = "worktree.anchor"
+
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
+		locked, err := loadCompletedWorktreeAnchorTarget(ctx, tx, repositoryID, runID, jobID, worktreeID, true)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "worktree.anchored", nil, jobID, nil, nil, locked.Worktree["lease_id"], anchorPayload); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"status":        "anchored",
+		"run_id":        runID,
+		"job_id":        jobID,
+		"worktree_id":   worktreeID,
+		"worktree_path": target.Worktree["worktree_path"],
+		"anchor":        anchorPayload,
+	}, nil
+}
+
 type worktreeGCCheck struct {
 	Remove       bool
 	Reason       string
@@ -585,6 +665,83 @@ func worktreeGCDecision(ctx context.Context, repoRoot string, row map[string]any
 		return worktreeGCCheck{Reason: "head_unreachable", Target: target, Reachability: reachability}, nil
 	}
 	return worktreeGCCheck{Remove: true, Target: target, Reachability: reachability}, nil
+}
+
+func loadCompletedWorktreeAnchorTarget(ctx context.Context, runner any, repositoryID, runID, jobID, worktreeID string, forUpdate bool) (worktreeAnchorTarget, error) {
+	run, err := rowByIDOrNotFound(ctx, runner, repositoryID, "runs", "run_id", runID, forUpdate, "run")
+	if err != nil {
+		return worktreeAnchorTarget{}, err
+	}
+	job, err := rowByIDOrNotFound(ctx, runner, repositoryID, "jobs", "job_id", jobID, forUpdate, "job")
+	if err != nil {
+		return worktreeAnchorTarget{}, err
+	}
+	if fmt.Sprint(job["run_id"]) != runID {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"job %s belongs to run %s, not %s",
+			jobID, job["run_id"], runID,
+		), map[string]any{
+			"run_id":          runID,
+			"job_id":          jobID,
+			"actual_run_id":   job["run_id"],
+			"expected_run_id": runID,
+		})
+	}
+	if state := fmt.Sprint(job["state"]); state != "completed" {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree anchor requires completed job %s; job is %s",
+			jobID, state,
+		), map[string]any{"run_id": runID, "job_id": jobID, "job_state": state})
+	}
+	if !isRepoWrite(job) {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree anchor requires a repo-write job; job %s is not repo-write",
+			jobID,
+		), map[string]any{"run_id": runID, "job_id": jobID})
+	}
+	worktree, err := worktreeRow(ctx, runner, repositoryID, worktreeID, forUpdate)
+	if err != nil {
+		return worktreeAnchorTarget{}, err
+	}
+	if fmt.Sprint(worktree["run_id"]) != runID || fmt.Sprint(worktree["job_id"]) != jobID {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree %s belongs to run %s job %s, not run %s job %s",
+			worktreeID, worktree["run_id"], worktree["job_id"], runID, jobID,
+		), map[string]any{
+			"worktree_id":     worktreeID,
+			"actual_run_id":   worktree["run_id"],
+			"actual_job_id":   worktree["job_id"],
+			"expected_run_id": runID,
+			"expected_job_id": jobID,
+		})
+	}
+	worktreeState := fmt.Sprint(worktree["state"])
+	if worktreeState != "active" && worktreeState != "abandoned" {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", fmt.Sprintf(
+			"worktree %s is %s; only active or abandoned worktrees can be anchored",
+			worktreeID, worktreeState,
+		), map[string]any{"worktree_id": worktreeID, "state": worktreeState})
+	}
+	runBranch := strings.TrimSpace(fmt.Sprint(run["branch_name"]))
+	if runBranch == "" || runBranch == "<nil>" || nullable(run["branch_confirmed_at"]) == nil {
+		return worktreeAnchorTarget{}, rpc.NewError("invalid_transition", "run branch must be confirmed before worktree anchor remediation", map[string]any{"run_id": runID})
+	}
+	return worktreeAnchorTarget{
+		Worktree:  worktree,
+		RunBranch: runBranch,
+		Attempt:   intValue(job["attempt"]),
+	}, nil
+}
+
+func rowByIDOrNotFound(ctx context.Context, runner any, repositoryID, table, column, value string, forUpdate bool, label string) (map[string]any, error) {
+	row, err := rowByID(ctx, runner, repositoryID, table, column, value, forUpdate)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, rpc.NewError("not_found", fmt.Sprintf("%s not found: %s", label, value), map[string]any{
+			"resource_type": label,
+			"resource_id":   value,
+		})
+	}
+	return row, err
 }
 
 func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {

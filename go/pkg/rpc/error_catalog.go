@@ -337,6 +337,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Fix the named parameter to match the documented schema and resend the request.",
 	},
 	{
+		Code:       "session_token_stale",
+		Meaning:    "A session-bound token belongs to a closed predecessor session but was used to act as that lane's active successor session.",
+		Suggestion: "Stop the stale lane and run supervise.start for the active successor session so it receives its own session-bound token; use supervise.rebridge only to repair that successor's existing supervisor, then retry from the successor lane.",
+	},
+	{
 		Code:       "sha256_mismatch",
 		Meaning:    "A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted).",
 		Suggestion: "Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying.",

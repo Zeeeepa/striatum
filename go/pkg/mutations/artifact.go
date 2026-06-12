@@ -62,10 +62,10 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 	// session (override). Closes the cross-session publish spoof — a bound caller
 	// presenting another session's (observable) lease_id is now refused on receipt
 	// before the lease-ownership check.
-	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
-		return nil, err
-	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "artifact.publish"); err != nil {
+			return nil, err
+		}
 		return publishArtifact(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText)
 	})
 }

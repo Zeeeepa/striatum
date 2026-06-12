@@ -70,6 +70,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))
 	server.Register("session.report", makeHandler(runner, HandleSessionReport))
+	server.Register("wake.wait", makeHandler(runner, HandleWakeWait))
 	server.Register("work.claim_next", makeHandler(runner, HandleClaimNext))
 	server.Register("claim_next", makeHandler(runner, HandleClaimNext))
 	server.Register("work.claim_override", makeHandler(runner, HandleClaimOverride))
@@ -94,6 +95,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("git.commit_apply", makeHandler(runner, HandleGitCommitApply))
 	server.Register("worktree.create", makeHandler(runner, HandleWorktreeCreate))
 	server.Register("worktree.release", makeHandler(runner, HandleWorktreeRelease))
+	server.Register("worktree.anchor", makeHandler(runner, HandleWorktreeAnchor))
 	server.Register("worktree.gc", makeHandler(runner, HandleWorktreeGC))
 	rpc.MethodRegistry["supervise.rebridge"] = rpc.NewMethod("supervise.rebridge", rpc.CapPtr(rpc.CapabilityClaim), true, rpc.ScopeSingleRepo)
 	server.Register("supervise.start", makeHandler(runner, HandleSuperviseStart))
@@ -168,6 +170,8 @@ type sessionBinding struct {
 	OperatorOverride bool
 }
 
+const staleSessionTokenSuggestion = "Stop the stale lane and run supervise.start for the active successor session so it receives its own session-bound token; use supervise.rebridge only to repair that successor's existing supervisor, then retry from the successor lane."
+
 // enforceSessionBinding is the per-session capability-token guard that closes
 // the cross-session impersonation vector (GH #135).
 //
@@ -197,6 +201,70 @@ func enforceSessionBinding(ctx context.Context, actSessionID string) (sessionBin
 		)
 	}
 	return sessionBinding{OperatorOverride: false}, nil
+}
+
+// enforceSessionBindingForSession is the DB-aware variant for session-scoped
+// writes. It keeps ordinary cross-session impersonation as capability_denied,
+// but when the caller is using a closed predecessor's token against the active
+// successor in the same run/role/lane slot, it returns a typed stale-token
+// remediation without exposing token material (#254).
+func enforceSessionBindingForSession(ctx context.Context, runner any, repositoryID string, actSessionID string, method string) (sessionBinding, error) {
+	auth, ok := rpc.AuthFromContext(ctx)
+	if !ok || !auth.IsSessionBound() {
+		return sessionBinding{OperatorOverride: true}, nil
+	}
+	if auth.SessionID == actSessionID {
+		return sessionBinding{OperatorOverride: false}, nil
+	}
+	if err := staleSuccessorSessionTokenError(ctx, runner, repositoryID, auth.SessionID, actSessionID, method); err != nil {
+		return sessionBinding{}, err
+	}
+	return enforceSessionBinding(ctx, actSessionID)
+}
+
+func staleSuccessorSessionTokenError(ctx context.Context, runner any, repositoryID string, boundSessionID string, requestedSessionID string, method string) error {
+	bound, err := sessionBindingLookup(ctx, runner, repositoryID, boundSessionID)
+	if err != nil {
+		return nil
+	}
+	requested, err := sessionBindingLookup(ctx, runner, repositoryID, requestedSessionID)
+	if err != nil {
+		return nil
+	}
+	sameSlot := fmt.Sprint(bound["run_id"]) == fmt.Sprint(requested["run_id"]) &&
+		fmt.Sprint(bound["role_id"]) == fmt.Sprint(requested["role_id"]) &&
+		fmt.Sprint(bound["lane_id"]) == fmt.Sprint(requested["lane_id"])
+	if !sameSlot || fmt.Sprint(bound["state"]) == "active" || fmt.Sprint(requested["state"]) != "active" {
+		return nil
+	}
+	if intValue(bound["ordinal"]) >= intValue(requested["ordinal"]) {
+		return nil
+	}
+	staleErr := rpc.NewError(
+		"session_token_stale",
+		fmt.Sprintf("session-bound capability token belongs to closed predecessor session %s; it cannot act as successor session %s for %s. Restart or rebridge the successor lane so it receives its own session-bound token, then retry from that successor session.", boundSessionID, requestedSessionID, method),
+		map[string]any{
+			"bound_session_id":        boundSessionID,
+			"requested_session_id":    requestedSessionID,
+			"run_id":                  fmt.Sprint(requested["run_id"]),
+			"role_id":                 fmt.Sprint(requested["role_id"]),
+			"lane_id":                 fmt.Sprint(requested["lane_id"]),
+			"bound_session_state":     fmt.Sprint(bound["state"]),
+			"bound_session_reason":    nullable(bound["close_reason"]),
+			"requested_session_state": fmt.Sprint(requested["state"]),
+			"method":                  method,
+		},
+	)
+	staleErr.Suggestion = staleSessionTokenSuggestion
+	return staleErr
+}
+
+func sessionBindingLookup(ctx context.Context, runner any, repositoryID string, sessionID string) (map[string]any, error) {
+	return oneRow(ctx, runner, `
+		SELECT session_id, run_id, role_id, lane_id, ordinal, state, close_reason
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2
+		 LIMIT 1`, repositoryID, sessionID)
 }
 
 func stringParam(envelope rpc.Envelope, key string) string {
@@ -258,10 +326,11 @@ func stringSliceParam(envelope rpc.Envelope, keys ...string) []string {
 // authority/attribution prelude is installed as the transaction's first
 // statement at a single chokepoint (C-AUTH-TX-WRAPPER) rather than per handler.
 func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
-	tx, err := db.BeginAuthorizedMutation(ctx, runner, db.AuthorityFromContext(ctx))
+	rawTx, err := db.BeginAuthorizedMutation(ctx, runner, db.AuthorityFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
+	tx := newWakeTx(rawTx)
 	committed := false
 	defer func() {
 		if !committed {
@@ -304,6 +373,7 @@ func withTx(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[str
 			dispatch.Appended = true
 		}
 	}
+	tx.publishWakeEvents()
 	return result, nil
 }
 
@@ -847,6 +917,12 @@ func enqueueJob(ctx context.Context, runner any, repositoryID, jobID string) (st
 	}); err != nil {
 		return "", err
 	}
+	recordWake(runner, WakeEvent{
+		RepositoryID: repositoryID,
+		RunID:        fmt.Sprint(job["run_id"]),
+		Kind:         "work_available",
+		MessageID:    messageID,
+	})
 	return messageID, nil
 }
 

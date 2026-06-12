@@ -244,6 +244,100 @@ func TestRunResumeCompletedRunGivesCompromiseGuidance(t *testing.T) {
 	}
 }
 
+func TestRunCancelClosesActiveLeasedSession(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_run_cancel_closes_session"
+	runID := "run_cancel_closes_session"
+	sessionID := "sess_run_cancel_closes_session"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"author": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"capabilities": []any{"write"}}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "author", "codex", []string{"write"}, "active")
+	seedAuthorActiveWork(t, ctx, runner, repoID, runID, sessionID, "acked")
+
+	result, err := HandleRunCancel(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID,
+		"reason": "operator canceled run",
+	}))
+	if err != nil {
+		t.Fatalf("run.cancel: %v", err)
+	}
+	if result["state"] != "canceled" || result["status"] != "canceled" {
+		t.Fatalf("run.cancel result = %#v, want canceled", result)
+	}
+
+	session, err := oneRow(ctx, runner, `
+		SELECT state, close_reason
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID)
+	if err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	if session["state"] != "closed" || session["close_reason"] != "run_canceled" {
+		t.Fatalf("session row = %#v, want closed/run_canceled", session)
+	}
+	lease, err := oneRow(ctx, runner, `
+		SELECT state, release_reason
+		  FROM striatumd.leases
+		 WHERE repository_id = $1 AND lease_id = $2`, repoID, "lease_work_"+sessionID)
+	if err != nil {
+		t.Fatalf("read lease: %v", err)
+	}
+	if lease["state"] != "released" || lease["release_reason"] != "run_canceled" {
+		t.Fatalf("lease row = %#v, want released/run_canceled", lease)
+	}
+	if got := jobState(t, ctx, runner, repoID, "job_work_"+sessionID); got != "canceled" {
+		t.Fatalf("job state = %q, want canceled", got)
+	}
+}
+
+func TestRunCancelAlreadyCanceledClosesAnomalousActiveSession(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_run_cancel_already_canceled_cleanup"
+	runID := "run_cancel_already_canceled_cleanup"
+	sessionID := "sess_already_canceled_cleanup"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"author": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"capabilities": []any{"write"}}},
+	})
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET state = 'canceled', completed_at = NOW(), stop_reason = 'operator_canceled'
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID); err != nil {
+		t.Fatalf("mark run canceled: %v", err)
+	}
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "author", "codex", []string{"write"}, "active")
+
+	result, err := HandleRunCancel(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID,
+	}))
+	if err != nil {
+		t.Fatalf("run.cancel already-canceled cleanup: %v", err)
+	}
+	if result["status"] != "already_canceled" {
+		t.Fatalf("run.cancel result = %#v, want already_canceled", result)
+	}
+	session, err := oneRow(ctx, runner, `
+		SELECT state, close_reason
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID)
+	if err != nil {
+		t.Fatalf("read session: %v", err)
+	}
+	if session["state"] != "closed" || session["close_reason"] != "run_canceled" {
+		t.Fatalf("session row = %#v, want closed/run_canceled", session)
+	}
+}
+
 func seedCompletedReviewJob(t *testing.T, ctx context.Context, runner any, repoID, runID, jobID string) {
 	t.Helper()
 	now := time.Now().UTC()

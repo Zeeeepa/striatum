@@ -126,6 +126,7 @@ func TestRenderHelpWorkLoopVerbsAreSelfContained(t *testing.T) {
 		{[]string{"repo", "patch-preview"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--patch"}},
 		{[]string{"process", "run"}, []string{"<session-id>", "<job-id>", "<lease-id>", "--command-json", "--timeout-seconds"}},
 		{[]string{"worktree", "create"}, []string{"<session-id>", "<job-id>", "<lease-id>"}},
+		{[]string{"worktree", "anchor"}, []string{"<run-id>", "<job-id>", "<worktree-id>", "worktree.anchored"}},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
@@ -225,7 +226,7 @@ func TestUsageCoversIssue63Verbs(t *testing.T) {
 		"register_session", "checkpoint_resolve", "decision_record", "repo_add",
 		"claim_next", "ack", "heartbeat", "release", "send", "block",
 		"complete", "publish_artifact", "repo_write", "repo_patch", "process_run", "verdict", "submit_review",
-		"worktree_create", "worktree_release",
+		"worktree_create", "worktree_release", "worktree_anchor",
 	} {
 		if _, ok := UsageFor(group); !ok {
 			t.Fatalf("missing usage descriptor for %q", group)

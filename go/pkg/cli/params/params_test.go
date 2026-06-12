@@ -42,6 +42,16 @@ func TestBuildMapsWhyPositionalTargetID(t *testing.T) {
 	}
 }
 
+func TestBuildMapsWorktreeAnchorPositionals(t *testing.T) {
+	got, err := Build("worktree_anchor", []string{"run_1", "job_1", "wt_1"}, Options{RepositoryID: "repo_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["repository_id"] != "repo_1" || got["run_id"] != "run_1" || got["job_id"] != "job_1" || got["worktree_id"] != "wt_1" {
+		t.Fatalf("params = %#v", got)
+	}
+}
+
 func TestBuildKeepsBodyJSONAsString(t *testing.T) {
 	got, err := Build("send", []string{"sess_1", "note", "--body-json", `{"text":"hi"}`}, Options{})
 	if err != nil {

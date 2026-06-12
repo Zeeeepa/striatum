@@ -77,9 +77,21 @@ func HandleRegisterSession(ctx context.Context, runner db.Runner, envelope rpc.E
 	// internally instead of surfacing it to the operator. The body fully rolls
 	// back on abort, so re-running from scratch is safe.
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104: per-run advisory lock first — session.register mutates
+		// the run aggregate and races with run.cancel / run drive cleanup.
+		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
 		if err != nil {
 			return nil, err
+		}
+		if isTerminalRunState(fmt.Sprint(run["state"])) {
+			return nil, rpc.NewError(
+				"invalid_transition",
+				fmt.Sprintf("run %s is in terminal state %q; session.register refuses terminal runs", runID, run["state"]),
+				map[string]any{"run_id": runID, "run_state": run["state"]},
+			)
 		}
 		snapshot, err := rowByID(ctx, tx, repositoryID, "workflow_snapshots", "workflow_snapshot_id", fmt.Sprint(run["workflow_snapshot_id"]), false)
 		if err != nil {
@@ -1085,11 +1097,11 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if sessionID == "" || jobID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.complete requires session_id, job_id, and lease_id", nil)
 	}
-	// RFC 0096 V2 / #135: a bound token may only complete its own session's work.
-	if _, err := enforceSessionBinding(ctx, sessionID); err != nil {
-		return nil, err
-	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0096 V2 / #135: a bound token may only complete its own session's work.
+		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "work.complete"); err != nil {
+			return nil, err
+		}
 		// RFC 0104: per-run advisory lock first — work.complete can complete the run
 		// (maybeCompleteRun -> closeRemainingSessions: runs -> sessions), which
 		// inverts against the claim path; serialize on the per-run lock.

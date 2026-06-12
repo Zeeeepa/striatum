@@ -827,8 +827,13 @@ terminal idle result with no eligible work for the session, it returns a
 `type: "none"`, `status: "no_work"` envelope with
 `idle_behavior: "exit_session"`. This is a clean lane-exit instruction, not a
 request to keep the model process resident and poll again; `run drive` or a
-future wake mechanism is responsible for starting a fresh session when work is
-queued later.
+future scheduler-principal mechanism is responsible for starting a fresh
+session when work is queued later. The D180 notify-only wake bus exposes
+`wake.wait` as a read-shaped hint surface so `run drive` can block until
+committed work, agent-message, or conversation-turn availability is signaled,
+then re-read authoritative daemon/PostgreSQL state before launching anything.
+Wake hints never claim, lease, complete, verdict, spawn, or otherwise mutate
+workflow state.
 
 If a supervised agent exits before its first await and the session is already
 `stopped`, `work.await_packet` returns a typed `status: "no_work"` envelope with

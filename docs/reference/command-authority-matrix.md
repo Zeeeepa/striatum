@@ -116,6 +116,7 @@ state changes must route through daemon RPC.
 | `session.register` | `register-session` | claim | single_repo | pg | real | no | no | stable |
 | `session.close` | `session close` | claim | single_repo | pg | real | no | no | stable |
 | `session.report` | MCP pre-work session report | claim | single_repo | not implemented in Python RPC | real | no | no | RFC 0075 structured ready/heartbeat/question/escalate event path; updates RFC 0077 liveness timestamps; no terminal text authority |
+| `wake.wait` | run-drive wake wait | read | single_repo | in-process notify hint + timeout fallback | real | no | no | RFC 0120 Phase 2 notify-only wait surface; wake payloads are hints over committed daemon state and never authorize transitions |
 | `work.claim_next` | `claim-next` | claim | single_repo | pg | real | no | no | stable |
 | `work.claim_override` | `work claim-override` | admin | single_repo | pg | real | no | no | #222 admin escape for the fresh-review process-lineage gate; claims a pending job for a session only when an accepted decision is scoped to the exact `(session_id, job_id)`; emits `work.claim_overridden`. No normal-lane `claim-next --force` |
 | `work.await_packet` | MCP agent loop | claim | single_repo | not implemented in Python RPC | real | no | no | Go long-poll work-packet acquisition for autonomous MCP agents; records await and packet-delivery liveness timestamps; terminal `no_work` returns `idle_behavior=exit_session` per RFC 0120 / D180 |
@@ -292,12 +293,14 @@ calling daemon RPC methods.
     provenance — for `interrogation.answer` the turn and `interrogation.answered`
     event carry `responder=operator` / `operator_override=true` rather than
     falsely attributing the answer to the target lane. `session.register` mints
-    a session-bound token; wiring the supervised-lane env to USE it (so live
-    lanes become bound) is a tracked follow-up. `AllowAllAuthorizer` yields an
-    unbound `AuthContext`, so dev/test wiring exercises the operator-override
-    path, never a bound-session bypass. The `work.*` family is NOT yet enforced
-    (no act-as session distinct from the bound session today); it is the next
-    extension.
+    a session-bound token, and supervised lane launch injects that lane's own
+    bound token instead of the shared operator override. `AllowAllAuthorizer`
+    yields an unbound `AuthContext`, so dev/test wiring exercises the
+    operator-override path, never a bound-session bypass. Session-scoped work,
+    artifact, and review mutations enforce the same binding guard; when a
+    closed predecessor token targets the active successor session in the same
+    run/role/lane slot, the daemon returns `session_token_stale` with
+    restart/rebridge remediation instead of silently accepting stale authority.
 
 ## Error code catalog (RFC 0111)
 
@@ -377,6 +380,7 @@ remediation is sensible for that code.
 | `review_provenance_override_required` | An unattested/operator-authored accepting review verdict requires an explicit run-level review provenance decision. | Record an accepting decision with `--escape-surface review_provenance --escape-action <action> --rationale <reason>`, then retry with `--review-provenance-decision-id <decision_id>`. |
 | `run_not_found` | The run_id was not found. | List runs (list.runs) and use an existing run_id. |
 | `schema_invalid` | The request failed schema validation (missing, ill-typed, or malformed parameters or envelope). | Fix the named parameter to match the documented schema and resend the request. |
+| `session_token_stale` | A session-bound token belongs to a closed predecessor session but was used to act as that lane's active successor session. | Stop the stale lane and run supervise.start for the active successor session so it receives its own session-bound token; use supervise.rebridge only to repair that successor's existing supervisor, then retry from the successor lane. |
 | `sha256_mismatch` | A file body sha256 does not match the published artifact's content_sha256 (the repo file drifted). | Re-publish the artifact from the current file (artifact.publish) or restore the file to the published content before retrying. |
 | `shutdown_unavailable` | daemon.shutdown is not wired in this daemon process. | Stop the daemon with its service manager or a signal instead. |
 | `signing_key_insecure` | The sealed-apply signing key fails security requirements (for example permissions). | — |

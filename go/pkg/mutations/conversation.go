@@ -94,6 +94,12 @@ func HandleConversationOpen(ctx context.Context, runner db.Runner, envelope rpc.
 		}); err != nil {
 			return nil, err
 		}
+		recordWake(tx, WakeEvent{
+			RepositoryID:   repositoryID,
+			RunID:          runID,
+			Kind:           "conversation_turn_available",
+			ConversationID: conversationID,
+		})
 		return map[string]any{
 			"conversation_id": conversationID,
 			"run_id":          runID,
@@ -176,6 +182,14 @@ func HandleConversationSay(ctx context.Context, runner db.Runner, envelope rpc.E
 			"conversation_id": conversationID, "turn_index": turnIndex,
 		}); err != nil {
 			return nil, err
+		}
+		if !closing {
+			recordWake(tx, WakeEvent{
+				RepositoryID:   repositoryID,
+				RunID:          runID,
+				Kind:           "conversation_turn_available",
+				ConversationID: conversationID,
+			})
 		}
 		result := map[string]any{
 			"conversation_id": conversationID,

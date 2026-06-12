@@ -15,6 +15,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	readspkg "github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
@@ -53,6 +54,13 @@ func TestWorktreeHandlersValidateRequiredParamsBeforeDB(t *testing.T) {
 			method:  "worktree.release",
 			params:  map[string]any{"repository_id": "repo_1"},
 			message: "worktree_id must be a non-empty string",
+		},
+		{
+			name:    "anchor run",
+			handler: HandleWorktreeAnchor,
+			method:  "worktree.anchor",
+			params:  map[string]any{"repository_id": "repo_1", "job_id": "job_1", "worktree_id": "wt_1"},
+			message: "run_id must be a non-empty string",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -753,6 +761,100 @@ func TestWorktreeCompleteAnchorsCommitStack(t *testing.T) {
 	}
 }
 
+func TestWorktreeAnchorRemediationAnchorsCompletedJobAfterLeaseInactive(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "anchor_remediation", true)
+	worktreeHead := commitWorktreeFile(t, ids.worktreeRoot, "docs/out.txt", "anchored after inactive lease\n")
+	completeSeededWorktreeJobWithInactiveLease(t, ctx, runner, ids)
+
+	beforeProblems := doctorProblemsForRepo(t, ctx, runner, ids.repoID)
+	assertContainsString(t, beforeProblems, "worktree_head_unreachable."+ids.worktreeID)
+	assertContainsString(t, beforeProblems, "job_completed_without_anchor."+ids.jobID)
+
+	result, err := HandleWorktreeAnchor(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"run_id":      ids.runID,
+		"job_id":      ids.jobID,
+		"worktree_id": ids.worktreeID,
+	}))
+	if err != nil {
+		t.Fatalf("worktree anchor: %v", err)
+	}
+	if result["status"] != "anchored" {
+		t.Fatalf("anchor result = %#v", result)
+	}
+	if got := gitRevParse(t, repoRoot, "refs/heads/"+ids.runBranch); got != worktreeHead {
+		t.Fatalf("run branch = %s, want anchored worktree head %s", got, worktreeHead)
+	}
+
+	afterProblems := doctorProblemsForRepo(t, ctx, runner, ids.repoID)
+	assertNotContainsString(t, afterProblems, "worktree_head_unreachable."+ids.worktreeID)
+	assertNotContainsString(t, afterProblems, "job_completed_without_anchor."+ids.jobID)
+
+	row, err := oneRow(ctx, runner, `
+		SELECT payload_json
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND job_id = $3
+		   AND event_type = 'worktree.anchored'`,
+		ids.repoID, ids.runID, ids.jobID)
+	if err != nil {
+		t.Fatalf("missing worktree.anchored event: %v", err)
+	}
+	payload := asMap(row["payload_json"])
+	if payload["head"] != worktreeHead || payload["remediation"] != "worktree.anchor" {
+		t.Fatalf("anchor event payload = %#v, want head %s", payload, worktreeHead)
+	}
+}
+
+func TestWorktreeAnchorRefusesNonCompletedJob(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "anchor_running", true)
+
+	_, err := HandleWorktreeAnchor(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"run_id":      ids.runID,
+		"job_id":      ids.jobID,
+		"worktree_id": ids.worktreeID,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "requires completed job") {
+		t.Fatalf("worktree anchor error = %v, want invalid_transition for non-completed job", err)
+	}
+}
+
+func TestWorktreeAnchorRefusesMissingWorktreePath(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "anchor_missing", true)
+	commitWorktreeFile(t, ids.worktreeRoot, "docs/out.txt", "missing worktree\n")
+	completeSeededWorktreeJobWithInactiveLease(t, ctx, runner, ids)
+	gitRun(t, repoRoot, "worktree", "remove", "--force", ids.worktreeRoot)
+
+	_, err := HandleWorktreeAnchor(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"run_id":      ids.runID,
+		"job_id":      ids.jobID,
+		"worktree_id": ids.worktreeID,
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "path is missing on disk") {
+		t.Fatalf("worktree anchor error = %v, want invalid_transition for missing path", err)
+	}
+}
+
 func TestWorktreeRequiredJobRefusesPrimaryCheckoutSurfacesWithoutActiveWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
@@ -1029,6 +1131,83 @@ func seedPublishedArtifact(t *testing.T, ctx context.Context, runner db.Runner, 
 		ids.repoID, artifactID, ids.runID, ids.jobID, ids.sessionID, logicalName,
 		repoPath, digest, len(payload), time.Now().UTC(), blobKey); err != nil {
 		t.Fatalf("insert artifact: %v", err)
+	}
+}
+
+func commitWorktreeFile(t *testing.T, worktreeRoot, relPath, body string) string {
+	t.Helper()
+	target := filepath.Join(worktreeRoot, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", relPath)
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree anchor remediation")
+	return gitRevParse(t, worktreeRoot, "HEAD")
+}
+
+func completeSeededWorktreeJobWithInactiveLease(t *testing.T, ctx context.Context, runner db.Runner, ids worktreeRequiredFixtureIDs) {
+	t.Helper()
+	now := time.Now().UTC()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'completed', completed_at = $1, current_lease_id = NULL
+		 WHERE repository_id = $2 AND job_id = $3`,
+		now, ids.repoID, ids.jobID); err != nil {
+		t.Fatalf("complete seeded job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.queue_messages
+		   SET state = 'completed', completed_at = $1, updated_at = $1, current_lease_id = NULL
+		 WHERE repository_id = $2 AND message_id = $3`,
+		now, ids.repoID, ids.messageID); err != nil {
+		t.Fatalf("complete seeded message: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = $1, release_reason = 'completed'
+		 WHERE repository_id = $2 AND lease_id = $3`,
+		now, ids.repoID, ids.leaseID); err != nil {
+		t.Fatalf("release seeded lease: %v", err)
+	}
+}
+
+func doctorProblemsForRepo(t *testing.T, ctx context.Context, runner db.Runner, repoID string) []string {
+	t.Helper()
+	report, err := readspkg.HandleDoctor(ctx, runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_doctor_" + repoID,
+		Method:        "doctor",
+		Params:        map[string]any{"repository_id": repoID, "verbose": true},
+	})
+	if err != nil {
+		t.Fatalf("doctor: %v", err)
+	}
+	problems, ok := report["problems"].([]string)
+	if !ok {
+		t.Fatalf("doctor problems = %#v, want []string", report["problems"])
+	}
+	return problems
+}
+
+func assertContainsString(t *testing.T, items []string, needle string) {
+	t.Helper()
+	for _, item := range items {
+		if strings.Contains(item, needle) {
+			return
+		}
+	}
+	t.Fatalf("missing %q in %#v", needle, items)
+}
+
+func assertNotContainsString(t *testing.T, items []string, needle string) {
+	t.Helper()
+	for _, item := range items {
+		if strings.Contains(item, needle) {
+			t.Fatalf("unexpected %q in %#v", needle, items)
+		}
 	}
 }
 

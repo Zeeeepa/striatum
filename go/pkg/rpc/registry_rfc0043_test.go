@@ -6,6 +6,7 @@ func TestRFC0043CanonicalCapabilities(t *testing.T) {
 	expected := map[string]Capability{
 		"session.register":       CapabilityClaim,
 		"session.report":         CapabilityClaim,
+		"wake.wait":              CapabilityRead,
 		"work.claim_next":        CapabilityClaim,
 		"work.ack":               CapabilityClaim,
 		"work.heartbeat":         CapabilityClaim,
@@ -21,6 +22,7 @@ func TestRFC0043CanonicalCapabilities(t *testing.T) {
 		"recovery.cancel_job":    CapabilityRecovery,
 		"recovery.resume":        CapabilityRecovery,
 		"worktree.create":        CapabilityWrite,
+		"worktree.anchor":        CapabilityWrite,
 		"branch.confirm":         CapabilityAdmin,
 		"run.prepare":            CapabilityAdmin,
 		"run.start":              CapabilityAdmin,

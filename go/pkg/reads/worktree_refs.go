@@ -68,9 +68,10 @@ func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID strin
 		worktreeID := stringFrom(row, "worktree_id")
 		jobID := stringFrom(row, "job_id")
 		head := stringFrom(row, "head")
+		remediation := worktreeAnchorRemediation(row)
 		problems = append(problems, fmt.Sprintf(
-			"worktree_head_unreachable.%s: worktree HEAD %s is not reachable from the run branch or refs/striatum pins; re-run work.complete to anchor while the worktree exists",
-			worktreeID, head,
+			"worktree_head_unreachable.%s: worktree HEAD %s is not reachable from the run branch or refs/striatum pins; run %s while the worktree exists",
+			worktreeID, head, remediation,
 		))
 		records = append(records, worktreeProblemRecord("worktree_head_unreachable", worktreeID, row))
 		if stringFrom(row, "job_state") == "completed" {
@@ -96,9 +97,18 @@ func worktreeProblemRecord(check, id string, row map[string]any) map[string]any 
 			"head":         row["head"],
 			"anchor":       row["anchor"],
 			"checked_refs": row["checked_refs"],
-			"remediation":  "re-run work.complete to anchor while the worktree exists; use --force only to intentionally discard unanchored work",
+			"remediation":  worktreeAnchorRemediation(row),
 		},
 	}
+}
+
+func worktreeAnchorRemediation(row map[string]any) string {
+	return fmt.Sprintf(
+		"striatum worktree anchor %s %s %s",
+		stringFrom(row, "run_id"),
+		stringFrom(row, "job_id"),
+		stringFrom(row, "worktree_id"),
+	)
 }
 
 func probeWorktreeAnchor(ctx context.Context, row map[string]any) map[string]any {

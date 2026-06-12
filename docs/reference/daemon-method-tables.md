@@ -67,6 +67,7 @@
 | `session.register` | `claim` | `single_repo` | 1 | 1 | no |
 | `session.close` | `claim` | `single_repo` | 1 | 1 | no |
 | `session.report` | `claim` | `single_repo` | 1 | 1 | no |
+| `wake.wait` | `read` | `single_repo` | 1 | 1 | no |
 | `work.claim_next` | `claim` | `single_repo` | 1 | 1 | no |
 | `work.claim_override` | `admin` | `single_repo` | 1 | 1 | no |
 | `work.await_packet` | `claim` | `single_repo` | 1 | 1 | no |
@@ -92,6 +93,7 @@
 | `process.run` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.create` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.release` | `write` | `single_repo` | 1 | 1 | no |
+| `worktree.anchor` | `write` | `single_repo` | 1 | 1 | no |
 | `worktree.gc` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.init` | `write` | `single_repo` | 1 | 1 | no |
 | `workflow.generate` | `write` | `single_repo` | 1 | 1 | no |
@@ -215,6 +217,7 @@
 | `branch confirm` | `branch.confirm` | `admin` | `single_repo` |
 | `worktree create` | `worktree.create` | `write` | `single_repo` |
 | `worktree release` | `worktree.release` | `write` | `single_repo` |
+| `worktree anchor` | `worktree.anchor` | `write` | `single_repo` |
 | `worktree gc` | `worktree.gc` | `write` | `single_repo` |
 | `worktree list` | `worktree.list` | `read` | `single_repo` |
 | `supervise start` | `supervise.start` | `claim` | `single_repo` |

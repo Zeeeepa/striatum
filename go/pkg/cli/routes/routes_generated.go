@@ -69,6 +69,7 @@ var generatedRoutes = []Route{
 	{Command: "branch", Subcommand: "confirm", Method: "branch.confirm", ParamsGroup: "branch_confirm", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "worktree", Subcommand: "create", Method: "worktree.create", ParamsGroup: "worktree_create", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "worktree", Subcommand: "release", Method: "worktree.release", ParamsGroup: "worktree_release", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "worktree", Subcommand: "anchor", Method: "worktree.anchor", ParamsGroup: "worktree_anchor", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "worktree", Subcommand: "gc", Method: "worktree.gc", ParamsGroup: "worktree_gc", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "worktree", Subcommand: "list", Method: "worktree.list", ParamsGroup: "worktree_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "start", Method: "supervise.start", ParamsGroup: "supervise_start", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},

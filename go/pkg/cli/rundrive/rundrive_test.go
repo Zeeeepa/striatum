@@ -239,14 +239,90 @@ func TestRunDriveRunUsesDefaultSleep(t *testing.T) {
 	}
 }
 
+func TestRunDriveWaitsOnWakeBetweenReconciles(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.wake = func(params map[string]any) (map[string]any, error) {
+		if params["timeout_ms"] != int(time.Hour/time.Millisecond) {
+			t.Fatalf("wake.wait params = %#v", params)
+		}
+		fake.runState = "completed"
+		return map[string]any{
+			"status": "notified",
+			"event": map[string]any{
+				"repository_id": "repo_1",
+				"run_id":        "run_1",
+				"kind":          "work_available",
+			},
+		}, nil
+	}
+	sleepCalled := false
+
+	err := Run(ctx, fake, Options{
+		RepositoryID: "repo_1",
+		RunID:        "run_1",
+		Interval:     time.Hour,
+		Sleep: func(context.Context, time.Duration) error {
+			sleepCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run error = %v", err)
+	}
+	if got := fake.count("wake.wait"); got != 1 {
+		t.Fatalf("wake.wait calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+	if sleepCalled {
+		t.Fatal("run drive used fixed sleep despite wake.wait being available")
+	}
+}
+
+func TestRunDriveWakeTimeoutKeepsBoundedFallback(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.completeOnStart = true
+	fake.wake = func(params map[string]any) (map[string]any, error) {
+		if fake.count("wake.wait") == 1 {
+			fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+		}
+		return map[string]any{"status": "timeout"}, nil
+	}
+	sleepCalled := false
+
+	err := Run(ctx, fake, Options{
+		RepositoryID: "repo_1",
+		RunID:        "run_1",
+		Interval:     time.Hour,
+		Sleep: func(context.Context, time.Duration) error {
+			sleepCalled = true
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run error = %v", err)
+	}
+	if got := fake.count("supervise.start"); got != 1 {
+		t.Fatalf("supervise.start calls = %d, want 1; calls=%#v", got, fake.calls)
+	}
+	if got := fake.count("wake.wait"); got < 1 {
+		t.Fatalf("wake.wait calls = %d, want at least 1; calls=%#v", got, fake.calls)
+	}
+	if sleepCalled {
+		t.Fatal("run drive used fixed sleep instead of wake timeout fallback")
+	}
+}
+
 type fakeDrive struct {
-	runState      string
-	jobs          []map[string]any
-	sessions      []map[string]any
-	calls         []fakeCall
-	nextID        int
-	freshRefusals int
-	startErr      error
+	runState        string
+	jobs            []map[string]any
+	sessions        []map[string]any
+	calls           []fakeCall
+	nextID          int
+	freshRefusals   int
+	startErr        error
+	completeOnStart bool
+	wake            func(map[string]any) (map[string]any, error)
 }
 
 type fakeCall struct {
@@ -284,7 +360,15 @@ func (f *fakeDrive) Invoke(_ context.Context, method string, params map[string]a
 		if f.startErr != nil {
 			return nil, f.startErr
 		}
+		if f.completeOnStart {
+			f.runState = "completed"
+		}
 		return map[string]any{"state": "attached", "session_id": params["session_id"]}, nil
+	case "wake.wait":
+		if f.wake != nil {
+			return f.wake(params)
+		}
+		return nil, errors.New("unexpected method: " + method)
 	case "supervise.stop":
 		sessionID := fmt.Sprint(params["session_id"])
 		for _, sess := range f.sessions {

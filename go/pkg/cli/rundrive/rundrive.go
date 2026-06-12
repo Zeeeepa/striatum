@@ -96,6 +96,7 @@ var AllowedMethods = map[string]bool{
 	"session.close":    true,
 	"supervise.start":  true,
 	"supervise.stop":   true,
+	"wake.wait":        true,
 }
 
 func New(invoker Invoker, options Options) *Driver {
@@ -171,10 +172,28 @@ func Run(ctx context.Context, invoker Invoker, options Options) error {
 		if driver.options.Once {
 			return nil
 		}
-		if err := driver.options.Sleep(ctx, driver.options.Interval); err != nil {
+		if err := driver.waitForWake(ctx); err != nil {
 			return err
 		}
 	}
+}
+
+func (d *Driver) waitForWake(ctx context.Context) error {
+	timeoutMS := int(d.options.Interval / time.Millisecond)
+	if timeoutMS <= 0 {
+		timeoutMS = 1
+	}
+	_, err := d.invoke(ctx, "wake.wait", map[string]any{
+		"run_id":     d.options.RunID,
+		"timeout_ms": timeoutMS,
+	})
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	return d.options.Sleep(ctx, d.options.Interval)
 }
 
 func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, error) {

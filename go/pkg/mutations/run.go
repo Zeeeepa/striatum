@@ -414,6 +414,30 @@ func HandleRunResume(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	})
 }
 
+func isTerminalRunState(state string) bool {
+	switch state {
+	case "completed", "failed", "canceled", "compromised":
+		return true
+	default:
+		return false
+	}
+}
+
+func releaseActiveRunLeases(ctx context.Context, runner any, repositoryID, runID, now, reason string) error {
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+	return exec.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = $1, release_reason = $2
+		 WHERE repository_id = $3
+		   AND run_id = $4
+		   AND state = 'active'`, now, reason, repositoryID, runID)
+}
+
 func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -439,9 +463,16 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		}
 		state := fmt.Sprint(run["state"])
 		if state == "canceled" {
+			now := nowString()
+			if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
+				return nil, err
+			}
+			if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {
+				return nil, err
+			}
 			return map[string]any{"run_id": runID, "state": "canceled", "status": "already_canceled"}, nil
 		}
-		if state == "completed" || state == "failed" || state == "compromised" {
+		if isTerminalRunState(state) {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q and cannot be canceled", state), nil)
 		}
 		now := nowString()
@@ -453,12 +484,7 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			   AND state IN ('queued','running','blocked','ready','claimed')`, now, repositoryID, runID); err != nil {
 			return nil, err
 		}
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.leases
-			   SET state = 'released', released_at = $1, release_reason = 'run_canceled'
-			 WHERE repository_id = $2
-			   AND run_id = $3
-			   AND state = 'active'`, now, repositoryID, runID); err != nil {
+		if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
 			return nil, err
 		}
 		// RFC 0118 P1-5: freeze the completion record while the sessions are

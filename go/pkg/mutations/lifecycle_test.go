@@ -88,6 +88,49 @@ func TestRegisterSessionMintsSessionBoundToken(t *testing.T) {
 	}
 }
 
+func TestRegisterSessionRefusesCanceledRun(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_register_canceled_run"
+	runID := "run_register_canceled_run"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"worker": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"capabilities": []any{"write"}}},
+	})
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET state = 'canceled', completed_at = NOW(), stop_reason = 'operator_canceled'
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID); err != nil {
+		t.Fatalf("mark run canceled: %v", err)
+	}
+
+	_, err := HandleRegisterSession(ctx, runner, intgEnv(repoID, map[string]any{
+		"run_id": runID,
+		"role":   "worker",
+		"lane":   "codex",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" {
+		t.Fatalf("register canceled run err = %v, want invalid_transition", err)
+	}
+	if !strings.Contains(rpcErr.Message, "terminal state") || !strings.Contains(rpcErr.Message, "canceled") {
+		t.Fatalf("register canceled run message = %q, want terminal canceled guidance", rpcErr.Message)
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT count(*) AS n
+		  FROM striatumd.sessions
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	if got := intValue(row["n"]); got != 0 {
+		t.Fatalf("registered sessions on canceled run = %d, want 0", got)
+	}
+}
+
 func TestRegisterSessionExplicitCapabilitiesOverrideLaneDefault(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner

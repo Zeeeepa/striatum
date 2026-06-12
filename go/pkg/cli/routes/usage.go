@@ -256,6 +256,16 @@ var usageByGroup = map[string]Usage{
 			{Name: "force", Bool: true, Help: "remove even when the worktree HEAD is not reachable from the run branch or refs/striatum pins; records worktree.force_released"},
 		},
 	},
+	"worktree_anchor": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "run that owns the completed job"},
+			{Name: "job-id", Positional: true, Required: true, Help: "completed repo-write job whose worktree HEAD needs anchoring"},
+			{Name: "worktree-id", Positional: true, Required: true, Help: "active or abandoned job worktree to anchor"},
+		},
+		Notes: []string{
+			"Daemon-backed doctor remediation for completed jobs whose original lease is inactive: anchors the existing worktree HEAD through the same fast-forward-or-pin invariant used by work.complete and records worktree.anchored.",
+		},
+	},
 	"worktree_gc": {
 		Params: []Param{
 			{Name: "run-id", Help: "limit garbage collection to a single run"},

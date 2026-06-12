@@ -213,6 +213,13 @@ func TestPerRunHandlersTakeLockRunFirst(t *testing.T) {
 				t.Fatalf("run.cancel: %v", err)
 			}
 		}},
+		{"session.register", func(rec *lockRecorder) {
+			_, _ = HandleRegisterSession(ctx, rec, intgEnv(repoID, map[string]any{
+				"run_id": fx.runID,
+				"role":   "builder",
+				"lane":   "claude",
+			}))
+		}},
 		{"recovery.sweep", func(rec *lockRecorder) {
 			if _, err := SweepRun(ctx, rec, repoID, fx.runID, "guard-test"); err != nil {
 				t.Fatalf("recovery.sweep: %v", err)

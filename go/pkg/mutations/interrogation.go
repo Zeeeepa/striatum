@@ -192,6 +192,12 @@ func HandleInterrogationAsk(ctx context.Context, runner db.Runner, envelope rpc.
 		}); err != nil {
 			return nil, err
 		}
+		recordWake(tx, WakeEvent{
+			RepositoryID: repositoryID,
+			RunID:        fmt.Sprint(interrogation["run_id"]),
+			Kind:         "agent_message_available",
+			MessageID:    messageID,
+		})
 		return map[string]any{
 			"interrogation_id":  interrogationID,
 			"message_id":        messageID,

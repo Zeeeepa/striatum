@@ -31,6 +31,9 @@ func HandleRecordVerdict(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, rpc.NewError("schema_invalid", "review.verdict requires session_id, job_id, lease_id, and verdict", nil)
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "review.verdict"); err != nil {
+			return nil, err
+		}
 		// RFC 0104: take the per-run advisory lock first so the verdict-completion
 		// path (recordVerdict -> maybeCompleteRun -> closeRemainingSessions) shares
 		// the claim/sweep serialization point and the {sessions, runs} cycle cannot
@@ -76,6 +79,9 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	// Retry the whole transaction a bounded number of times; the body is
 	// idempotent (publishArtifact already no-ops an already-published artifact).
 	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "review.submit"); err != nil {
+			return nil, err
+		}
 		// RFC 0104: per-run advisory lock first, before the jobs FOR UPDATE below.
 		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
 			return nil, err
