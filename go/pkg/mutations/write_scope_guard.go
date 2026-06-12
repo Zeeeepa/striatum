@@ -56,12 +56,13 @@ func enforceWriteScopeClean(ctx context.Context, runner any, repositoryID string
 	if len(violations) == 0 {
 		return nil
 	}
-	return rpc.NewError("invalid_transition", writeScopeViolationMessage(violations, allowed, forbidden), map[string]any{
+	return rpc.NewError("write_scope_drift", writeScopeViolationMessage(violations, allowed, forbidden), map[string]any{
 		"job_id":          job["job_id"],
 		"workflow_job_id": job["workflow_job_id"],
 		"violations":      violations,
 		"allowed_paths":   allowed,
 		"forbidden_paths": forbidden,
+		"recovery":        "Use `striatum recovery resume` for write-scope blockers after remediation, or start a fresh/replacement attempt for legitimate scope changes.",
 	})
 }
 
@@ -85,13 +86,12 @@ func writeScopeCheckSource(ctx context.Context, runner any, repositoryID, repoRo
 }
 
 // writeScopeViolationMessage names the offending paths inline and explains the
-// two valid resolutions so an agent/operator does not reverse-engineer the
-// failure (#109) — in particular that a legitimate index/status file (e.g.
-// docs/rfcs/README.md) a cleanup step was asked to update must be declared in
-// the job's write_scope: a job cannot widen its own scope at work.complete.
+// valid resolutions so an agent/operator does not reverse-engineer the failure.
+// The attempt's effective scope is frozen; widening current workflow/context
+// metadata does not rewrite old packets.
 func writeScopeViolationMessage(violations, allowed, forbidden []string) string {
 	return fmt.Sprintf(
-		"write_scope violation: %d path(s) changed outside this job's write_scope: %s. Revert them, or — if they are legitimate output for this job (e.g. an index/status file such as docs/rfcs/README.md a cleanup step must update) — widen this job's write_scope.allowed_paths in the workflow; a job cannot extend its own scope at work.complete. (allowed_paths=%v forbidden_paths=%v)",
+		"write_scope violation: %d path(s) changed outside this job attempt's frozen write_scope: %s. Revert them, move them into the packet's allowed scope, or use audited recovery (`striatum recovery resume` for remediated write-scope blockers, or a fresh/replacement attempt for legitimate scope changes); do not mutate historical scope for this attempt. (allowed_paths=%v forbidden_paths=%v)",
 		len(violations), strings.Join(violations, ", "), allowed, forbidden,
 	)
 }

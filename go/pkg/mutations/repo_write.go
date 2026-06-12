@@ -62,6 +62,7 @@ func repoWrite(
 	if _, err := activeLeaseFor(ctx, runner, repositoryID, leaseID, sessionID, jobID); err != nil {
 		return nil, err
 	}
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
 	if !isRepoWrite(job) {
 		return nil, rpc.NewError("invalid_transition", "repo.write requires a repo_write job write_scope", nil)
 	}

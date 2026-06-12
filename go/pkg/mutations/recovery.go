@@ -57,6 +57,10 @@ var terminalJobStates = map[string]bool{
 	"skipped":   true,
 }
 
+const abandonedRunAutoCancelReason = "abandoned_auto_canceled"
+
+var abandonedRunAutoCancelAfter = 24 * time.Hour
+
 func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -577,9 +581,36 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
+		abandonedRun := map[string]any{"status": "skipped", "reason": "dry_run"}
 		if !dryRun {
 			if _, err := expireLeases(ctx, tx, repositoryID, runID); err != nil {
 				return nil, err
+			}
+			abandonedRun, err = autoCancelAbandonedRunIfEligible(ctx, tx, repositoryID, runID, abandonedRunAutoCancelAfter)
+			if err != nil {
+				return nil, err
+			}
+			if abandonedRun["status"] == "auto_canceled" {
+				return map[string]any{
+					"run_id":          runID,
+					"dry_run":         dryRun,
+					"published_count": 0,
+					"published":       []map[string]any{},
+					"skipped_count":   0,
+					"skipped":         []map[string]any{},
+					"helper_events":   helperEvents,
+					"liveness":        map[string]any{"skipped": true, "reason": abandonedRunAutoCancelReason},
+					"abandoned_run":   abandonedRun,
+					"recovery_actions": map[string]any{
+						"acted_count":              0,
+						"actions":                  []map[string]any{},
+						"escalation_pending_count": 0,
+					},
+					"escalations": map[string]any{
+						"raised_count": 0,
+						"raised":       []map[string]any{},
+					},
+				}, nil
 			}
 		}
 		// #203: the expired-lease disjuncts (both the join and the WHERE) must
@@ -810,6 +841,7 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			"skipped":         skipped,
 			"helper_events":   helperEvents,
 			"liveness":        liveness,
+			"abandoned_run":   abandonedRun,
 			"recovery_actions": map[string]any{
 				"acted_count":              len(recoveryActions),
 				"actions":                  recoveryActions,
@@ -821,6 +853,176 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			},
 		}, nil
 	})
+}
+
+func autoCancelAbandonedRunIfEligible(ctx context.Context, tx db.TxRunner, repositoryID, runID string, threshold time.Duration) (map[string]any, error) {
+	decision, err := abandonedRunAutoCancelDecision(ctx, tx, repositoryID, runID, threshold, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if decision["eligible"] != true {
+		return decision, nil
+	}
+	result, err := cancelRunInTx(ctx, tx, repositoryID, runID, abandonedRunAutoCancelReason)
+	if err != nil {
+		return nil, err
+	}
+	result["status"] = "auto_canceled"
+	result["reason"] = abandonedRunAutoCancelReason
+	result["threshold_seconds"] = int(threshold.Seconds())
+	result["last_activity_at"] = decision["last_activity_at"]
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.abandoned_run_auto_canceled", nil, nil, nil, nil, nil, map[string]any{
+		"reason":            abandonedRunAutoCancelReason,
+		"threshold_seconds": int(threshold.Seconds()),
+		"last_activity_at":  decision["last_activity_at"],
+	}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func abandonedRunAutoCancelDecision(ctx context.Context, tx db.TxRunner, repositoryID, runID string, threshold time.Duration, now time.Time) (map[string]any, error) {
+	run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
+	if err != nil {
+		return nil, err
+	}
+	if fmt.Sprint(run["state"]) != "running" {
+		return map[string]any{"status": "not_candidate", "eligible": false, "reason": "run_not_running"}, nil
+	}
+	checks := []struct {
+		reason string
+		sql    string
+	}{
+		{
+			reason: "live_session",
+			sql: `SELECT 1 FROM striatumd.sessions
+			       WHERE repository_id = $1 AND run_id = $2 AND state = 'active'
+			       LIMIT 1`,
+		},
+		{
+			reason: "active_lease",
+			sql: `SELECT 1 FROM striatumd.leases
+			       WHERE repository_id = $1 AND run_id = $2 AND state = 'active'
+			       LIMIT 1`,
+		},
+		{
+			reason: "live_supervisor",
+			sql: `SELECT 1 FROM striatumd.process_supervisors
+			       WHERE repository_id = $1 AND run_id = $2 AND state IN ('starting','attached','detached')
+			       LIMIT 1`,
+		},
+		{
+			reason: "live_supervisor_pointer",
+			sql: `SELECT 1 FROM striatumd.process_supervisor_pointers
+			       WHERE repository_id = $1 AND run_id = $2 AND state IN ('starting','attached','detached')
+			       LIMIT 1`,
+		},
+		{
+			reason: "live_daemon_supervisor",
+			sql: `SELECT 1 FROM striatumd.daemon_supervisors
+			       WHERE repository_id = $1 AND run_id = $2 AND state IN ('starting','attached','detached')
+			       LIMIT 1`,
+		},
+		{
+			reason: "live_process_execution",
+			sql: `SELECT 1 FROM striatumd.process_executions
+			       WHERE repository_id = $1 AND run_id = $2 AND state IN ('starting','running')
+			       LIMIT 1`,
+		},
+		{
+			reason: "live_worktree",
+			sql: `SELECT 1 FROM striatumd.job_worktrees
+			       WHERE repository_id = $1 AND run_id = $2 AND state IN ('active','abandoned')
+			       LIMIT 1`,
+		},
+	}
+	for _, check := range checks {
+		found, err := existsRow(ctx, tx, check.sql, repositoryID, runID)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			return map[string]any{"status": "not_candidate", "eligible": false, "reason": check.reason}, nil
+		}
+	}
+	lastActivity, ok, err := abandonedRunLastActivity(ctx, tx, repositoryID, runID, run)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return map[string]any{"status": "not_candidate", "eligible": false, "reason": "missing_activity_baseline"}, nil
+	}
+	if !lastActivity.Before(now.Add(-threshold)) {
+		return map[string]any{
+			"status":            "not_candidate",
+			"eligible":          false,
+			"reason":            "recent_activity",
+			"threshold_seconds": int(threshold.Seconds()),
+			"last_activity_at":  lastActivity.UTC().Format(time.RFC3339),
+		}, nil
+	}
+	return map[string]any{
+		"status":            "candidate",
+		"eligible":          true,
+		"reason":            "abandoned_run_idle",
+		"threshold_seconds": int(threshold.Seconds()),
+		"last_activity_at":  lastActivity.UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func abandonedRunLastActivity(ctx context.Context, tx db.TxRunner, repositoryID, runID string, run map[string]any) (time.Time, bool, error) {
+	var latest time.Time
+	setLatest := func(value any) {
+		if ts, ok := asTime(value); ok && (latest.IsZero() || ts.After(latest)) {
+			latest = ts
+		}
+	}
+	setLatest(run["created_at"])
+	setLatest(run["started_at"])
+	row, err := oneRow(ctx, tx, `
+		SELECT MAX(created_at) AS last_event_at
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND event_type NOT IN (
+		     'daemon.recovery_sweep',
+		     'lease.expired',
+		     'session.liveness_deadline_missed',
+		     'session.liveness_recovered',
+		     'worktree.abandoned'
+		   )`, repositoryID, runID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	setLatest(row["last_event_at"])
+	sessionRow, err := oneRow(ctx, tx, `
+		SELECT MAX(activity_at) AS last_session_activity_at
+		  FROM (
+		    SELECT registered_at AS activity_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT closed_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_mcp_request_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_tools_list_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_await_packet_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_packet_delivered_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_ack_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_work_block_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_work_release_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_work_complete_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_work_heartbeat_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_session_ready_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_session_heartbeat_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_session_question_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		    UNION ALL SELECT last_session_escalate_at FROM striatumd.sessions WHERE repository_id = $1 AND run_id = $2
+		  ) activity
+		 WHERE activity_at IS NOT NULL`, repositoryID, runID)
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	setLatest(sessionRow["last_session_activity_at"])
+	if latest.IsZero() {
+		return time.Time{}, false, nil
+	}
+	return latest.UTC(), true, nil
 }
 
 func drainRunHelperEvents(ctx context.Context, tx db.TxRunner, repositoryID string, runID string, dryRun bool) (map[string]any, error) {
@@ -1288,8 +1490,10 @@ func publishRecoveredArtifact(ctx context.Context, runner any, repositoryID stri
 	if !allowedArtifactKinds[kind] {
 		return nil, rpc.NewError("artifact_error", fmt.Sprintf("artifact kind %q is not in the allowed kinds list", kind), nil)
 	}
-	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
-		return nil, rpc.NewError("artifact_error", "artifact path is outside the job write scope", nil)
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
+	writeScope := asMap(job["write_scope_json"])
+	if !pathAllowed(repoRoot, pathText, writeScope) {
+		return nil, writeScopePathError(job, pathText, stringListFromAny(writeScope["allowed_paths"]), stringListFromAny(writeScope["forbidden_paths"]))
 	}
 	path, err := repoRelativePath(repoRoot, pathText, false)
 	if err != nil {
@@ -2317,6 +2521,7 @@ func completeRecoveredJob(ctx context.Context, runner any, repositoryID, jobID, 
 	if fmt.Sprint(job["state"]) != "running" {
 		return nil, rpc.NewError("invalid_transition", "job must be running before completion", nil)
 	}
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
 	if err := enforceWriteScopeClean(ctx, runner, repositoryID, job); err != nil {
 		return nil, err
 	}

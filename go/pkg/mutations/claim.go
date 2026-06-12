@@ -455,6 +455,10 @@ func buildPacket(
 	roles := asMap(workflow["roles"])
 	roleDef := asMap(roles[fmt.Sprint(job["role_id"])])
 	writeScope := asMap(job["write_scope_json"])
+	if frozenScope, _, ok := frozenAttemptWriteScope(ctx, runner, repositoryID, job, ""); ok && len(frozenScope) > 0 {
+		writeScope = frozenScope
+		job["write_scope_json"] = frozenScope
+	}
 	// Build finding 1: resolve cycle-scoped expected artifacts (e.g. the
 	// adjudicator's collaboration_ledger) against the job attempt so the agent is
 	// told the concrete cycle_<attempt> logical name + path to publish to.

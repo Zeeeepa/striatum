@@ -1248,7 +1248,7 @@ func TestWorktreeCompletionStillRejectsOutOfScopeDirtInsideActiveWorktree(t *tes
 		"summary":    "done",
 	}))
 	var rpcErr *rpc.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "outside-worktree.txt") {
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "write_scope_drift" || !strings.Contains(rpcErr.Message, "outside-worktree.txt") {
 		t.Fatalf("complete error = %v, want write_scope violation for outside-worktree.txt", err)
 	}
 }

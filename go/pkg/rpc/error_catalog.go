@@ -417,6 +417,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Upgrade so client and daemon match (`make install`, then restart striatumd so the running image is the new build).",
 	},
 	{
+		Code:       "write_scope_drift",
+		Meaning:    "A job attempted to publish or complete work outside the frozen write scope for its current attempt.",
+		Suggestion: "Use the path in the active work packet, clear or move out-of-scope changes, or route through audited recovery (`striatum recovery resume` for remediated write-scope blockers, or a fresh/replacement attempt for legitimate scope changes).",
+	},
+	{
 		Code:       "workflow_error",
 		Meaning:    "Workflow validation, preparation, or run orchestration failed.",
 		Suggestion: "",

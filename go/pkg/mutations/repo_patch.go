@@ -113,6 +113,7 @@ func repoPatchConfigFor(ctx context.Context, runner any, repositoryID, sessionID
 	if _, err := activeLeaseFor(ctx, runner, repositoryID, leaseID, sessionID, jobID); err != nil {
 		return repoPatchConfig{}, err
 	}
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
 	if !isRepoWrite(job) {
 		return repoPatchConfig{}, rpc.NewError("invalid_transition", "repo.patch requires a repo_write job write_scope", nil)
 	}

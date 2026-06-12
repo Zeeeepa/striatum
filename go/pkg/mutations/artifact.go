@@ -124,8 +124,10 @@ func publishArtifactWithOptions(
 		return nil, err
 	}
 	repoRoot := fmt.Sprint(run["repo_root"])
-	if !pathAllowed(repoRoot, pathText, asMap(job["write_scope_json"])) {
-		return nil, rpc.NewError("artifact_error", "artifact path is outside the job write scope", nil)
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
+	writeScope := asMap(job["write_scope_json"])
+	if !pathAllowed(repoRoot, pathText, writeScope) {
+		return nil, writeScopePathError(job, pathText, stringListFromAny(writeScope["allowed_paths"]), stringListFromAny(writeScope["forbidden_paths"]))
 	}
 	activeWorktree, err := requireActiveWorktreeForJob(ctx, runner, repositoryID, job, "artifact.publish")
 	if err != nil {

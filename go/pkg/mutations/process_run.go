@@ -138,6 +138,7 @@ func processRunInsertStarting(ctx context.Context, runner any, repositoryID, ses
 	if currentLease := strings.TrimSpace(fmt.Sprint(job["current_lease_id"])); currentLease != "" && currentLease != leaseID {
 		return processRunStartConfig{}, rpc.NewError("lease_error", "lease is not the job's current lease", nil)
 	}
+	applyFrozenAttemptWriteScope(ctx, runner, repositoryID, job, leaseID)
 	runID := fmt.Sprint(job["run_id"])
 	if !processRunAllowed(job) {
 		escaped, err := processRunHasEscapeDecision(ctx, runner, repositoryID, runID, command)

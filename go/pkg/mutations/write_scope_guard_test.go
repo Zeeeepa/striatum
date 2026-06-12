@@ -368,10 +368,9 @@ func TestPublishedRunArtifactIgnoredPathsHonorsLiveSiblingExpectedArtifact(t *te
 	}
 }
 
-// #109: the write_scope violation message names the offending path(s) and
-// explains that a legitimate index/status file (e.g. docs/rfcs/README.md a
-// cleanup step must update) requires widening the job's write_scope — a job
-// cannot widen its own scope at work.complete.
+// #109 / #257: the write_scope violation message names the offending path(s)
+// and explains the frozen-attempt recovery path instead of telling a running
+// attempt to widen its own historical scope.
 func TestWriteScopeViolationMessageGuidesIndexFileScope(t *testing.T) {
 	msg := writeScopeViolationMessage(
 		[]string{"docs/rfcs/README.md"},
@@ -379,10 +378,11 @@ func TestWriteScopeViolationMessageGuidesIndexFileScope(t *testing.T) {
 		[]string{".striatum/"},
 	)
 	for _, want := range []string{
-		"docs/rfcs/README.md",          // offending path named
-		"widen this job's write_scope", // the authoring fix
-		"cannot extend its own scope",  // why it can't be done at complete
-		"allowed_paths=",               // scope echoed
+		"docs/rfcs/README.md", // offending path named
+		"frozen write_scope",  // source of truth named
+		"recovery resume",     // audited recovery path
+		"do not mutate",       // no silent historical widening
+		"allowed_paths=",      // scope echoed
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("message missing %q; got: %s", want, msg)

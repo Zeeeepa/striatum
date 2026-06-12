@@ -681,6 +681,18 @@ typed escape decision exists for the same run with `escape_surface` equal to
 `process.run` or `shell_command` and `escape_action` equal to either the joined
 command text or `sha256:<command_sha256>`.
 
+Effective write scope is frozen per job attempt. The scope in the work packet,
+and the scope used by `artifact.publish`, `repo.write`, `repo.patch-preview`,
+`repo.patch-apply`, `process.run`, and `work.complete`, is the attempt's frozen
+scope rather than a later re-render from mutable workflow or context files. If a
+mid-run context or workflow edit would make the current artifact path, dirty
+tree, patch, process output, or completion check depend on a wider effective
+scope, the repository-touching surface fails closed with a typed write-scope
+error that points to the audited recovery path. `artifact.publish` and
+`work.complete` use compatible error details for that condition. Recovery or
+operator override may resolve, requeue, or supersede the blocked attempt, but it
+does not mutate the historical scope snapshot attached to that attempt.
+
 ## Run Lifecycle
 
 A run starts in `running` (after `run start`). Terminal transitions
@@ -695,6 +707,8 @@ that `maybe_complete_run` produces:
 - `canceled` — every job is in a terminal state and none is
   `completed`. `recovery cancel-job --cascade` over an entire run is
   the typical trigger; `stop_reason = 'all_jobs_canceled'`.
+  Abandoned-run auto-cancel uses the same terminal state with an
+  abandonment stop reason.
 
 Auto-close on a run-terminal transition (RFC 0011) records each
 session's `close_reason` from the same vocabulary: `run_completed`,
@@ -1569,6 +1583,15 @@ does not complete them inline. It re-runs the write-scope cleanliness check,
 resolves the blocker only if the dirty path has been cleared, and requeues the
 same attempt for a fresh claim/complete cycle.
 
+Write-scope drift is an attempt-scope recovery condition, not a request to
+rewrite historical scope. When `artifact.publish` or `work.complete` detects
+that the attempt's frozen scope no longer matches the current effective
+workflow/context scope, both surfaces return compatible typed failures that name
+the recovery path. The recovery path must audit the override or remediation and
+may create a fresh attempt or requeue the blocked attempt against its frozen
+scope; it must not silently edit the old work packet, artifact rows, or
+attempt-scope snapshot.
+
 `recovery auto --run-id <id>` (RFC 0020 V1) is a one-shot autonomous
 sweeper composable with cron / systemd timer. In daemon RPC the
 canonical method is `recovery.sweep`. The sweep first evaluates
@@ -1580,6 +1603,16 @@ expiry, optional process reconciliation, optional autonomous review-only requeue
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
 run_state, policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
 declare a `recovery_policy` block to opt into autonomous behavior.
+Abandoned-run auto-cancel is the D184 exception to RFC 0020's earlier
+auto-cancel deferral: the resident scheduler and explicit `recovery.sweep` path
+may cancel a running run after the default 24h abandonment threshold when there
+are no live sessions, no live supervisors or supervised processes, no active
+leases, and no progress or durable events in the threshold window. There is no
+`needs_operator` intermediate when all predicates are proven. The predicate
+fails closed if any liveness probe is inconclusive or if any active session,
+supervisor, process, lease, recent event, unpublished repo-write work evidence,
+or other live-work signal exists. The transition records an audit-visible
+recovery event and the normal terminal completion record.
 Timed-out human checkpoints run the configured escalation hook only in live
 sweeps; dry-runs report hook eligibility without side effects, and hook
 failures are folded into `escalations[]`. Escalation is represented by

@@ -241,7 +241,7 @@ func ExitCode(err error) int {
 
 func exitCode(code string) int {
 	switch code {
-	case "artifact_error":
+	case "artifact_error", "write_scope_drift":
 		return 6
 	case "version_incompatible":
 		return 10

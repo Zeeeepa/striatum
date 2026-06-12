@@ -139,6 +139,11 @@ missing lane evidence with `--allow-no-process-execution
 row and in the provenance event.
 For review jobs declaring `require_attested_lane: true`, `publish-artifact`
 also refuses publication unless the session has an attached lane supervisor.
+D185 makes `publish-artifact` and `complete` share the frozen-attempt
+write-scope contract: if a mid-run context or workflow edit makes the current
+effective scope disagree with the job attempt's frozen scope, both commands must
+fail with compatible typed write-scope errors that point to audited recovery
+instead of silently widening historical scope.
 `decision record --mark-run-compromised` records an accepting decision and
 transitions a completed run to `compromised` for provenance invalidation; V1
 uses this replacement-run-only path for compromised completed review jobs.
@@ -176,7 +181,8 @@ typed escape decision whose `escape_surface` is `process.run` or `shell_command`
 `scope-check` is a daemon-free, read-only pre-`complete` diagnostic: it flags any
 changed path outside `allowed_paths` or inside `forbidden_paths` and exits
 nonzero on drift. Read the scope from the active work packet with
-`--packet-file`, or paste `--allowed` / `--forbidden` paths directly.
+`--packet-file`, or paste `--allowed` / `--forbidden` paths directly. It does
+not widen or refresh the daemon's frozen attempt scope.
 
 `work claim-override <session-id> <job-id> <decision-id>` (capability `admin`) is
 the narrow escape for the fresh-review process-lineage gate: it claims a pending
@@ -583,7 +589,10 @@ dashboard's graph panel renderer (RFC 0016).
 `recovery resume` resolves remediated process-adapter blockers with the
 preserved lease. For remediated write-scope dirty-path blockers, it validates
 that the tree is clean, resolves the blocker, and requeues the same attempt for
-a fresh claim before completion.
+a fresh claim before completion. It is also the named recovery destination for
+write-scope drift failures: recovery must audit the remediation or override and
+must not mutate the historical attempt scope that caused `publish-artifact` or
+`complete` to fail.
 
 `git snapshot --json [--ancestry-limit N] [--no-ancestry]` emits the
 daemon read-only `git.snapshot` projection for the registered target
@@ -608,6 +617,12 @@ report the hook kind without side effects, and hook failures are reported
 inside `escalations[]`. `recovery auto-publish` emits the explicit
 `recovery.auto_publish_stale_artifacts` method; the deprecated `recovery.auto`
 alias is not emitted by the current CLI.
+D184 allows the sweep to auto-cancel an abandoned running run after the default
+24h threshold when there are no live sessions, no live supervisors or supervised
+processes, no active leases, and no progress or durable events in the threshold
+window. Any live-work evidence or inconclusive liveness probe fails closed and
+leaves the run non-terminal for operator inspection; there is no
+`needs_operator` intermediate when the abandonment predicate is proven.
 
 `recovery invalidate-job <job-id> <decision-id>` (RFC 0118, capability
 `recovery`) invalidates a completed job's provenance against an accepting

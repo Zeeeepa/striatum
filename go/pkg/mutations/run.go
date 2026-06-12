@@ -438,6 +438,60 @@ func releaseActiveRunLeases(ctx context.Context, runner any, repositoryID, runID
 		   AND state = 'active'`, now, reason, repositoryID, runID)
 }
 
+func cancelRunInTx(ctx context.Context, tx db.TxRunner, repositoryID, runID, reason string) (map[string]any, error) {
+	run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
+	if err != nil {
+		return nil, err
+	}
+	state := fmt.Sprint(run["state"])
+	if state == "canceled" {
+		now := nowString()
+		if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
+			return nil, err
+		}
+		if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {
+			return nil, err
+		}
+		return map[string]any{"run_id": runID, "state": "canceled", "status": "already_canceled"}, nil
+	}
+	if isTerminalRunState(state) {
+		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q and cannot be canceled", state), nil)
+	}
+	now := nowString()
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'canceled', completed_at = $1
+		 WHERE repository_id = $2
+		   AND run_id = $3
+		   AND state IN ('blocked','queued','claimed','running','stale_lease','waiting_human')`, now, repositoryID, runID); err != nil {
+		return nil, err
+	}
+	if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
+		return nil, err
+	}
+	// RFC 0118 P1-5: freeze the completion record while the sessions are still
+	// live; cancellation is a terminal run-finalization path regardless of
+	// whether the operator or recovery sweep initiated it.
+	cancelPayload, err := freezeRunCompletionRecord(ctx, tx, repositoryID, runID, "canceled", "run_canceled",
+		map[string]any{"stop_reason": reason}, map[string]any{"reason": reason})
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET state = 'canceled', completed_at = $1, stop_reason = $2
+		 WHERE repository_id = $3 AND run_id = $4`, now, reason, repositoryID, runID); err != nil {
+		return nil, err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.canceled", nil, nil, nil, nil, nil, cancelPayload); err != nil {
+		return nil, err
+	}
+	if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {
+		return nil, err
+	}
+	return map[string]any{"run_id": runID, "state": "canceled", "status": "canceled"}, nil
+}
+
 func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -457,57 +511,7 @@ func HandleRunCancel(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
 			return nil, err
 		}
-		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, true)
-		if err != nil {
-			return nil, err
-		}
-		state := fmt.Sprint(run["state"])
-		if state == "canceled" {
-			now := nowString()
-			if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
-				return nil, err
-			}
-			if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {
-				return nil, err
-			}
-			return map[string]any{"run_id": runID, "state": "canceled", "status": "already_canceled"}, nil
-		}
-		if isTerminalRunState(state) {
-			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is in terminal state %q and cannot be canceled", state), nil)
-		}
-		now := nowString()
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.jobs
-			   SET state = 'canceled', completed_at = $1
-			 WHERE repository_id = $2
-			   AND run_id = $3
-			   AND state IN ('queued','running','blocked','ready','claimed')`, now, repositoryID, runID); err != nil {
-			return nil, err
-		}
-		if err := releaseActiveRunLeases(ctx, tx, repositoryID, runID, now, "run_canceled"); err != nil {
-			return nil, err
-		}
-		// RFC 0118 P1-5: freeze the completion record while the sessions are
-		// still live — this operator-cancel path is the run_45aa8852 incident
-		// path whose post-teardown reads came back empty.
-		cancelPayload, err := freezeRunCompletionRecord(ctx, tx, repositoryID, runID, "canceled", "run_canceled",
-			map[string]any{"stop_reason": reason}, map[string]any{"reason": reason})
-		if err != nil {
-			return nil, err
-		}
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.runs
-			   SET state = 'canceled', completed_at = $1, stop_reason = $2
-			 WHERE repository_id = $3 AND run_id = $4`, now, reason, repositoryID, runID); err != nil {
-			return nil, err
-		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.canceled", nil, nil, nil, nil, nil, cancelPayload); err != nil {
-			return nil, err
-		}
-		if err := closeRemainingSessions(ctx, tx, repositoryID, runID, "run_canceled", "run_canceled"); err != nil {
-			return nil, err
-		}
-		return map[string]any{"run_id": runID, "state": "canceled", "status": "canceled"}, nil
+		return cancelRunInTx(ctx, tx, repositoryID, runID, reason)
 	})
 }
 

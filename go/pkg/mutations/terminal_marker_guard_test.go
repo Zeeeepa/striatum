@@ -29,7 +29,7 @@ func TestTerminalJobStateWritesRouteThroughMarkJobTerminal(t *testing.T) {
 	literalTerminalJobUpdate := regexp.MustCompile(`(?s)UPDATE\s+striatumd\.jobs\b.*?SET\s+state\s*=\s*'(completed|failed|canceled|skipped|waiting_human)'`)
 	dynamicStateJobUpdate := regexp.MustCompile(`(?s)UPDATE\s+striatumd\.jobs\b.*?SET\s+state\s*=\s*\$[0-9]+`)
 	allowlisted := map[string]string{
-		"HandleRunCancel": "bulk run cancellation closes remaining sessions as a structural run-finalization path",
+		"cancelRunInTx": "bulk run cancellation closes remaining sessions as a structural run-finalization path",
 	}
 	for _, path := range files {
 		if strings.HasSuffix(path, "_test.go") {

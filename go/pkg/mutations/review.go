@@ -90,6 +90,7 @@ func HandleSubmitReview(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
+		applyFrozenAttemptWriteScope(ctx, tx, repositoryID, job, leaseID)
 		// #96: when the caller omitted logical_name and/or kind, infer them from
 		// the job's sole required expected artifact (resolving cycle placeholders
 		// against the attempt so the inferred tuple matches the work packet and
