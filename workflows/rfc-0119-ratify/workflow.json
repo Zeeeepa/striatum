@@ -23,7 +23,7 @@
     },
     "challenge": {
       "adapter": "process",
-      "command": ["codex", "--yolo"],
+      "command": ["claude", "--dangerously-skip-permissions"],
       "adapter_capabilities": {"agent_loop": true},
       "supervision": {"transport": "pty_helper", "compatible": true, "require_tmux": true},
       "capabilities": ["review"]
