@@ -289,3 +289,47 @@ func TestInactiveSessionPublishCompleteReturnRecoveryGuidance(t *testing.T) {
 		})
 	}
 }
+
+// A closed session retrying work.complete on a job it already completed via
+// its verdict gets the #127 idempotent already_completed answer (see
+// TestCompleteAfterVerdictIsIdempotent). This pins the boundary of that
+// leniency: the same closed session attempting work.complete on a job that is
+// still RUNNING — even a verdict-capable one — is genuinely new state-changing
+// work and must keep the session_inactive refusal from 2d4763d3.
+func TestInactiveSessionCompleteOnRunningJobStillRefused(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_inactive_running_refused"
+	runID := "run_inactive_running_refused"
+	sessionID := "sess_inactive_running"
+	jobID := "job_inactive_running"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"reviewer": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"display_model": "Codex"}},
+	})
+	intgSeedSession(t, ctx, runner, repoID, runID, sessionID, "reviewer", "codex", nil, "closed")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, lane_selector_json, write_scope_json,
+		  expected_artifacts_json, idempotency_key, created_at, started_at
+		) VALUES ($1,$2,$3,'review',1,'running','reviewer','Review','review',
+		  '{}'::jsonb,'{}'::jsonb,'[]'::jsonb,'idem_'||$2,NOW(),NOW())`,
+		repoID, jobID, runID); err != nil {
+		t.Fatalf("insert running review job: %v", err)
+	}
+
+	_, err := HandleCompleteWork(boundCtx(ctx, repoID, sessionID), runner, intgEnv(repoID, map[string]any{
+		"session_id": sessionID,
+		"job_id":     jobID,
+		"lease_id":   "lease_inactive_running",
+		"summary":    "done",
+	}))
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "session_inactive" {
+		t.Fatalf("complete on running job from closed session err = %v, want session_inactive", err)
+	}
+}

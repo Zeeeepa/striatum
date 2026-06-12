@@ -1085,6 +1085,20 @@ func HandleBlockWork(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 	})
 }
 
+// completedByVerdict reports whether the job already reached its completed
+// state via its verdict-capable path — exactly the case the #127
+// already_completed no-op in HandleCompleteWork answers. The peek runs before
+// the RFC 0104 per-run advisory lock, so it must not take a row lock; it is
+// lenient — a missing job row reports false so the inactive-session guidance
+// (and downstream not-found handling) still applies.
+func completedByVerdict(ctx context.Context, runner any, repositoryID string, jobID string) bool {
+	job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, false)
+	if err != nil {
+		return false
+	}
+	return isVerdictCapableJobType(fmt.Sprint(job["job_type"])) && fmt.Sprint(job["state"]) == "completed"
+}
+
 func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -1102,8 +1116,16 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "work.complete"); err != nil {
 			return nil, err
 		}
-		if err := enforceActiveActingSession(ctx, tx, repositoryID, sessionID, jobID, "work.complete"); err != nil {
-			return nil, err
+		// A verdict that completes this job can close this very session in the
+		// same stroke (maybeCompleteRun -> closeRemainingSessions), so the
+		// lane's follow-up work.complete legitimately arrives from a
+		// just-closed session. The #127 idempotent already_completed answer
+		// below must win over the inactive-session refusal; the gate only
+		// applies to a complete that would still change state.
+		if !completedByVerdict(ctx, tx, repositoryID, jobID) {
+			if err := enforceActiveActingSession(ctx, tx, repositoryID, sessionID, jobID, "work.complete"); err != nil {
+				return nil, err
+			}
 		}
 		// RFC 0104: per-run advisory lock first — work.complete can complete the run
 		// (maybeCompleteRun -> closeRemainingSessions: runs -> sessions), which
