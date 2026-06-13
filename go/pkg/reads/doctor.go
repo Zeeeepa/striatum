@@ -208,24 +208,30 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		}
 	}
 
+	blobBlock := blobDoctorBlock(ctx, runner, repositoryID)
+	artifactAnchorBlock, artifactAnchorProblems, artifactAnchorRecords := doctorArtifactAnchorIntegrity(ctx, runner, repositoryID, blobBlock)
+	problems = append(problems, artifactAnchorProblems...)
+	problemRecords = append(problemRecords, artifactAnchorRecords...)
+
 	result := map[string]any{
-		"ok":                  len(problems) == 0,
-		"schema_version":      schemaVersion,
-		"stale_leases":        staleLeases,
-		"waiting_human":       waitingHuman,
-		"needs_operator":      len(needsOperatorRuns),
-		"needs_operator_runs": needsOperatorRuns,
-		"supervisors":         supervisorLiveness,
-		"problems":            problems,
-		"warnings":            warnings,
-		"codex":               codexBlock,
-		"lane_sandbox":        laneSandboxBlock,
-		"principals":          principalsBlock,
-		"pg_write_boundary":   pgWriteBoundaryBlock,
-		"pg_read_scope":       pgReadScopeBlock,
-		"worktree_ref_safety": worktreeRefSafetyBlock,
-		"skills":              skillsBlock,
-		"blob":                blobDoctorBlock(ctx, runner, repositoryID),
+		"ok":                        len(problems) == 0,
+		"schema_version":            schemaVersion,
+		"stale_leases":              staleLeases,
+		"waiting_human":             waitingHuman,
+		"needs_operator":            len(needsOperatorRuns),
+		"needs_operator_runs":       needsOperatorRuns,
+		"supervisors":               supervisorLiveness,
+		"problems":                  problems,
+		"warnings":                  warnings,
+		"codex":                     codexBlock,
+		"lane_sandbox":              laneSandboxBlock,
+		"principals":                principalsBlock,
+		"pg_write_boundary":         pgWriteBoundaryBlock,
+		"pg_read_scope":             pgReadScopeBlock,
+		"worktree_ref_safety":       worktreeRefSafetyBlock,
+		"artifact_anchor_integrity": artifactAnchorBlock,
+		"skills":                    skillsBlock,
+		"blob":                      blobBlock,
 	}
 	if verbose {
 		result["problem_records"] = problemRecords

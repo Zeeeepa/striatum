@@ -1,0 +1,101 @@
+{
+  "branch": {
+    "allow_dirty": true,
+    "mode": "auto",
+    "suggested_name": "striatum/issue-217-anchor-integrity-design"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/issue-217-anchor-integrity-design/TASK.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/BRIEF.md",
+      "required": true
+    },
+    {
+      "path": "docs/reference/spec.md",
+      "required": true
+    },
+    {
+      "path": "docs/decisions/decision-log.md",
+      "required": true
+    },
+    {
+      "path": "docs/reference/ubiquitous-language.md",
+      "required": true
+    },
+    {
+      "path": "docs/explanation/blob-transition.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "author"
+  },
+  "cycles": [],
+  "edges": [],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "design_contract",
+          "path": "docs/operator/artifacts/issue-217-anchor-integrity-design/DESIGN.md",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "local",
+      "objective": "Freeze the implementation contract for GitHub issue #217: doctor should cross-check completed repo-write artifact bodies against their durable git anchors only when blob storage is healthy and repo-provisioned.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Design doctor artifact-anchor integrity check",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/issue-217-anchor-integrity-design/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "allow_shared_checkout_repo_write": true,
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture",
+      "shared_checkout_repo_write_rationale": "Operator-driven local fixture running in the isolated /tmp/striatum-issue217 worktree for issue #217 workflow completion."
+    }
+  },
+  "name": "issue-217-anchor-integrity-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "issue-217-anchor-integrity-design",
+  "workflow_version": "2026-06-13"
+}

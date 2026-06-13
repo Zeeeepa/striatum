@@ -76,6 +76,21 @@ When blob storage is configured and reachable, the doctor blob block reports:
 }
 ```
 
+When the bucket status is `ok`, repository-scoped doctor also runs the
+artifact-anchor integrity check for completed repo-write jobs. For each
+published artifact with a repository path and recorded `content_sha256`, it
+checks the durable git anchor (`run_branch` or `job_pin`) for matching file
+content. Mismatches and missing files make doctor fail with stable
+`artifact_anchor_hash_mismatch` or `artifact_anchor_missing_file` problems, and
+`doctor --verbose --json` includes problem records with run, job, artifact,
+path, hash, and anchor metadata. The check does not print artifact bodies or
+blob credential material.
+
+The artifact-anchor check skips cleanly when blob storage is disabled,
+unreachable, not repo-provisioned, or has any bucket status other than `ok`.
+The existing blob diagnostics remain the source of truth for those setup
+states.
+
 `bucket_status: "not_provisioned"` means the repo row has NULL
 `blob_bucket`; you have not re-run `striatum repo add
 --apply-blob-creation` for this repo yet (step 3).
