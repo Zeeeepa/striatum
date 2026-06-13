@@ -405,7 +405,7 @@ func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string,
 			}
 			backoff = 2 * time.Second
 
-			if daemonEnvelopeRequestsIdleExit(envelope) {
+			if EnvelopeRequestsIdleExit(envelope) {
 				_, _ = fmt.Fprintln(stderr, "agent-loop daemon receiver idle: exiting lane after no_work")
 				if requestIdleExit != nil {
 					requestIdleExit()
@@ -426,7 +426,15 @@ func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string,
 	}()
 }
 
-func daemonEnvelopeRequestsIdleExit(envelope map[string]any) bool {
+// EnvelopeRequestsIdleExit reports whether a work.await_packet envelope is the
+// terminal-idle signal the agent-loop lane receiver must stop on. It is the
+// daemon↔receiver exit contract (RFC 0120 Phase 1): the daemon returns this
+// envelope shape for a no-work or terminal-session await, and the receiver
+// exits the lane cleanly instead of polling. Exported so the contract can be
+// asserted against real daemon output, not only hand-built envelopes — a daemon
+// envelope that fails this check would silently leave the receiver error- or
+// idle-looping against a finished session.
+func EnvelopeRequestsIdleExit(envelope map[string]any) bool {
 	if fmt.Sprint(envelope["status"]) != "no_work" {
 		return false
 	}

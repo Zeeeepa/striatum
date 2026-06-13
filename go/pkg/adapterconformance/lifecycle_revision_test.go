@@ -32,6 +32,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -453,6 +454,174 @@ func TestRevisionLifecycleUnrecoverableEscalatesLoudly(t *testing.T) {
 	}
 	if got := fmt.Sprint(escs[0]["ei_state"]); got != "pending" {
 		t.Fatalf("escalation state = %q, want pending", got)
+	}
+}
+
+// TestRevisionLifecycleRunDriveRelaunchesDeadLane is the RFC 0120 F2 integration
+// cell. The implementer lane `run drive` launched dies mid-task; the production
+// recovery sweep requeues the implement job on the SAME attempt (the
+// recovery.requeue_same_attempt path, which even publishes a work_available
+// wake). The driver's in-memory `launched` slot still points at the now-closed
+// session, so only forgetInactiveLaunched (the review fix) lets it drop that
+// dead entry, register a fresh implementer, and finish. Pre-fix the queued slot
+// is skipped forever (`if d.launched[key] != "" { continue }`) and the run
+// never completes — the driver spins to its tick cap. Reads, session.register,
+// and session.close go through the production RPC server; only supervise.start
+// is simulated.
+func TestRevisionLifecycleRunDriveRelaunchesDeadLane(t *testing.T) {
+	repoID := "repo_revlife_rundrive_relaunch"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+	lc := seedRevisionLifecycleRun(t, ctx, h, repoID)
+	// reconcileBudget bounds the wedge: the happy path completes in a handful of
+	// reconciles, but a wedged driver (pre-fix) re-reads run.detail forever
+	// without progress. wake.wait returns a clean timeout (never an error), so
+	// the Sleep tick callback never fires — the budget must live in the invoker,
+	// keyed on run.detail (one per ReconcileOnce). Exhausting it surfaces as a
+	// run-drive error and fails this test, which is exactly the F2 wedge signal.
+	invoker := &relaunchRunDriveInvoker{t: t, h: h, lc: lc, reconcileBudget: 60}
+	var stdout, stderr bytes.Buffer
+
+	err := rundrive.Run(ctx, invoker, rundrive.Options{
+		RepositoryID: repoID,
+		RunID:        lc.fx.RunID,
+		RepoRoot:     lc.fx.RepoRoot,
+		Interval:     time.Nanosecond,
+		JSON:         true,
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		Sleep:        func(context.Context, time.Duration) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("run drive did not relaunch the dead implementer slot (the F2 wedge): %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if !invoker.killedImpl || !invoker.relaunched {
+		t.Fatalf("fault not exercised: killedImpl=%v relaunched=%v", invoker.killedImpl, invoker.relaunched)
+	}
+	// The forget action proves the relaunch went through forgetInactiveLaunched
+	// (dropping the dead session), not some unrelated path.
+	if !strings.Contains(stdout.String(), `"action":"forget"`) {
+		t.Fatalf("run drive did not emit a forget action for the dead launched session; stdout:\n%s", stdout.String())
+	}
+	if got := chaosRunState(t, ctx, h, lc.fx.RunID); got != "completed" {
+		t.Fatalf("run state = %q, want completed (relaunched + accepted, no operator)", got)
+	}
+	for _, method := range invoker.calls {
+		switch method {
+		case "recovery.requeue_stale", "review.override", "run.retry_job":
+			t.Fatalf("run drive called rescue verb %s", method)
+		}
+	}
+}
+
+// relaunchRunDriveInvoker drives `run drive` through a launched-lane death. On
+// the implementer's first supervise.start it claims + acks, then kills the lane
+// (injectDeadLane) and runs the production sweep, which requeues the job on the
+// same attempt; its session is now closed. On the next supervise.start for that
+// slot it drives the fresh implementer to completion. The reviewer accepts.
+type relaunchRunDriveInvoker struct {
+	t               *testing.T
+	h               *Harness
+	lc              *revisionLC
+	requestSeq      int
+	reconcileBudget int
+	detailCalls     int
+	killedImpl      bool
+	relaunched      bool
+	calls           []string
+}
+
+func (i *relaunchRunDriveInvoker) Invoke(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	i.calls = append(i.calls, method)
+	if method == "run.detail" {
+		i.detailCalls++
+		if i.detailCalls > i.reconcileBudget {
+			return nil, fmt.Errorf("run drive exceeded %d reconciles without completing (wedged on the dead launched slot)", i.reconcileBudget)
+		}
+	}
+	switch method {
+	case "supervise.start":
+		sessionID := fmt.Sprint(params["session_id"])
+		i.driveSession(ctx, sessionID)
+		return map[string]any{"state": "attached", "session_id": sessionID}, nil
+	case "supervise.stop":
+		sessionID := fmt.Sprint(params["session_id"])
+		reason := fmt.Sprint(params["reason"])
+		if reason == "" {
+			reason = "run drive fixture stop"
+		}
+		return mutations.HandleCloseSession(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			Method:        "session.close",
+			Params: map[string]any{
+				"repository_id": i.lc.fx.RepositoryID,
+				"session_id":    sessionID,
+				"reason":        reason,
+			},
+		})
+	default:
+		i.requestSeq++
+		response := i.h.Server.HandleWithoutHandshake(ctx, rpc.Envelope{
+			SchemaVersion:   rpc.SupportedEnvelopeVersion,
+			RequestID:       fmt.Sprintf("relaunch-fixture-%03d", i.requestSeq),
+			Method:          method,
+			Params:          copyDriveParams(params),
+			CapabilityToken: i.h.Token,
+		}, "mcp")
+		if response.OK {
+			return response.Data, nil
+		}
+		code, _ := response.Data["code"].(string)
+		message, _ := response.Data["message"].(string)
+		return nil, rpc.NewError(code, message, response.Data)
+	}
+}
+
+func (i *relaunchRunDriveInvoker) driveSession(ctx context.Context, sessionID string) {
+	i.t.Helper()
+	rows := chaosQuery(i.t, ctx, i.h, `
+		SELECT role_id, lane_id
+		  FROM striatumd.sessions
+		 WHERE repository_id=$1 AND session_id=$2`,
+		i.lc.fx.RepositoryID, sessionID)
+	if len(rows) != 1 {
+		i.t.Fatalf("session %s rows = %d, want 1", sessionID, len(rows))
+	}
+	role := fmt.Sprint(rows[0]["role_id"])
+	attestFixtureSession(i.t, ctx, i.h.Runner, i.lc.fx.RepositoryID, i.lc.fx.RunID, sessionID, fmt.Sprint(rows[0]["lane_id"]))
+	leaseID := claimAndAck(i.t, ctx, i.h, i.lc.fx.RepositoryID, sessionID, "run drive "+role)
+	switch role {
+	case i.lc.fx.Role:
+		if !i.killedImpl {
+			// First implementer lane: a live claimant the fault injector kills.
+			// The production sweep requeues the SAME attempt; the session closes.
+			injectDeadLane(i.t, ctx, i.h.Runner, i.lc.fx.RepositoryID, sessionID, i.lc.fx.JobID)
+			summary := runSweep(i.t, ctx, i.h, i.lc.fx.RunID)
+			if summary.escalationCount != 0 {
+				i.t.Fatalf("dead-lane sweep escalated %d, want 0 (self-recover requeue); result=%#v", summary.escalationCount, summary.result)
+			}
+			if got := chaosJobState(i.t, ctx, i.h, i.lc.fx.JobID); got != "queued" {
+				i.t.Fatalf("post-sweep implement state = %q, want queued (requeued same attempt)", got)
+			}
+			i.killedImpl = true
+			return
+		}
+		i.relaunched = true
+		if _, err := mutations.HandleCompleteWork(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion, Method: "work.complete",
+			Params: map[string]any{"repository_id": i.lc.fx.RepositoryID, "session_id": sessionID, "job_id": i.lc.fx.JobID, "lease_id": leaseID, "summary": "implemented after relaunch"},
+		}); err != nil {
+			i.t.Fatalf("relaunched implementer complete: %v", err)
+		}
+	case i.lc.reviewerRole:
+		if _, err := mutations.HandleRecordVerdict(ctx, i.h.Runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion, Method: "review.verdict",
+			Params: map[string]any{"repository_id": i.lc.fx.RepositoryID, "session_id": sessionID, "job_id": i.lc.reviewJobID, "lease_id": leaseID, "verdict": "accept"},
+		}); err != nil {
+			i.t.Fatalf("run drive reviewer accept: %v", err)
+		}
+	default:
+		i.t.Fatalf("unexpected run drive session role %q for %s", role, sessionID)
 	}
 }
 

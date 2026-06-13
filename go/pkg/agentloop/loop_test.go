@@ -228,7 +228,7 @@ func TestDaemonEnvelopeRequestsIdleExitFailsClosedOnIdleBehavior(t *testing.T) {
 		{"status": "no_work", "idle_behavior": "exit_session"},
 		{"status": "no_work", "idle_behavior": "future_value"},
 	} {
-		if !daemonEnvelopeRequestsIdleExit(envelope) {
+		if !EnvelopeRequestsIdleExit(envelope) {
 			t.Fatalf("expected idle exit for %#v", envelope)
 		}
 	}
@@ -240,7 +240,7 @@ func TestDaemonEnvelopeRequestsIdleExitFailsClosedOnIdleBehavior(t *testing.T) {
 		{"status": "claimed", "idle_behavior": "exit_session"},
 		{"type": "work_packet"},
 	} {
-		if daemonEnvelopeRequestsIdleExit(envelope) {
+		if EnvelopeRequestsIdleExit(envelope) {
 			t.Fatalf("unexpected idle exit for %#v", envelope)
 		}
 	}

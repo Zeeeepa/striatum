@@ -18,6 +18,16 @@
 - `striatum worktree anchor <run-id> <job-id> <worktree-id>` gives operators a
   daemon-backed repair path for completed repo-write jobs whose worktree HEAD
   still exists but was not anchored through the normal completion path.
+- Hermetic CI integration coverage for the RFC 0120 review fixes that unit
+  tests missed: `TestRevisionLifecycleRunDriveRelaunchesDeadLane` drives the
+  real `run drive` reconciler through a launched-lane death + same-attempt
+  requeue against the production daemon and asserts it forgets the dead session
+  and relaunches (the F2 wedge), and
+  `TestAwaitPacketTerminalEnvelopeDrivesReceiverExit` feeds the real
+  `work.await_packet` envelope for every non-active session state into the
+  exported `agentloop.EnvelopeRequestsIdleExit` predicate, locking the
+  daemon↔receiver exit contract (the F3 error-loop). Both were confirmed to go
+  red against their respective reverted fix.
 
 ### Changed
 
