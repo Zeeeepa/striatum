@@ -15,6 +15,16 @@ ExecStartPre=/usr/bin/chmod 0700 %t/striatum
 ExecStart=%h/.local/bin/striatumd -socket %t/striatum/daemon-go.sock
 Restart=on-failure
 RestartSec=2
+# A malformed config (e.g. an invalid STRIATUM_BLOB_* value, a bad
+# --pg-write-boundary, or a missing/unparseable Postgres URL) is deterministic:
+# restarting cannot fix it, and Restart=on-failure would otherwise turn a config
+# typo into a tight crash loop. striatumd validates its config before any side
+# effect and exits 78 (BSD EX_CONFIG) on a config error; RestartPreventExitStatus
+# tells systemd NOT to auto-restart that exit, so the daemon parks in `failed`
+# with the exact error in `systemctl --user status` instead of looping. Transient
+# failures (database briefly unreachable, stale socket) keep their non-78 exit and
+# still auto-restart. Run `striatumd -check-config` to validate before a restart.
+RestartPreventExitStatus=78
 # RFC 0103 W3 (#141): a daemon restart must not orphan supervised lane helpers.
 # The default KillMode=control-group SIGKILLs the whole service cgroup on
 # stop/restart, taking down the Setsid-detached supervisor helpers (and their

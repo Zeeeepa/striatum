@@ -151,9 +151,20 @@ In the foreground recipe the daemon logs to stderr.
   path is wrong. Check `striatum daemon status` and
   `systemctl --user is-active striatumd`; confirm the socket exists at
   `${XDG_RUNTIME_DIR}/striatum/daemon-go.sock`.
+- **Daemon won't start / malformed config (exit 78).** A deterministic config
+  error — an invalid `STRIATUM_BLOB_*` value, a bad `--pg-write-boundary`, or a
+  missing/unparseable Postgres URL — exits 78 (`EX_CONFIG`). The unit sets
+  `RestartPreventExitStatus=78`, so systemd does **not** auto-restart: the daemon
+  parks in `failed` with the exact problem in `systemctl --user status striatumd`
+  / `journalctl` rather than crash-looping. Validate before a restart with
+  `striatumd -check-config` (no side effects; prints every problem, exits 0 when
+  clean, 78 when not), fix the offending value, then
+  `systemctl --user restart striatumd`. (If you upgraded from a build without
+  `RestartPreventExitStatus`, rerun `striatum daemon install` +
+  `systemctl --user daemon-reload` to refresh the unit.)
 - **Daemon won't start / no DSN.** `journalctl --user -u striatumd` shows the
-  daemon refusing to bind without `postgres_url`. Set the DSN (above) and
-  `systemctl --user restart striatumd`.
+  daemon refusing to start without `postgres_url` (now an exit-78 config error;
+  see above). Set the DSN (above) and `systemctl --user restart striatumd`.
 - **Daemon won't start / runtime directory mode.** If logs report mode `0775`
   and say the daemon wanted `0700 or 0710 ACL-mask traversal mode`, rerun
   `striatum daemon install` to refresh the unit, or repair manually:

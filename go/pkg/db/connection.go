@@ -49,6 +49,24 @@ func ResolveConfig(explicitURL string) Config {
 	return Config{ConfigPath: configPath}
 }
 
+// ValidateDSN parses a PostgreSQL connection URL without connecting, reporting a
+// deterministic configuration error for an empty or malformed DSN. It is the
+// shape check behind `striatumd -check-config` and the startup config guard; a
+// reachable-but-down database is NOT a DSN error (that is a transient
+// connectivity failure the daemon retries). The URL is redacted in the error.
+func ValidateDSN(rawURL string) error {
+	if strings.TrimSpace(rawURL) == "" {
+		return fmt.Errorf("empty PostgreSQL connection URL")
+	}
+	if _, err := pgxpool.ParseConfig(rawURL); err != nil {
+		// Do not echo rawURL: RedactURL cannot redact a URL it cannot parse, so it
+		// would leak the password for exactly the malformed input this rejects.
+		// pgx's own parse error already redacts the userinfo password.
+		return fmt.Errorf("invalid PostgreSQL connection URL: %w", err)
+	}
+	return nil
+}
+
 func DefaultConfigPath() string {
 	if runtime.GOOS == "darwin" {
 		return filepath.Join(os.Getenv("HOME"), "Library", "Application Support", "striatum", "daemon.toml")

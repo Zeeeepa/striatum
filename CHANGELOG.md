@@ -6,6 +6,11 @@
 
 ### Added
 
+- `striatumd -check-config` validates the daemon's configuration (Postgres URL
+  shape, `--pg-write-boundary`, and blob storage env) with no side effects —
+  prints every problem at once, exits 0 when clean and 78 (`EX_CONFIG`) when
+  not — so operators can verify a config before restarting.
+
 - CI guard for operator-brief freshness (`TestOperatorBriefStaysCurrent`):
   the suite reuses the `operator bootstrap` freshness probe and fails when
   `docs/operator/BRIEF.md` has invalid `operator_brief` front matter, is not
@@ -39,6 +44,15 @@
 
 ### Changed
 
+- A deterministic daemon config error (malformed `STRIATUM_BLOB_*` value, bad
+  `--pg-write-boundary`, missing/unparseable Postgres URL) now fails fast with
+  exit 78 (`EX_CONFIG`) **before** any side effect, and the installed systemd
+  unit sets `RestartPreventExitStatus=78`, so a config typo parks the daemon in
+  `failed` with the exact error instead of crash-looping under
+  `Restart=on-failure`. Transient/operational failures (database briefly
+  unreachable, stale socket) keep their non-78 exit and still auto-restart.
+  Existing installs pick this up after `striatum daemon install` +
+  `systemctl --user daemon-reload`.
 - RFC 0120 / D180 now includes the notify-only wake bus as Phase 2 of the
   accepted design, rather than deferring it to a separate future RFC. Daemon
   auto-spawn remains deferred to #212.

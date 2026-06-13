@@ -41,6 +41,12 @@ func TestRenderUnitUsesSpecifiersNotHardcodedHome(t *testing.T) {
 	if !strings.Contains(unit, "KillMode=process") {
 		t.Fatalf("unit missing KillMode=process (#141: restart must not cgroup-kill lane helpers):\n%s", unit)
 	}
+	// A deterministic config error exits 78 (EX_CONFIG); the unit must tell
+	// systemd not to auto-restart that exit, or a config typo crash-loops under
+	// Restart=on-failure.
+	if !strings.Contains(unit, "RestartPreventExitStatus=78") {
+		t.Fatalf("unit missing RestartPreventExitStatus=78 (config errors must not crash-loop):\n%s", unit)
+	}
 }
 
 func TestRenderUnitRepairsRuntimeDirectoryMode(t *testing.T) {
