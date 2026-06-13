@@ -1092,6 +1092,22 @@ func TestSupervisedLaneEnvAppliesLaunchEnv(t *testing.T) {
 	}
 }
 
+func TestSupervisedLaneEnvNormalizesMissingOrDumbTerminal(t *testing.T) {
+	for _, base := range [][]string{
+		{"PATH=/usr/bin"},
+		{"PATH=/usr/bin", "TERM=dumb"},
+	} {
+		env := normalizeSupervisedTerminalEnv(base)
+		if got := envValue(t, env, "TERM"); got != "xterm-256color" {
+			t.Fatalf("TERM = %q for base %#v, want xterm-256color", got, base)
+		}
+	}
+	env := normalizeSupervisedTerminalEnv([]string{"PATH=/usr/bin", "TERM=screen-256color"})
+	if got := envValue(t, env, "TERM"); got != "screen-256color" {
+		t.Fatalf("TERM = %q, want existing usable terminal preserved", got)
+	}
+}
+
 func TestProviderAuthPreflightEnvKeepsSafeLaunchEnvOnly(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("STRIATUM_MCP_TOKEN", "shared-operator-token")
@@ -1623,6 +1639,53 @@ func TestSuperviseSendDeliversPacketUnacknowledged(t *testing.T) {
 	payload := event.args[9].(map[string]any)
 	if payload["packet_id"] != "packet_1" || payload["stdin_delivery"] != stdinDeliveryPersistentFIFO {
 		t.Fatalf("event payload = %#v", payload)
+	}
+}
+
+func TestOneShotPipeStdinSeesEOFAfterHoldReleased(t *testing.T) {
+	dir := t.TempDir()
+	pipePath := filepath.Join(dir, "stdin.pipe")
+	if err := syscall.Mkfifo(pipePath, 0o600); err != nil {
+		t.Fatalf("mkfifo: %v", err)
+	}
+	reader, cleanup, err := openOneShotPipeStdin(pipePath)
+	if err != nil {
+		t.Fatalf("openOneShotPipeStdin: %v", err)
+	}
+	defer cleanup()
+
+	readDone := make(chan struct {
+		body []byte
+		err  error
+	}, 1)
+	go func() {
+		body, err := io.ReadAll(reader)
+		readDone <- struct {
+			body []byte
+			err  error
+		}{body: body, err: err}
+	}()
+
+	if n, err := writeToPipe(context.Background(), pipePath, []byte("packet\n")); err != nil || n != len("packet\n") {
+		t.Fatalf("writeToPipe n=%d err=%v", n, err)
+	}
+	select {
+	case got := <-readDone:
+		t.Fatalf("reader saw EOF before one-shot hold release: body=%q err=%v", got.body, got.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	releaseOneShotFIFOHold(pipePath)
+	select {
+	case got := <-readDone:
+		if got.err != nil {
+			t.Fatalf("readAll: %v", got.err)
+		}
+		if string(got.body) != "packet\n" {
+			t.Fatalf("body = %q", string(got.body))
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("reader did not see EOF after one-shot hold release")
 	}
 }
 

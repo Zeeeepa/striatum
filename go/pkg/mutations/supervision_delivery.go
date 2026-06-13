@@ -71,6 +71,7 @@ func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryI
 	}
 	closed := stdinDelivery == stdinDeliveryOneShotEOF
 	if closed {
+		releaseOneShotFIFOHold(pipePath)
 		_ = os.Remove(pipePath)
 		if err := mergePointerMetadata(ctx, runner, repositoryID, supervisorID, map[string]any{"stdin_delivery_consumed": true}); err != nil {
 			return supervisorDeliveryResult{}, err
@@ -120,6 +121,11 @@ var (
 	pipeBuffers   = make(map[string]*NamedPipeBuffer)
 )
 
+var (
+	oneShotFIFOHoldsMu sync.Mutex
+	oneShotFIFOHolds   = make(map[string]*os.File)
+)
+
 func getPipeBuffer(pipePath string) *NamedPipeBuffer {
 	pipeBuffersMu.Lock()
 	defer pipeBuffersMu.Unlock()
@@ -129,6 +135,25 @@ func getPipeBuffer(pipePath string) *NamedPipeBuffer {
 		pipeBuffers[pipePath] = buf
 	}
 	return buf
+}
+
+func registerOneShotFIFOHold(pipePath string, file *os.File) {
+	oneShotFIFOHoldsMu.Lock()
+	defer oneShotFIFOHoldsMu.Unlock()
+	if existing := oneShotFIFOHolds[pipePath]; existing != nil && existing != file {
+		_ = existing.Close()
+	}
+	oneShotFIFOHolds[pipePath] = file
+}
+
+func releaseOneShotFIFOHold(pipePath string) {
+	oneShotFIFOHoldsMu.Lock()
+	file := oneShotFIFOHolds[pipePath]
+	delete(oneShotFIFOHolds, pipePath)
+	oneShotFIFOHoldsMu.Unlock()
+	if file != nil {
+		_ = file.Close()
+	}
 }
 
 func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, error) {

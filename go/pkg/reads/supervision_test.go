@@ -2,6 +2,7 @@ package reads
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -34,6 +35,18 @@ func (r *superviseReadFakeRunner) QueryRow(context.Context, string, ...any) db.R
 
 func (r *superviseReadFakeRunner) QueryScalar(context.Context, string, ...any) (string, error) {
 	return "", errors.New("unexpected scalar query")
+}
+
+func TestOptionalNonNegativeIntParamAcceptsJSONNumber(t *testing.T) {
+	got, err := optionalNonNegativeIntParam(rpc.Envelope{
+		Params: map[string]any{"tail_lines": json.Number("120")},
+	}, "tail_lines")
+	if err != nil {
+		t.Fatalf("optionalNonNegativeIntParam: %v", err)
+	}
+	if got != 120 {
+		t.Fatalf("tail_lines = %d, want 120", got)
+	}
 }
 
 func (r *superviseReadFakeRunner) BeginTx(context.Context) (db.TxRunner, error) {

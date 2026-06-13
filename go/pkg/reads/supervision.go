@@ -2,6 +2,7 @@ package reads
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/user"
@@ -1574,6 +1575,9 @@ func intValueOptional(value any) (int, bool) {
 		if typed == float64(int(typed)) {
 			return int(typed), true
 		}
+	case json.Number:
+		parsed, err := strconv.Atoi(typed.String())
+		return parsed, err == nil
 	case string:
 		if typed == "" {
 			return 0, false

@@ -38,21 +38,29 @@ func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisor
 func supervisedLaneEnv(config supervisionStartConfig, supervisorID string) []string {
 	adapter := config.adapterName()
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return applyLaneLaunchEnv(config, supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
+		return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)))
 	}
 	entries := supervisedEnvEntries(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
 	base := supervisedRunAsPassThrough(os.Environ(), config.RunAsUser)
 	if endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, os.Environ()); err == nil && strings.TrimSpace(endpoint) != "" {
 		base = mergeEnvReplacing(base, []string{"STRIATUM_MCP_URL=" + endpoint})
 	}
-	return applyLaneLaunchEnv(config, mergeEnvReplacing(base, entries))
+	return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, mergeEnvReplacing(base, entries)))
 }
 
 func supervisedPTYHelperSpecEnv(config supervisionStartConfig, supervisorID string) []string {
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
+		return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)))
 	}
 	return supervisedLaneEnv(config, supervisorID)
+}
+
+func normalizeSupervisedTerminalEnv(env []string) []string {
+	term := envValues(env)["TERM"]
+	if strings.TrimSpace(term) != "" && strings.TrimSpace(term) != "dumb" {
+		return env
+	}
+	return mergeEnvReplacing(env, []string{"TERM=xterm-256color"})
 }
 
 func providerAuthPreflightEnv(config supervisionStartConfig) []string {

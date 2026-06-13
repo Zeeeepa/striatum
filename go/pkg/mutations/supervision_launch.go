@@ -47,11 +47,10 @@ func launchSupervisedProcess(ctx context.Context, config supervisionStartConfig,
 }
 
 func launchPipeProcess(ctx context.Context, config supervisionStartConfig, supervisorID, scratch, pipePath string) (supervisionLaunchResult, error) {
-	fd, err := syscall.Open(pipePath, syscall.O_RDWR, 0)
+	stdin, cleanupStdin, err := openSupervisedPipeStdin(config.StdinDelivery, pipePath)
 	if err != nil {
-		return supervisionLaunchResult{}, fmt.Errorf("open stdin fifo: %w", err)
+		return supervisionLaunchResult{}, err
 	}
-	stdin := os.NewFile(uintptr(fd), "stdin.pipe")
 	defer func() { _ = stdin.Close() }()
 	laneEnv := supervisedLaneEnv(config, supervisorID)
 	command := supervisedPushCommand(config, laneEnv)
@@ -60,6 +59,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	if strings.TrimSpace(config.RunAsUser) != "" {
 		path, cleanup, err := gosupervisor.WriteLaunchEnvFile(ctx, scratch, supervisorID, config.RunAsUser, laneEnv)
 		if err != nil {
+			cleanupStdin()
 			return supervisionLaunchResult{}, err
 		}
 		envFilePath = path
@@ -71,12 +71,14 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
+		cleanupStdin()
 		cleanupEnvFile()
 		return supervisionLaunchResult{}, err
 	}
 	defer func() { _ = stdout.Close() }()
 	stderr, err := openSupervisedStderr()
 	if err != nil {
+		cleanupStdin()
 		cleanupEnvFile()
 		return supervisionLaunchResult{}, err
 	}
@@ -87,12 +89,14 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	if err := cmd.Start(); err != nil {
+		cleanupStdin()
 		cleanupEnvFile()
 		return supervisionLaunchResult{}, fmt.Errorf("cmd.Start: %w", err)
 	}
 	start, _ := processStartToken(cmd.Process.Pid)
 	go func() {
 		_ = cmd.Wait()
+		cleanupStdin()
 		cleanupEnvFile()
 	}()
 	metadata := map[string]any{}
@@ -103,6 +107,42 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		metadata["launch_env_file_path"] = envFilePath
 	}
 	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start, Metadata: metadata}, nil
+}
+
+func openSupervisedPipeStdin(stdinDelivery string, pipePath string) (*os.File, func(), error) {
+	if stdinDelivery == stdinDeliveryOneShotEOF {
+		return openOneShotPipeStdin(pipePath)
+	}
+	fd, err := syscall.Open(pipePath, syscall.O_RDWR, 0)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("open stdin fifo: %w", err)
+	}
+	file := os.NewFile(uintptr(fd), "stdin.pipe")
+	return file, func() { _ = file.Close() }, nil
+}
+
+func openOneShotPipeStdin(pipePath string) (*os.File, func(), error) {
+	readFD, err := syscall.Open(pipePath, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("open one-shot stdin fifo reader: %w", err)
+	}
+	if err := syscall.SetNonblock(readFD, false); err != nil {
+		_ = syscall.Close(readFD)
+		return nil, func() {}, fmt.Errorf("configure one-shot stdin fifo reader: %w", err)
+	}
+	holdFD, err := syscall.Open(pipePath, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		_ = syscall.Close(readFD)
+		return nil, func() {}, fmt.Errorf("open one-shot stdin fifo hold writer: %w", err)
+	}
+	reader := os.NewFile(uintptr(readFD), "stdin.pipe")
+	hold := os.NewFile(uintptr(holdFD), "stdin.pipe.hold")
+	registerOneShotFIFOHold(pipePath, hold)
+	cleanup := func() {
+		releaseOneShotFIFOHold(pipePath)
+		_ = reader.Close()
+	}
+	return reader, cleanup, nil
 }
 
 func supervisedPushCommand(config supervisionStartConfig, env []string) []string {
