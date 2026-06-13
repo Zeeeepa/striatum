@@ -653,6 +653,57 @@ func TestGenerateUsesSharedAuthoringLintPayload(t *testing.T) {
 	}
 }
 
+func TestGenerateDefaultsInteractiveCodexLanesToAgentLoop(t *testing.T) {
+	generated := mustGenerate(t, map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "review",
+		"lane_set":         "author_reviewer",
+		"workflow_id":      "demo",
+		"name":             "Demo",
+		"workflow_version": "2026-05-17",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/demo",
+		"artifact_root":    "striatum/demo",
+		"lanes": map[string]any{
+			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "--yolo"}, "display_model": "Codex"},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"codex", "--dangerously-bypass-approvals-and-sandbox"}, "display_model": "Codex"},
+		},
+		"options": map[string]any{},
+	})
+	lanes := mapFrom(generated.Workflow["lanes"])
+	for _, laneID := range []string{"author", "reviewer"} {
+		lane := mapFrom(lanes[laneID])
+		caps := mapFrom(lane["adapter_capabilities"])
+		if caps["agent_loop"] != true {
+			t.Fatalf("lane %s adapter_capabilities = %#v, want agent_loop=true", laneID, caps)
+		}
+	}
+}
+
+func TestGenerateKeepsCodexExecAsPushLane(t *testing.T) {
+	generated := mustGenerate(t, map[string]any{
+		"schema_version":   GeneratorSchemaVersion,
+		"shape":            "review",
+		"lane_set":         "author_reviewer",
+		"workflow_id":      "demo",
+		"name":             "Demo",
+		"workflow_version": "2026-05-17",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/demo",
+		"artifact_root":    "striatum/demo",
+		"lanes": map[string]any{
+			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "exec", "-"}, "display_model": "Codex"},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "Fixture"},
+		},
+		"options": map[string]any{},
+	})
+	lanes := mapFrom(generated.Workflow["lanes"])
+	author := mapFrom(lanes["author"])
+	if _, ok := author["adapter_capabilities"]; ok {
+		t.Fatalf("codex exec push lane should not be silently marked agent_loop: %#v", author)
+	}
+}
+
 func TestUpgradeAddPhasesPreviewWritesNothing(t *testing.T) {
 	repo := t.TempDir()
 	path := filepath.Join(repo, "workflow.json")

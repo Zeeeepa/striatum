@@ -243,4 +243,10 @@ func applyAliases(group string, result map[string]any) {
 			delete(result, "capability")
 		}
 	}
+	if group == "supervise_trajectory" {
+		if value, ok := result["tail"].(int); ok {
+			result["tail_lines"] = value
+			delete(result, "tail")
+		}
+	}
 }

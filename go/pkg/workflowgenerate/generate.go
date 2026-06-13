@@ -497,12 +497,19 @@ func compileLanes(spec Spec) (map[string]any, error) {
 				return nil, err
 			}
 		}
-		lanes[laneID] = map[string]any{
+		lane := map[string]any{
 			"adapter":       adapter,
 			"display_model": display,
 			"command":       command,
 			"capabilities":  caps,
 		}
+		for _, key := range []string{"adapter_capabilities", "supervision", "path_prefix", "command_env"} {
+			if value, ok := body[key]; ok {
+				lane[key] = value
+			}
+		}
+		defaultAgentLoopLane(command, lane)
+		lanes[laneID] = lane
 	}
 	repoWrite := map[string]struct{}{}
 	for _, id := range ids {
@@ -511,6 +518,50 @@ func compileLanes(spec Spec) (map[string]any, error) {
 		}
 	}
 	return applyLaneModifiers(spec, lanes, repoWrite)
+}
+
+func defaultAgentLoopLane(command []string, lane map[string]any) {
+	if !defaultAgentLoopCommand(command) || laneDeclaresAgentLoop(lane) {
+		return
+	}
+	caps, _ := lane["adapter_capabilities"].(map[string]any)
+	if caps == nil {
+		caps = map[string]any{}
+	}
+	caps["agent_loop"] = true
+	lane["adapter_capabilities"] = caps
+}
+
+func defaultAgentLoopCommand(command []string) bool {
+	if len(command) == 0 {
+		return false
+	}
+	adapter := strings.TrimSuffix(path.Base(strings.TrimSpace(command[0])), ".exe")
+	switch adapter {
+	case "agy", "claude":
+		return true
+	case "codex":
+		return !codexExecCommand(command)
+	default:
+		return false
+	}
+}
+
+func codexExecCommand(command []string) bool {
+	for _, arg := range command[1:] {
+		if arg == "exec" {
+			return true
+		}
+	}
+	return false
+}
+
+func laneDeclaresAgentLoop(lane map[string]any) bool {
+	if lane["agent_loop"] == true {
+		return true
+	}
+	caps, _ := lane["adapter_capabilities"].(map[string]any)
+	return caps["agent_loop"] == true
 }
 
 func laneIDsFor(spec Spec) []string {

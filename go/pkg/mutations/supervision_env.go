@@ -281,12 +281,32 @@ func supervisedRunAsExecEnv(env []string) []string {
 		if key == "PATH" {
 			hasPath = true
 		}
+		if sensitiveRunAsEnvKey(key) {
+			continue
+		}
 		out = append(out, entry)
 	}
 	if !hasPath {
 		out = append([]string{"PATH=" + supervisedPath()}, out...)
 	}
 	return out
+}
+
+func sensitiveRunAsEnvKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	if upper == "" {
+		return true
+	}
+	switch upper {
+	case "STRIATUM_MCP_TOKEN", "STRIATUM_MCP_TOKEN_FILE", "DATABASE_URL", "PGPASSWORD":
+		return true
+	}
+	for _, marker := range []string{"TOKEN", "SECRET", "PASSWORD", "PASSWD", "API_KEY", "CREDENTIAL", "DSN"} {
+		if strings.Contains(upper, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, supervisorID, laneID, boundToken string) []string {

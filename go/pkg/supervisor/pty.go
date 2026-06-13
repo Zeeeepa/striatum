@@ -80,6 +80,21 @@ func commandInvocation(runAsUser string, env []string, program string, args ...s
 	return commandInvocationWithEnvFile(runAsUser, commandEnvironment{entries: env}, program, args...)
 }
 
+func WriteLaunchEnvFile(ctx context.Context, scratchDir string, supervisorID string, runAsUser string, env []string) (string, func(), error) {
+	content, err := launchEnvFileContent(env)
+	if err != nil {
+		return "", nil, err
+	}
+	if strings.TrimSpace(runAsUser) != "" {
+		return writeRunAsLaunchEnvFile(ctx, strings.TrimSpace(runAsUser), content)
+	}
+	return writeSameUserLaunchEnvFile(scratchDir, supervisorID, content)
+}
+
+func EnvFileWrappedCommand(envFilePath string, command []string) []string {
+	return envFileWrappedCommand(envFilePath, command)
+}
+
 func commandInvocationWithEnvFile(runAsUser string, env commandEnvironment, program string, args ...string) (string, []string, []string) {
 	if strings.TrimSpace(runAsUser) == "" {
 		return program, append([]string(nil), args...), mergeEnv(os.Environ(), env.entries)
@@ -169,17 +184,7 @@ func prepareLaunchEnvFile(ctx context.Context, scratchDir string, supervisorID s
 	if strings.TrimSpace(spec.EnvFilePath) != "" || len(spec.Env) == 0 {
 		return spec, func() {}, nil
 	}
-	content, err := launchEnvFileContent(spec.Env)
-	if err != nil {
-		return spec, nil, err
-	}
-	var path string
-	var cleanup func()
-	if strings.TrimSpace(spec.RunAsUser) != "" {
-		path, cleanup, err = writeRunAsLaunchEnvFile(ctx, strings.TrimSpace(spec.RunAsUser), content)
-	} else {
-		path, cleanup, err = writeSameUserLaunchEnvFile(scratchDir, supervisorID, content)
-	}
+	path, cleanup, err := WriteLaunchEnvFile(ctx, scratchDir, supervisorID, spec.RunAsUser, spec.Env)
 	if err != nil {
 		return spec, nil, err
 	}

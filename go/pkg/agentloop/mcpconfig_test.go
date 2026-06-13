@@ -423,6 +423,28 @@ func TestInjectLaneMCPConfigCodexAppendsBearerEnvOverride(t *testing.T) {
 	}
 }
 
+func TestInjectCodexMCPConfigArgsPrecedesExecSubcommand(t *testing.T) {
+	repo := t.TempDir()
+	cmd := InjectCodexMCPConfigArgs(
+		[]string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},
+		repo,
+		"http://127.0.0.1:42727/mcp",
+	)
+	wantPrefix := []string{
+		"codex",
+		"-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`,
+		"-c", `mcp_servers.striatum.bearer_token_env_var="STRIATUM_MCP_TOKEN"`,
+		"-c", CodexProjectTrustOverrideArg(repo),
+		"exec",
+	}
+	if len(cmd) < len(wantPrefix) || strings.Join(cmd[:len(wantPrefix)], "\x00") != strings.Join(wantPrefix, "\x00") {
+		t.Fatalf("codex exec injection = %#v, want prefix %#v", cmd, wantPrefix)
+	}
+	if cmd[len(cmd)-1] != "-" {
+		t.Fatalf("codex exec stdin marker moved: %#v", cmd)
+	}
+}
+
 func TestInjectLaneMCPConfigPassthrough(t *testing.T) {
 	// No token: unchanged even for injected adapters.
 	for _, adapter := range []string{"claude", "agy", "codex"} {

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 )
@@ -42,10 +43,10 @@ func launchSupervisedProcess(ctx context.Context, config supervisionStartConfig,
 	if config.Transport == supervisionTransportPTYHelper {
 		return launchPTYHelper(ctx, config, supervisorID, scratch, pipePath, eventPath)
 	}
-	return launchPipeProcess(ctx, config, supervisorID, pipePath)
+	return launchPipeProcess(ctx, config, supervisorID, scratch, pipePath)
 }
 
-func launchPipeProcess(ctx context.Context, config supervisionStartConfig, supervisorID, pipePath string) (supervisionLaunchResult, error) {
+func launchPipeProcess(ctx context.Context, config supervisionStartConfig, supervisorID, scratch, pipePath string) (supervisionLaunchResult, error) {
 	fd, err := syscall.Open(pipePath, syscall.O_RDWR, 0)
 	if err != nil {
 		return supervisionLaunchResult{}, fmt.Errorf("open stdin fifo: %w", err)
@@ -53,15 +54,30 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	stdin := os.NewFile(uintptr(fd), "stdin.pipe")
 	defer func() { _ = stdin.Close() }()
 	laneEnv := supervisedLaneEnv(config, supervisorID)
-	cmd := supervisedLaneCommandContext(ctx, config.Command, config.RepoRoot, config.RunAsUser, laneEnv)
+	command := supervisedPushCommand(config, laneEnv)
+	envFilePath := ""
+	cleanupEnvFile := func() {}
+	if strings.TrimSpace(config.RunAsUser) != "" {
+		path, cleanup, err := gosupervisor.WriteLaunchEnvFile(ctx, scratch, supervisorID, config.RunAsUser, laneEnv)
+		if err != nil {
+			return supervisionLaunchResult{}, err
+		}
+		envFilePath = path
+		cleanupEnvFile = cleanup
+		command = gosupervisor.EnvFileWrappedCommand(path, command)
+		laneEnv = nil
+	}
+	cmd := supervisedLaneCommandContext(ctx, command, config.RepoRoot, config.RunAsUser, laneEnv)
 	cmd.Stdin = stdin
 	stdout, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
+		cleanupEnvFile()
 		return supervisionLaunchResult{}, err
 	}
 	defer func() { _ = stdout.Close() }()
 	stderr, err := openSupervisedStderr()
 	if err != nil {
+		cleanupEnvFile()
 		return supervisionLaunchResult{}, err
 	}
 	defer func() { _ = stderr.Close() }()
@@ -71,17 +87,34 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	}
 	if err := cmd.Start(); err != nil {
+		cleanupEnvFile()
 		return supervisionLaunchResult{}, fmt.Errorf("cmd.Start: %w", err)
 	}
 	start, _ := processStartToken(cmd.Process.Pid)
 	go func() {
 		_ = cmd.Wait()
+		cleanupEnvFile()
 	}()
 	metadata := map[string]any{}
 	if config.RunAsUser != "" {
 		metadata["run_as_user"] = config.RunAsUser
 	}
+	if envFilePath != "" {
+		metadata["launch_env_file_path"] = envFilePath
+	}
 	return supervisionLaunchResult{PID: cmd.Process.Pid, PIDStartTime: start, Metadata: metadata}, nil
+}
+
+func supervisedPushCommand(config supervisionStartConfig, env []string) []string {
+	command := append([]string(nil), config.Command...)
+	if config.AgentLoopMode != agentLoopModePush || config.adapterName() != "codex" {
+		return command
+	}
+	endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, env)
+	if err != nil || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(config.CapabilityToken) == "" {
+		return command
+	}
+	return agentloop.InjectCodexMCPConfigArgs(command, config.RepoRoot, endpoint)
 }
 
 // startHelperReaper harvests a supervisor-helper child's exit status so it is

@@ -75,14 +75,23 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		// runs create fresh temp repos. Current Codex builds can still render the
 		// workspace-trust TUI despite this override, so the PTY responder remains
 		// the launch backstop.
-		out := append([]string(nil), command...)
-		out = append(out, "-c", fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint))
-		out = append(out, "-c", codexMCPBearerTokenEnvOverrideArg())
-		out = append(out, "-c", codexProjectTrustOverrideArg(repoRoot))
-		return out, noop, nil
+		return InjectCodexMCPConfigArgs(command, repoRoot, endpoint), noop, nil
 	default:
 		return command, noop, nil
 	}
+}
+
+func InjectCodexMCPConfigArgs(command []string, repoRoot, endpoint string) []string {
+	if len(command) == 0 || LaneAdapterName(command[0]) != "codex" || strings.TrimSpace(endpoint) == "" {
+		return append([]string(nil), command...)
+	}
+	out := []string{
+		command[0],
+		"-c", fmt.Sprintf(`mcp_servers.striatum.url=%q`, endpoint),
+		"-c", codexMCPBearerTokenEnvOverrideArg(),
+		"-c", codexProjectTrustOverrideArg(repoRoot),
+	}
+	return append(out, command[1:]...)
 }
 
 func codexProjectTrustOverrideArg(repoRoot string) string {

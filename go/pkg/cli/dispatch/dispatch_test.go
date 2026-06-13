@@ -268,6 +268,22 @@ func TestDispatchSuperviseTrajectoryPrintsContent(t *testing.T) {
 	}
 }
 
+func TestDispatchSuperviseTrajectoryTailNumericAlias(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"--repository-id", "repo_1", "supervise", "trajectory", "sess_1", "--tail", "120"}, &stdout, &stderr, Options{Invoker: invoker})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 || invoker.calls[0].method != "supervise.trajectory" {
+		t.Fatalf("calls = %#v", invoker.calls)
+	}
+	params := invoker.calls[0].params
+	if params["tail"] != nil || params["tail_lines"] != 120 {
+		t.Fatalf("params = %#v", params)
+	}
+}
+
 func TestDispatchSessionRegisterAliasResolvesToSessionRegister(t *testing.T) {
 	invoker := &fakeInvoker{}
 	var stdout, stderr bytes.Buffer

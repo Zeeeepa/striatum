@@ -1015,6 +1015,46 @@ func TestLaneCommandEnvParsing(t *testing.T) {
 	}
 }
 
+func TestSupervisedPushCommandInjectsCodexMCPConfigBeforeExec(t *testing.T) {
+	config := supervisionStartConfig{
+		AgentLoopMode:   agentLoopModePush,
+		Command:         []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},
+		OriginalCommand: []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},
+		RepoRoot:        t.TempDir(),
+		CapabilityToken: "stok_session_secret",
+	}
+	got := supervisedPushCommand(config, []string{"STRIATUM_MCP_URL=http://127.0.0.1:42727/mcp"})
+	wantPrefix := []string{
+		"codex",
+		"-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`,
+		"-c", `mcp_servers.striatum.bearer_token_env_var="STRIATUM_MCP_TOKEN"`,
+	}
+	if len(got) < len(wantPrefix) || strings.Join(got[:len(wantPrefix)], "\x00") != strings.Join(wantPrefix, "\x00") {
+		t.Fatalf("codex push command = %#v, want prefix %#v", got, wantPrefix)
+	}
+	if got[len(got)-1] != "-" {
+		t.Fatalf("codex stdin marker moved: %#v", got)
+	}
+}
+
+func TestSupervisedRunAsExecEnvFiltersSensitiveFallbackEnv(t *testing.T) {
+	got := supervisedRunAsExecEnv([]string{
+		"PATH=/usr/bin",
+		"STRIATUM_MCP_URL=http://127.0.0.1:1/mcp",
+		"STRIATUM_MCP_TOKEN=stok_session_secret",
+		"PROVIDER_API_KEY=provider_secret",
+	})
+	joined := strings.Join(got, "\x00")
+	for _, needle := range []string{"STRIATUM_MCP_TOKEN=", "stok_session_secret", "PROVIDER_API_KEY=", "provider_secret"} {
+		if strings.Contains(joined, needle) {
+			t.Fatalf("sensitive env leaked through run-as argv fallback: found %q in %#v", needle, got)
+		}
+	}
+	if !strings.Contains(joined, "STRIATUM_MCP_URL=http://127.0.0.1:1/mcp") {
+		t.Fatalf("non-sensitive MCP URL missing from run-as env fallback: %#v", got)
+	}
+}
+
 // TestSupervisedLaneEnvAppliesLaunchEnv verifies #223 end to end: the lane env
 // prepends path_prefix to PATH and includes command_env, while the daemon's
 // session-bound token stays authoritative and the adapter identity stays the
