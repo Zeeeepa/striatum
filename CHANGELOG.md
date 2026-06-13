@@ -55,6 +55,9 @@
   on the same reconcile pass, and the driver no longer retries
   `supervise.stop` forever against an already-gone session. (RFC 0120
   adversarial review)
+- `run drive` now stops lanes it launched before returning terminal for
+  non-finalization run states such as `needs_operator`, so a driver-owned lane
+  does not linger idle after the operator-actionable blocker is surfaced. (#261)
 - `work.await_packet` answers every non-active session state (`closed`,
   `expired`, `lost` — not just `stopped`) with the in-band `session_terminal`
   no-work envelope instead of a retryable RPC error, and no longer records

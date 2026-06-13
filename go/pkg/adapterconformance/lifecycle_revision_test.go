@@ -30,6 +30,7 @@ package adapterconformance
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -311,6 +312,50 @@ func TestRevisionLifecycleRunDriveHappyPathCompletes(t *testing.T) {
 		case "recovery.requeue_stale", "review.override", "run.retry_job":
 			t.Fatalf("run drive called rescue verb %s", method)
 		}
+	}
+}
+
+// TestRevisionLifecycleRunDriveStopsLaunchedLaneOnNeedsOperator is the #261
+// cleanup cell. The in-process fixture forces the run into needs_operator after
+// run drive launches a lane, then asserts the next reconcile stops the driver's
+// own launched lane before returning TerminalError. The forced state transition
+// is a test seam; the production behavior under test is the driver cleanup.
+func TestRevisionLifecycleRunDriveStopsLaunchedLaneOnNeedsOperator(t *testing.T) {
+	repoID := "repo_revlife_rundrive_needs_operator_cleanup"
+	ctx := context.Background()
+	h := NewHarness(t, repoID)
+	lc := seedRevisionLifecycleRun(t, ctx, h, repoID)
+	invoker := &needsOperatorRunDriveInvoker{t: t, h: h, lc: lc}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	err := rundrive.Run(ctx, invoker, rundrive.Options{
+		RepositoryID: repoID,
+		RunID:        lc.fx.RunID,
+		RepoRoot:     lc.fx.RepoRoot,
+		Interval:     time.Nanosecond,
+		JSON:         true,
+		Stdout:       &stdout,
+		Stderr:       &stderr,
+		Sleep:        func(context.Context, time.Duration) error { return nil },
+	})
+	var terminal rundrive.TerminalError
+	if !errors.As(err, &terminal) || terminal.State != "needs_operator" {
+		t.Fatalf("run drive err = %v, want TerminalError needs_operator\nstdout:\n%s\nstderr:\n%s\ncalls:%#v",
+			err, stdout.String(), stderr.String(), invoker.calls)
+	}
+	if invoker.launchedSessionID == "" {
+		t.Fatalf("fixture did not launch a session; stdout:\n%s\ncalls:%#v", stdout.String(), invoker.calls)
+	}
+	if invoker.stopCount != 1 {
+		t.Fatalf("supervise.stop calls = %d, want 1 before terminal\nstdout:\n%s\ncalls:%#v",
+			invoker.stopCount, stdout.String(), invoker.calls)
+	}
+	assertSessionState(t, ctx, h, invoker.launchedSessionID, "closed")
+	stopIndex := strings.Index(stdout.String(), `"action":"supervise.stop"`)
+	terminalIndex := strings.Index(stdout.String(), `"action":"terminal"`)
+	if stopIndex < 0 || terminalIndex < 0 || stopIndex > terminalIndex {
+		t.Fatalf("stdout order wrong, want supervise.stop before terminal:\n%s", stdout.String())
 	}
 }
 
@@ -632,6 +677,77 @@ type revisionRunDriveInvoker struct {
 	requestSeq       int
 	reviewerVerdicts int
 	calls            []string
+}
+
+type needsOperatorRunDriveInvoker struct {
+	t                 *testing.T
+	h                 *Harness
+	lc                *revisionLC
+	requestSeq        int
+	launchedSessionID string
+	stopCount         int
+	calls             []string
+}
+
+func (i *needsOperatorRunDriveInvoker) Invoke(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	i.calls = append(i.calls, method)
+	switch method {
+	case "supervise.start":
+		return i.startAndEscalate(ctx, params)
+	case "supervise.stop":
+		return i.stopSession(ctx, params)
+	default:
+		return i.invokeRPC(ctx, method, params)
+	}
+}
+
+func (i *needsOperatorRunDriveInvoker) startAndEscalate(ctx context.Context, params map[string]any) (map[string]any, error) {
+	sessionID := fmt.Sprint(params["session_id"])
+	i.launchedSessionID = sessionID
+	attestFixtureSession(i.t, ctx, i.h.Runner, i.lc.fx.RepositoryID, i.lc.fx.RunID, sessionID, i.lc.fx.Lane)
+	if err := i.h.Runner.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET state = 'needs_operator'
+		 WHERE repository_id = $1 AND run_id = $2 AND state = 'running'`,
+		i.lc.fx.RepositoryID, i.lc.fx.RunID); err != nil {
+		i.t.Fatalf("force run needs_operator: %v", err)
+	}
+	return map[string]any{"state": "attached", "session_id": sessionID}, nil
+}
+
+func (i *needsOperatorRunDriveInvoker) stopSession(ctx context.Context, params map[string]any) (map[string]any, error) {
+	i.stopCount++
+	sessionID := fmt.Sprint(params["session_id"])
+	reason := fmt.Sprint(params["reason"])
+	if reason == "" {
+		reason = "run drive needs_operator fixture stop"
+	}
+	return mutations.HandleCloseSession(ctx, i.h.Runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		Method:        "session.close",
+		Params: map[string]any{
+			"repository_id": i.lc.fx.RepositoryID,
+			"session_id":    sessionID,
+			"reason":        reason,
+		},
+	})
+}
+
+func (i *needsOperatorRunDriveInvoker) invokeRPC(ctx context.Context, method string, params map[string]any) (map[string]any, error) {
+	i.requestSeq++
+	response := i.h.Server.HandleWithoutHandshake(ctx, rpc.Envelope{
+		SchemaVersion:   rpc.SupportedEnvelopeVersion,
+		RequestID:       fmt.Sprintf("needs-operator-drive-fixture-%03d", i.requestSeq),
+		Method:          method,
+		Params:          copyDriveParams(params),
+		CapabilityToken: i.h.Token,
+	}, "mcp")
+	if response.OK {
+		return response.Data, nil
+	}
+	code, _ := response.Data["code"].(string)
+	message, _ := response.Data["message"].(string)
+	return nil, rpc.NewError(code, message, response.Data)
 }
 
 func (i *revisionRunDriveInvoker) Invoke(ctx context.Context, method string, params map[string]any) (map[string]any, error) {

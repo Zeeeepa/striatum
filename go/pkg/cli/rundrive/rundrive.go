@@ -204,7 +204,17 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 	run := asMap(detail["run"])
 	state := stringValue(run["state"])
 	if isTerminalRunState(state) {
-		return []Action{d.action("terminal", Action{Result: state})}, state, true, nil
+		actions := []Action{}
+		if shouldCloseLaunchedBeforeTerminal(state) && len(d.launched) > 0 {
+			sessions, err := d.listSessions(ctx)
+			if err != nil {
+				return nil, state, false, err
+			}
+			actions = append(actions, d.forgetInactiveLaunched(sessions)...)
+			actions = append(actions, d.closeLaunchedForTerminal(ctx, state)...)
+		}
+		actions = append(actions, d.action("terminal", Action{Result: state}))
+		return actions, state, true, nil
 	}
 	jobs := mapList(detail["jobs"])
 	workflow := asMap(detail["workflow"])
@@ -291,6 +301,23 @@ func (d *Driver) closeFinishedLaunched(ctx context.Context, jobs []map[string]an
 			Message:       "job attempt was superseded; closing launched lane",
 		})
 		action = d.stopLaunchedSession(ctx, key, sessionID, action, "job attempt was superseded; closing launched lane")
+		actions = append(actions, action)
+	}
+	return actions
+}
+
+func (d *Driver) closeLaunchedForTerminal(ctx context.Context, state string) []Action {
+	actions := []Action{}
+	reason := fmt.Sprintf("run drive terminal cleanup: run reached %s", state)
+	for key, sessionID := range d.launched {
+		action := d.action("supervise.stop", Action{
+			WorkflowJobID: key.WorkflowJobID,
+			Attempt:       key.Attempt,
+			SessionID:     sessionID,
+			Result:        "attempted",
+			Message:       reason,
+		})
+		action = d.stopLaunchedSession(ctx, key, sessionID, action, reason)
 		actions = append(actions, action)
 	}
 	return actions
@@ -660,6 +687,15 @@ func jobSlot(job map[string]any) slotKey {
 func isTerminalRunState(state string) bool {
 	switch state {
 	case "completed", "failed", "canceled", "needs_operator", "waiting_human":
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldCloseLaunchedBeforeTerminal(state string) bool {
+	switch state {
+	case "needs_operator", "waiting_human":
 		return true
 	default:
 		return false

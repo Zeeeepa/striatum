@@ -217,6 +217,34 @@ func TestRunDriveStopsSupersededLaunchedAttempt(t *testing.T) {
 	}
 }
 
+func TestRunDriveStopsLaunchedLaneBeforeNeedsOperatorTerminal(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.runState = "needs_operator"
+	fake.sessions = []map[string]any{session("sess_author", "author", "codex", "active")}
+	driver := testDriver(fake)
+	driver.launched[slotKey{WorkflowJobID: "author_draft", Attempt: 1}] = "sess_author"
+
+	actions, state, terminal, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if state != "needs_operator" || !terminal {
+		t.Fatalf("state/terminal = %q/%v, want needs_operator/true", state, terminal)
+	}
+	if got := fake.count("supervise.stop"); got != 1 {
+		t.Fatalf("supervise.stop calls = %d, want 1; actions=%#v calls=%#v", got, actions, fake.calls)
+	}
+	if !fake.sessionState("sess_author", "closed") {
+		t.Fatalf("launched session was not closed before terminal return; sessions=%#v actions=%#v", fake.sessions, actions)
+	}
+	stopIndex := actionIndex(actions, "supervise.stop")
+	terminalIndex := actionIndex(actions, "terminal")
+	if stopIndex < 0 || terminalIndex < 0 || stopIndex > terminalIndex {
+		t.Fatalf("actions = %#v, want supervise.stop before terminal", actions)
+	}
+}
+
 func TestRunDriveFreshRetryStopsOnlyCompletedRoleLane(t *testing.T) {
 	ctx := context.Background()
 	fake := newFakeDrive()
@@ -503,6 +531,15 @@ func (f *fakeDrive) sessionState(sessionID string, state string) bool {
 		}
 	}
 	return false
+}
+
+func actionIndex(actions []Action, action string) int {
+	for i, item := range actions {
+		if item.Action == action {
+			return i
+		}
+	}
+	return -1
 }
 
 func testDriver(fake *fakeDrive) *Driver {
