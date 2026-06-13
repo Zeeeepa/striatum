@@ -59,7 +59,8 @@ type Probe interface {
 
 // ProdProbe is the production adapter wrapping gosupervisor.ProbeLaneLiveness.
 type ProdProbe struct {
-	Runner gosupervisor.TmuxRunner
+	Runner      gosupervisor.TmuxRunner
+	RunAsRunner func(runAsUser string) gosupervisor.TmuxRunner
 }
 
 func (p ProdProbe) ProbeLane(ctx context.Context, meta gosupervisor.TmuxMeta, pid int, startToken string) gosupervisor.LaneLiveness {
@@ -83,6 +84,9 @@ func (p ProdProbe) ProbeLane(ctx context.Context, meta gosupervisor.TmuxMeta, pi
 		"pane_pid":                meta.Tmux.PanePID,
 		"attach_client_pid":       meta.Tmux.AttachClientPID,
 		"probe_unavailable_count": meta.Tmux.ProbeUnavailableCount,
+	}
+	if meta.Tmux.RunAsUser != "" {
+		tmux["run_as_user"] = meta.Tmux.RunAsUser
 	}
 	if meta.Tmux.DeliveryLiveness != nil {
 		tmux["delivery_liveness"] = map[string]any{
@@ -113,7 +117,21 @@ func (p ProdProbe) ProbeLane(ctx context.Context, meta gosupervisor.TmuxMeta, pi
 		}
 	}
 
-	return gosupervisor.ProbeLaneLiveness(ctx, p.Runner, metadata, pid, startToken)
+	return gosupervisor.ProbeLaneLiveness(ctx, p.runnerForMeta(meta), metadata, pid, startToken)
+}
+
+func (p ProdProbe) runnerForMeta(meta gosupervisor.TmuxMeta) gosupervisor.TmuxRunner {
+	runAsUser := strings.TrimSpace(meta.Tmux.RunAsUser)
+	if runAsUser != "" {
+		if p.RunAsRunner != nil {
+			return p.RunAsRunner(runAsUser)
+		}
+		return gosupervisor.RunAsTmuxRunner(runAsUser, nil)
+	}
+	if p.Runner != nil {
+		return p.Runner
+	}
+	return gosupervisor.DefaultTmuxRunner()
 }
 
 type Facts struct {

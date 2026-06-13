@@ -1,6 +1,7 @@
 package lanehealth
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -245,6 +246,52 @@ func TestClassify(t *testing.T) {
 				t.Errorf("Classify() = %#v, expected %#v", res, tt.expected)
 			}
 		})
+	}
+}
+
+type namedTmuxRunner struct {
+	name string
+}
+
+func (r namedTmuxRunner) Run(_ context.Context, _ ...string) (string, error) {
+	return "", nil
+}
+
+func TestProdProbeSelectsRunAsTmuxRunnerFromMetadata(t *testing.T) {
+	defaultRunner := namedTmuxRunner{name: "default"}
+	probe := ProdProbe{
+		Runner: defaultRunner,
+		RunAsRunner: func(runAsUser string) gosupervisor.TmuxRunner {
+			if runAsUser != "striatum-lane" {
+				t.Fatalf("RunAsRunner user = %q, want striatum-lane", runAsUser)
+			}
+			return namedTmuxRunner{name: "run-as"}
+		},
+	}
+
+	runner := probe.runnerForMeta(gosupervisor.TmuxMeta{
+		Tmux: gosupervisor.TmuxMetaBlock{RunAsUser: " striatum-lane "},
+	})
+	got, ok := runner.(namedTmuxRunner)
+	if !ok || got.name != "run-as" {
+		t.Fatalf("runnerForMeta returned %#v, want run-as runner", runner)
+	}
+}
+
+func TestProdProbeUsesInjectedRunnerWithoutRunAsMetadata(t *testing.T) {
+	defaultRunner := namedTmuxRunner{name: "default"}
+	probe := ProdProbe{
+		Runner: defaultRunner,
+		RunAsRunner: func(runAsUser string) gosupervisor.TmuxRunner {
+			t.Fatalf("RunAsRunner called for user %q", runAsUser)
+			return nil
+		},
+	}
+
+	runner := probe.runnerForMeta(gosupervisor.TmuxMeta{})
+	got, ok := runner.(namedTmuxRunner)
+	if !ok || got.name != "default" {
+		t.Fatalf("runnerForMeta returned %#v, want injected default runner", runner)
 	}
 }
 
