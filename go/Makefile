@@ -6,12 +6,20 @@ GO_DAEMON_LDFLAGS := -X main.daemonVersion=$(PACKAGE_VERSION) -X main.buildGitSH
 GO_CLI_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 GO_HELPER_LDFLAGS := -X main.version=$(PACKAGE_VERSION)
 
-.PHONY: build build-helper verify test race vet test-helper helper-check lint lint-tools coverage check installed-cli-check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
+.PHONY: build build-helper verify test race vet test-helper helper-check lint lint-tools coverage cover-floor check check-tests installed-cli-check clean release release-linux-amd64 release-linux-arm64 release-darwin-amd64 release-darwin-arm64
 
 DAEMON_BIN := bin/striatumd
 CLI_BIN := bin/striatum
 HELPER_BIN := bin/striatum-supervisor-helper
 CORE_COVERAGE_FLOOR ?= 20.0
+# Core packages whose statement coverage is gated by CORE_COVERAGE_FLOOR. The
+# CSV form feeds `go test -coverpkg` so a single instrumented run measures their
+# coverage from the whole suite.
+COVERAGE_PKGS := ./pkg/admin ./pkg/db ./pkg/mutations ./pkg/rpc ./pkg/reads ./pkg/recovery ./pkg/supervisor ./pkg/workflowauthoring ./pkg/workflowgenerate
+empty :=
+space := $(empty) $(empty)
+comma := ,
+COVERAGE_PKGS_CSV := $(subst $(space),$(comma),$(strip $(COVERAGE_PKGS)))
 # golangci-lint is pinned so the local dev-loop lint matches CI exactly. A
 # missing binary previously let a red CI lint go invisible locally (main sat
 # red over two errcheck findings); `make lint-tools` installs the pin and
@@ -57,13 +65,27 @@ lint:
 	"$(GOLANGCI_LINT)" run --default=none --enable=govet --enable=staticcheck --enable=errcheck --enable=ineffassign ./...
 
 coverage:
-	go test -timeout 30m -coverprofile=coverage.out \
-		./pkg/admin ./pkg/db ./pkg/mutations ./pkg/rpc ./pkg/reads ./pkg/recovery \
-		./pkg/supervisor ./pkg/workflowauthoring ./pkg/workflowgenerate
-	total="$$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($$3, 1, length($$3)-1)}')"; \
+	go test -timeout 30m -coverprofile=coverage.out $(COVERAGE_PKGS)
+	@$(MAKE) cover-floor
+
+# check-tests is the single test pass the CI gate runs: race detection AND core
+# coverage in one instrumented run over the whole suite, replacing the separate
+# `test`, `race`, and `coverage` passes that each re-ran the PostgreSQL-heavy
+# suite (three runs of the slowest packages). -count=1 disables Go's test-result
+# cache so a warm build cache never serves a stale pass for a PG-backed test.
+check-tests:
+	go test -race -count=1 -timeout 30m -coverprofile=coverage.out -coverpkg=$(COVERAGE_PKGS_CSV) ./...
+	@$(MAKE) cover-floor
+
+# cover-floor gates an existing coverage.out against CORE_COVERAGE_FLOOR. Shared
+# by `coverage` and `check-tests` so the floor logic lives in one place.
+cover-floor:
+	@total="$$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($$3, 1, length($$3)-1)}')"; \
 	awk -v got="$$total" -v want="$(CORE_COVERAGE_FLOOR)" 'BEGIN { if (got + 0 < want + 0) { printf "core coverage %.1f%% below floor %.1f%%\n", got, want; exit 1 } printf "core coverage %.1f%% >= %.1f%%\n", got, want }'
 
-check: verify vet test race lint coverage
+# check is the full local gate. CI runs the same work split across two parallel
+# jobs (vet+lint, and verify+check-tests) for wall-clock — see .github/workflows/ci.yml.
+check: verify vet lint check-tests
 
 installed-cli-check:
 	@test -n "$$STRIATUM_PG_TEST_URL" || { echo "STRIATUM_PG_TEST_URL is required for installed-cli-check" >&2; exit 1; }

@@ -6,8 +6,44 @@ on:
   pull_request:
 
 jobs:
-  go:
-    name: Go build, test, and smoke
+  # Vet + lint need no database, so they run on their own runner in parallel
+  # with the test job rather than serially inside `make check`.
+  lint:
+    name: Vet and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go/go.mod
+          cache: false
+
+      # Accumulating Go build/module cache: restore the most recent cache for
+      # this go.sum (or any prior one), save a fresh per-commit snapshot. Keyed
+      # per job because the lint build (vet/staticcheck) and the race-instrumented
+      # test build are different object sets.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-lint-${{ hashFiles('go/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-go-lint-${{ hashFiles('go/go.sum') }}-
+            ${{ runner.os }}-go-lint-
+
+      - name: Install golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          "$(go env GOPATH)/bin/golangci-lint" --version
+
+      - name: Vet and lint
+        run: make -C go vet lint
+
+  test:
+    name: Test, coverage, and smoke
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -31,16 +67,23 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
+          cache: false
 
-      - name: Install golangci-lint
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
-          "$(go env GOPATH)/bin/golangci-lint" --version
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-test-${{ hashFiles('go/go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-go-test-${{ hashFiles('go/go.sum') }}-
+            ${{ runner.os }}-go-test-
 
-      - name: Go vet, test, race, lint, and coverage
-        run: make -C go check
+      # Single instrumented pass: race detection AND core coverage in one run
+      # (check-tests), instead of the old separate test + race + coverage passes
+      # that re-ran the PostgreSQL-heavy suite three times.
+      - name: Verify modules, then test with race and coverage
+        run: make -C go verify check-tests
 
       - name: Build release archive
         run: make release-archives

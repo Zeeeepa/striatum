@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- CI is faster without weakening the gate. `make check` now runs a single
+  instrumented test pass (`check-tests`: race detection + core coverage in one
+  run) instead of three separate runs of the PostgreSQL-heavy suite (`test`,
+  `race`, `coverage`); `-count=1` keeps results uncached so a warm build cache
+  never serves a stale pass. The `ci.yml` workflow splits vet+lint (no database)
+  onto a runner parallel to the test job, and both jobs restore an accumulating
+  Go build/module cache. The release workflow builds archives in parallel with
+  the installed-CLI gate (publish still requires both) instead of serializing
+  behind it. Standalone `make test` / `race` / `coverage` are unchanged for
+  local use.
+
 ### Fixed
 
 - Supervised lane launch env files now stay available until the lane command

@@ -15,7 +15,9 @@ jobs:
 
   build:
     name: Build Go release archives
-    needs: installed-cli
+    # Runs in parallel with the installed-CLI gate; the gate is enforced before
+    # publishing (github-release needs both). Building/checksumming archives only
+    # validates the artifacts, not correctness, so it need not wait for the gate.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -58,7 +60,9 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    needs: build
+    # Publish only after BOTH the installed-CLI gate and the archive build pass —
+    # the gate still blocks the release; it just no longer serializes the build.
+    needs: [installed-cli, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
