@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.32.0 — 2026-06-13
+
 ### Added
 
 - CI guard for operator-brief freshness (`TestOperatorBriefStaysCurrent`):

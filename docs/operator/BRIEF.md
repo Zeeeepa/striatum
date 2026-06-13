@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-12_v2.31.0-rfc0120-landed"
-supersedes: "brief_2026-06-01d_rfc0101-complete-v2.9.0"
+brief_id: "brief_2026-06-13_v2.32.0-release-prep"
+supersedes: "brief_2026-06-12_v2.31.0-rfc0120-landed"
 scope_links: ["STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md", "docs/rfcs/0119-warm-tier-memory-boundary.md", "docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -14,14 +14,15 @@ author: operator-claude-fable-5-001
 
 ## State
 
-Latest release is **v2.31.0 (2026-06-07)**, deployed (runtime schema 26 +
-owner bundles 0001–0006). `main` is ~50 commits past the v2.31.0 tag and
-carries unreleased work: the **RFC 0118 implementation** (#240,
+Latest release target is **v2.32.0 (2026-06-13)**, packaging the post-v2.31.0
+landing set on `main`: the **RFC 0118 implementation** (#240,
 run-completion provenance gate, P0-1 through P1-6), the **RFC 0119
 acceptance** (D179), **RFC 0120 Phase 1 + Phase 2** (#248, D180:
 await-packet idle exit plus notify-only wake bus), the **session recovery edge
-fixes** (#253/#254/#255), and a CLI-reference/doc-truth pass. The prior brief
-stopped at v2.9.3 (2026-06-02); everything below is the delta.
+fixes** (#253/#254/#255), the provider-auth/worktree-row/run-drive teardown
+fixes (#259/#260/#261), and a CLI-reference/doc-truth pass. Runtime schema
+remains 26 with owner bundles 0001–0006. The prior full brief stopped at
+v2.9.3 (2026-06-02); everything below is the delta.
 
 **The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
 
@@ -66,11 +67,11 @@ stopped at v2.9.3 (2026-06-02); everything below is the delta.
   `pg_read_scope.posture=partial_projection_gated` (derived, not
   hard-coded). `private_read_denial` stays false — RFC 0113 R2/R3 open.
 
-**Issue burn-down:** 32 → 9 open. The ready-for-human cluster
+**Issue burn-down:** 32 → 7 open. The ready-for-human cluster
 (#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10, and the
-2026-06-12 landing wave closed #240, #248, #253, #254, #255, and #258.
-Every survivor is a live operational finding from real multi-run load, not a
-feature wish.
+2026-06-12/13 landing wave closed #240, #248, #253, #254, #255, #258,
+#259, #260, and #261. The current open set is #217 ready-for-agent, parked
+#212, and five fresh 2026-06-13 `needs-triage` reports (#262-#266).
 
 ## Deep architecture review 2026-06-11 — the standing work-list
 
@@ -133,19 +134,17 @@ asks:
   frozen verdict provenance stamps, override posture/basis, completion
   provenance gate + `needs_operator` escalation, durable
   `run_completion_record`, and `recovery.invalidate_job` supersede receipts.
-  Release the accumulated post-tag work as the next minor.
+  The accumulated post-v2.31.0 work is prepared as the v2.32.0 release block.
 - **Live housekeeping:** `doctor` is OK (0 problems) but still warns that
   the local Codex config points at a stale MCP endpoint unless launched
-  through `striatum codex`. The remaining worktree-ref-safety residue is now
-  issue #259: missing-on-disk terminal worktree rows need a supported retire
-  path.
+  through `striatum codex`. The worktree-ref-safety/run-drive residue in
+  #259/#260/#261 is closed on `main`.
 
 ## Next Actions
 
-1. **Stabilize run drive launch:** triage #260 first. Provider-auth preflight
-   now blocks otherwise-valid Codex launches with
-   `lane_provider_preflight_unexpected_result`; until that is resolved, AFK
-   self-hosting runs can wedge before claim.
+1. **Cut v2.32.0:** complete the documented release checklist, push the signed
+   `v2.32.0` tag only after `make release-check` and green CI, then watch the
+   release workflow through archive upload.
 2. **Review P0s:** contain the sweep (error → log+backoff+skip, never
    daemon cancel; git out of the sweep tx; #246 abandoned-run GC) and test
    the spine (heartbeat, worktree.create, packet blocks, escalation-redrive
@@ -156,18 +155,20 @@ asks:
    `TestOperatorBriefStaysCurrent` reuses the bootstrap probe; remaining:
    guard README status / docs index / authority matrix against the
    contract).
-4. **Housekeeping:** implement #259's missing-on-disk worktree-row retire
-   path, then tag the next release for the post-v2.31.0 landing set.
+4. **Triage the fresh 2026-06-13 reports:** #262 daemon crash-loop preflight,
+   #263 Codex generated-workflow lanes exit before claim, #264 missing
+   supervisor env file, #265 `supervise trajectory --tail` parsing, and #266
+   token-in-argv exposure.
 
-## Blockers / Open Issues (9)
+## Blockers / Open Issues (7)
 
-All operational findings from live multi-run load: **#260** provider-auth
-preflight false-positive blocks valid Codex launches, **#259** missing-on-disk
-worktree rows cannot be retired, **#257** mid-run write-scope drift blocker
-policy, **#247** committee operator-neutrality (design), **#246** abandoned-run
-GC, **#244** owner-table migrations crash-loop a two-role prod daemon
-(CI-blind), **#242** run-drive commits via the operator's shared git index,
-**#217** blob-store-gated, **#212** parked auto-spawn (do not implement).
+Open tracker state as of 2026-06-13: **#217** blob-store-gated
+ready-for-agent; **#262** invalid `STRIATUM_BLOB_PATH_STYLE` crash-loops the
+daemon without preflight recovery; **#263** generated Codex lanes validate but
+exit before claim; **#264** supervised lane dies sourcing a missing
+`/tmp/striatum-supervisor-env` file; **#265** `supervise trajectory --tail`
+rejects a numeric line count; **#266** injected `STRIATUM_MCP_TOKEN` exposed
+in lane process argv; and **#212** parked auto-spawn (do not implement).
 
 ## Hazards / Do Not
 
