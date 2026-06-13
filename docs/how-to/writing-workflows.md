@@ -383,17 +383,27 @@ wrappers live at
 Claude Code, Codex, or Gemini lanes can use the matching wrapper as
 the lane command directly.
 
-Process lanes that call a raw single-prompt command such as
-`["codex", "exec", "--model", "gpt-5.5", "-c", "model_reasoning_effort=\"xhigh\"", "-"]` should declare:
+Process lanes can still run a simple push consumer over stdin, but current
+AI-agent lanes should use the daemon-owned agent-loop PTY form. For Codex, use
+a bare interactive command and declare the lane as an agent loop:
 
 ```json
-"supervision": {
-  "stdin_delivery": "one_shot_eof"
+"codex": {
+  "adapter": "process",
+  "display_model": "Codex",
+  "command": ["codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"],
+  "adapter_capabilities": {"agent_loop": true},
+  "supervision": {"transport": "pty_helper"},
+  "capabilities": ["write", "review"]
 }
 ```
 
-That opt-in gives the command one packet on stdin and then EOF. The default
-remains the persistent FIFO mode for wrappers that handle multiple packets.
+`workflow generate` fills those agent-loop and PTY-helper declarations for
+direct Codex, Claude, and agy lane commands. Do not configure Codex as a
+one-shot pipe lane with `codex exec` and
+`supervision.stdin_delivery: "one_shot_eof"`; `workflow validate`, `run
+prepare`, and `supervise start` refuse `codex exec` because it cannot run the
+interactive work-packet loop and can stall before acking the delivered packet.
 
 ### `agy` lanes must be agent-loop lanes
 
@@ -428,7 +438,7 @@ adapter-specific unsafe flags such as Claude's `--dangerously-skip-permissions`
 or Codex's `--dangerously-bypass-approvals-and-sandbox` when they appear on an
 `agy` lane.
 
-### `claude --print` lanes are refused
+### Retired one-shot lanes are refused
 
 `claude --print` and `claude -p` are retired one-shot modes. `workflow
 validate`, `run prepare`, and `supervise start` hard-refuse a lane whose
@@ -449,6 +459,9 @@ Use an interactive agent-loop lane instead:
 For a deliberate compatibility fixture only, set `allow_claude_print: true` on
 that lane. The override is explicit so live workflows do not accidentally
 reintroduce the retired one-shot path.
+
+`codex exec` is also retired and refused. It has no compatibility override;
+use the interactive Codex agent-loop lane shown above.
 
 For the full harness-profile schema (recognised tool families,
 required fields, accountability rules), see

@@ -45,6 +45,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintMissingEscalationPath(workflow, jobMap, &findings)
 	lintAgyOneShotPipeLane(workflow, &findings)
 	lintDeprecatedClaudePrintLane(workflow, &findings)
+	lintDeprecatedCodexExecLane(workflow, &findings)
 	lintAdapterFlagMismatches(workflow, &findings)
 	lintExperimentalShape(workflow, &findings)
 	lintDegradedSeatLane(workflow, &findings)
@@ -440,9 +441,9 @@ func lintMissingEscalationPath(workflow map[string]any, jobMap map[string]map[st
 // adapter_capabilities.agent_loop=true. The one-shot pipe path gives agy no
 // auto-MCP config and no auto-delivery, so it launches, reads nothing on
 // stdin, runs `agy --print ""` (empty), and exits without claiming (#51,
-// #63 F5). agy self-claims only as an agent-loop lane. claude/codex one-shot
-// pipe lanes self-claim and are not flagged: the check requires the command
-// to invoke the `agy` binary with `--print`.
+// #63 F5). agy self-claims only as an agent-loop lane. The check is
+// intentionally agy-specific; retired Claude/Codex one-shot modes have their
+// own hard-refusal rules.
 func lintAgyOneShotPipeLane(workflow map[string]any, findings *[]map[string]any) {
 	lanes, ok := workflow["lanes"].(map[string]any)
 	if !ok {
@@ -748,6 +749,32 @@ func lintDeprecatedClaudePrintLane(workflow map[string]any, findings *[]map[stri
 	}
 }
 
+// lintDeprecatedCodexExecLane warns when a Codex lane invokes the retired
+// one-shot `codex exec` command. The hard refusal lives in
+// RefuseCodexExecLane; this lint finding keeps `workflow lint` legible in the
+// same style as the Claude one-shot guard.
+func lintDeprecatedCodexExecLane(workflow map[string]any, findings *[]map[string]any) {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if !laneCommandIsCodexExec(lane) {
+			continue
+		}
+		*findings = append(*findings, map[string]any{
+			"rule":     "deprecated_codex_exec_lane",
+			"severity": "refusal",
+			"message":  CodexExecRefusalMessage(laneID),
+			"lane_id":  laneID,
+		})
+	}
+}
+
 // ClaudePrintRefusalMessage builds the hard-refusal diagnostic for a
 // `claude --print`/`-p` lane. It is the single source of truth shared by
 // workflowauthoring.Validate (which backs `workflow validate` and `run
@@ -780,6 +807,39 @@ func RefuseClaudePrintLane(laneID string, lane map[string]any) error {
 	return errf("%s", ClaudePrintRefusalMessage(laneID))
 }
 
+// CodexExecRefusalMessage builds the hard-refusal diagnostic for a
+// `codex exec` lane. `codex exec` is a one-shot command: it can consume one
+// stdin packet, then exits or stalls outside the daemon-owned interactive
+// work-packet loop. Use a bare interactive Codex command as an agent-loop lane.
+func CodexExecRefusalMessage(laneID string) string {
+	return "lane '" + laneID + "' runs `codex exec`, the retired one-shot mode (RFC 0088 / D148) — REFUSED. " +
+		"It cannot run the daemon-owned agent-loop interactive work-packet loop and can stall before acking the delivered packet (#267). " +
+		"Use a bare interactive command such as [\"codex\", \"--dangerously-bypass-approvals-and-sandbox\", \"-a\", \"never\", \"--no-alt-screen\"] " +
+		"with \"adapter_capabilities\": {\"agent_loop\": true} and \"supervision\": {\"transport\": \"pty_helper\"}."
+}
+
+// RefuseCodexExecLane returns a hard error for a single lane that invokes
+// `codex exec`, or nil otherwise.
+func RefuseCodexExecLane(laneID string, lane map[string]any) error {
+	if !laneCommandIsCodexExec(lane) {
+		return nil
+	}
+	return errf("%s", CodexExecRefusalMessage(laneID))
+}
+
+// RefuseRetiredOneShotLane is the shared launch-blocking guard for retired
+// one-shot agent commands. It is used by workflow validation entry points,
+// run.prepare, generator output validation, and supervise launch.
+func RefuseRetiredOneShotLane(laneID string, lane map[string]any) error {
+	if err := RefuseClaudePrintLane(laneID, lane); err != nil {
+		return err
+	}
+	if err := RefuseCodexExecLane(laneID, lane); err != nil {
+		return err
+	}
+	return nil
+}
+
 // RefuseClaudePrintLanes scans every lane in a workflow and returns a hard
 // error for the first `claude --print`/`-p` lane that has not set the explicit
 // `allow_claude_print: true` override. It is the single source of truth the
@@ -798,6 +858,46 @@ func RefuseClaudePrintLanes(workflow map[string]any) error {
 			continue
 		}
 		if err := RefuseClaudePrintLane(laneID, lane); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RefuseCodexExecLanes scans every lane in a workflow and returns a hard error
+// for the first `codex exec` lane. It exists for tests and compatibility with
+// the Claude-specific helper; new call sites should use
+// RefuseRetiredOneShotLanes.
+func RefuseCodexExecLanes(workflow map[string]any) error {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := RefuseCodexExecLane(laneID, lane); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RefuseRetiredOneShotLanes scans every lane in a workflow and returns a hard
+// error for the first retired one-shot agent command.
+func RefuseRetiredOneShotLanes(workflow map[string]any) error {
+	lanes, ok := workflow["lanes"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	for _, laneID := range sortedLaneIDs(lanes) {
+		lane, ok := lanes[laneID].(map[string]any)
+		if !ok {
+			continue
+		}
+		if err := RefuseRetiredOneShotLane(laneID, lane); err != nil {
 			return err
 		}
 	}
@@ -921,6 +1021,34 @@ func laneCommandIsClaudePrint(lane map[string]any) bool {
 		}
 	}
 	return false
+}
+
+func laneCommandIsCodexExec(lane map[string]any) bool {
+	tokens := laneCommandTokens(lane)
+	for idx := 0; idx+1 < len(tokens); idx++ {
+		if normalizedCommandToken(tokens[idx]) == "codex" && normalizedCommandToken(tokens[idx+1]) == "exec" {
+			return true
+		}
+	}
+	return false
+}
+
+func laneCommandTokens(lane map[string]any) []string {
+	tokens := []string{}
+	for _, arg := range stringsFromSlice(lane["command"]) {
+		tokens = append(tokens, strings.Fields(arg)...)
+	}
+	return tokens
+}
+
+func normalizedCommandToken(token string) string {
+	token = strings.TrimSpace(token)
+	token = strings.Trim(token, "\"'`")
+	token = strings.Trim(token, ";&|()")
+	if token == "" {
+		return ""
+	}
+	return strings.TrimSuffix(filepath.Base(token), ".exe")
 }
 
 func laneCommandIsAgyPrint(lane map[string]any) bool {

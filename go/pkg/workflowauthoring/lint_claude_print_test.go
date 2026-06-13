@@ -35,6 +35,20 @@ func claudeLaneWorkflow(command []any, agentLoop bool) map[string]any {
 	return wf
 }
 
+func codexLaneWorkflow(command []any, agentLoop bool) map[string]any {
+	wf := validWorkflow()
+	lane := map[string]any{"adapter": "process", "command": command}
+	if agentLoop {
+		lane["adapter_capabilities"] = map[string]any{"agent_loop": true}
+	}
+	wf["lanes"] = map[string]any{"codex": lane}
+	wf["coordinator"] = map[string]any{"role_id": "author", "lane_id": "codex"}
+	for _, j := range wf["jobs"].([]any) {
+		j.(map[string]any)["lane_id"] = "codex"
+	}
+	return wf
+}
+
 // TestLintFlagsDeprecatedClaudePrintLane guards the deprecation of the retired
 // one-shot `claude --print` lane mode (RFC 0088 / D148). It fires regardless of
 // adapter_capabilities.agent_loop, because `--print` defeats the interactive
@@ -100,5 +114,40 @@ func TestRefuseClaudePrintLanesAllowsOverride(t *testing.T) {
 func TestRefuseClaudePrintLanesAllowsBareInteractive(t *testing.T) {
 	if err := RefuseClaudePrintLanes(claudeLaneWorkflow([]any{"claude", "--dangerously-skip-permissions"}, true)); err != nil {
 		t.Fatalf("RefuseClaudePrintLanes(bare interactive claude): %v", err)
+	}
+}
+
+func TestLintFlagsDeprecatedCodexExecLane(t *testing.T) {
+	rule := "deprecated_codex_exec_lane"
+
+	if !lintFiresRule(t, codexLaneWorkflow([]any{"codex", "exec", "-"}, false), rule) {
+		t.Fatal("codex exec lane must be flagged as deprecated")
+	}
+	if !lintFiresRule(t, codexLaneWorkflow([]any{"sh", "-c", "IFS= read -r prompt; exec codex exec --model gpt-5.5 \"$prompt\" </dev/null"}, false), rule) {
+		t.Fatal("shell-shim codex exec lane must be flagged as deprecated")
+	}
+	if lintFiresRule(t, codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}, true), rule) {
+		t.Fatal("a bare interactive codex agent-loop lane must NOT be flagged")
+	}
+}
+
+func TestRefuseCodexExecLanes(t *testing.T) {
+	for _, command := range [][]any{
+		{"codex", "exec", "-"},
+		{"sh", "-c", "IFS= read -r prompt; exec codex exec --model gpt-5.5 \"$prompt\" </dev/null"},
+	} {
+		err := RefuseCodexExecLanes(codexLaneWorkflow(command, true))
+		if err == nil {
+			t.Fatalf("RefuseCodexExecLanes(%v): expected a refusal, got nil", command)
+		}
+		if !strings.Contains(err.Error(), "codex exec") || !strings.Contains(err.Error(), "#267") {
+			t.Fatalf("RefuseCodexExecLanes(%v): refusal should name codex exec and #267; got %q", command, err.Error())
+		}
+	}
+}
+
+func TestRefuseRetiredOneShotLanesAllowsCodexInteractive(t *testing.T) {
+	if err := RefuseRetiredOneShotLanes(codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}, true)); err != nil {
+		t.Fatalf("RefuseRetiredOneShotLanes(bare interactive codex): %v", err)
 	}
 }

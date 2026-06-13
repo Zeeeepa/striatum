@@ -653,54 +653,66 @@ func TestGenerateUsesSharedAuthoringLintPayload(t *testing.T) {
 	}
 }
 
-func TestGenerateDefaultsInteractiveCodexLanesToAgentLoop(t *testing.T) {
+func TestGenerateDefaultsInteractiveCodexLanesToAgentLoopPTY(t *testing.T) {
 	generated := mustGenerate(t, map[string]any{
 		"schema_version":   GeneratorSchemaVersion,
-		"shape":            "review",
+		"shape":            "code_change",
 		"lane_set":         "author_reviewer",
-		"workflow_id":      "demo",
-		"name":             "Demo",
-		"workflow_version": "2026-05-17",
-		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": false},
-		"scaffold_root":    "workflows/demo",
-		"artifact_root":    "striatum/demo",
+		"workflow_id":      "codex-demo",
+		"name":             "Codex Demo",
+		"workflow_version": "2026-06-13",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/codex-demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/codex-demo",
+		"artifact_root":    "striatum/codex-demo",
 		"lanes": map[string]any{
-			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "--yolo"}, "display_model": "Codex"},
-			"reviewer": map[string]any{"adapter": "process", "command": []any{"codex", "--dangerously-bypass-approvals-and-sandbox"}, "display_model": "Codex"},
+			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"codex"}},
 		},
 		"options": map[string]any{},
 	})
 	lanes := mapFrom(generated.Workflow["lanes"])
 	for _, laneID := range []string{"author", "reviewer"} {
 		lane := mapFrom(lanes[laneID])
-		caps := mapFrom(lane["adapter_capabilities"])
-		if caps["agent_loop"] != true {
-			t.Fatalf("lane %s adapter_capabilities = %#v, want agent_loop=true", laneID, caps)
+		capabilities := mapFrom(lane["adapter_capabilities"])
+		if capabilities["agent_loop"] != true {
+			t.Fatalf("lane %s adapter_capabilities = %#v, want agent_loop=true", laneID, capabilities)
+		}
+		supervision := mapFrom(lane["supervision"])
+		if supervision["transport"] != "pty_helper" {
+			t.Fatalf("lane %s supervision = %#v, want transport=pty_helper", laneID, supervision)
 		}
 	}
 }
 
-func TestGenerateKeepsCodexExecAsPushLane(t *testing.T) {
-	generated := mustGenerate(t, map[string]any{
+func TestGenerateRefusesCodexExecLane(t *testing.T) {
+	_, err := GenerateFromMap(map[string]any{
 		"schema_version":   GeneratorSchemaVersion,
 		"shape":            "review",
 		"lane_set":         "author_reviewer",
-		"workflow_id":      "demo",
-		"name":             "Demo",
-		"workflow_version": "2026-05-17",
-		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/demo", "allow_dirty": false},
-		"scaffold_root":    "workflows/demo",
-		"artifact_root":    "striatum/demo",
+		"workflow_id":      "codex-exec-demo",
+		"name":             "Codex Exec Demo",
+		"workflow_version": "2026-06-13",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "striatum/codex-exec-demo", "allow_dirty": false},
+		"scaffold_root":    "workflows/codex-exec-demo",
+		"artifact_root":    "striatum/codex-exec-demo",
 		"lanes": map[string]any{
-			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "exec", "-"}, "display_model": "Codex"},
-			"reviewer": map[string]any{"adapter": "process", "command": []any{"true"}, "display_model": "Fixture"},
+			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "exec", "-"}},
+			"reviewer": map[string]any{"adapter": "process", "command": []any{"codex"}},
 		},
 		"options": map[string]any{},
 	})
-	lanes := mapFrom(generated.Workflow["lanes"])
-	author := mapFrom(lanes["author"])
-	if _, ok := author["adapter_capabilities"]; ok {
-		t.Fatalf("codex exec push lane should not be silently marked agent_loop: %#v", author)
+	if err == nil {
+		t.Fatal("GenerateFromMap with codex exec lane: expected error")
+	}
+	var genError *Error
+	if !errors.As(err, &genError) {
+		t.Fatalf("error type = %T, %v", err, err)
+	}
+	if genError.FieldPath != "spec.lanes.author.command" {
+		t.Fatalf("field path = %q, want spec.lanes.author.command; err = %v", genError.FieldPath, err)
+	}
+	if !strings.Contains(err.Error(), "codex exec") {
+		t.Fatalf("error should name codex exec, got %v", err)
 	}
 }
 

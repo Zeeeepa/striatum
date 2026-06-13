@@ -1183,11 +1183,10 @@ func validateWorkflowForPrepare(workflow map[string]any) (phaseIndex, error) {
 	if err := workflowauthoring.ValidatePhaseShapes(workflow); err != nil {
 		return phaseIndex{}, rpc.NewError("workflow_error", err.Error(), nil)
 	}
-	// #199: refuse `claude --print`/`-p` lanes at prepare so a poisoned workflow
-	// can never reach a launched lane. After 2026-06-15 a live `claude --print`
-	// invocation bills API tokens (real money per packet); the override is the
-	// inline lane option `allow_claude_print: true`.
-	if err := workflowauthoring.RefuseClaudePrintLanes(workflow); err != nil {
+	// Refuse retired one-shot agent commands at prepare so a poisoned workflow
+	// can never reach a launched lane. Claude's compatibility override remains
+	// lane-local; Codex exec has no override because it cannot ack reliably.
+	if err := workflowauthoring.RefuseRetiredOneShotLanes(workflow); err != nil {
 		return phaseIndex{}, rpc.NewError("workflow_error", err.Error(), nil)
 	}
 	if err := workflowauthoring.RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {

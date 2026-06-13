@@ -22,6 +22,10 @@
   commands no longer consume the lane env file, keeping `STRIATUM_MCP_TOKEN`
   out of run-as argv while avoiding missing `/tmp/striatum-supervisor-env.*`
   source failures. (#264, #266)
+- `workflow generate` now emits direct Codex, Claude, and agy lane commands as
+  agent-loop PTY-helper lanes by default, and `workflow validate`, `run
+  prepare`, and `supervise start` refuse retired `codex exec` one-shot lanes
+  before they can stall without acking. (#263, #267)
 
 ## v2.32.0 — 2026-06-13
 

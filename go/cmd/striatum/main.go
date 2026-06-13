@@ -741,10 +741,10 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repo
 	if err != nil {
 		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_invalid", err, 8)
 	}
-	// #199: `claude --print`/`-p` lanes are a hard refusal (real money burned per
-	// packet after 2026-06-15). The override is the inline lane option
-	// `allow_claude_print: true`, not a CLI flag, so this fires unconditionally.
-	if err := workflowauthoring.RefuseClaudePrintLanes(workflow); err != nil {
+	// Retired one-shot agent commands are hard refusals. They cannot run the
+	// daemon-owned interactive work-packet loop; Claude has an explicit
+	// compatibility override, Codex exec does not.
+	if err := workflowauthoring.RefuseRetiredOneShotLanes(workflow); err != nil {
 		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_lint_refused", err, 8)
 	}
 	if err := workflowauthoring.RefuseAutonomousSharedCheckoutRepoWrite(workflow); err != nil {

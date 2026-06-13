@@ -741,7 +741,8 @@ func TestLintAllowsAgyAgentLoopAndOtherPipeLanes(t *testing.T) {
 		t.Fatalf("agy agent-loop lane must not be flagged as one-shot pipe")
 	}
 
-	// claude/codex one-shot pipe lanes must NOT be flagged (they self-claim).
+	// The agy warning must stay agy-specific. Deprecated Claude/Codex
+	// one-shot commands are covered by their own refusal rules.
 	workflow = validWorkflow()
 	lanes = workflow["lanes"].(map[string]any)
 	lanes["claude_code"] = map[string]any{
@@ -753,7 +754,7 @@ func TestLintAllowsAgyAgentLoopAndOtherPipeLanes(t *testing.T) {
 		"command": []any{"sh", "-c", "IFS= read -r prompt; exec codex exec --model gpt-5.5 \"$prompt\" </dev/null"},
 	}
 	if lintRuleSet(t, workflow)["agy_one_shot_pipe_lane"] {
-		t.Fatalf("claude/codex one-shot pipe lanes must not be flagged")
+		t.Fatalf("non-agy one-shot pipe lanes must not fire the agy-specific warning")
 	}
 }
 

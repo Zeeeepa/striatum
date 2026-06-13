@@ -508,6 +508,9 @@ func compileLanes(spec Spec) (map[string]any, error) {
 				lane[key] = value
 			}
 		}
+		if err := workflowauthoring.RefuseRetiredOneShotLane(laneID, lane); err != nil {
+			return nil, genErr(err.Error(), "spec.lanes."+laneID+".command")
+		}
 		defaultAgentLoopLane(command, lane)
 		lanes[laneID] = lane
 	}
@@ -521,15 +524,30 @@ func compileLanes(spec Spec) (map[string]any, error) {
 }
 
 func defaultAgentLoopLane(command []string, lane map[string]any) {
-	if !defaultAgentLoopCommand(command) || laneDeclaresAgentLoop(lane) {
+	if !defaultAgentLoopCommand(command) || laneDisablesAgentLoop(lane) {
 		return
 	}
 	caps, _ := lane["adapter_capabilities"].(map[string]any)
 	if caps == nil {
 		caps = map[string]any{}
+	} else {
+		caps = cloneMap(caps)
 	}
-	caps["agent_loop"] = true
+	if _, exists := caps["agent_loop"]; !exists {
+		caps["agent_loop"] = true
+	}
 	lane["adapter_capabilities"] = caps
+
+	supervision, _ := lane["supervision"].(map[string]any)
+	if supervision == nil {
+		supervision = map[string]any{}
+	} else {
+		supervision = cloneMap(supervision)
+	}
+	if _, exists := supervision["transport"]; !exists {
+		supervision["transport"] = "pty_helper"
+	}
+	lane["supervision"] = supervision
 }
 
 func defaultAgentLoopCommand(command []string) bool {
@@ -556,12 +574,15 @@ func codexExecCommand(command []string) bool {
 	return false
 }
 
-func laneDeclaresAgentLoop(lane map[string]any) bool {
-	if lane["agent_loop"] == true {
-		return true
+func laneDisablesAgentLoop(lane map[string]any) bool {
+	if value, ok := lane["agent_loop"].(bool); ok {
+		return !value
 	}
 	caps, _ := lane["adapter_capabilities"].(map[string]any)
-	return caps["agent_loop"] == true
+	if value, ok := caps["agent_loop"].(bool); ok {
+		return !value
+	}
+	return false
 }
 
 func laneIDsFor(spec Spec) []string {
@@ -728,6 +749,9 @@ func ValidateWorkflow(workflow map[string]any) error {
 			return genErr(authoringErr.Message, fieldPath)
 		}
 		return err
+	}
+	if err := workflowauthoring.RefuseRetiredOneShotLanes(workflow); err != nil {
+		return genErr(err.Error(), "workflow.lanes")
 	}
 	return nil
 }

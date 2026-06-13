@@ -103,12 +103,10 @@ func loadSupervisionStartConfig(ctx context.Context, runner db.Runner, repositor
 	}
 	workflow := asMap(workflowRaw)
 	lane := laneConfig(workflow, config.LaneID)
-	// #199: last line of defense before the subprocess launches. validate/prepare
-	// already refuse `claude --print`/`-p` lanes, but the lane here comes from a
-	// frozen snapshot — refuse here too so a snapshot that somehow carries one
-	// never burns API tokens (real money per packet after 2026-06-15). The
-	// override is the inline lane option `allow_claude_print: true`.
-	if err := workflowauthoring.RefuseClaudePrintLane(config.LaneID, lane); err != nil {
+	// Last line of defense before the subprocess launches. validate/prepare
+	// already refuse retired one-shot agent commands, but the lane here comes
+	// from a frozen snapshot; refuse here too.
+	if err := workflowauthoring.RefuseRetiredOneShotLane(config.LaneID, lane); err != nil {
 		return config, rpc.NewError("invalid_transition", err.Error(), nil)
 	}
 	command, err := commandArray(lane)
