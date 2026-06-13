@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Fixed
+
+- Supervised lane launch env files now stay available until the lane command
+  sources them, then remove themselves from disk. Tmux setup and attach
+  commands no longer consume the lane env file, keeping `STRIATUM_MCP_TOKEN`
+  out of run-as argv while avoiding missing `/tmp/striatum-supervisor-env.*`
+  source failures. (#264, #266)
+
 ## v2.32.0 — 2026-06-13
 
 ### Added

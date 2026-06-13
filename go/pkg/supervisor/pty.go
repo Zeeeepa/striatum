@@ -21,7 +21,7 @@ const (
 	tmuxSessionNameMaxLen  = 100
 	tmuxSessionNameHashLen = 12
 	launchEnvFileName      = "lane-env.sh"
-	launchEnvFileExec      = "set -a; . \"$1\"; shift; exec \"$@\""
+	launchEnvFileExec      = "set -a; . \"$1\"; rm -f -- \"$1\"; shift; exec \"$@\""
 )
 
 // LaunchSpec describes a supervised child process. The fields mirror the
@@ -95,6 +95,11 @@ func commandInvocationWithEnvFile(runAsUser string, env commandEnvironment, prog
 	sudoArgs = append(sudoArgs, program)
 	sudoArgs = append(sudoArgs, args...)
 	return "sudo", sudoArgs, nil
+}
+
+func tmuxSetupLaunchSpec(spec LaunchSpec) LaunchSpec {
+	spec.EnvFilePath = ""
+	return spec
 }
 
 func sanitizedRunAsEnv(env []string) []string {
@@ -324,11 +329,12 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 
 	var cleanup func()
 	var err error
-	spec, cleanup, err = prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
-	if err != nil {
-		return nil, err
+	if strings.TrimSpace(spec.RunAsUser) != "" {
+		spec, cleanup, err = prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
+		if err != nil {
+			return nil, err
+		}
 	}
-	defer cleanup()
 
 	cmd := commandContext(ctx, spec, spec.Command[0], spec.Command[1:]...)
 
@@ -340,18 +346,27 @@ func Launch(ctx context.Context, scratchDir string, supervisorID string, spec La
 
 	cmd.Stdout, err = openDevNullOr(spec.StdoutPath)
 	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		return nil, err
 	}
 	cmd.Stderr, err = openDevNullOr(spec.StderrPath)
 	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		return nil, err
 	}
 
 	if err := cmd.Start(); err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		return nil, fmt.Errorf("supervisor: cmd.Start: %w", err)
@@ -380,13 +395,6 @@ func ensureFIFO(scratchDir string, supervisorID string, fifoPath string) error {
 // daemon writes packets to the master, the child reads them off the slave
 // as ordinary stdin.
 func launchPTY(ctx context.Context, scratchDir string, supervisorID string, spec LaunchSpec) (*LaunchResult, error) {
-	envSpec, cleanup, err := prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
-	if err != nil {
-		return nil, err
-	}
-	spec = envSpec
-	defer cleanup()
-
 	runID := getEnvValue(spec.Env, "STRIATUM_RUN_ID")
 	laneID := getEnvValue(spec.Env, "STRIATUM_LANE_ID")
 	if runID == "" || laneID == "" {
@@ -403,9 +411,10 @@ func launchPTY(ctx context.Context, scratchDir string, supervisorID string, spec
 	}
 
 	sessionName := tmuxSessionName(runID, laneID, supervisorID)
+	setupSpec := tmuxSetupLaunchSpec(spec)
 
 	// Kill existing session with the same name if any (to avoid collisions / stale sessions)
-	_ = runTmuxSetupCommand(ctx, spec, "kill-session", "-t", sessionName)
+	_ = runTmuxSetupCommand(ctx, setupSpec, "kill-session", "-t", sessionName)
 
 	// 1. Create a detached tmux session with a placeholder process. The real
 	// lane command is respawned only after remain-on-exit is set, so even a
@@ -422,50 +431,61 @@ func launchPTY(ctx context.Context, scratchDir string, supervisorID string, spec
 	newSessionArgs = append(newSessionArgs, tmuxEnvArgs(spec.Env)...)
 	newSessionArgs = append(newSessionArgs, "--")
 	newSessionArgs = append(newSessionArgs, "sh", "-c", "while :; do sleep 3600; done")
-	createCmd := commandContext(context.Background(), spec, "tmux", newSessionArgs...)
+	createCmd := commandContext(context.Background(), setupSpec, "tmux", newSessionArgs...)
 	if err := runPreparedTmuxSetupCommand(ctx, createCmd, newSessionArgs...); err != nil {
 		return nil, fmt.Errorf("supervisor: failed to create tmux session: %w", err)
 	}
 	cleanupTmux := true
 	defer func() {
 		if cleanupTmux {
-			_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
+			_ = runTmuxSetupCommand(context.Background(), setupSpec, "kill-session", "-t", sessionName)
 		}
 	}()
 
 	// 2. Set tmux options before the real command is allowed to run.
-	if err := runTmuxSetupCommand(ctx, spec, "set-option", "-t", sessionName, "status", "off"); err != nil {
+	if err := runTmuxSetupCommand(ctx, setupSpec, "set-option", "-t", sessionName, "status", "off"); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to configure tmux status: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), setupSpec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
 	}
-	if err := runTmuxSetupCommand(ctx, spec, "set-window-option", "-t", sessionName, "remain-on-exit", "on"); err != nil {
+	if err := runTmuxSetupCommand(ctx, setupSpec, "set-window-option", "-t", sessionName, "remain-on-exit", "on"); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to configure tmux remain-on-exit: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), setupSpec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_setup_failed"))
 	}
+
+	laneSpec, cleanupEnv, err := prepareLaunchEnvFile(ctx, scratchDir, supervisorID, spec)
+	if err != nil {
+		return nil, err
+	}
+	envFileCleanupNeeded := true
+	defer func() {
+		if envFileCleanupNeeded {
+			cleanupEnv()
+		}
+	}()
 
 	respawnArgs := []string{"respawn-pane", "-k", "-t", sessionName + ":0.0", "-c", spec.WorkingDir}
 	respawnArgs = append(respawnArgs, tmuxEnvArgs(spec.Env)...)
 	respawnArgs = append(respawnArgs, "--")
-	respawnArgs = append(respawnArgs, envFileWrappedCommand(spec.EnvFilePath, spec.Command)...)
-	respawnCmd := commandContext(ctx, spec, "tmux", respawnArgs...)
+	respawnArgs = append(respawnArgs, envFileWrappedCommand(laneSpec.EnvFilePath, laneSpec.Command)...)
+	respawnCmd := commandContext(ctx, setupSpec, "tmux", respawnArgs...)
 	if err := runPreparedTmuxSetupCommand(ctx, respawnCmd, respawnArgs...); err != nil {
 		if spec.RequireTmux {
 			return nil, fmt.Errorf("supervisor: failed to respawn tmux lane command: %w", err)
 		}
-		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), setupSpec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_respawn_failed"))
 	}
 
-	identity, err := CaptureTmuxIdentity(ctx, tmuxRunnerForSpec(spec), sessionName)
+	identity, err := CaptureTmuxIdentity(ctx, tmuxRunnerForSpec(setupSpec), sessionName)
 	if err != nil || identity.WindowID == "" || identity.PaneID == "" || identity.PanePID <= 0 {
 		if spec.RequireTmux {
 			if err != nil {
@@ -473,17 +493,18 @@ func launchPTY(ctx context.Context, scratchDir string, supervisorID string, spec
 			}
 			return nil, fmt.Errorf("supervisor: tmux identity capture failed")
 		}
-		_ = runTmuxSetupCommand(context.Background(), spec, "kill-session", "-t", sessionName)
+		_ = runTmuxSetupCommand(context.Background(), setupSpec, "kill-session", "-t", sessionName)
 		cleanupTmux = false
 		return launchPlainPTY(ctx, spec, tmuxUnavailableMetadata("tmux_identity_capture_failed"))
 	}
 
 	// 3. Attach to the session in the PTY
-	result, err := attachTmuxPTY(ctx, identity, spec)
+	result, err := attachTmuxPTY(ctx, identity, setupSpec)
 	if err != nil {
 		return nil, err
 	}
 	cleanupTmux = false
+	envFileCleanupNeeded = false
 
 	return result, nil
 }
@@ -567,9 +588,20 @@ func tmuxSetupTimeout() time.Duration {
 }
 
 func launchPlainPTY(ctx context.Context, spec LaunchSpec, metadata map[string]any) (*LaunchResult, error) {
+	var cleanup func()
+	var err error
+	if strings.TrimSpace(spec.RunAsUser) != "" {
+		spec, cleanup, err = prepareLaunchEnvFile(ctx, "", "", spec)
+		if err != nil {
+			return nil, err
+		}
+	}
 	cmd := commandContext(ctx, spec, spec.Command[0], spec.Command[1:]...)
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
+		if cleanup != nil {
+			cleanup()
+		}
 		return nil, fmt.Errorf("supervisor: pty.Start: %w", err)
 	}
 	return &LaunchResult{

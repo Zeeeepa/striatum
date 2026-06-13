@@ -107,6 +107,34 @@ func TestCommandInvocationRunAsEnvFileDoesNotExposeSensitiveEnvInArgv(t *testing
 	}
 }
 
+func TestTmuxSetupLaunchSpecDoesNotConsumeLaneEnvFile(t *testing.T) {
+	spec := LaunchSpec{
+		RunAsUser:   "striatum-lane",
+		Env:         []string{"PATH=/usr/bin", "STRIATUM_MCP_TOKEN=stok_session_secret"},
+		EnvFilePath: "/tmp/striatum-lane-env",
+	}
+	setupSpec := tmuxSetupLaunchSpec(spec)
+	if setupSpec.EnvFilePath != "" {
+		t.Fatalf("setup env file path = %q, want empty", setupSpec.EnvFilePath)
+	}
+	_, args, _ := commandInvocationWithEnvFile(
+		setupSpec.RunAsUser,
+		commandEnvironment{entries: setupSpec.Env, filePath: setupSpec.EnvFilePath},
+		"tmux",
+		"set-option",
+		"-t",
+		"striatum-session",
+		"status",
+		"off",
+	)
+	joined := strings.Join(args, "\x00")
+	for _, needle := range []string{spec.EnvFilePath, "STRIATUM_MCP_TOKEN=", "stok_session_secret"} {
+		if strings.Contains(joined, needle) {
+			t.Fatalf("tmux setup argv consumed sensitive lane env material %q in %#v", needle, args)
+		}
+	}
+}
+
 func TestTmuxEnvArgsDoesNotExposeSensitiveEnv(t *testing.T) {
 	args := tmuxEnvArgs([]string{
 		"PATH=/usr/bin",
@@ -168,5 +196,8 @@ func TestEnvFileWrappedCommandMakesSensitiveEnvAvailableToChild(t *testing.T) {
 	}
 	if got, want := string(body), "stok_session_secret|http://127.0.0.1:1/mcp|can't leak"; got != want {
 		t.Fatalf("child env = %q, want %q", got, want)
+	}
+	if _, err := os.Stat(envFile); !os.IsNotExist(err) {
+		t.Fatalf("env file should be removed after the child sources it, stat err = %v", err)
 	}
 }
