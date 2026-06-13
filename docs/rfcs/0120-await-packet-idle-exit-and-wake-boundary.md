@@ -171,3 +171,47 @@ how to behave after the authoritative state transition says no work is
 available. Phase 2 wake events are domain events over already-committed daemon
 state; they are hints for when to reconcile, not commands to perform workflow
 state transitions.
+
+## Post-Acceptance Review (2026-06-12)
+
+An adversarial state-machine review of the landed implementation treated the
+build as a distributed state machine with local wake hints over authoritative
+PostgreSQL state, and confirmed the load-bearing invariants hold: wakes buffer
+in a per-transaction collector and publish only after commit (rollback drops
+them), `wake.wait` is a read with no durable mutation, `run drive` discards the
+wake payload and reconciles from a fresh authoritative read, `claim_next`
+remains the sole work-delivery transition, and no daemon-side auto-spawn was
+introduced (Lane A stays deferred to #212 / D175). It also found four landing
+defects, since fixed on `main`:
+
+- **F1 (high).** A closed-session recovery gate ran ahead of `work.complete`'s
+  idempotency short-circuit, so a complete retried after a verdict-driven
+  session close refused with `session_inactive` instead of folding into the
+  idempotent success. This had turned `main` CI red. Fixed; pinned by
+  `TestCompleteAfterVerdictIsIdempotent` and a refusal-still-holds counter-test.
+- **F2 (high).** `run drive` never re-validated its in-memory `launched` slot map
+  against authoritative session state, so a same-attempt recovery requeue (whose
+  wake hint the driver was now built to consume) was skipped forever and the run
+  wedged until the driver restarted. Fixed by forgetting launched entries whose
+  session is no longer active; covered hermetically by
+  `TestRevisionLifecycleRunDriveRelaunchesDeadLane`.
+- **F3 (medium).** `work.await_packet` returned a plain error for every
+  non-active session state except `stopped`, and the agent-loop receiver retries
+  errors on a fixed backoff — an invisible poll loop after a terminal session
+  state, exactly what Phase 1 set out to remove. Fixed by returning the terminal
+  envelope for all non-active states (and moving the liveness write behind the
+  gate); the daemon↔receiver exit contract is now asserted end to end by
+  `TestAwaitPacketTerminalEnvelopeDrivesReceiverExit` against the exported
+  `agentloop.EnvelopeRequestsIdleExit`.
+- **F4 (low).** The receiver treated only the literal `exit_session` as an exit
+  signal, failing open (back to polling) on any unrecognized `idle_behavior`
+  value. Fixed to fail closed: any non-empty `idle_behavior` on a `no_work`
+  envelope is an exit instruction; only an absent field preserves legacy
+  polling.
+
+The wake bus's cross-run / cross-repository subscriber isolation
+(`wakeSubscription.matches`) is additionally pinned by
+`TestWakeBusIsolatesAcrossRunsAndRepositories`. One low-severity observation
+(F5) — `run drive` returns terminal on `needs_operator`/`waiting_human` without
+stopping the lanes it launched, which self-converges via lane idle-exit — is
+tracked as #261 rather than fixed here.

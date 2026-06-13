@@ -28,6 +28,12 @@
   exported `agentloop.EnvelopeRequestsIdleExit` predicate, locking the
   daemon↔receiver exit contract (the F3 error-loop). Both were confirmed to go
   red against their respective reverted fix.
+- `TestWakeBusIsolatesAcrossRunsAndRepositories` pins the wake bus's negative
+  filter case (RFC 0120 review Q13): a run-scoped waiter is never woken by
+  another run, and a repository-wide waiter never by another repository. The
+  RFC 0120 review provenance (findings F1–F5) is recorded in the RFC, with the
+  one deferred observation (F5: `run drive` terminal teardown on
+  `needs_operator`/`waiting_human`) tracked as #261.
 
 ### Changed
 

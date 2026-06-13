@@ -115,6 +115,56 @@ func TestWakeWaitReturnsNotification(t *testing.T) {
 	}
 }
 
+// TestWakeBusIsolatesAcrossRunsAndRepositories locks the wakeFilter negative
+// case (RFC 0120 review Q13): a waiter scoped to one (repository, run) must
+// never be woken by activity in a different run or a different repository, and a
+// repository-wide waiter (empty run_id — the shape `run drive` uses) must see
+// every run in its own repository but nothing from another repository. Every
+// other wake_test subscriber filters on the matching repo/run, so only the
+// positive match was covered; a regression in wakeSubscription.matches would
+// cross-wake the wrong driver to a no-op reconcile (benign) or mask a missing
+// same-run wake behind a neighbor's event (a stall).
+func TestWakeBusIsolatesAcrossRunsAndRepositories(t *testing.T) {
+	broker := resetWakeBusForTest(t)
+
+	repoARunA, cancelAA := broker.Subscribe(wakeFilter{RepositoryID: "repo_A", RunID: "run_A"})
+	defer cancelAA()
+	repoAWide, cancelAWide := broker.Subscribe(wakeFilter{RepositoryID: "repo_A"})
+	defer cancelAWide()
+	repoBRunB, cancelBB := broker.Subscribe(wakeFilter{RepositoryID: "repo_B", RunID: "run_B"})
+	defer cancelBB()
+
+	// A wake for repo_A/run_B reaches the repo_A-wide waiter only: not the
+	// run_A-scoped waiter (different run, same repo), not the repo_B waiter.
+	broker.Publish(WakeEvent{RepositoryID: "repo_A", RunID: "run_B", Kind: "work_available", MessageID: "msg_AB"})
+	assertNoWake(t, repoARunA, "repo_A/run_A waiter received a repo_A/run_B wake (cross-run leak)")
+	assertNoWake(t, repoBRunB, "repo_B/run_B waiter received a repo_A/run_B wake (cross-repository leak)")
+	if got := mustReceiveWake(t, repoAWide); got.RunID != "run_B" || got.MessageID != "msg_AB" {
+		t.Fatalf("repo_A-wide waiter event = %#v, want repo_A/run_B/msg_AB", got)
+	}
+
+	// A wake for repo_B/run_B reaches only the repo_B waiter — not the repo_A
+	// run-scoped waiter and not the repo_A-wide waiter (repository isolation
+	// must hold even for the empty-run_id, repo-wide subscription).
+	broker.Publish(WakeEvent{RepositoryID: "repo_B", RunID: "run_B", Kind: "work_available", MessageID: "msg_BB"})
+	assertNoWake(t, repoARunA, "repo_A/run_A waiter received a repo_B wake")
+	assertNoWake(t, repoAWide, "repo_A-wide waiter received a repo_B wake (cross-repository leak)")
+	if got := mustReceiveWake(t, repoBRunB); got.RepositoryID != "repo_B" || got.MessageID != "msg_BB" {
+		t.Fatalf("repo_B/run_B waiter event = %#v, want repo_B/run_B/msg_BB", got)
+	}
+
+	// Positive control: the matching same-run wake still reaches its run-scoped
+	// waiter (and the repo-wide one), proving the negatives above are isolation,
+	// not a dead bus.
+	broker.Publish(WakeEvent{RepositoryID: "repo_A", RunID: "run_A", Kind: "work_available", MessageID: "msg_AA"})
+	if got := mustReceiveWake(t, repoARunA); got.RunID != "run_A" || got.MessageID != "msg_AA" {
+		t.Fatalf("repo_A/run_A waiter event = %#v, want run_A/msg_AA", got)
+	}
+	if got := mustReceiveWake(t, repoAWide); got.RunID != "run_A" || got.MessageID != "msg_AA" {
+		t.Fatalf("repo_A-wide waiter event = %#v, want run_A/msg_AA", got)
+	}
+}
+
 func TestWakeWaitReturnsTimeout(t *testing.T) {
 	ctx := context.Background()
 	timeout, err := HandleWakeWait(ctx, inertRunner{}, rpc.Envelope{
@@ -295,6 +345,18 @@ func resetWakeBusForTest(t *testing.T) *wakeBroker {
 		wakeBus = old
 	})
 	return broker
+}
+
+func assertNoWake(t *testing.T, ch <-chan WakeEvent, msg string) {
+	t.Helper()
+	// Publish is synchronous into buffered(1) channels, so a matching event is
+	// already queued by the time Publish returns; a short window is enough to
+	// catch a leak without being flaky.
+	select {
+	case event := <-ch:
+		t.Fatalf("%s: %#v", msg, event)
+	case <-time.After(20 * time.Millisecond):
+	}
 }
 
 func mustReceiveWake(t *testing.T, ch <-chan WakeEvent) WakeEvent {
