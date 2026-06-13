@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-13_v2.32.0-release-prep"
-supersedes: "brief_2026-06-12_v2.31.0-rfc0120-landed"
+brief_id: "brief_2026-06-13_v2.32.0-released"
+supersedes: "brief_2026-06-13_v2.32.0-release-prep"
 scope_links: ["STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md", "docs/rfcs/0119-warm-tier-memory-boundary.md", "docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -14,14 +14,18 @@ author: operator-claude-fable-5-001
 
 ## State
 
-Latest release target is **v2.32.0 (2026-06-13)**, packaging the post-v2.31.0
-landing set on `main`: the **RFC 0118 implementation** (#240,
-run-completion provenance gate, P0-1 through P1-6), the **RFC 0119
-acceptance** (D179), **RFC 0120 Phase 1 + Phase 2** (#248, D180:
-await-packet idle exit plus notify-only wake bus), the **session recovery edge
-fixes** (#253/#254/#255), the provider-auth/worktree-row/run-drive teardown
-fixes (#259/#260/#261), and a CLI-reference/doc-truth pass. Runtime schema
-remains 26 with owner bundles 0001–0006. The prior full brief stopped at
+Latest release is **v2.32.0 (2026-06-13)**, deployed from the signed
+`v2.32.0` tag at `0f44933a` (release workflow `27469264131`, published
+2026-06-13T14:24Z). It packages the post-v2.31.0 landing set: the **RFC 0118
+implementation** (#240, run-completion provenance gate, P0-1 through P1-6),
+the **RFC 0119 acceptance** (D179), **RFC 0120 Phase 1 + Phase 2** (#248,
+D180: await-packet idle exit plus notify-only wake bus), the **session
+recovery edge fixes** (#253/#254/#255), the
+provider-auth/worktree-row/run-drive teardown/config preflight fixes
+(#259/#260/#261/#262), and a CLI-reference/doc-truth pass. Runtime schema
+remains 26 with owner bundles 0001–0006. `main` is now one commit past the
+release tag with the #217 doctor artifact-anchor integrity check, which is
+closed and belongs to the next release block. The prior full brief stopped at
 v2.9.3 (2026-06-02); everything below is the delta.
 
 **The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
@@ -67,11 +71,11 @@ v2.9.3 (2026-06-02); everything below is the delta.
   `pg_read_scope.posture=partial_projection_gated` (derived, not
   hard-coded). `private_read_denial` stays false — RFC 0113 R2/R3 open.
 
-**Issue burn-down:** 32 → 7 open. The ready-for-human cluster
+**Issue burn-down:** 32 → 6 open. The ready-for-human cluster
 (#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10, and the
 2026-06-12/13 landing wave closed #240, #248, #253, #254, #255, #258,
-#259, #260, and #261. The current open set is #217 ready-for-agent, parked
-#212, and five fresh 2026-06-13 `needs-triage` reports (#262-#266).
+#259, #260, #261, #262, and #217. The current open set is parked #212 and
+five fresh 2026-06-13 `needs-triage` reports (#263-#267).
 
 ## Deep architecture review 2026-06-11 — the standing work-list
 
@@ -134,17 +138,19 @@ asks:
   frozen verdict provenance stamps, override posture/basis, completion
   provenance gate + `needs_operator` escalation, durable
   `run_completion_record`, and `recovery.invalidate_job` supersede receipts.
-  The accumulated post-v2.31.0 work is prepared as the v2.32.0 release block.
+  The accumulated post-v2.31.0 work shipped in v2.32.0.
 - **Live housekeeping:** `doctor` is OK (0 problems) but still warns that
   the local Codex config points at a stale MCP endpoint unless launched
   through `striatum codex`. The worktree-ref-safety/run-drive residue in
-  #259/#260/#261 is closed on `main`.
+  #259/#260/#261, the config crash-loop recovery in #262, and the
+  blob-gated artifact-anchor doctor check in #217 are closed on `main`.
 
 ## Next Actions
 
-1. **Cut v2.32.0:** complete the documented release checklist, push the signed
-   `v2.32.0` tag only after `make release-check` and green CI, then watch the
-   release workflow through archive upload.
+1. **Triage the fresh 2026-06-13 reports:** #263 Codex generated-workflow
+   lanes exit before claim, #264 missing supervisor env file, #265
+   `supervise trajectory --tail` parsing, #266 token-in-argv exposure
+   (security-relevant), and #267 one-shot Codex lane stalls before ack.
 2. **Review P0s:** contain the sweep (error → log+backoff+skip, never
    daemon cancel; git out of the sweep tx; #246 abandoned-run GC) and test
    the spine (heartbeat, worktree.create, packet blocks, escalation-redrive
@@ -155,20 +161,18 @@ asks:
    `TestOperatorBriefStaysCurrent` reuses the bootstrap probe; remaining:
    guard README status / docs index / authority matrix against the
    contract).
-4. **Triage the fresh 2026-06-13 reports:** #262 daemon crash-loop preflight,
-   #263 Codex generated-workflow lanes exit before claim, #264 missing
-   supervisor env file, #265 `supervise trajectory --tail` parsing, and #266
-   token-in-argv exposure.
+4. **Package the next release block deliberately:** #217 landed after the
+   v2.32.0 tag, so the next release should include it plus any accepted fixes
+   from #263-#267 with matching changelog coverage.
 
-## Blockers / Open Issues (7)
+## Blockers / Open Issues (6)
 
-Open tracker state as of 2026-06-13: **#217** blob-store-gated
-ready-for-agent; **#262** invalid `STRIATUM_BLOB_PATH_STYLE` crash-loops the
-daemon without preflight recovery; **#263** generated Codex lanes validate but
-exit before claim; **#264** supervised lane dies sourcing a missing
+Open tracker state as of 2026-06-13: **#263** generated Codex lanes validate
+but exit before claim; **#264** supervised lane dies sourcing a missing
 `/tmp/striatum-supervisor-env` file; **#265** `supervise trajectory --tail`
 rejects a numeric line count; **#266** injected `STRIATUM_MCP_TOKEN` exposed
-in lane process argv; and **#212** parked auto-spawn (do not implement).
+in lane process argv; **#267** one-shot Codex lane stalls before ack; and
+**#212** parked auto-spawn (do not implement).
 
 ## Hazards / Do Not
 
@@ -198,6 +202,6 @@ in lane process argv; and **#212** parked auto-spawn (do not implement).
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
 - `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
-- `CHANGELOG.md` (v2.10.0 → v2.31.0 + Unreleased)
+- `CHANGELOG.md` (v2.10.0 → v2.32.0 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)
