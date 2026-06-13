@@ -126,7 +126,7 @@ func TestLintFlagsDeprecatedCodexExecLane(t *testing.T) {
 	if !lintFiresRule(t, codexLaneWorkflow([]any{"sh", "-c", "IFS= read -r prompt; exec codex exec --model gpt-5.5 \"$prompt\" </dev/null"}, false), rule) {
 		t.Fatal("shell-shim codex exec lane must be flagged as deprecated")
 	}
-	if lintFiresRule(t, codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}, true), rule) {
+	if lintFiresRule(t, codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen"}, true), rule) {
 		t.Fatal("a bare interactive codex agent-loop lane must NOT be flagged")
 	}
 }
@@ -147,7 +147,7 @@ func TestRefuseCodexExecLanes(t *testing.T) {
 }
 
 func TestRefuseRetiredOneShotLanesAllowsCodexInteractive(t *testing.T) {
-	if err := RefuseRetiredOneShotLanes(codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}, true)); err != nil {
+	if err := RefuseRetiredOneShotLanes(codexLaneWorkflow([]any{"codex", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen"}, true)); err != nil {
 		t.Fatalf("RefuseRetiredOneShotLanes(bare interactive codex): %v", err)
 	}
 }

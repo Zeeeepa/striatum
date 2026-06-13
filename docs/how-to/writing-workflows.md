@@ -391,7 +391,7 @@ a bare interactive command and declare the lane as an agent loop:
 "codex": {
   "adapter": "process",
   "display_model": "Codex",
-  "command": ["codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"],
+  "command": ["codex", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen"],
   "adapter_capabilities": {"agent_loop": true},
   "supervision": {"transport": "pty_helper"},
   "capabilities": ["write", "review"]

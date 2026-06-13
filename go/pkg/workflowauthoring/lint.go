@@ -814,7 +814,7 @@ func RefuseClaudePrintLane(laneID string, lane map[string]any) error {
 func CodexExecRefusalMessage(laneID string) string {
 	return "lane '" + laneID + "' runs `codex exec`, the retired one-shot mode (RFC 0088 / D148) — REFUSED. " +
 		"It cannot run the daemon-owned agent-loop interactive work-packet loop and can stall before acking the delivered packet (#267). " +
-		"Use a bare interactive command such as [\"codex\", \"--dangerously-bypass-approvals-and-sandbox\", \"-a\", \"never\", \"--no-alt-screen\"] " +
+		"Use a bare interactive command such as [\"codex\", \"--dangerously-bypass-approvals-and-sandbox\", \"--no-alt-screen\"] " +
 		"with \"adapter_capabilities\": {\"agent_loop\": true} and \"supervision\": {\"transport\": \"pty_helper\"}."
 }
 

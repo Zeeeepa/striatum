@@ -665,7 +665,7 @@ func TestGenerateDefaultsInteractiveCodexLanesToAgentLoopPTY(t *testing.T) {
 		"scaffold_root":    "workflows/codex-demo",
 		"artifact_root":    "striatum/codex-demo",
 		"lanes": map[string]any{
-			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "--dangerously-bypass-approvals-and-sandbox", "-a", "never", "--no-alt-screen"}},
+			"author":   map[string]any{"adapter": "process", "command": []any{"codex", "--dangerously-bypass-approvals-and-sandbox", "--no-alt-screen"}},
 			"reviewer": map[string]any{"adapter": "process", "command": []any{"codex"}},
 		},
 		"options": map[string]any{},
