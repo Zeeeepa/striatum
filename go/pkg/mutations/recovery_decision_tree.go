@@ -20,13 +20,38 @@ import (
 // block rather than inventing a parallel one. A workflow that omits the block
 // gets the slice defaults.
 type recoveryPolicy struct {
-	maxRequeues  int
-	maxTransfers int
+	maxRequeues int
+	// maxUnsealedRequeues bounds requeues for the agent_exited_unsealed class
+	// (#289): a confirmed-dead supervised agent that engaged the work protocol and
+	// emitted output but never called work.complete. A respawn can re-author and
+	// seal the work, so one retry is worthwhile, but a systematic unsealed exit
+	// (turn-end / context-budget / rate-limit death mid-task) rarely self-heals on
+	// repeat — so this class escalates to the operator faster than a hard crash,
+	// burning less of the requeue budget than the symptom the issue reported.
+	maxUnsealedRequeues int
+	maxTransfers        int
 }
 
 const (
-	defaultMaxRequeues  = 2
-	defaultMaxTransfers = 3
+	defaultMaxRequeues         = 2
+	defaultMaxUnsealedRequeues = 1
+	defaultMaxTransfers        = 3
+)
+
+// Recovery-specific stall classifications for a confirmed-dead supervised agent.
+// These are distinct from the sessionliveness.* protocol stall classes (which
+// describe a still-present session that is not making progress): here the agent
+// PROCESS is gone.
+const (
+	// stallClassAgentPIDDead — the supervised agent process/pane is dead and the
+	// session showed no evidence of having engaged the work protocol with output.
+	stallClassAgentPIDDead = "agent_pid_dead"
+	// stallClassAgentExitedUnsealed — the agent engaged the work protocol (claimed
+	// / made MCP tool calls) and emitted PTY output, then its process died WITHOUT
+	// calling work.complete. The work may be complete-but-unsealed; recovery cannot
+	// seal on its behalf (attestation), so it respawns once then escalates with a
+	// distinct, inspect-the-worktree remediation (#289).
+	stallClassAgentExitedUnsealed = "agent_exited_unsealed"
 )
 
 // recoveryPolicyFromWorkflow reads the recovery budgets from a workflow JSON
@@ -34,7 +59,11 @@ const (
 // requeue fallback when the slice-2 `max_requeues` key is absent, so an
 // existing recovery_policy block keeps meaning what it says.
 func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
-	policy := recoveryPolicy{maxRequeues: defaultMaxRequeues, maxTransfers: defaultMaxTransfers}
+	policy := recoveryPolicy{
+		maxRequeues:         defaultMaxRequeues,
+		maxUnsealedRequeues: defaultMaxUnsealedRequeues,
+		maxTransfers:        defaultMaxTransfers,
+	}
 	block := asMap(workflow["recovery_policy"])
 	if len(block) == 0 {
 		return policy
@@ -46,11 +75,23 @@ func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
 		// requeues per job, which is exactly this budget.
 		policy.maxRequeues = intFromAny(v, policy.maxRequeues)
 	}
+	if v, ok := block["max_unsealed_requeues"]; ok {
+		policy.maxUnsealedRequeues = intFromAny(v, policy.maxUnsealedRequeues)
+	}
 	if v, ok := block["max_transfers"]; ok {
 		policy.maxTransfers = intFromAny(v, policy.maxTransfers)
 	}
 	if policy.maxRequeues < 0 {
 		policy.maxRequeues = 0
+	}
+	if policy.maxUnsealedRequeues < 0 {
+		policy.maxUnsealedRequeues = 0
+	}
+	// The unsealed budget is meant to escalate no later than a hard crash, so cap
+	// it at maxRequeues — a smaller-or-equal bound holds even under an operator
+	// override that sets max_requeues below the unsealed default.
+	if policy.maxUnsealedRequeues > policy.maxRequeues {
+		policy.maxUnsealedRequeues = policy.maxRequeues
 	}
 	if policy.maxTransfers < 0 {
 		policy.maxTransfers = 0
@@ -296,6 +337,19 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			}
 		}
 
+		// confirmedDead memoizes the supervised-agent liveness probe (oracle-backed,
+		// so this is a cache read on the production sweep). It is consulted lazily by
+		// CASE 2 and the default branch, so a job that hits CASE 1 first never probes.
+		deadProbed := false
+		deadResult := false
+		confirmedDead := func() bool {
+			if !deadProbed {
+				deadResult = supervisedAgentConfirmedDead(ctx, row)
+				deadProbed = true
+			}
+			return deadResult
+		}
+
 		// Decide the operational recovery action.
 		var action, counterColumn string
 		var forceExpire bool
@@ -310,9 +364,17 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// closed/absent session is sessionDead and never broadens into CASE 2).
 			action = "requeue_same_attempt"
 			counterColumn = "requeue_count"
-		case !sessionDead && protocol == sessionliveness.ProtocolStalled:
+		case !sessionDead && protocol == sessionliveness.ProtocolStalled && !confirmedDead():
 			// CASE 2 (RFC 0101 Phase 3 Slice 2b, #121 parked agent): the owning
-			// session is still present and state='active' but HONESTLY stalled. The
+			// session is still present and state='active' but HONESTLY stalled — and
+			// its supervised agent PROCESS is NOT confirmed dead. The confirmed-dead
+			// exclusion (#289) matters because a dead agent's activity timestamps
+			// freeze at the moment of death, so a sweep that runs after they age past
+			// the liveness deadlines would otherwise misread a dead lane as a live
+			// parked one and transfer it on the transfer_count budget. A confirmed-dead
+			// agent must instead fall through to the dead-lane requeue path below, where
+			// the unsealed-exit classification and its smaller budget apply. The
+			// Phase 1 honest-liveness contract guarantees protocol==stalled means NO
 			// Phase 1 honest-liveness contract guarantees protocol==stalled means NO
 			// protocol + NO PTY + NO tool-call progress past the deadline — i.e.
 			// genuinely stuck — so acting on it is safe regardless of lease state.
@@ -343,14 +405,29 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// lane — including one whose supervisor bridge merely detached while the
 			// agent runs (#147 Symptom A) — is never requeued, and an indeterminate
 			// probe leaves the job untouched.
-			if !supervisedAgentConfirmedDead(ctx, row) {
+			if !confirmedDead() {
 				continue
 			}
 			action = "requeue_same_attempt"
 			counterColumn = "requeue_count"
 			forceExpire = true
 			closeStalledOwner = true
-			stallClass = "agent_pid_dead"
+			// #289: distinguish an agent that engaged the work protocol and produced
+			// output but never sealed (no work.complete) from a hard early crash that
+			// never got going. Both respawn (we cannot seal on the agent's behalf), but
+			// the unsealed variant gets a distinct class, a smaller requeue budget, and
+			// an inspect-the-worktree escalation remediation. The signal is coarse on
+			// purpose: it fires for any confirmed-dead agent that made an MCP tool call
+			// and emitted PTY output — whether it finished a deliverable then exited at
+			// turn-end / context-budget / rate-limit, or merely got going then died —
+			// and both populations are well served by "inspect the worktree, retry
+			// once, then escalate". Only the never-engaged early crash stays
+			// agent_pid_dead.
+			if deadAgentExitedUnsealed(activity) {
+				stallClass = stallClassAgentExitedUnsealed
+			} else {
+				stallClass = stallClassAgentPIDDead
+			}
 		}
 
 		budget, berr := readJobRecoveryBudget(ctx, tx, repositoryID, jobID)
@@ -362,6 +439,11 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		if counterColumn == "transfer_count" {
 			current = budget.transferCount
 			limit = policy.maxTransfers
+		} else if stallClass == stallClassAgentExitedUnsealed {
+			// #289: the unsealed-exit class shares the requeue_count counter but
+			// escalates after a smaller budget — a respawn rarely heals a systematic
+			// unsealed exit, so hand it to the operator sooner with a precise reason.
+			limit = policy.maxUnsealedRequeues
 		}
 		if current >= limit {
 			// Budget exhausted: do NOT act. Flag escalation_pending (Phase 4
@@ -535,6 +617,29 @@ func closeLeakedInterrogationWindow(ctx context.Context, tx db.TxRunner, reposit
 		return false, nil
 	}
 	return maybeCloseInterrogationTarget(ctx, tx, repositoryID, runID, sessionID)
+}
+
+// deadAgentExitedUnsealed reports whether a confirmed-dead supervised agent had
+// engaged the work protocol and produced output but never sealed it with
+// work.complete (#289). The signal is: no work.complete for the owning session,
+// AND it both made at least one MCP tool call (LastToolCall* — stamped by any
+// tools/call: work.claim_next / await_packet / ack / heartbeat / publish) and
+// emitted PTY output (LastPTYActivityAt). This is deliberately coarse — it does
+// NOT prove a finished deliverable; it means "claimed a packet and printed
+// something, then the process died unsealed." That covers both the
+// finished-but-unsealed self-driving exit (turn-end / context-budget / rate-limit
+// death) and the got-going-then-crashed case; recovery cannot tell them apart
+// (the issue's own premise) and both warrant the same response — a smaller budget
+// and an inspect-the-worktree escalation, never sealing on the agent's behalf
+// (attestation forbids it). Only the never-engaged early crash (no tool call or
+// no output) stays the generic agent_pid_dead class.
+func deadAgentExitedUnsealed(activity sessionliveness.Activity) bool {
+	if activity.LastWorkCompleteAt != nil {
+		return false
+	}
+	engagedProtocol := activity.LastToolCallStartedAt != nil || activity.LastToolCallFinishedAt != nil
+	producedOutput := activity.LastPTYActivityAt != nil
+	return engagedProtocol && producedOutput
 }
 
 // supervisedAgentConfirmedDead reports whether the owning session's supervised

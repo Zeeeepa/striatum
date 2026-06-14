@@ -80,24 +80,20 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 		// (RFC 0062 — the daemon does not author markdown). It names the stuck
 		// job, the stall class, the recovery counters, and concrete next actions.
 		payload := map[string]any{
-			"schema_version":       "striatum.recovery_escalation.v1",
-			"source":               "recovery.escalate_exhausted",
-			"is_escalation":        true,
-			"blocker_kind":         recoveryExhaustedBlockerKind,
-			"severity":             "blocked",
-			"stuck_job":            workflowJobID,
-			"job_id":               jobID,
-			"stall_class":          stallClass,
-			"last_recovery_action": lastAction,
-			"requeue_count":        requeueCount,
-			"transfer_count":       transferCount,
-			"respawn_count":        respawnCount,
-			"recovery_attempts":    recoveryAttempts,
-			"suggested_operator_actions": []any{
-				"re-prepare with corrected write_scope",
-				"transfer to a fresh session (session close --requeue-job / recovery requeue-stale --force)",
-				"cancel the run",
-			},
+			"schema_version":             "striatum.recovery_escalation.v1",
+			"source":                     "recovery.escalate_exhausted",
+			"is_escalation":              true,
+			"blocker_kind":               recoveryExhaustedBlockerKind,
+			"severity":                   "blocked",
+			"stuck_job":                  workflowJobID,
+			"job_id":                     jobID,
+			"stall_class":                stallClass,
+			"last_recovery_action":       lastAction,
+			"requeue_count":              requeueCount,
+			"transfer_count":             transferCount,
+			"respawn_count":              respawnCount,
+			"recovery_attempts":          recoveryAttempts,
+			"suggested_operator_actions": suggestedOperatorActions(stallClass),
 		}
 		payloadArg, err := db.JSONBArg(tx, payload)
 		if err != nil {
@@ -189,4 +185,25 @@ func escalatedJobIDs(raised []map[string]any) []any {
 		ids = append(ids, r["job_id"])
 	}
 	return ids
+}
+
+// suggestedOperatorActions returns the operator-actionable next steps for an
+// exhausted-recovery escalation, specialized by stall class. The unsealed-exit
+// class (#289) gets distinct advice because the deliverable may already be
+// present in the per-job worktree — the agent produced it but never sealed it —
+// so the operator should inspect before assuming the work is lost. Every other
+// class (including an empty class) gets the generic remediation set.
+func suggestedOperatorActions(stallClass string) []any {
+	if stallClass == stallClassAgentExitedUnsealed {
+		return []any{
+			"inspect the per-job worktree / published artifacts: the agent emitted output but exited before work.complete, so the work may be complete-but-unsealed",
+			"re-drive the run to respawn the lane so it can re-author and seal (work.complete) the deliverable",
+			"capture the worktree diff if the deliverable is already present, then cancel the run",
+		}
+	}
+	return []any{
+		"re-prepare with corrected write_scope",
+		"transfer to a fresh session (session close --requeue-job / recovery requeue-stale --force)",
+		"cancel the run",
+	}
 }
