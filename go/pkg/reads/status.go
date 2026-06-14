@@ -557,10 +557,27 @@ func statusLatestNonAccepting(ctx context.Context, runner db.Runner, repositoryI
 		where += " AND v.run_id = $2"
 		args = append(args, runID)
 	}
-	return collectRows(ctx, runner,
+	rows, err := collectRows(ctx, runner,
+		// #282: also report whether the work this review covers was REVISED after
+		// the verdict was recorded — an upstream job the review depends on published
+		// an artifact newer than the verdict. That is the stale-review case (a build
+		// re-implemented after a needs_revision, but this reviewer's verdict was
+		// never refreshed) that silently blocks finalization with an
+		// otherwise-complete job graph. Surfacing it lets status hand the operator a
+		// precise recovery action instead of a buried verdict row.
 		`SELECT DISTINCT ON (v.job_id)
 		        v.verdict_id, v.run_id, v.job_id, j.workflow_job_id,
-		        v.verdict, v.posture, v.created_at
+		        v.verdict, v.posture, v.created_at,
+		        EXISTS (
+		          SELECT 1
+		            FROM striatumd.job_dependencies dep
+		            JOIN striatumd.artifacts a
+		              ON a.repository_id = dep.repository_id
+		             AND a.job_id = dep.depends_on_job_id
+		           WHERE dep.repository_id = v.repository_id
+		             AND dep.job_id = v.job_id
+		             AND a.created_at > v.created_at
+		        ) AS upstream_revised_after_verdict
 		   FROM striatumd.verdicts v
 		   JOIN striatumd.jobs j
 		     ON j.repository_id = v.repository_id
@@ -569,6 +586,24 @@ func statusLatestNonAccepting(ctx context.Context, runner db.Runner, repositoryI
 		  ORDER BY v.job_id, v.created_at DESC, v.verdict_id DESC`,
 		args...,
 	)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		jobID := stringFrom(row, "job_id")
+		workflowJobID := stringFrom(row, "workflow_job_id")
+		verdict := stringFrom(row, "verdict")
+		if row["upstream_revised_after_verdict"] == true {
+			row["recovery_action"] = fmt.Sprintf(
+				"stale review: %s was revised after this %s verdict — rerun review job %s (run.retry_job), or supersede the verdict via `recovery invalidate-job %s <decision_id>` after recording the decision. Finalization stays blocked until this review's latest verdict is accepting.",
+				workflowJobID, verdict, jobID, jobID)
+		} else {
+			row["recovery_action"] = fmt.Sprintf(
+				"non-accepting review %s (%s): address the findings and rerun, or accept-with-override via `override-verdict`.",
+				workflowJobID, verdict)
+		}
+	}
+	return rows, nil
 }
 
 func statusVerdictsByPosture(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]map[string]int, error) {
