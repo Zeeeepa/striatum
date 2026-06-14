@@ -546,7 +546,12 @@ func statusBlockers(ctx context.Context, runner db.Runner, repositoryID, runID, 
 }
 
 func statusLatestNonAccepting(ctx context.Context, runner db.Runner, repositoryID, runID string) ([]map[string]any, error) {
-	where := "v.repository_id = $1 AND v.verdict NOT IN ('accept', 'accept_with_findings')"
+	// #283: a non-accepting verdict that was superseded via
+	// `recovery invalidate-job ... <decision_id>` (sets
+	// superseded_by_decision_id) is no longer operator-actionable; a later
+	// accepting verdict resolved the revision cycle. Exclude superseded rows so
+	// status does not report a completed run as still needing a revision.
+	where := "v.repository_id = $1 AND v.verdict NOT IN ('accept', 'accept_with_findings') AND v.superseded_by_decision_id IS NULL"
 	args := []any{repositoryID}
 	if runID != "" {
 		where += " AND v.run_id = $2"

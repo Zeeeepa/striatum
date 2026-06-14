@@ -126,6 +126,7 @@ func dashboardAllStatus(ctx context.Context, runner db.Runner, repositoryID stri
 		     ON j.repository_id = v.repository_id
 		    AND j.job_id = v.job_id
 		  WHERE v.repository_id = $1 AND v.verdict NOT IN ('accept', 'accept_with_findings')
+		    AND v.superseded_by_decision_id IS NULL
 		  ORDER BY v.job_id, v.created_at DESC, v.verdict_id DESC`,
 		repositoryID,
 	)
