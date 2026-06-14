@@ -1,6 +1,6 @@
 # RFC 0125: Durable Gate Artifact Provenance — daemon-owned last-mile, body-reconstructability completion gate, same-attempt reseal
 
-Status: proposed
+Status: accepted (D192)
 Date: 2026-06-14
 author: proposer-claude-opus-4-8-001
 Context: RFC 0118 / D-pending#240 (gate run completion on attested provenance — the
