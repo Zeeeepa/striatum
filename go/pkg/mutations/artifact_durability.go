@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -26,30 +27,76 @@ type artifactDurabilityCheck struct {
 	Worktree     map[string]any
 }
 
-func ensurePerJobPublishedArtifactsDurable(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) error {
+// publishedArtifactDurabilityProbe is the shared prefix for the durability
+// surfaces: it resolves the active worktree and returns the durability problems
+// for the job's published repo-write artifacts. done=true means the caller
+// should simply return err (a no-op for non-repo-write / no-worktree-required
+// jobs, or the worktreeRequiredError when the worktree is gone).
+func publishedArtifactDurabilityProbe(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) (artifactDurabilityCheck, []publishedArtifactDurabilityProblem, bool, error) {
 	if !isRepoWrite(job) {
-		return nil
+		return artifactDurabilityCheck{}, nil, true, nil
 	}
 	required, worktree, err := worktreeRequirementForJob(ctx, runner, repositoryID, job)
 	if err != nil {
-		return err
+		return artifactDurabilityCheck{}, nil, true, err
 	}
 	if !required {
-		return nil
+		return artifactDurabilityCheck{}, nil, true, nil
 	}
 	if worktree == nil {
-		return worktreeRequiredError(job, surface)
+		return artifactDurabilityCheck{}, nil, true, worktreeRequiredError(job, surface)
 	}
 	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
 	if err != nil {
-		return err
+		return artifactDurabilityCheck{}, nil, true, err
 	}
-	problems, err := publishedArtifactDurabilityProblems(ctx, runner, artifactDurabilityCheck{
+	check := artifactDurabilityCheck{
 		RepositoryID: repositoryID,
 		RepoRoot:     repoRoot,
 		Job:          job,
 		Worktree:     worktree,
-	})
+	}
+	problems, err := publishedArtifactDurabilityProblems(ctx, runner, check)
+	if err != nil {
+		return check, nil, true, err
+	}
+	return check, problems, false, nil
+}
+
+// ensurePerJobPublishedArtifactsDurable is the read-only durability GATE: it
+// refuses when a published repo-write artifact body is not reconstructable from
+// the worktree HEAD. It performs no remediation, so recovery surfaces
+// (recovery.reseal, recovery.resume --complete) use it as a pure check —
+// completion advances only once the body is genuinely durable.
+func ensurePerJobPublishedArtifactsDurable(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) error {
+	_, problems, done, err := publishedArtifactDurabilityProbe(ctx, runner, repositoryID, job, surface)
+	if done {
+		return err
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return publishedArtifactsNotDurableError(surface, job, problems)
+}
+
+// ensurePublishedArtifactsDurableWithPorter is the work.complete variant: when a
+// published body is not yet durable it invokes the daemon-as-porter (RFC 0125,
+// D192) to force-add + commit the artifact files the lane wrote into the
+// (possibly detached / ignored) per-job worktree, then re-probes. This is scoped
+// to the lane completion path on purpose — a lane should not have to commit its
+// own publication (git.commit_apply refuses the detached worktree, #281; `git
+// add` skips a repo-ignored declared path, #278). Anything still not durable
+// (the lane could not write the worktree at all, #272) remains a residual the
+// operator resolves out of band, then recovery.reseal.
+func ensurePublishedArtifactsDurableWithPorter(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) error {
+	check, problems, done, err := publishedArtifactDurabilityProbe(ctx, runner, repositoryID, job, surface)
+	if done {
+		return err
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	problems, err = porterCommitWorktreeArtifacts(ctx, runner, repositoryID, job, check, problems)
 	if err != nil {
 		return err
 	}
@@ -57,6 +104,67 @@ func ensurePerJobPublishedArtifactsDurable(ctx context.Context, runner any, repo
 		return nil
 	}
 	return publishedArtifactsNotDurableError(surface, job, problems)
+}
+
+// porterCommitWorktreeArtifacts is the daemon-as-porter last-mile commit
+// (RFC 0125, D192). For each still-undurable published artifact whose body the
+// lane DID write into the per-job worktree, the daemon force-adds it (past the
+// target repo's ignore rules — #278) and commits it onto the worktree's
+// possibly-detached HEAD (#281), then re-probes durability. It deliberately
+// commits only the declared artifact paths (a targeted `git add -f -- <path>`),
+// never the whole worktree, and returns the residual problems for any artifact
+// whose file is absent on disk (the lane could not enter the worktree, #272 —
+// not remediable here). The subsequent anchorActiveWorktreeForJob in the
+// completion flow advances the durable run ref over the new commit.
+func porterCommitWorktreeArtifacts(ctx context.Context, runner any, repositoryID string, job map[string]any, check artifactDurabilityCheck, problems []publishedArtifactDurabilityProblem) ([]publishedArtifactDurabilityProblem, error) {
+	target, err := worktreeTarget(check.RepoRoot, fmt.Sprint(check.Worktree["worktree_path"]))
+	if err != nil {
+		return problems, err
+	}
+	staged := 0
+	for _, problem := range problems {
+		if problem.Reason != "missing_from_head" && problem.Reason != "head_content_mismatch" {
+			continue
+		}
+		repoPath, ok := cleanDurableArtifactPath(problem.RepoPath)
+		if !ok {
+			continue
+		}
+		if _, statErr := os.Stat(filepath.Join(target, filepath.FromSlash(repoPath))); statErr != nil {
+			// The lane never managed to write the body into the worktree (#272);
+			// the porter cannot reconstruct it from here.
+			continue
+		}
+		added, err := runGitWorktreeCommand(ctx, target, "add", "-f", "--", repoPath)
+		if err != nil {
+			return problems, err
+		}
+		if added.ExitCode != 0 {
+			continue
+		}
+		staged++
+	}
+	if staged == 0 {
+		return problems, nil
+	}
+	// Nothing to commit means the staged paths already matched HEAD; re-probe
+	// rather than failing an empty commit.
+	if diff, err := runGitWorktreeCommand(ctx, target, "diff", "--cached", "--quiet"); err != nil {
+		return problems, err
+	} else if diff.ExitCode == 0 {
+		return publishedArtifactDurabilityProblems(ctx, runner, check)
+	}
+	committed, err := runGitWorktreeCommand(ctx, target,
+		"-c", "user.name=striatum-porter", "-c", "user.email=porter@striatum.local",
+		"commit", "-m", fmt.Sprintf("striatum: durable artifact publication (job %s)", fmt.Sprint(job["job_id"])))
+	if err != nil {
+		return problems, err
+	}
+	if committed.ExitCode != 0 {
+		return problems, rpc.NewError("invalid_transition",
+			gitWorktreeErrorMessage("daemon-porter commit failed", committed), nil)
+	}
+	return publishedArtifactDurabilityProblems(ctx, runner, check)
 }
 
 func publishedArtifactDurabilityProblems(ctx context.Context, runner any, check artifactDurabilityCheck) ([]publishedArtifactDurabilityProblem, error) {

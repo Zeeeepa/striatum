@@ -934,7 +934,16 @@ func TestWorktreeCompletionDirtyCheckUsesActiveWorktreeNotPrimaryCheckout(t *tes
 	}
 }
 
-func TestWorktreeCompleteRefusesPublishedArtifactOnlyInUncommittedWorktree(t *testing.T) {
+// RFC 0125 daemon-as-porter (#278/#281, D192): a published artifact whose body
+// the lane wrote into the per-job worktree but could not commit itself
+// (git.commit_apply refuses the detached HEAD; `git add` skips a declared path
+// the repo ignores) is now made durable by the DAEMON at completion — it
+// force-adds and commits the published path on the worktree HEAD — so
+// work.complete SUCCEEDS rather than refusing. (Before RFC 0125 this refused
+// with a durability error; the porter removes that lane burden. The body-absent
+// case — the lane could not write the worktree at all, #272 — still refuses; see
+// TestPorterLeavesResidualWhenBodyAbsent.)
+func TestWorktreeCompletePortersUncommittedPublishedArtifact(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
 	}
@@ -951,28 +960,24 @@ func TestWorktreeCompleteRefusesPublishedArtifactOnlyInUncommittedWorktree(t *te
 	}
 	seedPublishedArtifact(t, ctx, runner, ids, "art_uncommitted", "out", "docs/out.txt", payload, nil)
 
-	_, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
+	result, err := HandleCompleteWork(ctx, runner, intgEnv(ids.repoID, map[string]any{
 		"session_id": ids.sessionID,
 		"job_id":     ids.jobID,
 		"lease_id":   ids.leaseID,
 		"summary":    "done",
 	}))
-	var rpcErr *rpc.Error
-	if !errors.As(err, &rpcErr) || rpcErr.Code != "invalid_transition" ||
-		!strings.Contains(rpcErr.Message, "published artifact content is not durable") {
-		t.Fatalf("complete error = %v, want artifact durability refusal", err)
-	}
-	if got := jobState(t, ctx, runner, ids.repoID, ids.jobID); got != "running" {
-		t.Fatalf("job state = %q, want running after refused completion", got)
-	}
-	row, err := oneRow(ctx, runner, `
-		SELECT state FROM striatumd.job_worktrees
-		 WHERE repository_id = $1 AND worktree_id = $2`, ids.repoID, ids.worktreeID)
 	if err != nil {
-		t.Fatalf("read worktree row: %v", err)
+		t.Fatalf("complete should succeed via the daemon-porter, got: %v", err)
 	}
-	if row["state"] != "active" {
-		t.Fatalf("worktree state = %#v, want active", row["state"])
+	if result["status"] != "completed" {
+		t.Fatalf("complete result = %#v, want completed", result)
+	}
+	if got := jobState(t, ctx, runner, ids.repoID, ids.jobID); got != "completed" {
+		t.Fatalf("job state = %q, want completed after porter remediation", got)
+	}
+	// The porter made the published body durable in the worktree HEAD.
+	if got := gitRun(t, ids.worktreeRoot, "show", "HEAD:docs/out.txt"); strings.TrimSpace(got) != strings.TrimSpace(string(payload)) {
+		t.Fatalf("HEAD:docs/out.txt = %q, want %q (porter should have committed it)", got, payload)
 	}
 }
 
