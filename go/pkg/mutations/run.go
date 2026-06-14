@@ -120,6 +120,18 @@ func HandleRunStart(ctx context.Context, runner db.Runner, envelope rpc.Envelope
 			if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.started", nil, nil, nil, nil, nil, nil); err != nil {
 				return nil, err
 			}
+			// RFC 0122: when the snapshot opts any lane into supervision.auto_spawn,
+			// capture the run-owner's pre-authorization grant atomically with the run
+			// becoming `running`. The daemon scheduler later REPLAYS this grant to
+			// spawn lanes with no operator RPC — it never invents authority. Resolving
+			// run-as here (the operator's live request) and refusing loudly on an
+			// unresolved identity is the gate RFC 0122 §4 requires.
+			if workflowHasAutoSpawnLane(workflow) {
+				ownerPrincipalID := db.AuthorityFromContext(ctx).PrincipalID
+				if err := captureSpawnAuthorizationGrant(ctx, tx, repositoryID, runID, ownerPrincipalID); err != nil {
+					return nil, err
+				}
+			}
 		}
 		result := map[string]any{"run_id": runID, "state": "running"}
 		if len(warnings) > 0 {

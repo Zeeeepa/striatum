@@ -81,11 +81,16 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"runs":                           ClassRuntimeDML,
 	"scheduler_cursors":              ClassRuntimeDML,
 	"sessions":                       ClassRuntimeDML,
-	"trajectory_segments":            ClassRuntimeDML,
-	"verdicts":                       ClassRuntimeDML,
-	"work_packets":                   ClassRuntimeDML,
-	"workflow_accepted_risks":        ClassRuntimeDML,
-	"workflow_snapshots":             ClassRuntimeDML,
+	// spawn_authorization_grants (RFC 0122, migration 0027): the daemon
+	// captures a grant at run.start and revokes it (UPDATE revoked_at) at run
+	// terminal / run.stop. Live authorization state, direct runtime DML — like
+	// leases/sessions, not an append-only provenance surface.
+	"spawn_authorization_grants": ClassRuntimeDML,
+	"trajectory_segments":        ClassRuntimeDML,
+	"verdicts":                   ClassRuntimeDML,
+	"work_packets":               ClassRuntimeDML,
+	"workflow_accepted_risks":    ClassRuntimeDML,
+	"workflow_snapshots":         ClassRuntimeDML,
 }
 
 // ClassifyTable returns the write-authority classification of a striatumd.*

@@ -188,6 +188,13 @@ func persistRunCompletionRecord(ctx context.Context, runner any, repositoryID, r
 // terminal transaction, before the runs.state UPDATE and before
 // closeRemainingSessions.
 func freezeRunCompletionRecord(ctx context.Context, runner any, repositoryID, runID, terminalState, closingReason string, extra map[string]any, eventPayload map[string]any) (map[string]any, error) {
+	// RFC 0122 §6: a terminal run can never be auto-spawned again. Revoke its
+	// spawn-authorization grant at the single finalization chokepoint so every
+	// terminal path (complete/fail/cancel/compromise) drops the grant — defense in
+	// depth beside the scheduler's own terminal-state predicate.
+	if err := revokeSpawnAuthorizationGrant(ctx, runner, repositoryID, runID, "run_"+terminalState); err != nil {
+		return nil, err
+	}
 	record, err := buildRunCompletionRecord(ctx, runner, repositoryID, runID, terminalState, closingReason, extra)
 	if err != nil {
 		return nil, err
