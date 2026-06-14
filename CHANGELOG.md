@@ -21,8 +21,43 @@
   read-only artifact federation; achieve cross-repo outcomes by decomposition;
   decline first-class multi-repo atomic writes (recorded as a deferred option).
   `docs/rfcs/0128-cross-repo-run-boundary.md`.
+- **#287 opt-in source-change publish (D197).** A repo-write job may set
+  `write_scope.publish_source_changes=true`; `work.complete` then commits the
+  lane's in-scope source edits to the run branch alongside its declared
+  artifacts. The git-worktree form of RFC 0127 P1's daemon-owned change-set
+  commit, brought forward opt-in so the `code_change` dogfood pipeline produces
+  reviewable code on the run branch.
+- **#289 unsealed-agent-exit recovery policy (D198).** A confirmed-dead agent
+  that produced output but never sealed (`work.complete`) is classified
+  `agent_exited_unsealed`, distinct from a hard crash, with a smaller requeue
+  budget and an inspect-the-worktree escalation.
 
 ### Added
+
+- **#287 source-change publish to the run branch.** `publishWorktreeSourceChanges`
+  at `work.complete` commits a per-job-isolated repo-write job's in-scope source
+  edits (the exact complement of the write-scope violation set) to the run branch
+  via the RFC 0125 porter plumbing, emitting a bounded `job.source_changes_published`
+  provenance event. The generator opts `code_change` repo-write jobs in by default
+  (`enableSourceChangePublish`); legacy default (declared artifacts only) is
+  unchanged without the flag.
+- **#289 `agent_exited_unsealed` recovery class.** New stall class + recovery
+  budget (`recovery_policy.max_unsealed_requeues`, default 1) for a confirmed-dead
+  agent that produced output without `work.complete`; confirmed-dead agents are
+  excluded from the CASE 2 stalled-transfer path so a delayed sweep cannot
+  misroute them to the larger transfer budget.
+
+### Changed
+
+- **#288 `workflow generate` DX.** `--scaffold-root` (and generated scaffold
+  targets) may live under `.striatum/scratch/`; `--option workflow_id` /
+  `artifact_root` / `scaffold_root` route to the matching top-level field; missing
+  lane commands report in one batched error with a JSON-array `--option` hint
+  surfaced in CLI + JSON output; a generated `single_agent`/`author_reviewer`
+  `code_change` scaffold validates out of the box (repo-write lanes get
+  `worktree_isolation: per_job`; `single_agent` records the structural same-model
+  review acceptance). `templates show single_agent`/`author_reviewer` carry a
+  worked `usage_example`.
 
 - **RFC 0125 P0-3 — body-reconstructability completion gate (#285).** The
   fail-closed gate the campaign deferred: `verifyRequiredArtifactReconstructable`

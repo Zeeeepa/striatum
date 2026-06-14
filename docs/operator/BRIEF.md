@@ -23,8 +23,19 @@ not yet cut** (deliberately — package the next release when ready):
   `docs/operator/plans/provenance-durability-campaign-2026-06-14.md`.
 - **Three follow-up RFCs accepted:** RFC 0126 (multi-reviewer revision
   coherence, **D194**), RFC 0127 (retire the lane git identity, **D195**),
-  RFC 0128 (cross-repo run boundary, **D196**). Next free D-number is **D197**.
+  RFC 0128 (cross-repo run boundary, **D196**). Next free D-number is **D199**
+  (D197/D198 taken by the #287/#289 friction fixes below).
   (Note: **D193** was taken by the hippo-S12 git-eviction taxonomy merge.)
+- **Dogfood-friction fixes #287/#288/#289 landed + closed** (`741d5c8b` #288,
+  `37276a73` #289, `fc651158` #287 — all direct fixes, code-reviewed, pgtested,
+  CI-lint clean, off `origin/main`). These fix the `code_change` dogfood pipeline
+  itself: **#288** (`workflow generate` DX — `.striatum/scratch` scaffold root,
+  `--option workflow_id/artifact_root`, batched lane-command errors, single_agent
+  code_change validates out of the box); **#289** (`agent_exited_unsealed`
+  recovery class + smaller budget + inspect-the-worktree escalation, **D198**);
+  **#287** (opt-in `write_scope.publish_source_changes` — the lane's source edits
+  land on the run branch, **D197**; generator opts `code_change` in by default).
+  The daemon (#287/#289) was restarted + verified to pick these up.
 - **#285 landed** (`579c1c34`) — RFC 0125 P0-3 body-reconstructability completion
   gate (`verifyRequiredArtifactReconstructable`, fail key
   `required_artifact_unreconstructable`, degrade ladder warns-not-wedges).
