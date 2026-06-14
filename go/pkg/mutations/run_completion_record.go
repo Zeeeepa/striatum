@@ -61,6 +61,23 @@ func buildRunCompletionRecord(ctx context.Context, runner any, repositoryID, run
 	}
 	record["verdicts"] = verdicts
 
+	// RFC 0125 P1-1 (#286): the content-addressed RUN_LEDGER — a self-contained,
+	// per-gate record of every required artifact body's reconstructability
+	// provenance (placement, content/blob sha256, git anchor ref/commit,
+	// readback_verified) plus the gate's verdict + frozen attestation. The
+	// completion record's own sha256 is anchored in the append-only terminal
+	// event, so a retrospective reconstructs every gate/verdict/SHA OFFLINE from
+	// the ledger hash alone — no live daemon archaeology. Assembled only for a
+	// completed run (the audit case); a canceled/failed run's bodies may
+	// legitimately be absent.
+	if terminalState == "completed" {
+		runLedger, err := buildRunArtifactLedger(ctx, runner, repositoryID, runID)
+		if err != nil {
+			return nil, err
+		}
+		record["run_ledger"] = runLedger
+	}
+
 	sessionRows, err := queryRows(ctx, runner, `
 		SELECT session_id, role_id, lane_id, state, close_reason,
 		       registered_at, closed_at, last_pty_activity_at
@@ -211,4 +228,65 @@ func freezeRunCompletionRecord(ctx context.Context, runner any, repositoryID, ru
 	}
 	eventPayload["completion_record_sha256"] = digest
 	return eventPayload, nil
+}
+
+// buildRunArtifactLedger assembles the RFC 0125 P1-1 RUN_LEDGER (#286): one
+// self-contained entry per completed verdict-capable job (review /
+// phase_synthesis), carrying its latest non-superseded verdict + frozen
+// attestation and the reconstructability provenance of every required artifact
+// body (placement, content_sha256, blob_sha256, git_anchor_ref/commit,
+// readback_verified). It reuses verifyRequiredArtifactReconstructable (#285) so
+// the gate decision and the durable ledger walk the same required-artifact set.
+func buildRunArtifactLedger(ctx context.Context, runner any, repositoryID, runID string) ([]map[string]any, error) {
+	jobs, err := queryRows(ctx, runner, `
+		SELECT job_id, workflow_job_id, job_type, attempt
+		  FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2
+		   AND state = 'completed'
+		   AND job_type IN ('review','phase_synthesis')
+		 ORDER BY created_at, job_id`, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	ledger := make([]map[string]any, 0, len(jobs))
+	for _, j := range jobs {
+		jobID := fmt.Sprint(j["job_id"])
+		entry := map[string]any{
+			"workflow_job_id": j["workflow_job_id"],
+			"job_id":          jobID,
+			"job_type":        j["job_type"],
+			"attempt":         j["attempt"],
+		}
+		// The ledger is provenance RECORDING, not a gate — the gate already ran in
+		// verifyRunCompletionProvenance. A per-job probe fault here must never roll
+		// back a completion the gate approved, so record it and continue rather
+		// than propagating the error up the terminal-transaction path.
+		if job, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, false); err != nil {
+			entry["ledger_probe_error"] = err.Error()
+		} else if recon, err := verifyRequiredArtifactReconstructable(ctx, runner, repositoryID, job); err != nil {
+			entry["ledger_probe_error"] = err.Error()
+		} else if len(recon) > 0 {
+			entry["artifacts"] = reconstructionLedgerEntries(recon)
+		}
+		verdict, vErr := oneRow(ctx, runner, `
+			SELECT verdict_id, verdict, posture, lane_attestation_at_record
+			  FROM striatumd.verdicts
+			 WHERE repository_id = $1 AND job_id = $2
+			   AND superseded_by_decision_id IS NULL
+			 ORDER BY created_at DESC, verdict_id DESC
+			 LIMIT 1`, repositoryID, jobID)
+		switch {
+		case errors.Is(vErr, pgx.ErrNoRows):
+			// no verdict (e.g. dissent absorbed downstream) — leave verdict fields unset
+		case vErr != nil:
+			return nil, vErr
+		default:
+			entry["verdict_id"] = verdict["verdict_id"]
+			entry["verdict"] = verdict["verdict"]
+			entry["posture"] = verdict["posture"]
+			entry["lane_attestation_at_record"] = nullable(verdict["lane_attestation_at_record"])
+		}
+		ledger = append(ledger, entry)
+	}
+	return ledger, nil
 }
