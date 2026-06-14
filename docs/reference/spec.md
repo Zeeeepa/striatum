@@ -570,7 +570,7 @@ blocked until the review accepts) plus run-completion semantics; no
 separate runtime gate is added in V1.
 
 > Design rationale: [RFC 0018](../rfcs/0018-focused-adversarial-review-postures.md);
-> see also [`docs/dogfood/016/decisions/V1_ACCEPTANCE.md`](../dogfood/016/decisions/V1_ACCEPTANCE.md)
+> see also `docs/dogfood/016/decisions/V1_ACCEPTANCE.md`
 > for the lifecycle re-cast (D069).
 
 #### Reviewer Independence (advisory)

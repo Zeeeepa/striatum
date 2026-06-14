@@ -48,7 +48,7 @@ Start here:
 
 ## Reviews
 
-- [reviews/](reviews/) — review findings, ledgers, and syntheses.
+- [reviews/](_archive/reviews/) — review findings, ledgers, and syntheses.
 
 ## Prompts
 

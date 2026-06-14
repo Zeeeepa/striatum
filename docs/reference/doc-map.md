@@ -73,7 +73,7 @@ When two docs disagree, the home wins.
   - **Consequences:** observable surface change + version bump.
     Cite the RFC and the dogfood BUILD_HANDOFF for the full
     surface, e.g. `See [RFC 0020](../rfcs/0020-autonomous-stalled-run-recovery.md)
-    and [dogfood-014](dogfood/014/BUILD_HANDOFF.md).`
+    and dogfood-014.`
   - **Revisit trigger:** when the decision should be revisited.
 - **What it doesn't:** test names, function signatures,
   per-file change lists, multi-paragraph rationale. Those live

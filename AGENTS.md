@@ -130,8 +130,8 @@ Examples live under `examples`. Historical execution prompts live under
   change — `docs/reference/spec.md`, `docs/reference/todo.md`, the decision log,
   `CHANGELOG.md`, and `docs/operator/BRIEF.md`. `make check-docs` flags broken
   local doc links (frozen provenance under `docs/rfcs/`, `docs/_archive/`, and
-  similar is excluded via `.check-docs-ignore`); a living-doc link backlog
-  remains to burn down before it can join `make check`.
+  similar is excluded via `.check-docs-ignore`). It currently passes; keep it
+  green (it can be promoted into `make check` when the team is ready).
 
 ## Historical Prompts
 
