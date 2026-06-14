@@ -104,6 +104,8 @@ func main() {
 	var migrationsSHASource string
 	var sweepIntervalSeconds float64
 	var maxSweeps optionalIntFlag
+	var autoSpawnScheduler bool
+	var autoSpawnIntervalSeconds float64
 	var agentLoop bool
 	var checkConfig bool
 	var mcpHTTPAddr string
@@ -123,6 +125,8 @@ func main() {
 	flag.StringVar(&migrationsSHASource, "migrations-sha-source", "", "verify embedded migration SHAs against SQL files at this path before serving")
 	flag.Float64Var(&sweepIntervalSeconds, "sweep-interval-seconds", 60.0, "seconds between resident recovery sweeps")
 	flag.Var(&maxSweeps, "max-sweeps", "maximum resident recovery sweeps before exiting; when set to 0, one startup sweep still runs")
+	flag.BoolVar(&autoSpawnScheduler, "auto-spawn-scheduler", envBool("STRIATUM_AUTO_SPAWN_SCHEDULER"), "RFC 0122 (#212): run the daemon-side supervision.auto_spawn scheduler that spawns a run's lanes from its captured run-owner grant with no operator RPC. Default OFF — the daemon-initiated-spawn product boundary is opt-in per deployment, in addition to the per-lane auto_spawn opt-in.")
+	flag.Float64Var(&autoSpawnIntervalSeconds, "auto-spawn-interval-seconds", 5.0, "seconds between auto_spawn scheduler sweeps (only when --auto-spawn-scheduler is set)")
 	flag.Parse()
 	if socketPath != "" {
 		_ = os.Setenv(agentloop.EnvDaemonSocket, socketPath)
@@ -369,6 +373,11 @@ func main() {
 		fatalf("grant lane access to daemon socket: %v", err)
 	}
 	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
+	var autoSpawnErr <-chan error
+	if autoSpawnScheduler {
+		log.Printf("striatumd-go auto_spawn scheduler enabled (RFC 0122); sweeping every %.0fs", autoSpawnIntervalSeconds)
+		autoSpawnErr = startAutoSpawnScheduler(ctx, cancel, runner, autoSpawnIntervalSeconds)
+	}
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
@@ -388,6 +397,15 @@ func main() {
 				stopMCPHTTP()
 			}
 			fatalf("recovery scheduler: %v", err)
+		}
+	}
+	if autoSpawnErr != nil {
+		err := <-autoSpawnErr
+		if err != nil && !errors.Is(err, context.Canceled) {
+			if stopMCPHTTP != nil {
+				stopMCPHTTP()
+			}
+			fatalf("auto_spawn scheduler: %v", err)
 		}
 	}
 }
@@ -722,6 +740,34 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 				cancel()
 			}
 		} else if !errors.Is(err, context.Canceled) {
+			cancel()
+		}
+		done <- err
+	}()
+	return done
+}
+
+// startAutoSpawnScheduler runs the RFC 0122 supervision.auto_spawn scheduler on
+// the resident scheduler loop (modeled on startRecoveryScheduler): each tick
+// reconciles every running run that holds an active spawn-authorization grant,
+// spawning its queued auto_spawn lanes under the captured run owner. A sweep
+// error is logged and backed off (a poisoned spawn is also recorded as a degraded
+// scheduler cursor); only an unrecoverable scheduler error cancels the daemon.
+func startAutoSpawnScheduler(ctx context.Context, cancel context.CancelFunc, runner db.Runner, intervalSeconds float64) <-chan error {
+	done := make(chan error, 1)
+	interval := time.Duration(intervalSeconds * float64(time.Second))
+	go func() {
+		_, err := recoverypkg.RunScheduler(ctx, recoverypkg.SchedulerOptions{
+			Interval: interval,
+			SweepOnce: recoverypkg.AutoSpawnSweep{
+				Runner: runner,
+				Author: "striatumd-go",
+			}.SweepOnce,
+			OnSweepError: func(err error) {
+				log.Printf("auto_spawn scheduler sweep failed; backing off until next interval: %v", err)
+			},
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
 			cancel()
 		}
 		done <- err
