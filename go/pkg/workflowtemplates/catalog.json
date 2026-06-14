@@ -287,7 +287,8 @@
       "display_name": "Separate author and reviewer",
       "summary": "Authoring jobs and review jobs bind to separate lanes.",
       "recommended_for": ["independent review for a code or docs change"],
-      "required_options": ["lanes.author.command", "lanes.reviewer.command"]
+      "required_options": ["lanes.author.command", "lanes.reviewer.command"],
+      "usage_example": "striatum workflow generate --shape code_change --lane-set author_reviewer --option 'lanes.author.command=[\"claude\",\"--dangerously-skip-permissions\"]' --option 'lanes.reviewer.command=[\"codex\"]'"
     },
     {
       "template_id": "custom",
@@ -319,7 +320,8 @@
       "display_name": "Single agent",
       "summary": "One real agent session handles the whole workflow.",
       "recommended_for": ["small low-risk work", "early adoption"],
-      "required_options": ["lanes.agent.command"]
+      "required_options": ["lanes.agent.command"],
+      "usage_example": "striatum workflow generate --shape code_change --lane-set single_agent --option 'lanes.agent.command=[\"claude\",\"--dangerously-skip-permissions\"]'  # repo-write per-job isolation and the structural same-model review pairing are applied automatically"
     }
   ],
   "role_packs": [

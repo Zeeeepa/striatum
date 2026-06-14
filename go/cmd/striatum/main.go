@@ -534,6 +534,22 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 				_, _ = fmt.Fprintf(stderr, "--option must be key=value, got %q\n", kv)
 				return 2
 			}
+			// #288: the catalog advertises top-level spec fields (workflow_id,
+			// artifact_root) in a shape's required_options, so an operator naturally
+			// reaches for `--option artifact_root=...`. Route those recognized keys to
+			// the same destination as the dedicated flag instead of rejecting them as
+			// unknown generator options.
+			switch optKey {
+			case "workflow_id":
+				workflowID = optVal
+				continue
+			case "artifact_root":
+				artifactRoot = optVal
+				continue
+			case "scaffold_root":
+				scaffoldRoot = optVal
+				continue
+			}
 			// #187: lane-spec keys the catalog advertises in a lane set's
 			// required_options (e.g. lanes.author.command) route into spec.lanes,
 			// not the options allowlist. The value for argv-array lane keys
@@ -850,17 +866,33 @@ func refuseSameModelLint(workflow map[string]any) error {
 }
 
 func outputWorkflowValidateError(stdout io.Writer, stderr io.Writer, jsonOutput bool, code string, err error, exitCode int) int {
+	errObj := map[string]any{
+		"code":    code,
+		"message": err.Error(),
+	}
+	// #288: generator errors carry a copy-pasteable Hint (e.g. the JSON-array
+	// `--option lanes.<id>.command=...` shape) and the offending field path. Surface
+	// them so the operator gets the fix in one shot instead of guess-and-retry.
+	var genErr *workflowgenerate.Error
+	if errors.As(err, &genErr) {
+		if genErr.FieldPath != "" {
+			errObj["field"] = genErr.FieldPath
+		}
+		if genErr.Hint != "" {
+			errObj["hint"] = genErr.Hint
+		}
+		if genErr.Ref != "" {
+			errObj["ref"] = genErr.Ref
+		}
+	}
 	if jsonOutput {
-		_ = writeJSON(stdout, map[string]any{
-			"ok": false,
-			"error": map[string]any{
-				"code":    code,
-				"message": err.Error(),
-			},
-		}, stderr)
+		_ = writeJSON(stdout, map[string]any{"ok": false, "error": errObj}, stderr)
 		return exitCode
 	}
 	_, _ = fmt.Fprintln(stderr, err.Error())
+	if genErr != nil && genErr.Hint != "" {
+		_, _ = fmt.Fprintln(stderr, "hint: "+genErr.Hint)
+	}
 	return exitCode
 }
 

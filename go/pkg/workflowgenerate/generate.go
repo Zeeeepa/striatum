@@ -185,7 +185,7 @@ func SpecFromMap(raw map[string]any) (Spec, error) {
 	if err != nil {
 		return Spec{}, err
 	}
-	scaffold, err := SafeRelativePath(mustString(raw["scaffold_root"]), "spec.scaffold_root")
+	scaffold, err := SafeScaffoldRoot(mustString(raw["scaffold_root"]), "spec.scaffold_root")
 	if err != nil {
 		return Spec{}, err
 	}
@@ -391,6 +391,14 @@ func Generate(spec Spec) (Generated, error) {
 	if isCollaborationShape(spec.Shape) && spec.LaneSet == "local" {
 		workflow["allow_same_model_review_pairing"] = true
 	}
+	// #288: the single_agent lane set runs one lane that both authors and reviews,
+	// so any review/revision pairing it produces is structurally same-model and
+	// unavoidable (there is no second lane to route review to). Record the inline
+	// acceptance — matching the local-collaboration case above — so the generated
+	// single_agent code_change scaffold validates out of the box.
+	if spec.LaneSet == "single_agent" {
+		workflow["allow_same_model_review_pairing"] = true
+	}
 	if hasModifier(spec, "harness_profiled") {
 		profiles, err := harnessProfiles(spec)
 		if err != nil {
@@ -474,14 +482,30 @@ func compileLanes(spec Spec) (map[string]any, error) {
 	}
 	ids := laneIDsFor(spec)
 	lanes := map[string]any{}
+	// #288: report every lane command the lane set needs in a single error with a
+	// JSON-array example, instead of surfacing them one round-trip at a time.
+	var missing []string
 	for _, laneID := range ids {
-		body, ok := spec.Lanes[laneID]
-		if !ok {
-			return nil, genErr(fmt.Sprintf("lane_set %q requires lane %q", spec.LaneSet, laneID), "spec.lanes."+laneID)
+		if _, ok := spec.Lanes[laneID]; !ok {
+			missing = append(missing, laneID)
 		}
+	}
+	if len(missing) > 0 {
+		return nil, &Error{
+			Message:   fmt.Sprintf("lane_set %q requires lane command(s): %s", spec.LaneSet, strings.Join(missing, ", ")),
+			FieldPath: "spec.lanes",
+			Hint:      "supply each lane command as a JSON string array, e.g. " + laneCommandOptionExamples(ids),
+		}
+	}
+	for _, laneID := range ids {
+		body := spec.Lanes[laneID]
 		command, err := stringList(body["command"], "spec.lanes."+laneID+".command")
 		if err != nil || len(command) == 0 {
-			return nil, genErr("lane command must be a non-empty JSON string array", "spec.lanes."+laneID+".command")
+			return nil, &Error{
+				Message:   fmt.Sprintf("lane %q command must be a non-empty JSON string array", laneID),
+				FieldPath: "spec.lanes." + laneID + ".command",
+				Hint:      "e.g. " + laneCommandOptionExample(laneID),
+			}
 		}
 		display := fmt.Sprint(body["display_model"])
 		if display == "" || display == "<nil>" {
@@ -584,6 +608,21 @@ func laneDisablesAgentLoop(lane map[string]any) bool {
 		return !value
 	}
 	return false
+}
+
+// laneCommandOptionExample renders a copy-pasteable `--option lanes.<id>.command`
+// flag with a JSON string-array value (#288), so the generator's lane errors show
+// the exact shape the operator must pass.
+func laneCommandOptionExample(laneID string) string {
+	return fmt.Sprintf(`--option 'lanes.%s.command=["claude","--dangerously-skip-permissions"]'`, laneID)
+}
+
+func laneCommandOptionExamples(ids []string) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, laneCommandOptionExample(id))
+	}
+	return strings.Join(parts, " ")
 }
 
 func laneIDsFor(spec Spec) []string {
@@ -768,6 +807,21 @@ func ValidateWorkflow(workflow map[string]any) error {
 }
 
 func SafeRelativePath(value, fieldPath string) (string, error) {
+	return safeRelativePath(value, fieldPath, false)
+}
+
+// SafeScaffoldRoot validates a scaffold_root path. Unlike SafeRelativePath it
+// permits paths under `.striatum/scratch/` (#288): the scaffold (workflow.json +
+// prompts) is throwaway operator input that `run prepare` snapshots anyway, and
+// `.striatum/scratch/` is the product-boundary home for operational scratch, so
+// targeting it avoids forcing the scaffold into a tracked path that then needs
+// cleanup. Every other `.striatum/` subdirectory, `.git`, and any traversal
+// outside the repository stay rejected.
+func SafeScaffoldRoot(value, fieldPath string) (string, error) {
+	return safeRelativePath(value, fieldPath, true)
+}
+
+func safeRelativePath(value, fieldPath string, allowStriatumScratch bool) (string, error) {
 	if value == "" || strings.ContainsRune(value, '\x00') || strings.HasPrefix(value, "/") || strings.Contains(value, "\\") {
 		return "", genErr("path must be repo-relative", fieldPath)
 	}
@@ -775,8 +829,15 @@ func SafeRelativePath(value, fieldPath string) (string, error) {
 	if clean == "." || strings.HasPrefix(clean, "../") || clean == ".." {
 		return "", genErr("path must not escape the repository or target .git/.striatum", fieldPath)
 	}
-	for _, part := range strings.Split(clean, "/") {
-		if part == ".." || part == ".git" || part == ".striatum" {
+	parts := strings.Split(clean, "/")
+	// Operator scratch is allowed only under `.striatum/scratch/<...>` — never the
+	// `.striatum` root itself, and never another `.striatum/` subdirectory.
+	scratchRoot := allowStriatumScratch && len(parts) >= 2 && parts[0] == ".striatum" && parts[1] == "scratch"
+	for index, part := range parts {
+		if part == ".." || part == ".git" {
+			return "", genErr("path must not escape the repository or target .git/.striatum", fieldPath)
+		}
+		if part == ".striatum" && (index != 0 || !scratchRoot) {
 			return "", genErr("path must not escape the repository or target .git/.striatum", fieldPath)
 		}
 	}
@@ -913,6 +974,23 @@ func applyLaneModifiers(spec Spec, lanes map[string]any, repoWrite map[string]st
 	if hasModifier(spec, "worktree_isolated") {
 		for laneID := range repoWrite {
 			lane := mapFrom(result[laneID])
+			lane["worktree_isolation"] = "per_job"
+			result[laneID] = lane
+		}
+	}
+	// #288: a supervised/agent-loop repo-write lane structurally requires per-job
+	// worktree isolation (the #242 launch gate, RefuseAutonomousSharedCheckoutRepoWrite).
+	// Apply it by default for generated repo-write lanes so a real-agent
+	// `single_agent`/`author_reviewer` code_change scaffold validates out of the box
+	// instead of demanding a hand-edit. The `local` fixture lane (process adapter,
+	// no supervision) and review-only lanes are unaffected. The shared-checkout
+	// compatibility override is not expressible through the generator spec
+	// (compileLanes forwards only a fixed lane-key allowlist), so generated
+	// repo-write lanes always take per-job isolation; hand-edit the workflow.json to
+	// opt into shared checkout.
+	for laneID := range repoWrite {
+		lane := mapFrom(result[laneID])
+		if workflowauthoring.LaneRequiresWorktreeIsolationForAutonomousRepoWrite(lane) {
 			lane["worktree_isolation"] = "per_job"
 			result[laneID] = lane
 		}

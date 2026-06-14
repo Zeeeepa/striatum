@@ -137,7 +137,12 @@ func SafeTarget(repoRoot, relative string) (string, error) {
 	if repoRoot == "" {
 		return "", &Error{Message: "registered repository has no repo_root", FieldPath: "repository_id"}
 	}
-	safe, err := SafeRelativePath(relative, "files.path")
+	// #288: generated scaffold output (workflow.json + prompt stubs) may target
+	// operator scratch under `.striatum/scratch/` — the same relaxation SafeScaffoldRoot
+	// permits for scaffold_root. Every other `.striatum/` subdirectory and `.git`
+	// stay rejected, and the absolute-path containment check below still refuses any
+	// real escape outside the repository.
+	safe, err := SafeScaffoldRoot(relative, "files.path")
 	if err != nil {
 		return "", err
 	}
