@@ -58,6 +58,7 @@
     {"command": "recovery", "subcommand": "reseal", "method": "recovery.reseal", "params": "recovery_reseal"},
     {"command": "evidence", "subcommand": "export", "method": "evidence.export", "params": "evidence_export"},
     {"command": "corpus", "subcommand": "export", "method": "corpus.export", "params": "corpus_export"},
+    {"command": "recall", "subcommand": "search", "method": "recall.search", "params": "recall_search"},
     {"command": "archive", "subcommand": "create", "method": "archive.create", "params": "archive_create"},
     {"command": "decision", "subcommand": "record", "method": "decision.record", "params": "decision_record"},
     {"command": "checkpoint", "subcommand": "resolve", "method": "checkpoint.resolve", "params": "checkpoint_resolve"},
@@ -278,6 +279,15 @@
     },
     {
       "method": "corpus.export",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recall.search",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

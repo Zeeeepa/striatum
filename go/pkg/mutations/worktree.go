@@ -22,6 +22,7 @@ const (
 
 type worktreeCreateInputs struct {
 	Job        map[string]any
+	Workflow   map[string]any
 	RunID      string
 	BaseBranch string
 	// BranchBase is the run's recorded branch_base (the commit/ref the confirmed
@@ -132,10 +133,13 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 		return nil, err
 	}
 
+	memoryDigest := maybeRenderRecallShelf(ctx, runner, packageRecallDigestOptions, repositoryID, inputs, target)
+
 	return map[string]any{
 		"worktree_id":   worktreeID,
 		"worktree_path": relative,
 		"base_branch":   inputs.BaseBranch,
+		"memory_digest": memoryDigest,
 	}, nil
 }
 
@@ -1191,6 +1195,7 @@ func validatedWorktreeCreateInputs(ctx context.Context, runner any, repositoryID
 	}
 	return worktreeCreateInputs{
 		Job:        job,
+		Workflow:   workflow,
 		RunID:      fmt.Sprint(job["run_id"]),
 		BaseBranch: baseBranch,
 		BranchBase: branchBase,

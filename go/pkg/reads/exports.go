@@ -2,10 +2,12 @@ package reads
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -392,14 +394,23 @@ func HandleCorpusExport(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	for _, row := range rows {
 		redactedRows = append(redactedRows, redactCorpusArtifactRow(row))
 	}
-	return map[string]any{
+	result := map[string]any{
 		"corpus_contract_version": 2,
 		"repository_id":           repositoryID,
 		"redaction_tier":          redactionTier,
 		"row_count":               len(redactedRows),
 		"limit":                   count,
 		"rows":                    redactedRows,
-	}, nil
+	}
+	if boolFromParams(envelope.Params, "include_lane_trajectory") {
+		trajectory, err := laneTrajectoryCorpus(ctx, runner, repositoryID, stringParam(envelope, "run_id"), redactionTier, count)
+		if err != nil {
+			return nil, err
+		}
+		result["classes"] = []string{"artifacts", "lane_trajectory"}
+		result["lane_trajectory"] = trajectory
+	}
+	return result, nil
 }
 
 func redactCorpusArtifactRow(row map[string]any) map[string]any {
@@ -418,4 +429,184 @@ func redactCorpusArtifactRow(row map[string]any) map[string]any {
 		}
 	}
 	return redacted
+}
+
+func laneTrajectoryCorpus(ctx context.Context, runner db.Runner, repositoryID, runID, redactionTier string, limit int) (map[string]any, error) {
+	runIDs := []string{}
+	if strings.TrimSpace(runID) != "" {
+		runIDs = append(runIDs, strings.TrimSpace(runID))
+	} else {
+		rows, err := collectRows(ctx, runner,
+			`SELECT run_id
+			   FROM striatumd.runs
+			  WHERE repository_id = $1
+			  ORDER BY created_at DESC, run_id ASC
+			  LIMIT $2`,
+			repositoryID,
+			limit,
+		)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range rows {
+			runIDs = append(runIDs, fmt.Sprint(row["run_id"]))
+		}
+		sort.Strings(runIDs)
+	}
+
+	corpusRows := make([]map[string]any, 0)
+	for _, id := range runIDs {
+		records, err := fetchTrajectory(ctx, runner, repositoryID, id, "provenance", 0)
+		if err != nil {
+			return nil, err
+		}
+		corpusRows = append(corpusRows, laneTrajectoryRowsFromRecords(id, redactionTier, records)...)
+	}
+	sort.SliceStable(corpusRows, func(i, j int) bool {
+		return laneTrajectorySortKey(corpusRows[i]) < laneTrajectorySortKey(corpusRows[j])
+	})
+	payload, err := json.Marshal(corpusRows)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(payload)
+	return map[string]any{
+		"schema_version": "striatum.corpus.lane_trajectory.v1",
+		"source_class":   "lane_trajectory",
+		"row_count":      len(corpusRows),
+		"sha256":         fmt.Sprintf("%x", sum[:]),
+		"rows":           corpusRows,
+	}, nil
+}
+
+func laneTrajectoryRowsFromRecords(runID, redactionTier string, records []map[string]any) []map[string]any {
+	rows := make([]map[string]any, 0, len(records))
+	for index, record := range records {
+		body, _ := record["body"].(map[string]any)
+		text := laneTrajectoryText(body)
+		eventFields := laneTrajectoryEventFields(body)
+		rows = append(rows, map[string]any{
+			"schema_version": "striatum.corpus.lane_trajectory.row.v1",
+			"source_class":   "lane_trajectory",
+			"run_id":         runID,
+			"session_id":     fmt.Sprint(record["session_id"]),
+			"role_id":        fmt.Sprint(record["role_id"]),
+			"lane_id":        fmt.Sprint(record["lane_id"]),
+			"ordinal":        index + 1,
+			"event_kind":     fmt.Sprint(record["kind"]),
+			"created_at":     fmt.Sprint(record["ts"]),
+			"redaction_tier": redactionTier,
+			"text":           text,
+			"event_fields":   eventFields,
+		})
+	}
+	return rows
+}
+
+func laneTrajectoryText(body map[string]any) string {
+	if body == nil {
+		return ""
+	}
+	if text, ok := body["text"].(string); ok {
+		return redactGeneratedCorpusText(text)
+	}
+	if value, ok := body["text"]; ok {
+		if encoded, err := json.Marshal(value); err == nil {
+			return redactGeneratedCorpusText(string(encoded))
+		}
+	}
+	return ""
+}
+
+func laneTrajectoryEventFields(body map[string]any) map[string]any {
+	if body == nil {
+		return map[string]any{}
+	}
+	allowed := map[string]bool{
+		"artifact_id":      true,
+		"blocker_id":       true,
+		"interrogation_id": true,
+		"kind":             true,
+		"logical_name":     true,
+		"message_kind":     true,
+		"path":             true,
+		"placement":        true,
+		"posture":          true,
+		"severity":         true,
+		"state":            true,
+		"topic":            true,
+		"turn":             true,
+		"turn_index":       true,
+		"verdict":          true,
+		"verdict_id":       true,
+	}
+	fields := map[string]any{}
+	for _, key := range sortedMapKeys(body) {
+		if !allowed[key] && !safeEventFields[key] {
+			continue
+		}
+		value := body[key]
+		if key == "path" {
+			path := fmt.Sprint(value)
+			if err := validateCorpusSourcePath(path); err != nil {
+				fields[key] = evidenceFreeTextPlaceholder
+				continue
+			}
+		}
+		fields[key] = redactCorpusScalar(value)
+	}
+	return fields
+}
+
+func redactCorpusScalar(value any) any {
+	switch typed := value.(type) {
+	case string:
+		return redactGeneratedCorpusText(typed)
+	case []any:
+		out := make([]any, 0, len(typed))
+		for _, item := range typed {
+			out = append(out, redactCorpusScalar(item))
+		}
+		return out
+	case map[string]any:
+		out := map[string]any{}
+		for _, key := range sortedMapKeys(typed) {
+			if safeEventFields[key] {
+				out[key] = redactCorpusScalar(typed[key])
+			}
+		}
+		return out
+	default:
+		return value
+	}
+}
+
+func laneTrajectorySortKey(row map[string]any) string {
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%08d",
+		fmt.Sprint(row["run_id"]),
+		fmt.Sprint(row["session_id"]),
+		fmt.Sprint(row["created_at"]),
+		fmt.Sprint(row["event_kind"]),
+		intFrom(row, "ordinal"),
+	)
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func boolFromParams(params map[string]any, key string) bool {
+	switch value := params[key].(type) {
+	case bool:
+		return value
+	case string:
+		return strings.EqualFold(value, "true") || value == "1" || strings.EqualFold(value, "yes")
+	default:
+		return false
+	}
 }

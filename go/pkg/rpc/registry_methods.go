@@ -24,6 +24,7 @@ var methodEntries = []MethodEntry{
 	{Method: "dashboard", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "evidence.export", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "corpus.export", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "recall.search", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "archive.create", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "git.snapshot", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "git.commit_apply", RequiredCapability: CapPtr(CapabilityApply), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

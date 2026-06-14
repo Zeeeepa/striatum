@@ -1326,6 +1326,57 @@ The contract version, multi-corpus identity, redaction-tier metadata,
 incremental-export watermark, and optional context-injection policy that
 power V2 are scoped by [RFC 0057](../rfcs/0057-corpus-contract-v2.md).
 
+## Warm-Tier Memory
+
+RFC 0119 / D179 splits memory into three authority axes:
+
+- **Canonical authority:** Striatum state is still PostgreSQL, git, and
+  daemon-owned blobs. The warm tier is never canonical and cannot decide a
+  workflow transition.
+- **Index scope:** local memory consumers may index redacted delivered
+  provenance, including durable-provenance rows, but Striatum exports and
+  reads only its own bounded projections.
+- **Eviction scope:** git eviction is an explicit per-kind allow-list. The
+  initial allow-list is limited to `progress_note`; operator reports,
+  decisions, escalations, briefs, ledgers, and corpus durable-provenance kinds
+  remain durable provenance.
+
+Striatum's native hot-tier read surface is `recall.search` / `RecallMemory`.
+It is a read-only Postgres full-text search over daemon-owned artifact
+metadata (`logical_name`, `artifact_kind`, `author_line`, and placement/job
+context). It does not read artifact bodies, does not use pgvector or hosted
+retrieval, and does not import Hippo, Fornix, Engram, or any other external
+memory consumer. The RPC is registered as capability `read` with
+`single_repo` scope and deliberately does not introduce any `memory.*` method
+or capability.
+
+Scaffold-time recall digest injection is optional and fail-soft. It runs after
+`worktree.create` has committed the authoritative `job_worktrees` row and
+event, so a recall read failure cannot orphan or block the worktree transition.
+The daemon controls it with these default-off settings:
+
+- `STRIATUM_RECALL_DIGEST` / `--recall-digest`
+- `STRIATUM_RECALL_DIGEST_LIMIT` / `--recall-digest-limit`
+- `STRIATUM_RECALL_DIGEST_TIMEOUT_MS` / `--recall-digest-timeout-ms`
+
+The worktree-create response reports a `memory_digest` status object such as
+`disabled`, `empty`, `rendered`, or `error`; the digest is advisory markdown
+with local artifact provenance.
+
+`corpus.export` remains default artifact-only output. Passing
+`include_lane_trajectory=true` adds a separate `lane_trajectory` class built
+from the daemon's curated trajectory projection. This class is redacted,
+path-guarded, UTF-8 normalized, token-scrubbed, sorted deterministically, and
+manifest-hashed. It intentionally supersedes the transcript/output path-denial
+guard only for this curated projection: raw PTY logs, provider output,
+terminal transcripts, `.striatum/` scratch, hosted-service state, and external
+memory state still do not enter the corpus.
+
+The warm-tier boundary is regression-pinned by Go guardrails: no external
+memory-consumer imports in daemon source, no `memory.*` registry or contract
+entry, and no state transition dependency on recall or an external memory
+consumer.
+
 `striatum archive create --run-id <id> --out <dir>` is the Phase 11 run
 archive foundation. It is a daemon/Postgres-backed read command that writes
 a local archive directory for one run: run row, workflow snapshot,

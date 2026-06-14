@@ -37,6 +37,7 @@ type handlerFn func(context.Context, db.Runner, rpc.Envelope) (map[string]any, e
 type Options struct {
 	BlobClient       *blob.Client
 	DaemonSocketPath string
+	RecallDigest     RecallDigestOptions
 }
 
 // packageBlobClient is the daemon's blob client, set by Register and
@@ -47,6 +48,7 @@ type Options struct {
 // artifact body stays in the working tree.
 var packageBlobClient *blob.Client
 var packageDaemonSocketPath string
+var packageRecallDigestOptions RecallDigestOptions
 
 // Register wires the mutation RPC handlers onto server. Optional opts
 // inject extra dependencies; today only Options.BlobClient is
@@ -67,6 +69,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	}
 	packageBlobClient = o.BlobClient
 	packageDaemonSocketPath = strings.TrimSpace(o.DaemonSocketPath)
+	packageRecallDigestOptions = normalizeRecallDigestOptions(o.RecallDigest)
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))
 	server.Register("session.report", makeHandler(runner, HandleSessionReport))

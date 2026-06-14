@@ -60,6 +60,7 @@ var generatedRoutes = []Route{
 	{Command: "recovery", Subcommand: "reseal", Method: "recovery.reseal", ParamsGroup: "recovery_reseal", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "evidence", Subcommand: "export", Method: "evidence.export", ParamsGroup: "evidence_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "corpus", Subcommand: "export", Method: "corpus.export", ParamsGroup: "corpus_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "recall", Subcommand: "search", Method: "recall.search", ParamsGroup: "recall_search", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "archive", Subcommand: "create", Method: "archive.create", ParamsGroup: "archive_create", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "decision", Subcommand: "record", Method: "decision.record", ParamsGroup: "decision_record", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "checkpoint", Subcommand: "resolve", Method: "checkpoint.resolve", ParamsGroup: "checkpoint_resolve", RequiredCapability: "admin", RepositoryScopeMode: "single_repo", Deprecated: false},

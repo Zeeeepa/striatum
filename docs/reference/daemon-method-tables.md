@@ -27,6 +27,7 @@
 | `dashboard` | `read` | `single_repo` | 1 | 1 | no |
 | `evidence.export` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.export` | `read` | `single_repo` | 1 | 1 | no |
+| `recall.search` | `read` | `single_repo` | 1 | 1 | no |
 | `archive.create` | `read` | `single_repo` | 1 | 1 | no |
 | `git.snapshot` | `read` | `single_repo` | 1 | 1 | no |
 | `git.commit_apply` | `apply` | `single_repo` | 1 | 1 | no |
@@ -209,6 +210,7 @@
 | `recovery reseal` | `recovery.reseal` | `recovery` | `single_repo` |
 | `evidence export` | `evidence.export` | `read` | `single_repo` |
 | `corpus export` | `corpus.export` | `read` | `single_repo` |
+| `recall search` | `recall.search` | `read` | `single_repo` |
 | `archive create` | `archive.create` | `read` | `single_repo` |
 | `decision record` | `decision.record` | `admin` | `single_repo` |
 | `checkpoint resolve` | `checkpoint.resolve` | `admin` | `single_repo` |
