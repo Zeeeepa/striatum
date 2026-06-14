@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Added
+
+- **RFC 0125 — durable gate artifact provenance (D192).** Closes the gap the
+  Hippo retrospective exposed (a run finalizing `completed` while required gate
+  artifact bodies were unreconstructable) plus the friction issues #270–#283.
+  - **Daemon-as-porter (#278, #281):** at `work.complete` the daemon force-adds
+    and commits a lane's published artifacts onto the run branch (past
+    `.gitignore`, from the detached per-job worktree, as the operator user), then
+    re-probes durability and anchors a durable ref — so a lane no longer has to
+    commit its own publication. Scoped to the completion path;
+    `recovery.reseal` / `recovery.resume --complete` stay pure durability gates.
+  - **`artifact.publish` body over the MCP envelope (#272):** an optional
+    `body_base64` lets a lane that cannot enter the operator-owned worktree
+    publish; the daemon materializes the body at the artifact path.
+  - **`recovery.reseal` (#271):** completes a remediated worktree-durability
+    blocker on the SAME attempt (no attempt bump, no duplicate provenance),
+    refusing if the body is still not durable.
+  - **`artifact.get_content` git-anchor fallback (#275):** resolves a body from
+    the durable run-branch / `refs/striatum/…` job-pin anchor when the working
+    tree is on another branch, instead of reporting the body missing.
+  - **Status legibility (#283, #282):** `latest_non_accepting_review_verdicts`
+    excludes superseded verdicts and flags `upstream_revised_after_verdict` with a
+    precise per-row `recovery_action`. **Recovery legibility (#274):**
+    auto-finalize explains blocked-job skips and points at `recovery reseal`.
+
+### Fixed
+
+- `run.retry_job` refuses to bump a job past its `max_attempts` during recovery,
+  points the operator at `recovery reseal` (the same-attempt path), and records a
+  deliberate override as an audited `attempt_budget_override`; revision-cycle
+  reopens are exempt. (#273)
+- `recovery resume`'s positional argument maps to `blocker_id` (its own
+  `recovery_resume` params group) instead of the shared `run_id`. (#270)
+- dispatch no longer leaks an ambient `STRIATUM_REPOSITORY_ID` into
+  `daemon_global` RPCs, so a lane's repo id can't contaminate `make check`. (#276)
+- The supervisor prepares `.striatum/scratch` ACLs for a non-owner lane user
+  before launch, so non-Codex lanes can write their ephemeral MCP config. (#279)
+- Documented the lane publication and cross-repo provisioning boundary in
+  `docs/how-to/lane-sandbox.md`: lanes publish artifacts (durable locally via the
+  porter) and do not push remotes (#277); cross-repo jobs need operator-provisioned
+  ACLs on every secondary repo (#280).
+
 ### Changed
 
 - CI is faster without weakening the gate. `make check` now runs a single
