@@ -239,6 +239,50 @@ launch/attest:
   `.striatum/worktrees/<id>`. Grant the lane user write on that worktree path
   (e.g. a default ACL on the worktrees parent so new per-job worktrees inherit
   it).
+- **Ephemeral MCP config scratch** — the supervisor prepares the lane ACL on
+  `.striatum/scratch` (and a default ACL) before launch so non-Codex lanes can
+  write their ephemeral MCP config there (#279). No operator step is needed for
+  the registered repo; this is listed for completeness.
+- **Secondary repositories for cross-repo jobs (#280)** — a job whose prompt
+  touches more than the run's registered target repo (e.g. a cross-repo
+  hardening job that also writes a sibling repo) needs the **same** host access —
+  traversal ACLs, `safe.directory`, and per-job-worktree write — provisioned on
+  every secondary repo **before** the run. Striatum does not auto-provision
+  secondary repos: there is no structured cross-repo touch-point declaration in
+  the workflow schema today, so the daemon cannot know which sibling repos a
+  prompt will reach, and the lane silently narrows its scope when it hits a
+  missing ACL. Provision each secondary repo the lane must write exactly as the
+  primary, or scope the job to a single repo. A future workflow schema for
+  declared cross-repo paths could turn this into a pre-dispatch preflight; until
+  then it is an operator runbook step.
+
+## Artifact publication and the remote-push boundary (#277)
+
+A supervised lane makes its work durable by **publishing artifacts**, not by
+pushing git remotes. Two RFC 0125 mechanisms remove any need for a lane to hold
+push credentials:
+
+- `artifact.publish` accepts the body over the MCP envelope (`body_base64`), so a
+  lane that cannot even write the operator-owned per-job worktree still publishes
+  (#272).
+- The **daemon-as-porter** commits each published artifact onto the run branch at
+  `work.complete` — past `.gitignore`, from a detached worktree, as the operator
+  user — and anchors it under a durable `refs/striatum/…` ref (#278 / #281). The
+  provenance is therefore durable **locally**, in the daemon-owned repository,
+  the moment the job completes.
+
+A lane must **not** attempt `git push` to a hosted remote: the lane OS user
+deliberately has no GitHub credentials (the sandbox boundary forbids copying the
+operator's), so a push fails with `could not read Username for
+'https://github.com'` after wasting time on `git` / `gh` / `ssh` fallbacks.
+Pushing the run branch — or merging it — to a hosted remote is an **operator**
+action performed from the operator shell where credentials live; it is
+intentionally outside any lane's authority and outside the workflow's definition
+of done, which is satisfied by durable local provenance. Workflows should not
+instruct lanes to push remotes; when remote publication is required, leave it as
+an operator follow-up after the run completes (a credential-safe daemon push
+proxy is explicitly out of scope — it would reintroduce hosted-credential reach
+into the lane boundary).
 
 ## Provider auth preflight (#252)
 
