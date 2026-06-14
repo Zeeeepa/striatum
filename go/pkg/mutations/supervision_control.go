@@ -111,6 +111,16 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		return nil, err
 	}
+	// #279: when the lane runs as a non-owner OS user (config.RunAsUser set —
+	// configuredLaneRunAsUser already collapses the owner case to ""), it can
+	// traverse `.striatum` but cannot create its ephemeral MCP config under
+	// `.striatum/scratch` (agentloop.writeEphemeralMCPConfig does os.CreateTemp
+	// there) without a writable-scratch ACL. Prepare that grant BEFORE launch so
+	// non-Codex lanes don't fail to start with "create ephemeral mcp config: ...
+	// permission denied". No-op for owner-run lanes.
+	if err := prepareScratchACLsForLaneUser(config.RepoRoot, config.RunAsUser); err != nil {
+		return nil, rpc.NewError("invalid_transition", "could not prepare lane scratch ACLs: "+err.Error(), nil)
+	}
 	_ = os.Remove(pipePath)
 	if err := supervisionMkfifo(pipePath); err != nil {
 		return nil, err
