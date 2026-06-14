@@ -50,7 +50,7 @@
     {"command": "recovery", "subcommand": "requeue-stale", "method": "recovery.requeue_stale", "params": "recovery"},
     {"command": "recovery", "subcommand": "cancel-job", "method": "recovery.cancel_job", "params": "recovery"},
     {"command": "recovery", "subcommand": "process-reconcile", "method": "recovery.process_reconcile", "params": "recovery"},
-    {"command": "recovery", "subcommand": "resume", "method": "recovery.resume", "params": "recovery"},
+    {"command": "recovery", "subcommand": "resume", "method": "recovery.resume", "params": "recovery_resume"},
     {"command": "recovery", "subcommand": "auto", "method": "recovery.sweep", "params": "recovery"},
     {"command": "recovery", "subcommand": "auto-publish", "method": "recovery.auto_publish_stale_artifacts", "params": "recovery"},
     {"command": "recovery", "subcommand": "auto-finalize", "method": "recovery.auto_finalize", "params": "recovery"},

@@ -18,6 +18,36 @@ func TestLookupIncludesRuntimeSuperviseRebridgeRoute(t *testing.T) {
 	}
 }
 
+// #270: `recovery resume` keys on blocker_id, not run_id. It shares the
+// "recovery" command group but must carry its own params group so the positional
+// maps to blocker_id and the help advertises <blocker-id>, matching the daemon
+// handler (which rejects a missing blocker_id). The sibling recovery subcommands
+// stay on the shared "recovery" group.
+func TestRecoveryResumePositionalMapsBlockerID(t *testing.T) {
+	route, consumed, ok := Lookup([]string{"recovery", "resume", "blk_1"})
+	if !ok {
+		t.Fatalf("recovery resume route was not found")
+	}
+	if consumed != 2 {
+		t.Fatalf("consumed = %d, want 2", consumed)
+	}
+	if route.Method != "recovery.resume" || route.ParamsGroup != "recovery_resume" {
+		t.Fatalf("route = %#v", route)
+	}
+	help := route.RenderHelp()
+	if !strings.Contains(help, "blocker-id") {
+		t.Fatalf("recovery resume help must advertise <blocker-id>; got:\n%s", help)
+	}
+	if strings.Contains(help, "run-id") {
+		t.Fatalf("recovery resume help must not advertise run-id; got:\n%s", help)
+	}
+	// A sibling recovery subcommand still uses the shared run_id positional.
+	sibling, _, ok := Lookup([]string{"recovery", "auto-finalize"})
+	if !ok || sibling.ParamsGroup != "recovery" {
+		t.Fatalf("recovery auto-finalize should keep ParamsGroup recovery, got %#v", sibling)
+	}
+}
+
 func TestLookupSessionRegisterAlias(t *testing.T) {
 	route, consumed, ok := Lookup([]string{"session", "register", "run_1", "author", "lane_a"})
 	if !ok {

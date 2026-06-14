@@ -172,6 +172,12 @@ func positionalNames(group string) []string {
 		return []string{"session_id", "job_id", "verdict"}
 	case "recovery":
 		return []string{"run_id"}
+	case "recovery_resume":
+		// #270: recovery.resume keys on blocker_id, not run_id. It shares the
+		// "recovery" command group but needs its own positional mapping so
+		// `striatum recovery resume <blocker-id>` reaches the daemon handler
+		// (which requires blocker_id) instead of mapping the blocker to run_id.
+		return []string{"blocker_id"}
 	case "recovery_invalidate":
 		return []string{"job_id", "decision_id"}
 	case "evidence_export", "corpus_export", "archive_create":

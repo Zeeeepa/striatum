@@ -52,7 +52,7 @@ var generatedRoutes = []Route{
 	{Command: "recovery", Subcommand: "requeue-stale", Method: "recovery.requeue_stale", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "cancel-job", Method: "recovery.cancel_job", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "process-reconcile", Method: "recovery.process_reconcile", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
-	{Command: "recovery", Subcommand: "resume", Method: "recovery.resume", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "recovery", Subcommand: "resume", Method: "recovery.resume", ParamsGroup: "recovery_resume", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "auto", Method: "recovery.sweep", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "auto-publish", Method: "recovery.auto_publish_stale_artifacts", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "auto-finalize", Method: "recovery.auto_finalize", ParamsGroup: "recovery", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
