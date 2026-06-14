@@ -29,6 +29,13 @@ const (
 	autoFinalizeCauseFinalizeVerdictFailed  = "finalize_verdict_failed"
 	autoFinalizeCauseFinalizeUnexpected     = "finalize_unexpected_error"
 	autoFinalizeCauseCircuitBreakerOpen     = "circuit_breaker_open"
+
+	// #274 (RFC 0125 P1-3): skip-record reasons for jobs the live-lease candidate
+	// join filters out (blocked / lease-released). These give the operator a
+	// queryable cause and a concrete recovery pointer instead of a silent
+	// eligible_count:0 with an empty skipped[].
+	autoFinalizeReasonPublishedArtifactNotDurable = "published_artifact_not_durable"
+	autoFinalizeReasonBlocked                     = "blocked"
 )
 
 func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -85,6 +92,15 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 			}
 			result, err := evaluateAutoFinalizeRows(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), runID, rows, mtimeGraceSeconds, boolParam(envelope, "allow_no_process_execution"), policy)
 			if err != nil {
+				return nil, err
+			}
+			// #274 (RFC 0125 P1-3): a blocked / lease-released job is filtered out
+			// of the live-lease candidate join above, so without this the operator
+			// sees eligible_count:0 with an empty skipped[] and no pointer to a
+			// recovery path. Surface those jobs as EXPLICIT skip records explaining
+			// WHY auto-finalize did not consider them (and pointing at recovery
+			// reseal when the cause is an undurable published artifact).
+			if err := appendAutoFinalizeBlockedJobSkips(ctx, tx, repositoryID, fmt.Sprint(run["repo_root"]), runID, stringParam(envelope, "job_id"), result); err != nil {
 				return nil, err
 			}
 			if resetResult != nil {
@@ -201,6 +217,14 @@ func HandleRecoveryAutoFinalize(ctx context.Context, runner db.Runner, envelope 
 		"finalized":                 finalized,
 		"skipped_count":             len(skipped),
 		"skipped":                   skipped,
+	}
+	// #274 (RFC 0125 P1-3): the live path finalizes only live-lease candidates,
+	// so blocked / lease-released jobs are equally invisible here. Surface them
+	// as explanatory skip records (read-only probe; never finalized).
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		return nil, appendAutoFinalizeBlockedJobSkips(ctx, tx, repositoryID, repoRoot, runID, stringParam(envelope, "job_id"), result)
+	}); err != nil {
+		return nil, err
 	}
 	if resetResult != nil {
 		result["circuit_breaker_reset"] = resetResult
@@ -640,6 +664,164 @@ func autoFinalizeCandidateRows(ctx context.Context, runner any, repositoryID, ru
 		   AND (qm.message_id IS NULL OR qm.state IN ('claimed', 'acked'))
 		   AND ($4 = '' OR j.job_id = $4)
 		 ORDER BY j.workflow_job_id`, repositoryID, runID, nowString(), jobID)
+}
+
+// autoFinalizeBlockedJobRows returns the run's jobs that auto-finalize cannot
+// even consider because they are no longer running with an active lease — a
+// blocked or human-waiting job (lease released, current_lease_id NULL). The
+// live-lease candidate join in autoFinalizeCandidateRows filters these out
+// BEFORE eligible_count is computed (#274 root cause), so they must be surfaced
+// separately to explain an otherwise-silent eligible_count:0.
+func autoFinalizeBlockedJobRows(ctx context.Context, runner any, repositoryID, runID, jobID string) ([]map[string]any, error) {
+	return queryRows(ctx, runner, `
+		SELECT j.*
+		  FROM striatumd.jobs j
+		 WHERE j.repository_id = $1
+		   AND j.run_id = $2
+		   AND j.state IN ('blocked', 'waiting_human')
+		   AND ($3 = '' OR j.job_id = $3)
+		 ORDER BY j.workflow_job_id`, repositoryID, runID, jobID)
+}
+
+// openBlockerForJob returns the most recent open blocker row for a job, or nil.
+func openBlockerForJob(ctx context.Context, runner any, repositoryID, jobID string) (map[string]any, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT blocker_id, severity, blocker_kind, description, state, created_at
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1
+		   AND job_id = $2
+		   AND state = 'open'
+		 ORDER BY created_at DESC, blocker_id DESC
+		 LIMIT 1`, repositoryID, jobID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return row, nil
+}
+
+// appendAutoFinalizeBlockedJobSkips enriches an auto-finalize result with an
+// EXPLICIT skip record per blocked / lease-released job of the run (#274,
+// RFC 0125 P1-3). Each record names the job and explains WHY auto-finalize did
+// not consider it, and — when the cause is an undurable published artifact —
+// points the operator at `recovery reseal`. eligible_count and the set of
+// finalized jobs are left untouched; this only grows skipped/skipped_count.
+//
+// The result map is mutated in place. Probing is read-only (the same
+// publishedArtifactDurabilityProblems probe used by the worktree-durability
+// completion guard); it never mutates state and never finalizes a job.
+func appendAutoFinalizeBlockedJobSkips(ctx context.Context, runner any, repositoryID, repoRoot, runID, jobID string, result map[string]any) error {
+	rows, err := autoFinalizeBlockedJobRows(ctx, runner, repositoryID, runID, jobID)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	skipped := asList(result["skipped"])
+	for _, job := range rows {
+		skip, err := autoFinalizeBlockedJobSkip(ctx, runner, repositoryID, repoRoot, job)
+		if err != nil {
+			return err
+		}
+		skipped = append(skipped, skip)
+	}
+	result["skipped"] = skipped
+	result["skipped_count"] = len(skipped)
+	return nil
+}
+
+// autoFinalizeBlockedJobSkip builds the skip record for a single blocked /
+// lease-released job. It runs the read-only published-artifact durability probe
+// against the job's active worktree (when the job is a repo-write job with one);
+// if any published artifact is not durable in the worktree HEAD the record gets
+// the published_artifact_not_durable reason plus a `recovery reseal` hint,
+// otherwise it falls back to the blocker condition with an inspect-blocker hint.
+func autoFinalizeBlockedJobSkip(ctx context.Context, runner any, repositoryID, repoRoot string, job map[string]any) (map[string]any, error) {
+	jobID := fmt.Sprint(job["job_id"])
+	skip := map[string]any{
+		"workflow_job_id": job["workflow_job_id"],
+		"job_id":          jobID,
+		"job_state":       job["state"],
+	}
+
+	blocker, err := openBlockerForJob(ctx, runner, repositoryID, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if blocker != nil {
+		skip["blocker_id"] = blocker["blocker_id"]
+		skip["blocker_kind"] = blocker["blocker_kind"]
+		skip["blocker_severity"] = blocker["severity"]
+	}
+
+	durabilityProblems, err := autoFinalizeBlockedJobDurabilityProblems(ctx, runner, repositoryID, repoRoot, job)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(durabilityProblems) > 0 {
+		artifactIDs := make([]string, 0, len(durabilityProblems))
+		for _, p := range durabilityProblems {
+			artifactIDs = append(artifactIDs, p.ArtifactID)
+		}
+		skip["reason"] = autoFinalizeReasonPublishedArtifactNotDurable
+		skip["artifacts"] = publishedArtifactDurabilityProblemMaps(durabilityProblems)
+		skip["explanation"] = fmt.Sprintf(
+			"job is %s; auto-finalize only considers running jobs with an active lease. Its published artifact %s is not durable in HEAD; use `recovery reseal` after committing the body, or inspect the blocker.",
+			fmt.Sprint(job["state"]), strings.Join(artifactIDs, ", "))
+		skip["remediation"] = "recovery reseal"
+		return skip, nil
+	}
+
+	skip["reason"] = autoFinalizeReasonBlocked
+	blockerKind := ""
+	if blocker != nil {
+		blockerKind = strings.TrimSpace(fmt.Sprint(nullable(blocker["blocker_kind"])))
+	}
+	if blockerKind != "" && blockerKind != "<nil>" {
+		skip["explanation"] = fmt.Sprintf(
+			"job is %s on blocker %q; auto-finalize only considers running jobs with an active lease. Inspect the blocker and resolve it before retrying.",
+			fmt.Sprint(job["state"]), blockerKind)
+	} else {
+		skip["explanation"] = fmt.Sprintf(
+			"job is %s; auto-finalize only considers running jobs with an active lease. Inspect the blocker and resolve it before retrying.",
+			fmt.Sprint(job["state"]))
+	}
+	skip["remediation"] = "inspect_blocker"
+	return skip, nil
+}
+
+// autoFinalizeBlockedJobDurabilityProblems runs the read-only published-artifact
+// durability probe against a blocked job's active worktree. It returns no
+// problems (and no error) when the job is not a repo-write per-job-worktree job
+// or has no active worktree — the durability hazard simply does not apply.
+func autoFinalizeBlockedJobDurabilityProblems(ctx context.Context, runner any, repositoryID, repoRoot string, job map[string]any) ([]publishedArtifactDurabilityProblem, error) {
+	if !isRepoWrite(job) {
+		return nil, nil
+	}
+	required, worktree, err := worktreeRequirementForJob(ctx, runner, repositoryID, job)
+	if err != nil {
+		return nil, err
+	}
+	if !required || worktree == nil {
+		return nil, nil
+	}
+	root := strings.TrimSpace(repoRoot)
+	if root == "" || root == "<nil>" {
+		root, err = activeRepositoryRoot(ctx, runner, repositoryID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return publishedArtifactDurabilityProblems(ctx, runner, artifactDurabilityCheck{
+		RepositoryID: repositoryID,
+		RepoRoot:     root,
+		Job:          job,
+		Worktree:     worktree,
+	})
 }
 
 func evaluateAutoFinalizeRows(ctx context.Context, runner any, repositoryID, repoRoot, runID string, rows []map[string]any, mtimeGraceSeconds int, allowNoProcessExecution bool, policy map[string]any) (map[string]any, error) {
