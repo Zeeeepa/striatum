@@ -24,6 +24,27 @@
 
 ### Added
 
+- **RFC 0125 P0-3 — body-reconstructability completion gate (#285).** The
+  fail-closed gate the campaign deferred: `verifyRequiredArtifactReconstructable`
+  re-reads + hash-verifies every required artifact body per declared placement
+  (blob readback; or a git-anchor probe over all `refs/striatum/<run>/<job>/*`
+  attempt pins, the legacy pin, then the run branch), wired into
+  `verifyRunCompletionProvenance`. A positive loss fails completion with key
+  `required_artifact_unreconstructable` (orthogonal to the RFC 0118 verdict path,
+  which does not regress). Degrade ladder: hard-fail only on positive evidence
+  (recorded blob whose readback fails; an existing anchor definitively missing
+  the body); WARN — never wedge — when the substrate is unverifiable (anchor
+  pending pre-integration, no blob client, git-probe fault). The escalation
+  points an unreconstructable failure at `recovery reseal`.
+- **RFC 0125 P1-1 — content-addressed RUN_LEDGER (#286).** The write-once
+  `run_completion_record` now carries a self-contained `run_ledger`: per
+  completed verdict-capable gate, its verdict + frozen attestation and every
+  required artifact body's reconstructability provenance (placement, content/blob
+  sha, git anchor ref/commit, `readback_verified`). The record's sha256 is
+  anchored in the terminal event, so a retrospective reconstructs every
+  gate/verdict/SHA offline from the hash alone. The ledger walk is best-effort —
+  a per-job probe fault is recorded, never propagated, so it cannot roll back a
+  completion the gate approved.
 - **RFC 0125 — durable gate artifact provenance (D192).** Closes the gap the
   Hippo retrospective exposed (a run finalizing `completed` while required gate
   artifact bodies were unreconstructable) plus the friction issues #270–#283.

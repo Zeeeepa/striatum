@@ -80,5 +80,14 @@ Autonomous daemon code is never trusted on a completion claim alone.
 ## Status
 
 - Scaffolds committed and validated (`workflow validate` → `valid` for all three).
-- 0126 P0 launch: see the campaign log appended below / the run dashboard.
-- 0127, 0128: scaffolded and ready; launch after 0126 lands (sequence by value).
+- **0126 P0 launched live** (`run_806f8cc15784dd1f85ae2900eb70de45`, branch
+  `striatum/rfc-0126-p0-review-generation`). The `claude` lane spawned cleanly as
+  the `striatum-lane` sandbox user (tmux-backed, attested) and is autonomously
+  drafting the P0 implementation under RFC 0124 auto-drive
+  (`striatum-drive-run_806f8cc15784dd1f85ae2900eb70de45.service`). Watch:
+  `striatum dashboard --run-id run_806f8cc15784dd1f85ae2900eb70de45 --once`.
+  When it produces a `draft` (and the review/apply gates clear), apply the
+  **operator review gate above** before integrating the feature branch to `main`
+  — do not auto-merge dogfood-produced daemon code on a completion claim alone.
+- 0127, 0128: scaffolded and ready; `run prepare` + `run start` per the runbook
+  after 0126 lands (sequence by value).

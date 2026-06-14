@@ -1,9 +1,9 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-13_v2.32.0-released"
-supersedes: "brief_2026-06-13_v2.32.0-release-prep"
-scope_links: ["STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md", "docs/rfcs/0119-warm-tier-memory-boundary.md", "docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
+brief_id: "brief_2026-06-14_rfc-0125-followups"
+supersedes: "brief_2026-06-13_v2.32.0-released"
+scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
 status: "current"
@@ -11,6 +11,32 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-fable-5-001
+
+## 2026-06-14 delta — RFC 0125 follow-ups (Unreleased, not yet tagged)
+
+Work after the v2.32.0 brief below, all on `main`, **not yet released or
+deployed to the running daemon**:
+
+- **RFC 0125 provenance-durability campaign closed out** (#270–#284) — see
+  `docs/operator/plans/provenance-durability-campaign-2026-06-14.md`.
+- **Three follow-up RFCs accepted:** RFC 0126 (multi-reviewer revision
+  coherence, **D194**), RFC 0127 (retire the lane git identity, **D195**),
+  RFC 0128 (cross-repo run boundary, **D196**). Next free D-number is **D197**.
+  (Note: **D193** was taken by the hippo-S12 git-eviction taxonomy merge.)
+- **#285 landed** (`579c1c34`) — RFC 0125 P0-3 body-reconstructability completion
+  gate (`verifyRequiredArtifactReconstructable`, fail key
+  `required_artifact_unreconstructable`, degrade ladder warns-not-wedges).
+- **#286 landed** (`d9ae5411`) — RFC 0125 P1-1 content-addressed RUN_LEDGER in
+  the completion record. Both pgtested + adversarially reviewed; #285/#286 closed.
+- **RFC implementation dogfoods scaffolded** (`b8d6be77`,
+  `docs/campaigns/rfc-012{6,7,8}/` + `docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md`).
+  **0126 P0 launched live** (`run_806f8cc15784dd1f85ae2900eb70de45`); operator
+  review gate applies before integrating its feature branch.
+- **Pending operator steps:** deploy the #285/#286 daemon change (`make install`
+  + `systemctl --user restart striatumd`, verify `/proc/<pid>/exe` sha) when no
+  dogfood is mid-flight; then promote CHANGELOG `Unreleased` → a version bump
+  (the block also holds #217 + the concurrent #264/#266 set) when the maintainer
+  says go.
 
 ## State
 
