@@ -80,14 +80,33 @@ Autonomous daemon code is never trusted on a completion claim alone.
 ## Status
 
 - Scaffolds committed and validated (`workflow validate` → `valid` for all three).
-- **0126 P0 launched live** (`run_806f8cc15784dd1f85ae2900eb70de45`, branch
-  `striatum/rfc-0126-p0-review-generation`). The `claude` lane spawned cleanly as
-  the `striatum-lane` sandbox user (tmux-backed, attested) and is autonomously
-  drafting the P0 implementation under RFC 0124 auto-drive
-  (`striatum-drive-run_806f8cc15784dd1f85ae2900eb70de45.service`). Watch:
-  `striatum dashboard --run-id run_806f8cc15784dd1f85ae2900eb70de45 --once`.
-  When it produces a `draft` (and the review/apply gates clear), apply the
-  **operator review gate above** before integrating the feature branch to `main`
-  — do not auto-merge dogfood-produced daemon code on a completion claim alone.
+- **0126 P0 ran end-to-end** (`run_806f8cc15784dd1f85ae2900eb70de45`). The
+  `claude` lane spawned cleanly as the `striatum-lane` sandbox user (tmux-backed,
+  attested) and drove `draft → review (accept) → apply` under RFC 0124 auto-drive.
+  - **Draft phase succeeded with a genuinely correct P0 implementation** — it
+    *ran* the `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL` guard to prove
+    `jobs`/`verdicts` are owner-held and routed the column add to owner bundle
+    `0009_review_generation.sql` (not a crash-looping runtime migration); used the
+    adaptive `reviewGenerationEnabled` column-presence pattern; stamped
+    `applyVerdict`, bumped `reopenJobForAttempt` same-tx, removed the verdict
+    DELETE; caught the `HandleOverrideVerdict` second INSERT path and the
+    same-second `created_at` tiebreak (correctly scoped to P2). Full write-up in
+    `docs/campaigns/rfc-0126/artifacts/DRAFT.md` on the run branch.
+  - **Operator-captured + independently verified + staged on `rfc-0126-p0-review`**
+    (pushed): `make build` OK, CI lint 0 issues, pgtests green (the new
+    `TestRevisionBumpsBuildGenerationAndPreservesVerdicts` P0 obligation + verdict/
+    revision/invalidate neighbors + the owner-bundle/migration-invariant tests).
+    **Not merged to `main`** — apply the review gate above, then FF.
+  - **Friction (recorded):** the `apply` (SUMMARY.md finalization) lane died
+    `agent_pid_dead` after emitting output without the `work.complete` handshake;
+    recovery behaved correctly (detected the dead PID, requeued 2× to the budget,
+    escalated to `needs_operator` with `recovery_exhausted` — no silent wedge).
+    The run was cancelled since the deliverable (the implementation) was already
+    captured; the apply finalization is non-essential. A tail-phase agent death,
+    not a daemon defect.
 - 0127, 0128: scaffolded and ready; `run prepare` + `run start` per the runbook
-  after 0126 lands (sequence by value).
+  (sequence by value). When relaunching, note that the `code_change` shape
+  publishes only the declared markdown artifacts (DRAFT/REVIEW/SUMMARY) to the run
+  branch — the lane's actual Go edits live in its per-job worktree and must be
+  operator-captured (as done for 0126) or the workflow extended to declare the
+  source files as artifacts.
