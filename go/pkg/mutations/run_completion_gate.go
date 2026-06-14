@@ -70,6 +70,25 @@ func verifyRunCompletionProvenance(ctx context.Context, runner any, repositoryID
 				failing = append(failing, entry)
 				continue
 			}
+			// RFC 0125 P0-3 (#285): the row exists — now re-verify every required
+			// artifact BODY is reconstructable from its declared placement, not
+			// merely that the row + size_bytes survive. The per-artifact results
+			// are recorded into the gate ledger (and the RUN_LEDGER, #286);
+			// positive evidence of a gone/corrupt body fails the gate with key
+			// required_artifact_unreconstructable, orthogonal to the verdict path.
+			recon, rerr := verifyRequiredArtifactReconstructable(ctx, runner, repositoryID, job)
+			if rerr != nil {
+				return nil, nil, rerr
+			}
+			if len(recon) > 0 {
+				entry["artifacts"] = reconstructionLedgerEntries(recon)
+			}
+			if failed := failedReconstructions(recon); len(failed) > 0 {
+				entry["failure"] = "required_artifact_unreconstructable"
+				entry["unreconstructable"] = reconstructionLedgerEntries(failed)
+				failing = append(failing, entry)
+				continue
+			}
 		}
 		verdictRow, err := oneRow(ctx, runner, `
 			SELECT * FROM striatumd.verdicts
@@ -191,25 +210,42 @@ func escalateProvenanceGateFailure(ctx context.Context, runner any, repositoryID
 			return err
 		}
 		failingGateIDs := make([]any, 0, len(failing))
+		unreconstructable := 0
 		for _, gate := range failing {
 			failingGateIDs = append(failingGateIDs, gate["workflow_job_id"])
+			if gate["failure"] == "required_artifact_unreconstructable" {
+				unreconstructable++
+			}
 		}
 		description := fmt.Sprintf(
 			"run completion blocked: %d provenance-required review gate(s) lack an attested or override provenance basis; record an accepting review_provenance escape decision (decision record --escape-surface review_provenance) or override the verdict, then resolve this escalation to re-drive completion",
 			len(failing),
 		)
+		suggestedActions := []any{
+			"record an accepting run-level decision with escape_surface=review_provenance, then escalation resolve --decision-id <id>",
+			"review override --auto-fresh-session to force a terminal operator verdict on the gate",
+			"cancel the run",
+		}
+		if unreconstructable > 0 {
+			// A missing/corrupt body is not fixed by a verdict override; the body
+			// must be restored and re-probed (RFC 0125 same-attempt reseal).
+			description = fmt.Sprintf(
+				"run completion blocked: %d gate(s) have an unreconstructable required artifact body (the row survives but the body is gone or corrupt at its declared placement); restore the body, then recovery reseal the job to re-probe durability and re-drive completion",
+				unreconstructable,
+			)
+			suggestedActions = append([]any{
+				"restore the artifact body at its declared placement, then recovery reseal <blocker-id> to re-probe durability on the same attempt",
+			}, suggestedActions...)
+		}
 		payload := map[string]any{
-			"schema_version": "striatumd.provenance_gate_escalation.v1",
-			"source":         "run.completion_gate",
-			"is_escalation":  true,
-			"blocker_kind":   provenanceGateFailedBlockerKind,
-			"severity":       "blocked",
-			"failing_gates":  failing,
-			"suggested_operator_actions": []any{
-				"record an accepting run-level decision with escape_surface=review_provenance, then escalation resolve --decision-id <id>",
-				"review override --auto-fresh-session to force a terminal operator verdict on the gate",
-				"cancel the run",
-			},
+			"schema_version":             "striatumd.provenance_gate_escalation.v1",
+			"source":                     "run.completion_gate",
+			"is_escalation":              true,
+			"blocker_kind":               provenanceGateFailedBlockerKind,
+			"severity":                   "blocked",
+			"failing_gates":              failing,
+			"unreconstructable_count":    unreconstructable,
+			"suggested_operator_actions": suggestedActions,
 		}
 		payloadArg, err := db.JSONBArg(runner, payload)
 		if err != nil {
