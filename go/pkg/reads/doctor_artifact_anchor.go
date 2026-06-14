@@ -186,16 +186,30 @@ type artifactAnchorProbe struct {
 }
 
 func readGitBlobSHA256(ctx context.Context, repoRoot, commit, repoPath string) (artifactAnchorProbe, error) {
+	body, present, err := readGitFileBytes(ctx, repoRoot, commit, repoPath)
+	if err != nil {
+		return artifactAnchorProbe{}, err
+	}
+	if !present {
+		return artifactAnchorProbe{Commit: commit, Exists: false}, nil
+	}
+	sum := sha256.Sum256(body)
+	return artifactAnchorProbe{Commit: commit, SHA256: hex.EncodeToString(sum[:]), Exists: true}, nil
+}
+
+// readGitFileBytes returns the raw bytes of repoPath at commit (git show
+// commit:repoPath, stdout only so the body is byte-exact for sha verification).
+// present=false means the path is absent in that commit/tree.
+func readGitFileBytes(ctx context.Context, repoRoot, commit, repoPath string) ([]byte, bool, error) {
 	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "show", commit+":"+repoPath)
 	body, err := cmd.Output()
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
-			return artifactAnchorProbe{Commit: commit, Exists: false}, nil
+			return nil, false, nil
 		}
-		return artifactAnchorProbe{}, err
+		return nil, false, err
 	}
-	sum := sha256.Sum256(body)
-	return artifactAnchorProbe{Commit: commit, SHA256: hex.EncodeToString(sum[:]), Exists: true}, nil
+	return body, true, nil
 }
 
 func cleanArtifactAnchorPath(pathText string) (string, bool) {

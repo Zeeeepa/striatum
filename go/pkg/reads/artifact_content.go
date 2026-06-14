@@ -48,9 +48,15 @@ func HandleArtifactGetContent(ctx context.Context, runner db.Runner, envelope rp
 		return nil, rpc.NewError("schema_invalid", "artifact.get_content requires artifact_id", nil)
 	}
 	rows, err := collectRows(ctx, runner,
-		`SELECT a.artifact_id, a.run_id, a.repo_path, a.content_sha256, a.artifact_kind,
-		        a.blob_key, a.blob_sha256, a.blob_content_type`+artifactPlacementProjection(ctx, runner, "a")+`
+		// #275: also carry job_id and the run's repo_root + branch_name so a missing
+		// working-tree body can fall back to the artifact's durable git anchor (run
+		// branch / job pin), not just the operator's current checkout.
+		`SELECT a.artifact_id, a.run_id, a.job_id, a.repo_path, a.content_sha256, a.artifact_kind,
+		        a.blob_key, a.blob_sha256, a.blob_content_type`+artifactPlacementProjection(ctx, runner, "a")+`,
+		        r.repo_root, r.branch_name
 		   FROM striatumd.artifacts a
+		   LEFT JOIN striatumd.runs r
+		     ON r.repository_id = a.repository_id AND r.run_id = a.run_id
 		  WHERE a.repository_id = $1 AND a.artifact_id = $2
 		  LIMIT 1`,
 		repositoryID, artifactID,
@@ -189,9 +195,18 @@ func getContentFromRepoPath(
 	body, err := os.ReadFile(absPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			// #275: the working-tree file is absent — the operator's checkout may be
+			// on a different branch than the run branch the artifact was published to.
+			// Fall back to the artifact's durable git anchor before reporting missing.
+			if anchored, ok, aerr := getContentFromGitAnchor(ctx, runner, repositoryID, artifactID, row, contentSha256); aerr != nil {
+				return nil, aerr
+			} else if ok {
+				return anchored, nil
+			}
 			return nil, rpc.NewError("not_found", "artifact body file does not exist on disk", map[string]any{
-				"artifact_id": artifactID,
-				"repo_path":   repoPath,
+				"artifact_id":    artifactID,
+				"repo_path":      repoPath,
+				"probed_anchors": durableWorktreeProbeRefs(ctx, repoRoot, row),
 			})
 		}
 		return nil, rpc.NewError("artifact_error", err.Error(), nil)
@@ -200,6 +215,13 @@ func getContentFromRepoPath(
 		sum := sha256.Sum256(body)
 		got := hex.EncodeToString(sum[:])
 		if got != contentSha256 {
+			// #275: the checked-out file differs from the published artifact (wrong
+			// branch / dirty tree). Prefer the durable git anchor's matching body.
+			if anchored, ok, aerr := getContentFromGitAnchor(ctx, runner, repositoryID, artifactID, row, contentSha256); aerr != nil {
+				return nil, aerr
+			} else if ok {
+				return anchored, nil
+			}
 			return nil, rpc.NewError("artifact_error", "repo_path sha256 mismatch", map[string]any{
 				"expected": contentSha256,
 				"got":      got,
@@ -215,6 +237,51 @@ func getContentFromRepoPath(
 		"source":       "repo_path",
 		"placement":    stringFrom(row, "placement"),
 	}, nil
+}
+
+// getContentFromGitAnchor (#275) resolves an artifact body from its durable git
+// anchor — the run branch ref or a refs/striatum/<run>/<job> job pin — when the
+// working-tree copy is absent or differs from the published artifact. This makes
+// artifact.get_content honor the branch the artifact was published to rather than
+// whatever the operator currently has checked out, so a live workflow input stays
+// retrievable without ad hoc `git show <branch>:<path>` probing. found=false means
+// no probed anchor served a body matching content_sha256.
+func getContentFromGitAnchor(ctx context.Context, runner db.Runner, repositoryID, artifactID string, row map[string]any, contentSha256 string) (map[string]any, bool, error) {
+	_, _ = runner, repositoryID
+	repoRoot := strings.TrimSpace(stringFrom(row, "repo_root"))
+	repoPath, ok := cleanArtifactAnchorPath(stringFrom(row, "repo_path"))
+	if repoRoot == "" || !ok || contentSha256 == "" {
+		return nil, false, nil
+	}
+	for _, ref := range durableWorktreeProbeRefs(ctx, repoRoot, row) {
+		commit, err := readGitCommit(ctx, repoRoot, ref)
+		if err != nil {
+			continue
+		}
+		body, present, err := readGitFileBytes(ctx, repoRoot, commit, repoPath)
+		if err != nil {
+			return nil, false, rpc.NewError("artifact_error", err.Error(), nil)
+		}
+		if !present {
+			continue
+		}
+		sum := sha256.Sum256(body)
+		if hex.EncodeToString(sum[:]) != contentSha256 {
+			continue
+		}
+		return map[string]any{
+			"artifact_id":   artifactID,
+			"content_type":  "application/octet-stream",
+			"body_base64":   base64.StdEncoding.EncodeToString(body),
+			"sha256":        contentSha256,
+			"verified":      true,
+			"source":        "git_anchor",
+			"placement":     stringFrom(row, "placement"),
+			"anchor_ref":    ref,
+			"anchor_commit": commit,
+		}, true, nil
+	}
+	return nil, false, nil
 }
 
 func lookupRepoBlobBucketRead(ctx context.Context, runner db.Runner, repositoryID string) (string, error) {
