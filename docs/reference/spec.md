@@ -264,7 +264,16 @@ attestation for manually registered sessions. `shape:
 "adjudicated_constraint_extraction"` emits a V1.1 phased workflow whose
 cross-examiner jobs declare explicit interrogation consumers targeting
 `convener_draft`; the shape remains experimental until a later graduation
-decision changes the support tier. Other built-in shapes emit V1.
+decision changes the support tier. `shape: "divergent_ideation"` (RFC 0087 /
+RFC 0129) emits a V1 fan-out/fan-in workflow — a `frame_problem` brief, N
+fresh-session diverge branches (one cognitive frame each, round-robined across
+the lane ring so a multi-model lane set carries different frames per branch), a
+convergence critic that scores/clusters/trap-detects, K deepen jobs, and a final
+synthesis. Frames are a curated, distortion-axis-tagged authoring library
+selected with an anti-redundancy + min-structure policy; the convergence critic
+can run on a different lane/family (the multi-model signal). It adds no daemon
+method and no model call in any state transition, and remains experimental until
+a graduation decision changes the support tier. Other built-in shapes emit V1.
 Generator preview and `workflow validate --json` envelopes include the advisory
 lint payload, including warning count and coverage summary; lint
 remains informational except where a later rule explicitly promotes a finding

@@ -34,6 +34,27 @@
 
 ### Added
 
+- **RFC 0087 + RFC 0129 — `divergent_ideation` workflow shape (first-class).**
+  Implements the long-proposed shape that widens a design space before narrowing
+  it — the striatum-native, provenance-backed, provider-portable port of the ADHD
+  method (`UditAkhourii/adhd`, MIT). No daemon method, no model call in any state
+  transition, no vendor import. New `compileDivergentIdeation`
+  (`go/pkg/workflowgenerate/shapes_divergent.go`): a flat `striatum.workflow.v1`
+  fan-out (`frame_problem` brief → N fresh-session diverge branches → convergence
+  critic `findings_ledger` → K deepen → `final_synthesis`), registered in the
+  shapes set, dispatch, catalog (`experimental`), and a fixture at
+  `examples/divergent-ideation-flow/`. Frame library
+  (`go/pkg/workflowgenerate/frames.go`, RFC 0129): ADHD's 15 personas plus three
+  categories surfaced by a multi-model divergent run of the method on itself
+  (operation/transform, temporal-forensic, risk-pricing), each with `frame_kind`,
+  `category`, and distortion-axis `dimensions`; deterministic seed-based selection
+  with a wild-frame guarantee, a min-structure gate, and an anti-redundancy gate
+  (no two frames sharing ≥2 distortion axes). Branches round-robin across the lane
+  ring so a custom `claude`/`codex`/`agy` set carries different frames on different
+  models; the convergence critic records cross-family agreement; the generator
+  warns on single-family runs. `workflow generate` gains a repeatable
+  `--lane-modifier` flag. Validated live: a 3-model (Opus/GPT-5.5/Gemini) inaugural
+  run produced genuine cross-family divergent ideation end-to-end.
 - **#287 source-change publish to the run branch.** `publishWorktreeSourceChanges`
   at `work.complete` commits a per-job-isolated repo-write job's in-scope source
   edits (the exact complement of the write-scope violation set) to the run branch

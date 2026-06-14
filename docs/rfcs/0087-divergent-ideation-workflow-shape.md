@@ -1,7 +1,16 @@
 # RFC 0087: Divergent Ideation Workflow Shape
 
-Status: proposed
+Status: accepted (implemented 2026-06-14; frame layer per RFC 0129)
 Date: 2026-05-27
+Implementation note (2026-06-14): the `divergent_ideation` shape is implemented
+first-class in `go/pkg/workflowgenerate/shapes_divergent.go` (registered in the
+`shapes` set, the dispatch switch, and the template catalog at the `experimental`
+tier) with a starter fixture at `examples/divergent-ideation-flow/`. It compiles
+to flat `striatum.workflow.v1` (fan-out via `parallel_group` + edges, like
+`implementation_panel`) rather than the v1.1 phases sketched below — the proven
+shipped fan-out pattern. The frame library and selection policy moved to
+[RFC 0129](0129-cognitive-frame-library.md) (`frames.go`); the flat default-pack
+table below is superseded by it.
 Context:
 - Prior art: [`UditAkhourii/adhd`](https://github.com/UditAkhourii/adhd)
   ("ADHD" — tree-of-thought-with-pruning skill for coding agents, MIT

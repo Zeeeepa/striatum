@@ -121,6 +121,12 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			return nil, nil, nil, nil, err
 		}
 		return jobs, edges, cycles, nil, nil
+	case "divergent_ideation":
+		jobs, edges, cycles, err := compileDivergentIdeation(spec)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return jobs, edges, cycles, nil, nil
 	case "multi_phase":
 		return compileMultiPhase(spec)
 	default:

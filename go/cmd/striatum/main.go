@@ -494,6 +494,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 	jsonOutput := false
 	options := map[string]any{}
 	lanes := map[string]any{}
+	laneModifiers := []any{}
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -510,7 +511,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 		}
 		switch key {
 		case "-h", "--help", "help":
-			_, _ = fmt.Fprintln(stdout, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
+			_, _ = fmt.Fprintln(stdout, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--lane-modifier <name> ...] [--option key=value ...] [--write] [--json]")
 			_, _ = fmt.Fprintln(stdout, "Run `striatum workflow templates list --kind shape` for the generatable shapes.")
 			return 0
 		case "--shape":
@@ -523,6 +524,13 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 			scaffoldRoot, _ = next()
 		case "--artifact-root":
 			artifactRoot, _ = next()
+		case "--lane-modifier":
+			modifier, ok := next()
+			if !ok || modifier == "" {
+				_, _ = fmt.Fprintln(stderr, "--lane-modifier requires a value (e.g. worktree_isolated, supervised, constrained, harness_profiled)")
+				return 2
+			}
+			laneModifiers = append(laneModifiers, modifier)
 		case "--option":
 			kv, ok := next()
 			if !ok {
@@ -580,7 +588,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 	}
 
 	if shape == "" {
-		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--option key=value ...] [--write] [--json]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum workflow generate --shape <shape> [--lane-set <set>] [--workflow-id <id>] [--scaffold-root <path>] [--artifact-root <path>] [--lane-modifier <name> ...] [--option key=value ...] [--write] [--json]")
 		return 2
 	}
 
@@ -614,7 +622,7 @@ func runWorkflowGenerate(args []string, stdout io.Writer, stderr io.Writer, repo
 		"artifact_root":    artifactRoot,
 		"lanes":            lanes,
 		"options":          options,
-		"lane_modifiers":   []any{},
+		"lane_modifiers":   laneModifiers,
 		"context_docs":     []any{},
 	})
 	if err != nil {

@@ -119,6 +119,33 @@
       }
     },
     {
+      "template_id": "divergent_ideation",
+      "kind": "shape",
+      "display_name": "Divergent ideation",
+      "summary": "Widen a design space before narrowing it: diverge under cognitive frames (one per isolated branch), converge by scoring/clustering/trap-detecting, deepen the survivors, then synthesize. Frames are a curated, distortion-axis-tagged library (RFC 0129); branches round-robin across lanes for genuine multi-model divergence.",
+      "recommended_for": ["architecture and API design choices", "naming", "fuzzy-bug hypothesis classes", "migration strategy", "give-me-a-few-different-ways prompts"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root"],
+      "generation_status": "generated",
+      "example_workflow_path": "examples/divergent-ideation-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "frame_problem", "label": "Frame problem"},
+          {"id": "branches", "label": "Diverge (frames)"},
+          {"id": "converge", "label": "Converge: score/cluster/trap"},
+          {"id": "deepen", "label": "Deepen survivors"},
+          {"id": "final_synthesis", "label": "Final synthesis"}
+        ],
+        "edges": [
+          {"from": "frame_problem", "to": "branches"},
+          {"from": "branches", "to": "converge"},
+          {"from": "converge", "to": "deepen"},
+          {"from": "deepen", "to": "final_synthesis"}
+        ],
+        "cycles": []
+      }
+    },
+    {
       "template_id": "custom",
       "kind": "shape",
       "display_name": "Custom safe block plan",

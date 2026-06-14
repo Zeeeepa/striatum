@@ -85,6 +85,7 @@ striatum workflow generate \
 | Produce an artifact whose claims need explicit evidence | Evidence-backed artifact | `examples/support-ledger-flow/` |
 | Collect several independent reviews before a final recommendation | Multi-review synthesis | `examples/rfc-ledger-cleanup/` |
 | Compare implementation choices before deciding | Implementation panel | `workflow generate --shape implementation_panel` |
+| Widen a design space before narrowing it (architecture, API, naming, fuzzy-bug hypotheses) | Divergent ideation | `workflow generate --shape divergent_ideation` |
 | N-turn, M-model alternating speaker dialogue | Conversation | `workflow generate --shape conversation --option topic=...` |
 | Challenge a published proposal with falsifier artifacts before committing | Falsification gate | `workflow generate --shape falsification_gate --option topic=...` |
 | Require challenge/rebuttal provenance before publishing a finding | Cross-examination gate | `workflow generate --shape cross_examination --option topic=...` |
@@ -484,6 +485,51 @@ session is not runtime proof of the lane's model family.
 
 Starter fixtures live at `examples/falsification-gate-flow/` and
 `examples/cross-examination-flow/`.
+
+## Divergent Ideation
+
+Use this when the goal is to *widen* a design space before narrowing it —
+architecture or API choices, naming, fuzzy-bug hypothesis classes, migration
+strategy, "give me a few genuinely different ways to do this, then tell me which
+survive scrutiny." Every other bundled shape is convergent (draft → review →
+apply); this one diverges first. It is the striatum-native, provenance-backed,
+provider-portable port of the ADHD method (`UditAkhourii/adhd`, MIT, RFC 0087):
+
+- **Diverge.** `frame_problem` publishes the brief, then N fresh-session diverge
+  branches (default 5) each generate ideas under one **cognitive frame** — a
+  vantage that distorts how the problem is re-asked — without evaluating. Each
+  branch has a unique review-only artifact path, so branches cannot see each
+  other. Branches round-robin across the lane ring, so a multi-model lane set
+  (e.g. a custom `claude`/`codex`/`agy` set = Opus/GPT/Gemini) carries different
+  frames on different models.
+- **Converge.** One convergence critic scores every idea on novelty/viability/fit,
+  clusters by underlying angle, flags traps, and selects the top-K picks. It runs
+  on a different lane/family than branch 1 by default, and explicitly records
+  ideas independently surfaced across model families — the **multi-model
+  convergence signal** a single-model loop cannot produce.
+- **Deepen + synthesize.** K deepen jobs (default 3) expand the survivors
+  (sketch, load-bearing risk, first step, child ideas); `final_synthesis`
+  assembles the shortlist, the ★ non-obvious pick, the trap list, and a wildcard.
+
+Frames are a curated, **distortion-axis-tagged** authoring library (RFC 0129):
+ADHD's personas plus three categories the method's own multi-model run surfaced
+— operation/transform frames (a verb on the problem, not a persona),
+temporal-forensic frames (fix a point in time and reason from it), and
+risk-pricing frames (price the downside / who is on the hook). The selector
+guarantees at least one wild frame, skips operation frames on low-structure
+problems, and refuses two frames that share two or more distortion axes in one
+run, so a run's branches stay structurally distinct. Frames are an authoring
+input, not a persisted schema field.
+
+The shape emits flat `striatum.workflow.v1` (fan-out via `parallel_group` +
+edges, like the implementation panel), adds no daemon method, and makes no model
+call in any state transition. Generate it with `workflow generate --shape
+divergent_ideation`; options: `branch_count` (2–8), `deepen_count` (1–5),
+`ideas_per_branch`, `problem_shape` (`low`/`medium`/`high`), `convergence_lane_id`.
+For a real multi-model run add `--lane-modifier worktree_isolated` (autonomous
+repo-write lanes need per-job worktrees). The starter fixture lives at
+`examples/divergent-ideation-flow/`. It is `experimental` until a green RFC 0105
+unattended-reliability fixture graduates it.
 
 ## Iterated Interrogating Panel
 

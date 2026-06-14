@@ -30,7 +30,7 @@ var (
 		"evidence_backed", "implementation_panel", "multi_review_synthesis",
 		"multi_phase", "custom", "conversation",
 		"falsification_gate", "cross_examination",
-		"adjudicated_constraint_extraction",
+		"adjudicated_constraint_extraction", "divergent_ideation",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -41,6 +41,8 @@ var (
 		"adversary_packs", "proposal_count", "score_dimensions",
 		"custom_job_artifacts", "supervision_compatible", "phases",
 		"topic", "turns", "max_dialog_rounds", "falsifier_count", "include_scribe",
+		"branch_count", "ideas_per_branch", "deepen_count", "frame_pack",
+		"frame_packs", "score_weights", "problem_shape", "convergence_lane_id",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
@@ -347,6 +349,12 @@ func Generate(spec Spec) (Generated, error) {
 	if spec.Shape == "implementation_panel" {
 		warnings = append(warnings, "implementation_panel generates a high-artifact workflow; review proposal_count, score_dimensions, and lane costs before running.")
 	}
+	if spec.Shape == "divergent_ideation" {
+		warnings = append(warnings, "divergent_ideation fans out branch_count + deepen_count + 2 jobs, each a model invocation (~10 by default); review branch_count and lane costs before running.")
+		if distinctModelFamilies(lanes, divergentLaneRing(spec)) < 2 {
+			warnings = append(warnings, "divergent_ideation branches all run on a single model family; the cross-model convergence signal is degraded — use a multi-model lane set (e.g. a custom claude/codex/agy set) for genuine cross-family agreement.")
+		}
+	}
 	roleIDs := map[string]struct{}{}
 	for _, job := range jobs {
 		roleIDs[fmt.Sprint(job["role_id"])] = struct{}{}
@@ -449,6 +457,22 @@ func Generate(spec Spec) (Generated, error) {
 		metadata["shape_family"] = "collaboration"
 		metadata["collaboration_shape_pack"] = "substance_gate_v1"
 		metadata["topic"] = collaborationTopic(spec)
+	}
+	if spec.Shape == "divergent_ideation" {
+		branchCount, _ := divergentBranchCount(spec)
+		deepenCount, _ := divergentDeepenCount(spec, branchCount)
+		problemShape, _ := divergentProblemShape(spec)
+		convergenceLane, _ := divergentConvergenceLane(spec)
+		frameIDs := []string{}
+		for _, frame := range selectFrames(spec.WorkflowID, branchCount, problemShape) {
+			frameIDs = append(frameIDs, frame.ID)
+		}
+		metadata["branch_count"] = branchCount
+		metadata["deepen_count"] = deepenCount
+		metadata["frames"] = frameIDs
+		metadata["convergence_lane"] = convergenceLane
+		metadata["problem_shape"] = problemShape
+		metadata["model_families"] = distinctModelFamilies(lanes, divergentLaneRing(spec))
 	}
 	return Generated{
 		Workflow:   workflow,
@@ -870,6 +894,10 @@ func roleStub(role string) string {
 		"revision_convener": "# Revision Convener Role\n\nYou republish the synthesis after an adjudicated needs_revision. You take the prior cycle's constraints[] as first-class input and discharge each row explicitly (answer / fold-in / reject-with-rationale / accept-as-risk / defer-with-successor). Republished artifacts use the cycle-templated logical name.\n",
 		"spec_author":       "# Spec Author Role\n\nYou write the RFC/spec using the latest cleared constraint ledger as binding input, not the original proposal. Every binding constraint must land in the spec as testable text or a gate.\n",
 		"final_reviewer":    "# Final Reviewer Role\n\nYou verify discharge, you do not re-run the forum. Emit a constraint_discharge table marking each binding constraint discharged / partial / missing / accepted_risk with evidence. Final review is a typecheck that fails closed on any undischarged binding constraint.\n",
+		"diverger":          "# Diverger Role\n\nYou generate ideas under one assigned cognitive frame, in DIVERGENT mode only. Produce short, distinct ideas; do not evaluate, rank, or hedge, and do not read other branches. The first three obvious answers are banned — push into the awkward middle. Publish only your branch artifact at the declared path.\n",
+		"convergence_critic": "# Convergence Critic Role\n\nYou are the critic. Read every divergence branch, score each idea on novelty/viability/fit, cluster by underlying angle, flag traps with reasons, and select the top picks by weighted score. Note ideas independently surfaced by branches on different model families (cross-model agreement). Publish only the convergence ledger at the declared path.\n",
+		"deepener":          "# Deepener Role\n\nYou take one surviving pick and connect the dots: a 4-8 sentence sketch of how it works, the load-bearing risk, the first concrete step a builder would take, and 3-5 child ideas. Publish only your deepened artifact at the declared path.\n",
+		"final_synthesizer": "# Final Synthesizer Role\n\nYou assemble the operator-facing result: the shortlist with rationale, the non-obvious-but-viable pick marked with a star, the trap list, and one wildcard provocation. Publish only the final synthesis at the declared path.\n",
 	}
 	if content, ok := panelRoles[role]; ok {
 		return content
@@ -936,6 +964,16 @@ func promptStub(prompt string) string {
 		return "Emit a constraint_discharge table: for each binding constraint, mark discharged / partial / missing / accepted_risk with evidence (a spec section or gate reference). Final review is a typecheck — do not re-run the forum. It fails closed on any binding constraint that is missing or partial-without-accepted-risk.\n"
 	case "ace_final_review_synthesis.md":
 		return "Summarize the discharge typecheck. The run fails closed on any undischarged binding constraint; record the coverage counts (raised / converted / discharged) for the dashboard.\n"
+	case "frame_problem.md":
+		return "Publish a concise problem brief: the open-ended question to ideate on, plus constraints, goals, non-goals, and decision criteria. Do not propose solutions — only frame the space the divergence branches will explore.\n"
+	case "diverge.md":
+		return "Generate short, distinct ideas under your assigned cognitive frame in DIVERGENT mode. Do not evaluate, rank, or hedge; you cannot see the other branches. The first three obvious answers are banned. Replace this stub with the frame's vantage from your objective.\n"
+	case "converge.md":
+		return "Read every divergence branch. Score each idea on novelty/viability/fit, cluster by underlying angle, flag traps with reasons, select the top-K picks, and note any idea independently surfaced across different model families. Publish the scored, clustered convergence ledger.\n"
+	case "deepen.md":
+		return "Take the assigned ranked pick from the convergence ledger and deepen it: a 4-8 sentence sketch, the load-bearing risk, the first concrete step, and 3-5 child ideas.\n"
+	case "final_synthesis.md":
+		return "Assemble the operator-facing result from the deepened picks and the convergence ledger: shortlist with rationale, the non-obvious-but-viable pick marked with a star, the trap list, and one wildcard provocation.\n"
 	default:
 		return fmt.Sprintf("Complete the %s step declared by the workflow.\n", strings.ReplaceAll(strings.TrimSuffix(prompt, ".md"), "_", " "))
 	}
@@ -1145,6 +1183,9 @@ func coordinator(spec Spec, lanes map[string]any) map[string]any {
 	if spec.Shape == "adjudicated_constraint_extraction" {
 		return map[string]any{"role_id": "convener", "lane_id": authorLane(spec)}
 	}
+	if spec.Shape == "divergent_ideation" {
+		return map[string]any{"role_id": "problem_framer", "lane_id": divergentPrimaryLane(spec)}
+	}
 	lane := "local"
 	if lanes[lane] == nil {
 		if lanes["author"] != nil {
@@ -1166,6 +1207,10 @@ func defaultParallelism(spec Spec) map[string]any {
 		maxJobs = reviewerCount(spec)
 	case "implementation_panel":
 		if count, err := panelProposalCount(spec); err == nil {
+			maxJobs = count
+		}
+	case "divergent_ideation":
+		if count, err := divergentBranchCount(spec); err == nil {
 			maxJobs = count
 		}
 	}

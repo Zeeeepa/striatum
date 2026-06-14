@@ -102,6 +102,28 @@ Compose a workflow from known block kinds without raw workflow JSON.
 
 No fixed graph preview.
 
+### Divergent ideation (`divergent_ideation`)
+
+Widen a design space before narrowing it: diverge under cognitive frames (one per isolated branch), converge by scoring/clustering/trap-detecting, deepen the survivors, then synthesize. Frames are a curated, distortion-axis-tagged library (RFC 0129); branches round-robin across lanes for genuine multi-model divergence.
+
+- Recommended for: architecture and API design choices; naming; fuzzy-bug hypothesis classes; migration strategy; give-me-a-few-different-ways prompts
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Frame problem"]
+  n1["Diverge (frames)"]
+  n2["Converge: score/cluster/trap"]
+  n3["Deepen survivors"]
+  n4["Final synthesis"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n3 --> n4
+```
+
 ### Evidence-backed artifact (`evidence_backed`)
 
 Produce claims with a support ledger and audit review.
