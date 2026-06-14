@@ -121,3 +121,35 @@ the very bugs we are fixing.
 - Sub-issues: #270–#283.
 - RFC: `docs/rfcs/0125-durable-gate-artifact-provenance.md` (review branch
   `rfc/0125-durable-gate-artifact-provenance`).
+
+## Execution log
+
+- **2026-06-14 — campaign opened.** Triage (14 issues labeled + clustered),
+  `/adhd` architecture pass, RFC 0125 (proposed) + this plan pushed to the review
+  branch, umbrella #284 filed.
+- **2026-06-14 — #276 CLOSED** (`main` `edce4c98`). Root cause deeper than the
+  filed test friction: dispatch read the ambient `STRIATUM_REPOSITORY_ID`
+  unconditionally and attached it as `repository_id` even on `daemon_global`
+  routes (and `envValue` falls back to `os.Environ()` when `Options.Env` is nil).
+  Gated the ambient read on the route not being `daemon_global`; explicit
+  `--repository-id` unchanged. Regression test
+  `TestDispatchDaemonGlobalIgnoresAmbientRepositoryID`.
+- **2026-06-14 — #270 CLOSED** (`main` `2d618579`). `recovery resume` shared the
+  `recovery` CLI params group (positional `run_id`) but the daemon requires
+  `blocker_id`. Gave `recovery.resume` its own `recovery_resume` params group in
+  `contracts/daemon_methods.json`, regenerated routes, guardrail test
+  `TestRecoveryResumePositionalMapsBlockerID`.
+
+### Cowboy-vs-dogfood boundary observed during execution
+
+The two closed issues were CLI/dispatch correctness fixes with no PostgreSQL
+surface — landable directly under the test-infra/DX cowboy allowance. The
+remaining 12 sub-issues each need either a **pgtest** (SQL/state projection:
+#283 status filter, #282 verdict requeue, #274 auto-finalize legibility) or a
+**new RPC / git-plumbing / schema change** (#271/#273 reseal, #272/#278/#281/#275
+porter + reconstructability gate, #279/#280/#277 provisioning). Per
+operator-never-implements and the "design + implementation workflows" mandate,
+those route through striatum dogfoods, not operator cowboy. Next vehicle: a
+design adjudication for the RFC 0125 P0 spine (porter + gate), then sliced
+implementation runs; the bounded legibility cluster (#283/#274/#279) can be one
+implementation run scaffolded first to exercise the now-more-reliable lane gate.
