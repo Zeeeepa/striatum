@@ -10,6 +10,7 @@ import (
 const evidenceFreeTextPlaceholder = "<redacted-free-text>"
 
 var tokenLikePattern = regexp.MustCompile(`\b(?:[A-Fa-f0-9]{40,}|[A-Za-z0-9+/]{48,}={0,2})\b`)
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]`)
 
 var allowedRedactionTiers = map[string]bool{
 	"public":   true,
@@ -100,6 +101,19 @@ func redactCommitMessage(text string) string {
 			continue
 		}
 		lines = append(lines, tokenLikePattern.ReplaceAllString(line, "<redacted-token>"))
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func redactGeneratedCorpusText(text string) string {
+	text = strings.ToValidUTF8(text, "\uFFFD")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = ansiEscapePattern.ReplaceAllString(text, "")
+	lines := strings.Split(text, "\n")
+	for index, line := range lines {
+		line = tokenLikePattern.ReplaceAllString(line, "<redacted-token>")
+		lines[index] = strings.TrimRight(line, " \t")
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }

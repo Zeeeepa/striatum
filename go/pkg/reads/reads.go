@@ -155,6 +155,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("workflow.generate.preview", makeHandler(runner, HandleWorkflowGeneratePreview))
 	server.Register("evidence.export", makeHandler(runner, HandleEvidenceExport))
 	server.Register("corpus.export", makeHandler(runner, HandleCorpusExport))
+	server.Register("recall.search", makeHandler(runner, HandleRecallSearch))
 	server.Register("escalation.list", makeHandler(runner, HandleEscalationList))
 	server.Register("escalation.show", makeHandler(runner, HandleEscalationShow))
 	server.Register("escalation.resolve", makeHandler(runner, HandleEscalationResolve))

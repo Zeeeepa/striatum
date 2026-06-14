@@ -79,6 +79,7 @@ state changes must route through daemon RPC.
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |
+| `recall.search` | `recall search` | read | single_repo | not implemented in Python RPC | real | no | no | Striatum-native hot-tier read over daemon-owned artifact metadata; no `memory.*` capability, no external memory import, and no state-transition dependency |
 | `archive.create` | `archive create` | read | single_repo | pg | real | no | no | Go V1 run archive writer |
 | `git.snapshot` | `git snapshot` | read | single_repo | not implemented in Python RPC | real | no | no | Go read-only local Git snapshot; no fetch/push/commit/provider operations |
 | `git.commit_apply` | `git commit-apply` | apply | single_repo | not implemented in Python RPC | real | no | no | Go explicit-confirm local commit apply from a confirmed `commit_request` artifact; no push/provider operations |

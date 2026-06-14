@@ -69,6 +69,9 @@ func TestHandleCorpusExportReturnsVersionedArtifactRows(t *testing.T) {
 	if result["row_count"] != 1 || result["limit"] != 2 {
 		t.Fatalf("counts = %#v", result)
 	}
+	if _, ok := result["lane_trajectory"]; ok {
+		t.Fatalf("lane trajectory should be default-off: %#v", result)
+	}
 	if len(runner.args) != 1 || runner.args[0] != "repo_a" {
 		t.Fatalf("query args = %#v", runner.args)
 	}

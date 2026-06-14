@@ -110,10 +110,16 @@ func main() {
 	var webTailscale bool
 	var auditHashFormat string
 	var pgWriteBoundary string
+	var recallDigest bool
+	var recallDigestLimit int
+	var recallDigestTimeoutMS int
 	flag.StringVar(&socketPath, "socket", defaultSocketPath(), "Unix socket path")
 	flag.StringVar(&auditHashFormat, "audit-hash-format", envOr("STRIATUM_AUDIT_HASH_FORMAT", "v2"), "RFC 0110 §5.2: audit row hash format (v2|v3); default v2. Flipping to v3 is the forward-only cutover and requires the owner bundle applied + a restart.")
 	flag.StringVar(&pgWriteBoundary, "pg-write-boundary", envOr("STRIATUM_PG_WRITE_BOUNDARY", ""), "RFC 0110 §7: phased write-closure phase (none|audit_only|audit_artifacts|full). Empty derives from --audit-hash-format (v3 => audit_only). Each phase routes its surfaces through the owner-owned SECURITY DEFINER append functions and requires the matching owner bundle applied + a restart, set in lockstep.")
 	flag.BoolVar(&webTailscale, "web-tailscale", envBool("STRIATUM_DAEMON_WEB_TAILSCALE"), "RFC 0085: serve a read-only tailnet-identity UI on a dedicated 0600 unix socket ($STRIATUM_DAEMON_RUNTIME_DIR/web-ui.sock) for `tailscale serve`; default off; loopback bind + bearer path unchanged")
+	flag.BoolVar(&recallDigest, "recall-digest", envBool("STRIATUM_RECALL_DIGEST"), "RFC 0119: render a default-off .striatum/memory/relevant.md shelf after worktree.create commits")
+	flag.IntVar(&recallDigestLimit, "recall-digest-limit", envInt("STRIATUM_RECALL_DIGEST_LIMIT", reads.RecallDefaultLimit), "RFC 0119: maximum recall shelf hits; capped at 20")
+	flag.IntVar(&recallDigestTimeoutMS, "recall-digest-timeout-ms", envInt("STRIATUM_RECALL_DIGEST_TIMEOUT_MS", 1500), "RFC 0119: recall shelf read timeout in milliseconds")
 	flag.StringVar(&postgresURL, "postgres-url", "", "PostgreSQL connection URL")
 	flag.StringVar(&mcpHTTPAddr, "mcp-http-addr", defaultMCPHTTPAddr(), "loopback HTTP/SSE MCP listen address; use 'off' to disable")
 	flag.BoolVar(&migrate, "migrate", true, "apply daemon PostgreSQL migrations before serving when a URL is configured")
@@ -329,6 +335,11 @@ func main() {
 		KeyRotateHook:    daemonapply.RotateFallbackSigningKey,
 		BlobClient:       blobClient,
 		DaemonSocketPath: socketPath,
+		RecallDigest: mutations.RecallDigestOptions{
+			Enabled: recallDigest,
+			Limit:   recallDigestLimit,
+			Timeout: time.Duration(recallDigestTimeoutMS) * time.Millisecond,
+		},
 	})
 
 	listener, err := rpc.ListenUnix(socketPath)
@@ -756,6 +767,7 @@ type handlerOptions struct {
 	KeyRotateHook    admin.KeyRotateFunc
 	BlobClient       *blob.Client
 	DaemonSocketPath string
+	RecallDigest     mutations.RecallDigestOptions
 }
 
 // loadBlobClient builds the daemon's S3 client from environment
@@ -794,7 +806,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
 	// Python; same response shapes.
 	reads.Register(server, runner, reads.Options{BlobClient: options.BlobClient, StriatumVersion: daemonVersion})
-	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath})
+	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath, RecallDigest: options.RecallDigest})
 	repositories.Service{Runner: runner}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",

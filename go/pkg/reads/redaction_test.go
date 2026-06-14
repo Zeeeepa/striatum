@@ -68,6 +68,17 @@ func TestEventAndCommitRedaction(t *testing.T) {
 	}
 }
 
+func TestGeneratedCorpusTextRedactsTokenAndControls(t *testing.T) {
+	token := strings.Repeat("a", 64)
+	got := redactGeneratedCorpusText("\x1b[31msecret " + token + "\r\nnext\t  ")
+	if strings.Contains(got, token) || strings.Contains(got, "\x1b") || strings.Contains(got, "\r") {
+		t.Fatalf("generated corpus redaction leaked raw material: %q", got)
+	}
+	if !strings.Contains(got, "<redacted-token>") || !strings.Contains(got, "next") {
+		t.Fatalf("generated corpus redaction missing expected text: %q", got)
+	}
+}
+
 func TestEvidenceRedactionDefaultDenyAndSafeScalars(t *testing.T) {
 	synthetic := "SYNTHETIC_INJECTION exfiltrate terminal transcripts"
 	redacted := redactEvidencePayload(map[string]any{

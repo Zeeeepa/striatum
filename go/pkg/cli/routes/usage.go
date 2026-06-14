@@ -74,6 +74,18 @@ var usageByGroup = map[string]Usage{
 			"Provider auth preflight may use network/provider tokens and is explicit-only: pass --lane-provider-auth codex, normally with --json.",
 		},
 	},
+	"corpus_export": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Help: "optional run id used by additive feedstock classes such as lane_trajectory"},
+			{Name: "out", Positional: true, Help: "legacy output path argument retained for CLI compatibility"},
+			{Name: "redaction-tier", Values: []string{"public", "curated", "internal"}, Help: "redaction tier to apply; defaults to public"},
+			{Name: "limit", Help: "maximum artifact rows; defaults to 1000"},
+			{Name: "include-lane-trajectory", Bool: true, Help: "include the default-off redacted lane_trajectory feedstock class"},
+		},
+		Notes: []string{
+			"Without --include-lane-trajectory, corpus.export returns the existing artifact-only corpus rows.",
+		},
+	},
 	"why": {
 		Params: []Param{
 			{Name: "target-id", Positional: true, Required: true, Help: "id to explain — a run_id, job_id, session_id, message_id, lease_id, or blocker_id"},
@@ -86,6 +98,15 @@ var usageByGroup = map[string]Usage{
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "active session that should claim the next eligible work packet"},
 			{Name: "lease-seconds", Help: "lease duration for the claim; defaults to 3600 seconds"},
+		},
+	},
+	"recall_search": {
+		Params: []Param{
+			{Name: "query", Positional: true, Required: true, Help: "artifact-metadata full-text query"},
+			{Name: "limit", Help: "maximum hits to return; defaults to 8 and caps at 20"},
+		},
+		Notes: []string{
+			"recall.search is a read-only local Postgres FTS over artifact metadata; it does not call the warm tier and is not a state transition.",
 		},
 	},
 	"work_claim_override": {
