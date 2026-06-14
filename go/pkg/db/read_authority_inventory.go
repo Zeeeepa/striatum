@@ -78,11 +78,15 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"runs":                        ReadClassRuntimeSensitive,
 	"scheduler_cursors":           ReadClassRuntimeSensitive,
 	"sessions":                    ReadClassRuntimeSensitive,
-	"trajectory_segments":         ReadClassRuntimeSensitive,
-	"verdicts":                    ReadClassRuntimeSensitive,
-	"work_packets":                ReadClassRuntimeSensitive,
-	"workflow_accepted_risks":     ReadClassRuntimeSensitive,
-	"workflow_snapshots":          ReadClassRuntimeSensitive,
+	// spawn_authorization_grants (RFC 0122): sensitive authorization state
+	// (owner principal, run-as, capability envelope) the runtime role SELECTs to
+	// drive the auto_spawn scheduler — like leases/sessions/principal_clients.
+	"spawn_authorization_grants": ReadClassRuntimeSensitive,
+	"trajectory_segments":        ReadClassRuntimeSensitive,
+	"verdicts":                   ReadClassRuntimeSensitive,
+	"work_packets":               ReadClassRuntimeSensitive,
+	"workflow_accepted_risks":    ReadClassRuntimeSensitive,
+	"workflow_snapshots":         ReadClassRuntimeSensitive,
 
 	// Operational metadata and chain pointers. Still selected by the runtime
 	// role in the current broad posture; not a private-read-denial claim.
