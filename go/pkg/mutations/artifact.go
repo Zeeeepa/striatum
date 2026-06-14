@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -54,6 +55,7 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 	kind := stringParam(envelope, "kind")
 	logicalName := stringParam(envelope, "logical_name")
 	pathText := stringParam(envelope, "path")
+	bodyBase64 := stringParam(envelope, "body_base64")
 	if sessionID == "" || jobID == "" || leaseID == "" || kind == "" || logicalName == "" || pathText == "" {
 		return nil, rpc.NewError("schema_invalid", "artifact.publish requires session_id, job_id, lease_id, kind, logical_name, and path", nil)
 	}
@@ -69,7 +71,7 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 		if err := enforceActiveActingSession(ctx, tx, repositoryID, sessionID, jobID, "artifact.publish"); err != nil {
 			return nil, err
 		}
-		return publishArtifact(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText)
+		return publishArtifactWithOptions(ctx, tx, repositoryID, sessionID, jobID, leaseID, kind, logicalName, pathText, publishArtifactOptions{BodyBase64: bodyBase64})
 	})
 }
 
@@ -89,6 +91,11 @@ func publishArtifact(
 
 type publishArtifactOptions struct {
 	ReviewProvenanceOverride bool
+	// BodyBase64 (#272, RFC 0125 D192): when set, the daemon writes this body into
+	// the job worktree at the artifact path before reading it. This lets a lane
+	// that cannot enter the operator-owned per-job worktree publish over the MCP
+	// envelope instead of via the worktree filesystem.
+	BodyBase64 string
 }
 
 func publishArtifactWithOptions(
@@ -136,6 +143,22 @@ func publishArtifactWithOptions(
 	path, err := artifactSourcePath(repoRoot, pathText, activeWorktree)
 	if err != nil {
 		return nil, rpc.NewError("artifact_error", err.Error(), nil)
+	}
+	// #272: when the lane supplies the body over the MCP envelope (because it
+	// cannot enter the operator-owned per-job worktree to write the file itself),
+	// the daemon materializes it at the artifact path before reading — keeping the
+	// rest of the publish path (sha, front matter, author line, durability) identical.
+	if options.BodyBase64 != "" {
+		decoded, derr := base64.StdEncoding.DecodeString(options.BodyBase64)
+		if derr != nil {
+			return nil, rpc.NewError("schema_invalid", "artifact.publish body_base64 is not valid base64: "+derr.Error(), nil)
+		}
+		if mkErr := os.MkdirAll(filepath.Dir(path), 0o755); mkErr != nil {
+			return nil, rpc.NewError("artifact_error", "could not create artifact directory: "+mkErr.Error(), nil)
+		}
+		if wErr := os.WriteFile(path, decoded, 0o644); wErr != nil {
+			return nil, rpc.NewError("artifact_error", "could not write artifact body into the job worktree: "+wErr.Error(), nil)
+		}
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
