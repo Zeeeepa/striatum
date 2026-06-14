@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -17,6 +16,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
+	"github.com/halbritt/striatum/go/pkg/runreconcile"
 )
 
 type Invoker interface {
@@ -80,15 +80,13 @@ func (e ProviderAuthRefusalError) Error() string {
 	return "lane provider auth preflight refused launch: " + e.Code
 }
 
-type slotKey struct {
-	WorkflowJobID string
-	Attempt       int
-}
+// slotKey / roleLane alias the shared reconcile predicate's types (RFC 0122):
+// the launch decision lives in pkg/runreconcile so `run drive` and the daemon
+// auto_spawn scheduler are one algorithm. The aliases keep this driver's
+// call sites (and tests) reading naturally.
+type slotKey = runreconcile.SlotKey
 
-type roleLane struct {
-	Role string
-	Lane string
-}
+type roleLane = runreconcile.RoleLane
 
 var AllowedMethods = map[string]bool{
 	"run.detail":       true,
@@ -204,9 +202,9 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 	}
 	run := asMap(detail["run"])
 	state := stringValue(run["state"])
-	if isTerminalRunState(state) {
+	if runreconcile.IsTerminalRunState(state) {
 		actions := []Action{}
-		if shouldCloseLaunchedBeforeTerminal(state) && len(d.launched) > 0 {
+		if runreconcile.ShouldCloseLaunchedBeforeTerminal(state) && len(d.launched) > 0 {
 			sessions, err := d.listSessions(ctx)
 			if err != nil {
 				return nil, state, false, err
@@ -238,7 +236,7 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 	// meant to hold" hazard. Keep cleanup (forget/close) but skip launching queued
 	// slots, staying non-terminal so resume re-drives. Announce once per paused
 	// period to avoid journal spam over a long hold.
-	if isPausedRun(run) {
+	if runreconcile.IsPausedRun(run) {
 		if !d.pausedHeld {
 			d.pausedHeld = true
 			actions = append(actions, d.action("paused", Action{
@@ -257,21 +255,6 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 	return actions, state, false, nil
 }
 
-// isPausedRun reports whether the run row carries a non-null paused_at — a run
-// the operator paused via run.pause. run.detail returns SELECT * over runs, so
-// paused_at is present (a SQL NULL decodes to a nil interface across the RPC
-// boundary) whenever the run is not paused.
-func isPausedRun(run map[string]any) bool {
-	v, ok := run["paused_at"]
-	if !ok || v == nil {
-		return false
-	}
-	if s, ok := v.(string); ok {
-		return s != ""
-	}
-	return true
-}
-
 // forgetInactiveLaunched drops launched-slot memory for sessions the daemon no
 // longer reports as active, so the slot becomes eligible for relaunch on this
 // same pass. Without this, a session that dies while its job is (or returns
@@ -282,7 +265,7 @@ func isPausedRun(run map[string]any) bool {
 // drops entries created later in the pass and closeFinishedLaunched never
 // retries supervise.stop against an already-gone session.
 func (d *Driver) forgetInactiveLaunched(sessions []map[string]any) []Action {
-	active := activeSessionIDs(sessions)
+	active := runreconcile.ActiveSessionIDs(sessions)
 	actions := []Action{}
 	for key, sessionID := range d.launched {
 		if active[sessionID] {
@@ -304,13 +287,13 @@ func (d *Driver) closeFinishedLaunched(ctx context.Context, jobs []map[string]an
 	actions := []Action{}
 	seen := map[slotKey]bool{}
 	for _, job := range jobs {
-		key := jobSlot(job)
+		key := runreconcile.JobSlot(job)
 		seen[key] = true
 		sessionID := d.launched[key]
 		if sessionID == "" {
 			continue
 		}
-		if !isLaunchedJobDone(stringValue(job["state"])) {
+		if !runreconcile.IsLaunchedJobDone(stringValue(job["state"])) {
 			continue
 		}
 		action := d.jobAction("supervise.stop", job, Action{
@@ -371,95 +354,97 @@ func (d *Driver) stopLaunchedSession(ctx context.Context, key slotKey, sessionID
 
 func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workflow map[string]any, sessions []map[string]any) ([]Action, error) {
 	actions := []Action{}
-	activeBySlot := activeSessionsBySlot(sessions)
-	usedSessions := map[string]bool{}
-	for _, sessionID := range d.launched {
-		usedSessions[sessionID] = true
-	}
-	for _, job := range sortedJobs(jobs) {
-		if stringValue(job["state"]) != "queued" {
-			continue
-		}
-		key := jobSlot(job)
-		if d.launched[key] != "" {
-			continue
-		}
-		role := stringValue(job["role_id"])
-		lane, ok := resolveLane(job, workflow)
-		if !ok {
-			actions = append(actions, d.jobAction("skip", job, Action{
-				Role:    role,
+	// The launch decision is the shared reconcile predicate (RFC 0122): the same
+	// PlanLaunch the daemon auto_spawn scheduler runs, so the two homes spawn
+	// identically (contract C3). The driver only EXECUTES each decision's side
+	// effects; it makes no spawn decision of its own.
+	for _, decision := range runreconcile.PlanLaunch(jobs, workflow, sessions, d.launched) {
+		switch decision.Kind {
+		case runreconcile.LaunchAmbiguousLane:
+			actions = append(actions, d.jobAction("skip", decision.Job, Action{
+				Role:    decision.Role,
 				Result:  "ambiguous_lane",
 				Message: "cannot resolve lane for queued job; register manually",
 			}))
-			continue
-		}
-		slot := roleLane{Role: role, Lane: lane}
-		if sessionID := nextUnusedSession(activeBySlot[slot], usedSessions); sessionID != "" {
-			d.launched[key] = sessionID
-			usedSessions[sessionID] = true
-			actions = append(actions, d.jobAction("adopt", job, Action{
-				Role:      role,
-				Lane:      lane,
-				SessionID: sessionID,
+		case runreconcile.LaunchAdoptExisting:
+			d.launched[decision.Slot] = decision.SessionID
+			actions = append(actions, d.jobAction("adopt", decision.Job, Action{
+				Role:      decision.Role,
+				Lane:      decision.Lane,
+				SessionID: decision.SessionID,
 				Result:    "adopted_existing_session",
 			}))
-			continue
-		}
-		sessionID, registerActions, err := d.registerLane(ctx, role, lane)
-		actions = append(actions, registerActions...)
-		if err != nil {
-			actions = append(actions, d.jobAction("register", job, Action{
-				Role:    role,
-				Lane:    lane,
-				Result:  "error",
-				Message: err.Error(),
-			}))
-			continue
-		}
-		if sessionID == "" {
-			actions = append(actions, d.jobAction("register", job, Action{
-				Role:    role,
-				Lane:    lane,
-				Result:  "waiting",
-				Message: "fresh reviewer registration is blocked by an author still holding or eligible for work",
-			}))
-			continue
-		}
-		startAction := d.jobAction("supervise.start", job, Action{
-			Role:      role,
-			Lane:      lane,
-			SessionID: sessionID,
-			Result:    "attempted",
-		})
-		if _, err := d.invoke(ctx, "supervise.start", map[string]any{
-			"session_id":         sessionID,
-			"provider_auth_gate": d.options.ProviderAuthGate,
-		}); err != nil {
-			if code, ok := providerAuthFailureCode(err); ok {
-				startAction.Result = "blocked"
-				startAction.Message = "lane provider auth preflight refused launch: " + code
-				actions = append(actions, startAction)
-				_, _ = d.invoke(ctx, "session.close", map[string]any{
-					"session_id": sessionID,
-					"reason":     "run drive provider auth preflight refused launch: " + code,
-				})
-				return actions, ProviderAuthRefusalError{Code: code, SessionID: sessionID}
+		case runreconcile.LaunchRegisterFresh:
+			launchActions, err := d.registerFreshLane(ctx, decision)
+			actions = append(actions, launchActions...)
+			if err != nil {
+				return actions, err
 			}
-			startAction.Result = "error"
-			startAction.Message = err.Error()
+		}
+	}
+	return actions, nil
+}
+
+// registerFreshLane executes a LaunchRegisterFresh decision: register a fresh
+// session for the slot and start its supervisor. A non-provider register/start
+// failure is recorded and swallowed (the slot stays eligible for relaunch next
+// pass); a provider-auth refusal is surfaced as ProviderAuthRefusalError so the
+// driver stops fast, exactly as the pre-extraction launch loop did.
+func (d *Driver) registerFreshLane(ctx context.Context, decision runreconcile.LaunchDecision) ([]Action, error) {
+	actions := []Action{}
+	role, lane := decision.Role, decision.Lane
+	sessionID, registerActions, err := d.registerLane(ctx, role, lane)
+	actions = append(actions, registerActions...)
+	if err != nil {
+		actions = append(actions, d.jobAction("register", decision.Job, Action{
+			Role:    role,
+			Lane:    lane,
+			Result:  "error",
+			Message: err.Error(),
+		}))
+		return actions, nil
+	}
+	if sessionID == "" {
+		actions = append(actions, d.jobAction("register", decision.Job, Action{
+			Role:    role,
+			Lane:    lane,
+			Result:  "waiting",
+			Message: "fresh reviewer registration is blocked by an author still holding or eligible for work",
+		}))
+		return actions, nil
+	}
+	startAction := d.jobAction("supervise.start", decision.Job, Action{
+		Role:      role,
+		Lane:      lane,
+		SessionID: sessionID,
+		Result:    "attempted",
+	})
+	if _, err := d.invoke(ctx, "supervise.start", map[string]any{
+		"session_id":         sessionID,
+		"provider_auth_gate": d.options.ProviderAuthGate,
+	}); err != nil {
+		if code, ok := providerAuthFailureCode(err); ok {
+			startAction.Result = "blocked"
+			startAction.Message = "lane provider auth preflight refused launch: " + code
 			actions = append(actions, startAction)
 			_, _ = d.invoke(ctx, "session.close", map[string]any{
 				"session_id": sessionID,
-				"reason":     "run drive supervise start failed",
+				"reason":     "run drive provider auth preflight refused launch: " + code,
 			})
-			continue
+			return actions, ProviderAuthRefusalError{Code: code, SessionID: sessionID}
 		}
-		startAction.Result = "started"
+		startAction.Result = "error"
+		startAction.Message = err.Error()
 		actions = append(actions, startAction)
-		d.launched[key] = sessionID
-		usedSessions[sessionID] = true
+		_, _ = d.invoke(ctx, "session.close", map[string]any{
+			"session_id": sessionID,
+			"reason":     "run drive supervise start failed",
+		})
+		return actions, nil
 	}
+	startAction.Result = "started"
+	actions = append(actions, startAction)
+	d.launched[decision.Slot] = sessionID
 	return actions, nil
 }
 
@@ -502,7 +487,7 @@ func (d *Driver) closeCompletedSessions(ctx context.Context) ([]Action, error) {
 	doneSlots := map[roleLane]bool{}
 	for _, job := range jobs {
 		if stringValue(job["state"]) == "completed" {
-			lane, ok := resolveLane(job, workflow)
+			lane, ok := runreconcile.ResolveLane(job, workflow)
 			if !ok {
 				continue
 			}
@@ -634,43 +619,6 @@ func (d *Driver) claimAdvisoryMarker() func() {
 	}
 }
 
-func activeSessionsBySlot(sessions []map[string]any) map[roleLane][]string {
-	result := map[roleLane][]string{}
-	for _, session := range sessions {
-		if stringValue(session["state"]) != "active" {
-			continue
-		}
-		slot := roleLane{Role: stringValue(session["role_id"]), Lane: stringValue(session["lane_id"])}
-		if slot.Role == "" || slot.Lane == "" {
-			continue
-		}
-		result[slot] = append(result[slot], stringValue(session["session_id"]))
-	}
-	return result
-}
-
-func activeSessionIDs(sessions []map[string]any) map[string]bool {
-	result := map[string]bool{}
-	for _, session := range sessions {
-		if stringValue(session["state"]) != "active" {
-			continue
-		}
-		if sessionID := stringValue(session["session_id"]); sessionID != "" {
-			result[sessionID] = true
-		}
-	}
-	return result
-}
-
-func nextUnusedSession(sessions []string, used map[string]bool) string {
-	for _, sessionID := range sessions {
-		if sessionID != "" && !used[sessionID] {
-			return sessionID
-		}
-	}
-	return ""
-}
-
 func anyStopped(actions []Action) bool {
 	for _, action := range actions {
 		if action.Result == "stopped" {
@@ -678,69 +626,6 @@ func anyStopped(actions []Action) bool {
 		}
 	}
 	return false
-}
-
-func sortedJobs(jobs []map[string]any) []map[string]any {
-	result := append([]map[string]any(nil), jobs...)
-	sort.SliceStable(result, func(i, j int) bool {
-		a := stringValue(result[i]["workflow_job_id"])
-		b := stringValue(result[j]["workflow_job_id"])
-		if a == b {
-			return intValue(result[i]["attempt"]) < intValue(result[j]["attempt"])
-		}
-		return a < b
-	})
-	return result
-}
-
-func resolveLane(job map[string]any, workflow map[string]any) (string, bool) {
-	if lane := stringValue(job["lane_id"]); lane != "" {
-		return lane, true
-	}
-	if lane := stringValue(asMap(job["lane_selector_json"])["lane_id"]); lane != "" {
-		return lane, true
-	}
-	workflowJobID := stringValue(job["workflow_job_id"])
-	for _, item := range asList(workflow["jobs"]) {
-		wfJob := asMap(item)
-		if stringValue(wfJob["id"]) == workflowJobID {
-			if lane := stringValue(wfJob["lane_id"]); lane != "" {
-				return lane, true
-			}
-		}
-	}
-	return "", false
-}
-
-func jobSlot(job map[string]any) slotKey {
-	return slotKey{WorkflowJobID: stringValue(job["workflow_job_id"]), Attempt: intValue(job["attempt"])}
-}
-
-func isTerminalRunState(state string) bool {
-	switch state {
-	case "completed", "failed", "canceled", "needs_operator", "waiting_human":
-		return true
-	default:
-		return false
-	}
-}
-
-func shouldCloseLaunchedBeforeTerminal(state string) bool {
-	switch state {
-	case "needs_operator", "waiting_human":
-		return true
-	default:
-		return false
-	}
-}
-
-func isLaunchedJobDone(state string) bool {
-	switch state {
-	case "completed", "failed", "canceled", "skipped", "waiting_human":
-		return true
-	default:
-		return false
-	}
 }
 
 func isFreshPolicyRefusal(err error) bool {
