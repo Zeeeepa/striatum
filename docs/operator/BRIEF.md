@@ -14,8 +14,10 @@ author: operator-claude-fable-5-001
 
 ## 2026-06-14 delta — RFC 0125 follow-ups (Unreleased, not yet tagged)
 
-Work after the v2.32.0 brief below, all on `main`, **not yet released or
-deployed to the running daemon**:
+Work after the v2.32.0 brief below, all on `main`. The #285/#286 daemon change
+is **deployed** (daemon restarted 2026-06-14, running `/proc/<pid>/exe` sha
+`dbbbe8c7` == installed, clean startup, read path verified); a **version bump is
+not yet cut** (deliberately — package the next release when ready):
 
 - **RFC 0125 provenance-durability campaign closed out** (#270–#284) — see
   `docs/operator/plans/provenance-durability-campaign-2026-06-14.md`.
@@ -32,11 +34,11 @@ deployed to the running daemon**:
   `docs/campaigns/rfc-012{6,7,8}/` + `docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md`).
   **0126 P0 launched live** (`run_806f8cc15784dd1f85ae2900eb70de45`); operator
   review gate applies before integrating its feature branch.
-- **Pending operator steps:** deploy the #285/#286 daemon change (`make install`
-  + `systemctl --user restart striatumd`, verify `/proc/<pid>/exe` sha) when no
-  dogfood is mid-flight; then promote CHANGELOG `Unreleased` → a version bump
+- **#285/#286 deployed + verified** (daemon pid restarted, sha `dbbbe8c7`, no
+  startup errors). **Pending:** promote CHANGELOG `Unreleased` → a version bump
   (the block also holds #217 + the concurrent #264/#266 set) when the maintainer
-  says go.
+  says go; review + merge `rfc-0126-p0-review` (the dogfood-produced RFC 0126 P0
+  implementation, verified); optionally launch the 0127/0128 dogfoods.
 
 ## State
 
