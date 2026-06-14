@@ -1177,8 +1177,31 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err := ensurePublishedArtifactsDurableWithPorter(ctx, tx, repositoryID, job, "work.complete"); err != nil {
 			return nil, err
 		}
+		// #287: opt-in source-change publish. When the job's write_scope sets
+		// publish_source_changes=true, commit the lane's in-scope source edits to the
+		// run branch alongside its declared artifacts, before the anchor below
+		// advances the run ref over both.
+		publishedSourcePaths, err := publishWorktreeSourceChanges(ctx, tx, repositoryID, job)
+		if err != nil {
+			return nil, err
+		}
 		now := nowString()
 		messageID := nullable(job["current_message_id"])
+		if len(publishedSourcePaths) > 0 {
+			// Bound the event payload (the events table caps row size); the count
+			// stays exact and a truncation flag is set when the list is clipped.
+			const maxEventPaths = 500
+			eventPaths := publishedSourcePaths
+			payload := map[string]any{"count": len(publishedSourcePaths)}
+			if len(eventPaths) > maxEventPaths {
+				eventPaths = append([]string(nil), eventPaths[:maxEventPaths]...)
+				payload["paths_truncated"] = true
+			}
+			payload["paths"] = eventPaths
+			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.source_changes_published", sessionID, jobID, messageID, nil, leaseID, payload); err != nil {
+				return nil, err
+			}
+		}
 		anchorPayload, err := anchorActiveWorktreeForJob(ctx, tx, repositoryID, job)
 		if err != nil {
 			return nil, err

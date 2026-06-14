@@ -2,6 +2,22 @@ package workflowgenerate
 
 import "fmt"
 
+// enableSourceChangePublish marks every repo-write job's write_scope with
+// publish_source_changes=true (#287) so the daemon commits the lane's in-scope
+// source edits to the run branch at work.complete, alongside its declared
+// artifacts. Review-only jobs (repo_write=false) are left untouched.
+func enableSourceChangePublish(jobs []map[string]any) {
+	for _, j := range jobs {
+		scope, ok := j["write_scope"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if scope["repo_write"] == true {
+			scope["publish_source_changes"] = true
+		}
+	}
+}
+
 func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
 	base := spec.ArtifactRoot
 	authorLane := authorLane(spec)
@@ -23,6 +39,12 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 				return nil, nil, nil, nil, err
 			}
 			cycles = append(cycles, map[string]any{"from": "review", "to": "draft", "on_verdict": "needs_revision", "max_iterations": max})
+			// #287: a code_change dogfood's point is reviewable code on the run
+			// branch. Opt its repo-write jobs into source-change publishing so the
+			// lane's actual edits land on the run branch (not only the declared
+			// markdown). The operator widens allowed_paths from the artifact root to
+			// the source paths the change touches; the publish then follows.
+			enableSourceChangePublish(jobs)
 		}
 		return jobs, edges, cycles, nil, nil
 	case "human_checkpoint":
