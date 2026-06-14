@@ -4,10 +4,10 @@ artifact_kind: "work_plan"
 plan_id: "plan_provenance-durability-campaign-2026-06-14"
 scope_kind: "campaign"
 scope_ref: "docs/rfcs/0125-durable-gate-artifact-provenance.md"
-state: "open"
+state: "closed"
 opened_at: "2026-06-14"
-closed_at: null
-closure_summary: null
+closed_at: "2026-06-14"
+closure_summary: "RFC 0125 accepted (D192) and implemented. All 14 sub-issues (#270–#283) closed: 11 via landed, tested Go changes (daemon-as-porter #278/#281, body_base64 publish #272, get_content git-anchor fallback #275, recovery.reseal #271, retry-job budget guard #273, status superseded/stale-verdict legibility #283/#282, auto-finalize legibility #274, scratch ACL #279, recovery-resume CLI #270, dispatch env hygiene #276); #277/#280 resolved as documented operator boundaries (lane-sandbox.md). Umbrella #284 closed."
 supersedes: null
 retrieval_priority: "high"
 ---
@@ -153,3 +153,36 @@ those route through striatum dogfoods, not operator cowboy. Next vehicle: a
 design adjudication for the RFC 0125 P0 spine (porter + gate), then sliced
 implementation runs; the bounded legibility cluster (#283/#274/#279) can be one
 implementation run scaffolded first to exercise the now-more-reliable lane gate.
+
+### CLOSEOUT — 2026-06-14 (all 14 sub-issues closed)
+
+On an explicit operator directive to finish the whole campaign autonomously, the
+implementation was driven directly (isolated worktrees off `origin/main`, pgtests
+verified against the local cluster, exact CI lint, FF to `main`) with parallel
+isolated-worktree subagents for the independent slices — each subagent's work
+independently re-verified before landing. RFC 0125 was accepted on the
+maintainer's behalf (D192). Final landings:
+
+| Issue | Commit(s) | What landed |
+| --- | --- | --- |
+| #276 | `edce4c98` | dispatch ambient `STRIATUM_REPOSITORY_ID` gated off `daemon_global` routes |
+| #270 | `2d618579` | `recovery resume` positional → `blocker_id` (own params group + regen) |
+| #283 | `2cdfefd5` | status/dashboard exclude `superseded_by_decision_id` verdicts |
+| #279 | `7083c86f` | supervisor prepares `.striatum/scratch` ACLs for non-owner lanes |
+| #275 | `bab667cc` | `artifact.get_content` git-anchor fallback (run branch / job pin) |
+| #271 | `45639b75` | `recovery.reseal` completes the same attempt (no bump) |
+| #274 | `ca82a6bb` | auto-finalize surfaces blocked-job skips + `recovery reseal` hint |
+| #278/#281 | `7cdf4e41` | **daemon-as-porter**: force-add + commit lane artifacts at `work.complete` |
+| #273 | `f842d53c` | `run.retry_job` refuses exceeding `max_attempts` (+ audited override) |
+| #272 | `3633612c` | `artifact.publish` accepts the body over the MCP envelope (`body_base64`) |
+| #282 | `0ce3ab45` | status flags stale review verdicts + precise `recovery_action` |
+| #277/#280 | `a055c50e` | documented publication + cross-repo provisioning operator boundary |
+
+Deferred (explicit follow-ups, not blockers): the RUN_LEDGER `artifacts[]`
+extension (P1-1, no open issue), the body-reconstructability **completion gate**
+P0-3 (the #275 *retrieval* gap is closed; the gate that fails a run closed on a
+non-reconstructable required body is the natural next slice), retiring the lane
+git identity (P2-2), the multi-reviewer auto-requeue (RFC 0095 timing coherence,
+the deep half of #282), a workflow schema for declared cross-repo paths (#280
+preflight), and a credential-safe operator push handoff (#277). All are recorded
+in RFC 0125 §Phasing / §Open questions.
