@@ -145,6 +145,14 @@ Each frame carries an id, a short vantage instruction, and tags for selection
 (`code` / `design` / `general` / `wild`). The bundled catalog ships a default
 pack adapted from ADHD's frame table, for example:
 
+> **Status note (2026-06-14, RFC 0129).** The flat default-pack table below was
+> copied from ADHD's `SKILL.md` and is persona-only. [RFC 0129](0129-cognitive-frame-library.md)
+> supersedes this frame layer with a categorized, curated library (`frame_kind` +
+> distortion-axis dimensions; three new categories — operation/transform,
+> temporal-forensic, risk-pricing), an anti-redundancy selection policy, and a
+> multi-model convergence signal. RFC 0087 retains ownership of the graph/phase
+> mechanics; the frame library and its selection policy move to RFC 0129.
+
 | Frame id | Vantage (instruction seed) | Tags |
 |---|---|---|
 | `inversion` | Ask the opposite question, then negate the answer back | code, design, general |
