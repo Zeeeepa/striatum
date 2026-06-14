@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Decisions
+
+- **RFC 0126 — multi-reviewer revision coherence accepted (D194).** The #282
+  follow-up: replace DELETE-on-revision of reviewer verdicts with a build-owned
+  monotonic `review_generation` stamped at the write boundary; finalization
+  asserts every required reviewer has a current-generation accepting verdict.
+  Stale verdicts become structurally invisible (no manual invalidation), history
+  preserved. Phased P0–P3 in `docs/rfcs/0126-multi-reviewer-revision-coherence.md`.
+- **RFC 0127 — retire the lane git identity accepted (D195).** The RFC 0125 P2-2
+  end-state: the per-job workspace becomes a plain daemon-owned directory, the
+  lane is a pure byte producer, and the daemon owns all git (base staging,
+  daemon-side write-scope diff, porter commit, anchoring). Opt-in, reversible.
+  `docs/rfcs/0127-retire-lane-git-identity.md`.
+- **RFC 0128 — cross-repo run boundary accepted (D196).** The #280 product
+  decision: keep the single-repo run as the invariant; ship a fail-fast guardrail
+  (refuse cross-repo reach at validate/dispatch instead of silently narrowing) +
+  read-only artifact federation; achieve cross-repo outcomes by decomposition;
+  decline first-class multi-repo atomic writes (recorded as a deferred option).
+  `docs/rfcs/0128-cross-repo-run-boundary.md`.
+
 ### Added
 
 - **RFC 0125 — durable gate artifact provenance (D192).** Closes the gap the

@@ -1,6 +1,6 @@
 # RFC 0126: Multi-reviewer revision coherence — a build-owned review generation
 
-Status: proposed
+Status: accepted (D194)
 Date: 2026-06-14
 author: proposer-claude-opus-4-8-001
 Context: RFC 0095 (job attempt first-class / revision-safe lifecycle), RFC 0118 / D-pending#240

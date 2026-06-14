@@ -1,6 +1,6 @@
 # RFC 0127: Retire the lane git identity — the lane as a pure byte producer
 
-Status: proposed
+Status: accepted (D195)
 Date: 2026-06-14
 author: proposer-claude-opus-4-8-001
 Context: RFC 0125 / D192 (durable gate artifact provenance — the daemon-as-porter

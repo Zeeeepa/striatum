@@ -1,6 +1,6 @@
 # RFC 0128: Cross-repo run boundary — keep runs single-repo, decompose the rest
 
-Status: proposed
+Status: accepted (D196)
 Date: 2026-06-14
 author: proposer-claude-opus-4-8-001
 Context: GH #280 (cross-repo workflow jobs need lane write provisioning for secondary
