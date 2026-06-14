@@ -616,15 +616,36 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 		// job for a manual revision is a legitimate transition (F3, RFC 0083).
 		// This keeps arbitrary completed jobs non-retriable while giving the
 		// operator a path to drive a revision when auto-routing did not fire.
+		isCycleTarget := false
 		if !retriable && previousState == "completed" {
-			isCycleTarget, err := isDeclaredCycleTarget(ctx, tx, repositoryID, job)
+			cycleTarget, err := isDeclaredCycleTarget(ctx, tx, repositoryID, job)
 			if err != nil {
 				return nil, err
 			}
-			retriable = isCycleTarget
+			isCycleTarget = cycleTarget
+			retriable = cycleTarget
 		}
 		if !retriable {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("job state %q is not retriable (must be failed, canceled, or blocked, or a completed revision-cycle target)", previousState), nil)
+		}
+		// #273: reopenJobForAttempt bumps the attempt, so a recovery retry from
+		// attempt N where N >= max_attempts silently exceeds the configured attempt
+		// budget — during a worktree-durability recovery this minted a duplicate
+		// attempt + lane instead of completing the remediated one. Refuse by default
+		// once the budget is reached, point the operator at recovery.reseal (the
+		// same-attempt path, RFC 0125), and require an explicit
+		// --allow-exceed-max-attempts to override (recorded as an audited operator
+		// override on job.retried). A declared revision-cycle-target reopen is
+		// EXEMPT: the cycle's own max_iterations governs those rounds, not the
+		// per-attempt max_attempts.
+		attempt := intValue(job["attempt"])
+		maxAttempts := intValue(job["max_attempts"])
+		exceedsBudget := !isCycleTarget && maxAttempts > 0 && attempt >= maxAttempts
+		allowExceed := boolParam(envelope, "allow_exceed_max_attempts")
+		if exceedsBudget && !allowExceed {
+			return nil, rpc.NewError("invalid_transition", fmt.Sprintf(
+				"run.retry_job would bump job %s to attempt %d, exceeding max_attempts %d. For a remediated worktree-durability blocker use `recovery reseal` (completes the same attempt without a new one); to intentionally exceed the attempt budget pass --allow-exceed-max-attempts (recorded as an operator override).",
+				jobID, attempt+1, maxAttempts), nil)
 		}
 		// RFC 0095 Phase 2 (#65 P3): re-open atomically through the single shared
 		// helper so a retry can never leave a dangling active lease (the prior
@@ -656,10 +677,17 @@ func HandleRunRetryJob(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			}
 			runRevived = true
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "job.retried", nil, jobID, nil, nil, nil, map[string]any{
+		retriedPayload := map[string]any{
 			"previous_state": previousState,
 			"attempt":        intValue(job["attempt"]) + 1,
-		}); err != nil {
+		}
+		if exceedsBudget && allowExceed {
+			// #273: a deliberate over-budget retry is recorded as an audited
+			// operator override, not a silent attempt-budget bypass.
+			retriedPayload["attempt_budget_override"] = true
+			retriedPayload["max_attempts"] = maxAttempts
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "job.retried", nil, jobID, nil, nil, nil, retriedPayload); err != nil {
 			return nil, err
 		}
 		return map[string]any{
