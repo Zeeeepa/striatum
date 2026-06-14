@@ -111,6 +111,8 @@ also calls `run drive`:
 ## Related
 
 - [RFC 0116](../rfcs/0116-zero-operator-touch-dag.md) — `run drive` design.
+- [RFC 0124](../rfcs/0124-auto-drive-run-start.md) — the auto-drive-on-`run start`
+  design (default-on, opt-outs, lifecycle/security, the paused-run hold).
 - [RFC 0122](../rfcs/0122-scheduler-principal-auto-spawn.md) — scheduler
   principal that lets the daemon spawn directly (the next step beyond auto-drive).
 - [Daemon runbook](daemon-runbook.md) — daemon lifecycle and token minting.

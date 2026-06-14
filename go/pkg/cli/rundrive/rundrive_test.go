@@ -39,6 +39,51 @@ func TestRunDriveReconcileIsIdempotent(t *testing.T) {
 	}
 }
 
+// C5 (RFC 0124): a paused run must hold — the driver does cleanup but launches
+// no new lanes, stays non-terminal, announces once, and resumes on unpause.
+func TestRunDriveHoldsPausedRun(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.pausedAt = "2026-06-14T00:00:00Z"
+	fake.jobs = []map[string]any{job("job_author", "author_draft", "author", "codex", "queued", 1)}
+	driver := testDriver(fake)
+
+	actions, _, terminal, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if terminal {
+		t.Fatalf("a paused run is not terminal")
+	}
+	if got := fake.count("session.register"); got != 0 {
+		t.Fatalf("paused run must not register sessions, got %d", got)
+	}
+	if got := fake.count("supervise.start"); got != 0 {
+		t.Fatalf("paused run must not supervise.start, got %d", got)
+	}
+	if actionIndex(actions, "paused") < 0 {
+		t.Fatalf("expected a 'paused' hold action, got %#v", actions)
+	}
+
+	// Announce once: a second paused reconcile is quiet.
+	actions2, _, _, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("second reconcile: %v", err)
+	}
+	if actionIndex(actions2, "paused") >= 0 {
+		t.Fatalf("paused notice must announce once, got a repeat: %#v", actions2)
+	}
+
+	// Resume: clearing paused_at lets the next reconcile launch the held slot.
+	fake.pausedAt = ""
+	if _, _, _, err := driver.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("resume reconcile: %v", err)
+	}
+	if got := fake.count("supervise.start"); got != 1 {
+		t.Fatalf("after resume expected 1 supervise.start, got %d", got)
+	}
+}
+
 func TestRunDriveAdoptsExistingSessions(t *testing.T) {
 	ctx := context.Background()
 	fake := newFakeDrive()
@@ -430,6 +475,7 @@ func TestRunDriveWakeTimeoutKeepsBoundedFallback(t *testing.T) {
 
 type fakeDrive struct {
 	runState        string
+	pausedAt        string
 	jobs            []map[string]any
 	sessions        []map[string]any
 	calls           []fakeCall
@@ -453,8 +499,12 @@ func (f *fakeDrive) Invoke(_ context.Context, method string, params map[string]a
 	f.calls = append(f.calls, fakeCall{method: method, params: cloneParams(params)})
 	switch method {
 	case "run.detail":
+		run := map[string]any{"run_id": params["run_id"], "state": f.runState}
+		if f.pausedAt != "" {
+			run["paused_at"] = f.pausedAt
+		}
 		return map[string]any{
-			"run":      map[string]any{"run_id": params["run_id"], "state": f.runState},
+			"run":      run,
 			"jobs":     cloneRows(f.jobs),
 			"workflow": map[string]any{"jobs": []any{}},
 		}, nil

@@ -11,11 +11,15 @@ Define a **scheduler principal** so the daemon can spawn lanes from its own job
 scheduler — closing `supervision.auto_spawn` (#212) without weakening
 attestation. The principal is **not** a new synthetic non-human actor; it is the
 **run owner's pre-authorization**, captured at `run start` and replayed by the
-scheduler for that run's DAG only. The daemon-side scheduler is **design only —
-no `go/` scheduler code lands with acceptance**; the operator-side **auto-drive
-wiring** (the do-now token-burn fix) ships alongside it (§Phase 0). Acceptance
-supersedes the D175 deferral of `supervision.auto_spawn` specifically, on
-evidence the deferral did not weigh.
+scheduler for that run's DAG only. This is a **design RFC** — no `go/` scheduler
+code lands with acceptance. Acceptance supersedes the D175 deferral of
+`supervision.auto_spawn` specifically, on evidence the deferral did not weigh.
+
+The operator-side **auto-drive shim** toward this end-state (`run start`
+backgrounds a `run drive`, removing the operator *model* from the loop while
+spawn authority still rides the operator principal) is a separate operator-CLI
+change with its own design record in **[RFC 0124](0124-auto-drive-run-start.md)**;
+it is not part of this RFC.
 
 ## Problem
 
@@ -215,18 +219,13 @@ without a valid, unexpired, run-scoped grant.
 
 ## Phased implementation (no `go/` code lands with acceptance)
 
-- **Phase 0 (this RFC + the do-now wiring):** design + decision (D189)
-  superseding the D175 auto_spawn deferral. No daemon-side *scheduler* code lands
-  with acceptance; C-contracts C1–C6 below are the acceptance criteria for later
-  phases. Shipping alongside acceptance is the **operator-side auto-drive
-  wiring** — a `run start` interceptor that launches a detached `run drive` for
-  the started run (transient systemd user unit, idempotent, best-effort,
-  `--no-drive` / `STRIATUM_RUN_DRIVE_AUTO=0` opt-out; see
-  [daemonize-run-drive](../how-to/daemonize-run-drive.md)). This is *not* the
-  scheduler path: it still spawns under the operator principal via the normal
-  `supervise.start` RPC and still holds a standing operator credential for the
-  run's life — it removes the operator *model* from the loop, and Phases 2–4
-  remove the standing *credential*.
+- **Phase 0 (this RFC):** design + decision (D189) superseding the D175
+  auto_spawn deferral. No daemon-side *scheduler* code lands with acceptance;
+  C-contracts C1–C6 below are the acceptance criteria for later phases. The
+  operator-side auto-drive shim that removes the operator *model* from the loop
+  today — while this scheduler removes the standing *credential* in Phases 2–4 —
+  is specified and ratified separately in
+  [RFC 0124](0124-auto-drive-run-start.md), not here.
 - **Phase 1:** extract the shared reconcile predicate from `rundrive.go`; prove
   byte-identical launch decisions between CLI and the extracted package
   (`TestReconcilePredicateParity*`). No daemon behavior change yet.

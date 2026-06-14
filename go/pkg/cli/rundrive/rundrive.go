@@ -39,9 +39,10 @@ type Options struct {
 }
 
 type Driver struct {
-	invoker  Invoker
-	options  Options
-	launched map[slotKey]string
+	invoker    Invoker
+	options    Options
+	launched   map[slotKey]string
+	pausedHeld bool
 }
 
 type Action struct {
@@ -232,12 +233,43 @@ func (d *Driver) ReconcileOnce(ctx context.Context) ([]Action, string, bool, err
 			return actions, state, false, err
 		}
 	}
+	// C5 (RFC 0124): a paused run must not get new lanes — the operator paused it
+	// deliberately, and spawning past a pause is exactly the "spawn a job a human
+	// meant to hold" hazard. Keep cleanup (forget/close) but skip launching queued
+	// slots, staying non-terminal so resume re-drives. Announce once per paused
+	// period to avoid journal spam over a long hold.
+	if isPausedRun(run) {
+		if !d.pausedHeld {
+			d.pausedHeld = true
+			actions = append(actions, d.action("paused", Action{
+				Result:  "paused",
+				Message: "run is paused; holding (no new lanes launched until resume)",
+			}))
+		}
+		return actions, state, false, nil
+	}
+	d.pausedHeld = false
 	launchActions, err := d.launchQueued(ctx, jobs, workflow, sessions)
 	actions = append(actions, launchActions...)
 	if err != nil {
 		return actions, state, false, err
 	}
 	return actions, state, false, nil
+}
+
+// isPausedRun reports whether the run row carries a non-null paused_at — a run
+// the operator paused via run.pause. run.detail returns SELECT * over runs, so
+// paused_at is present (a SQL NULL decodes to a nil interface across the RPC
+// boundary) whenever the run is not paused.
+func isPausedRun(run map[string]any) bool {
+	v, ok := run["paused_at"]
+	if !ok || v == nil {
+		return false
+	}
+	if s, ok := v.(string); ok {
+		return s != ""
+	}
+	return true
 }
 
 // forgetInactiveLaunched drops launched-slot memory for sessions the daemon no
