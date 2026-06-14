@@ -150,7 +150,13 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 		return 1
 	}
 	repositoryID := globals.RepositoryID
-	if repositoryID == "" {
+	// #276: only the ambient STRIATUM_REPOSITORY_ID is gated on the route being
+	// repo-scoped. A daemon_global route has no repository scope, so letting a
+	// lane-control env var attach repository_id leaks lane runtime state into a
+	// daemon-global RPC (and contaminates daemon_global dispatch tests run from a
+	// supervised lane). An explicit --repository-id (globals.RepositoryID) is
+	// operator intent and is left unchanged for every route.
+	if repositoryID == "" && route.RepositoryScopeMode != "daemon_global" {
 		repositoryID = envValue(options.Env, "STRIATUM_REPOSITORY_ID")
 	}
 	if route.RepositoryScopeMode == "single_repo" && repositoryID == "" {

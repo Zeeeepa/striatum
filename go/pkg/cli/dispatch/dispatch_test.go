@@ -81,7 +81,7 @@ func TestDispatchRoutesDaemonTokenCreate(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exit := Run(context.Background(), []string{"daemon", "token-create",
 		"--capability", "apply", "--capability", "admin",
-		"--display-name", "operator-apply"}, &stdout, &stderr, Options{Invoker: invoker, ResolveRepo: true})
+		"--display-name", "operator-apply"}, &stdout, &stderr, Options{Invoker: invoker, ResolveRepo: true, Env: []string{}})
 	if exit != 0 {
 		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
 	}
@@ -101,6 +101,38 @@ func TestDispatchRoutesDaemonTokenCreate(t *testing.T) {
 	}
 	if got.params["display_name"] != "operator-apply" {
 		t.Fatalf("display_name = %#v", got.params["display_name"])
+	}
+}
+
+// #276: a supervised lane carries STRIATUM_REPOSITORY_ID in its environment. A
+// daemon_global route must not pick that ambient value up and attach it as a
+// repository_id param — doing so leaks lane runtime state into a daemon-global
+// RPC and (because dispatch falls back to os.Environ() when Options.Env is nil)
+// breaks `make check` when it runs inside a lane. This pins the gate that keeps
+// the ambient env out of daemon_global params while leaving explicit
+// --repository-id untouched.
+func TestDispatchDaemonGlobalIgnoresAmbientRepositoryID(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"daemon", "token-create",
+		"--capability", "apply", "--display-name", "operator-apply"},
+		&stdout, &stderr, Options{
+			Invoker:     invoker,
+			ResolveRepo: true,
+			Env:         []string{"STRIATUM_REPOSITORY_ID=repo_ambient_lane"},
+		})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 {
+		t.Fatalf("expected a single RPC call (no repo.resolve for daemon_global), got %#v", invoker.calls)
+	}
+	got := invoker.calls[0]
+	if got.method != "daemon.token.create" {
+		t.Fatalf("method = %q", got.method)
+	}
+	if v, ok := got.params["repository_id"]; ok {
+		t.Fatalf("daemon_global route leaked ambient repository_id %#v into params: %#v", v, got.params)
 	}
 }
 
