@@ -55,6 +55,7 @@
     {"command": "recovery", "subcommand": "auto-publish", "method": "recovery.auto_publish_stale_artifacts", "params": "recovery"},
     {"command": "recovery", "subcommand": "auto-finalize", "method": "recovery.auto_finalize", "params": "recovery"},
     {"command": "recovery", "subcommand": "invalidate-job", "method": "recovery.invalidate_job", "params": "recovery_invalidate"},
+    {"command": "recovery", "subcommand": "reseal", "method": "recovery.reseal", "params": "recovery_reseal"},
     {"command": "evidence", "subcommand": "export", "method": "evidence.export", "params": "evidence_export"},
     {"command": "corpus", "subcommand": "export", "method": "corpus.export", "params": "corpus_export"},
     {"command": "archive", "subcommand": "create", "method": "archive.create", "params": "archive_create"},
@@ -1141,6 +1142,15 @@
     },
     {
       "method": "recovery.invalidate_job",
+      "required_capability": "recovery",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "recovery.reseal",
       "required_capability": "recovery",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

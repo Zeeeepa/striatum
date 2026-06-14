@@ -184,6 +184,8 @@ delivery bridge or the supervisor is restarted.
 | `recovery.auto_publish_stale_artifacts` | `recovery auto-publish` | recovery | single_repo | pg | real | no | no | explicit stale-artifact auto-publish |
 | `recovery.auto` | deprecated alias | recovery | single_repo | pg alias | real | no | no | deprecated compatibility alias for stale-artifact auto-publish; current CLI does not emit it |
 | `recovery.auto_finalize` | `recovery auto-finalize` | recovery | single_repo | pg | real | no | no | dry-run by default; Go handler registered; live mode requires workflow opt-in or force |
+| `recovery.invalidate_job` | `recovery invalidate-job` | recovery | single_repo | pg | real | no | no | RFC 0118 P1-6 per-job invalidate; supersedes a compromised verdict under a scoped decision and reopens the job on a fresh attempt |
+| `recovery.reseal` | `recovery reseal` | recovery | single_repo | pg | real | no | no | RFC 0125 P1-2 (D192); re-probes worktree-durability for a (run_id, job_id) and, on pass, requeues the SAME attempt (no attempt bump) so a remediated durability blocker completes without duplicating provenance |
 | `apply.receipt.show` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `apply.receipt.verify` | n/a | read | single_repo | direct apply service | real | no | no | stable |
 | `repo.add` | `repo add` | admin | daemon_global | pg repo registrar | real | no | no ordinary repo-local SQLite | bootstrap/admin |

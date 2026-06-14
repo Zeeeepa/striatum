@@ -131,6 +131,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.auto", makeHandler(runner, HandleRecoveryAuto))
 	server.Register("recovery.auto_finalize", makeHandler(runner, HandleRecoveryAutoFinalize))
 	server.Register("recovery.invalidate_job", makeHandler(runner, HandleRecoveryInvalidateJob))
+	server.Register("recovery.reseal", makeHandler(runner, HandleRecoveryReseal))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
 	server.Register("interrogation.open", makeHandler(runner, HandleInterrogationOpen))
 	server.Register("interrogation.ask", makeHandler(runner, HandleInterrogationAsk))

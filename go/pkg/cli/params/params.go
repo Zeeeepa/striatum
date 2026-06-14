@@ -180,6 +180,12 @@ func positionalNames(group string) []string {
 		return []string{"blocker_id"}
 	case "recovery_invalidate":
 		return []string{"job_id", "decision_id"}
+	case "recovery_reseal":
+		// #271/#273: recovery.reseal keys on (run_id, job_id); it shares the
+		// "recovery" command group but needs its own positional mapping so
+		// `striatum recovery reseal <run-id> <job-id>` reaches the daemon
+		// handler (the durability gate writes no blocker row to key on).
+		return []string{"run_id", "job_id"}
 	case "evidence_export", "corpus_export", "archive_create":
 		return []string{"run_id", "out"}
 	case "decision_record":
