@@ -119,6 +119,19 @@ Examples live under `examples`. Historical execution prompts live under
 - Avoid hardcoded home-directory absolute paths in tracked docs and
   fixtures; use repository-relative paths, environment variables, or
   generalized `~/` paths when a path shape matters.
+- **Do not strand pushed branches.** Lane work lands on feature branches and
+  reaches `main` through review — but completed, reviewed work must not sit
+  unmerged. Merge it (or get it merged) promptly; if a blocker prevents the
+  merge (e.g. missing push/merge credentials), record the concrete blocker
+  rather than leaving the branch silently stranded.
+- **Do not leave stale docs.** The product-boundary rule above ("if a doc claim
+  disagrees with current source behavior, fix the doc") also covers state docs:
+  when a change moves the state a doc or board describes, update it in the same
+  change — `docs/reference/spec.md`, `docs/reference/todo.md`, the decision log,
+  `CHANGELOG.md`, and `docs/operator/BRIEF.md`. `make check-docs` flags broken
+  local doc links (frozen provenance under `docs/rfcs/`, `docs/_archive/`, and
+  similar is excluded via `.check-docs-ignore`); a living-doc link backlog
+  remains to burn down before it can join `make check`.
 
 ## Historical Prompts
 

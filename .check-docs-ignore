@@ -1,0 +1,10 @@
+# Frozen provenance: accepted RFCs, archives, dogfood records, prompts.
+docs/_archive/
+docs/rfcs/
+docs/research/
+docs/dogfood/
+docs/handoffs/
+docs/operator/plans/
+docs/operator/workflows/
+examples/
+prompts/
