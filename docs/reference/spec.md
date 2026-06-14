@@ -1336,10 +1336,36 @@ RFC 0119 / D179 splits memory into three authority axes:
 - **Index scope:** local memory consumers may index redacted delivered
   provenance, including durable-provenance rows, but Striatum exports and
   reads only its own bounded projections.
-- **Eviction scope:** git eviction is an explicit per-kind allow-list. The
-  initial allow-list is limited to `progress_note`; operator reports,
-  decisions, escalations, briefs, ledgers, and corpus durable-provenance kinds
-  remain durable provenance.
+- **Eviction scope:** git eviction is an explicit per-kind taxonomy, finalized
+  in S12 (RFC 0119 / S11 deferred enforcement to this step). Durable provenance
+  is canonical in git and is never evictable; only run exhaust and unsynthesized
+  intermediates are eviction-eligible. The classification is fail-safe — an
+  unrecognized kind is treated as durable.
+
+### Eviction taxonomy
+
+The eviction axis is independent of the placement axis above: where an artifact
+body is stored (`blob_exhaust` vs `git_publication`) does not change whether the
+artifact is durable provenance. The taxonomy is enumerated in code at
+`go/pkg/artifactcontracts/eviction.go` (`IsDurableProvenanceKind`,
+`IsEvictableKind`) and pinned by `eviction_test.go`.
+
+- **Durable provenance (never evictable, stays committed in git):** RFCs and the
+  decision log (git documents, durable by construction), and the artifact kinds
+  `decision`, `finding`, `synthesis`, `operator_brief`, `work_plan`,
+  `escalation`, and `handoff`. Accepted decisions and findings are canonical.
+- **Eviction-eligible (run exhaust + unsynthesized intermediates):**
+  `progress_note`, `operator_report`, `test_report`,
+  `auto_finalize_gate_evidence`, `findings_ledger`, `support_ledger`,
+  `action_item_ledger`, `collaboration_ledger`, and
+  `harness_improvement_proposal`. These are per-run reports, working ledgers,
+  gate evidence, and unsynthesized proposals — the durable provenance they cite
+  (accepted decisions/findings) is recorded separately and stays in git.
+
+A kind absent from both sets defaults to non-evictable, so a future or
+unrecognized kind is never silently removed from git. This taxonomy moves no
+durable-provenance kind out of git; it only names the run-exhaust kinds that
+were already eviction scope under the three-axis model (hippo D003).
 
 Striatum's native hot-tier read surface is `recall.search` / `RecallMemory`.
 It is a read-only Postgres full-text search over daemon-owned artifact
@@ -1359,9 +1385,9 @@ The daemon controls it with these default-off settings:
 - `STRIATUM_RECALL_DIGEST_LIMIT` / `--recall-digest-limit`
 - `STRIATUM_RECALL_DIGEST_TIMEOUT_MS` / `--recall-digest-timeout-ms`
 
-The worktree-create response reports a `memory_digest` status object such as
-`disabled`, `empty`, `rendered`, or `error`; the digest is advisory markdown
-with local artifact provenance.
+The worktree-create response reports a `memory_digest` status object whose
+`status` is `skipped` (default-off or no recall), `empty`, `rendered`, or
+`failed`; the digest is advisory markdown with local artifact provenance.
 
 `corpus.export` remains default artifact-only output. Passing
 `include_lane_trajectory=true` adds a separate `lane_trajectory` class built
