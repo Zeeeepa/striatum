@@ -372,6 +372,26 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "",
 	},
 	{
+		Code:       "spawn_grant_expired",
+		Meaning:    "The run's spawn-authorization grant has expired, so the daemon auto_spawn scheduler refuses to spawn under a stale grant (RFC 0122 C2).",
+		Suggestion: "Re-authorize the run by restarting it (run.start re-captures a fresh grant), or drive the run manually.",
+	},
+	{
+		Code:       "spawn_grant_missing",
+		Meaning:    "An auto_spawn run has queued lane work but no active spawn-authorization grant; the daemon scheduler cannot invent authority (RFC 0122 C2).",
+		Suggestion: "Re-run run.start to capture a grant, or drive the run manually with `run drive`.",
+	},
+	{
+		Code:       "spawn_grant_no_owner_principal",
+		Meaning:    "An auto_spawn run.start had no authenticated owner principal to capture, so there is no identity for the scheduler to replay.",
+		Suggestion: "Authenticate run.start with a capability token that carries a principal, then retry.",
+	},
+	{
+		Code:       "spawn_run_as_unresolved",
+		Meaning:    "An auto_spawn run's run-as identity (the configured lane OS user) cannot be resolved on this host, so the scheduler would spawn into a non-existent identity (RFC 0122 §4).",
+		Suggestion: "Provision the lane OS user (with a home directory) or unset STRIATUM_LANE_OS_USER to run lanes as the daemon user, then restart the run.",
+	},
+	{
 		Code:       "symlink_refused",
 		Meaning:    "A symlinked path was refused (repository registration and scoped writes resolve real paths).",
 		Suggestion: "Use the real (non-symlinked) path and retry.",

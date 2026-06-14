@@ -234,6 +234,7 @@ calling daemon RPC methods.
 | `daemon migrate-db` | applies pending PostgreSQL migrations via owner/admin DSN | no workflow state | bootstrap_admin |
 | `daemon owner-ddl apply` | applies owner-DDL bundles and reasserts protected grants | no workflow state | bootstrap_admin |
 | `run drive` | local operator loop over `run.detail`, `list.sessions`, `session.register`, `supervise.start`, `supervise.stop`, and `session.close`; forwards `provider_auth_gate` to `supervise.start` | no direct workflow state writes outside daemon RPC | local_operator_loop |
+| auto_spawn scheduler (daemon-internal, RFC 0122) | resident daemon loop over `session.register` + `supervise.start`, invoked under the captured **run-owner principal** read from a run-scoped spawn-authorization grant — never a synthetic principal. Refuses (`spawn_grant_missing`/`spawn_grant_expired`) without a valid, unexpired grant (C2); honors the paused-run hold and human-hold (non-`auto_spawn` lanes) via the shared reconcile predicate. Opt-in per deployment (`--auto-spawn-scheduler`) on top of the per-lane `supervision.auto_spawn` opt-in | no direct workflow state writes outside daemon RPC (replays the same handlers a client would) | daemon_initiated_spawn |
 | `workflow validate` | offline workflow JSON validation | no live state | local_file_authoring |
 | `workflow generate` | embedded catalog scaffold preview/write helper | no live state | local_file_authoring |
 | `workflow templates list` / `workflow templates show` | embedded workflow-template catalog reads | no live state | local_file_authoring |
@@ -263,6 +264,22 @@ calling daemon RPC methods.
 6. Go daemon startup now owns the resident active-run recovery scheduler:
    it calls Go `recovery.sweep`, records `daemon.recovery_sweep`, and upserts
    `striatumd.scheduler_cursors` without production SQLite.
+6a. RFC 0122 (#212) adds a second resident loop, the **auto_spawn scheduler**
+   (opt-in via `--auto-spawn-scheduler`). It is a NON-CLIENT invoker of the
+   `session.register` + `supervise.start` mutation path: where those methods
+   are otherwise reached only through a client capability, the scheduler reaches
+   them under the **run owner's pre-authorization** — a durable, run-scoped,
+   revocable `spawn_authorization_grant` captured at `run.start` and replayed by
+   setting `striatum.principal_id` to the captured owner (attestation identical to
+   a manual `supervise.start`, C1). The contract it must hold: the scheduler
+   cannot spawn without a valid, unexpired, run-scoped grant — a missing/expired/
+   revoked grant is a loud refusal (`spawn_grant_missing`/`spawn_grant_expired`),
+   never a silent fallback (C2). The guardrail cases live in
+   `go/pkg/mutations/scheduler_test.go`
+   (`TestSchedulerRefusesExpiredGrant`/`TestSchedulerRefusesMissingGrant`), with
+   attestation parity (`TestSchedulerSpawnAttributionUsesOwnerPrincipal`),
+   double-spawn (`TestSchedulerNoDoubleSpawn*`), and the paused/human holds
+   (`TestSchedulerRespectsHold*`).
 7. `/v1/invoke` routes daemon-mapped production reads and allowed mutations
    through daemon RPC. MCP `tools/list` / `tools/call` are derived from the
    daemon method registry and do not advertise CLI-shaped aliases. Hidden local
@@ -387,6 +404,10 @@ remediation is sensible for that code.
 | `shutdown_unavailable` | daemon.shutdown is not wired in this daemon process. | Stop the daemon with its service manager or a signal instead. |
 | `signing_key_insecure` | The sealed-apply signing key fails security requirements (for example permissions). | — |
 | `signing_key_invalid` | The sealed-apply signing key is invalid or unusable. | — |
+| `spawn_grant_expired` | The run's spawn-authorization grant has expired, so the daemon auto_spawn scheduler refuses to spawn under a stale grant (RFC 0122 C2). | Re-authorize the run by restarting it (run.start re-captures a fresh grant), or drive the run manually. |
+| `spawn_grant_missing` | An auto_spawn run has queued lane work but no active spawn-authorization grant; the daemon scheduler cannot invent authority (RFC 0122 C2). | Re-run run.start to capture a grant, or drive the run manually with `run drive`. |
+| `spawn_grant_no_owner_principal` | An auto_spawn run.start had no authenticated owner principal to capture, so there is no identity for the scheduler to replay. | Authenticate run.start with a capability token that carries a principal, then retry. |
+| `spawn_run_as_unresolved` | An auto_spawn run's run-as identity (the configured lane OS user) cannot be resolved on this host, so the scheduler would spawn into a non-existent identity (RFC 0122 §4). | Provision the lane OS user (with a home directory) or unset STRIATUM_LANE_OS_USER to run lanes as the daemon user, then restart the run. |
 | `symlink_refused` | A symlinked path was refused (repository registration and scoped writes resolve real paths). | Use the real (non-symlinked) path and retry. |
 | `target_unavailable` | The target session for the requested operation does not exist or is unavailable. | List live sessions (list.sessions) and target one that is active. |
 | `token_expired` | The capability token is expired. | Obtain a fresh capability token (re-register the session or ask the operator), then resend with the new token. |
