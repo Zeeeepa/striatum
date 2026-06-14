@@ -1,0 +1,123 @@
+---
+schema_version: "striatum.work_plan.v1"
+artifact_kind: "work_plan"
+plan_id: "plan_provenance-durability-campaign-2026-06-14"
+scope_kind: "campaign"
+scope_ref: "docs/rfcs/0125-durable-gate-artifact-provenance.md"
+state: "open"
+opened_at: "2026-06-14"
+closed_at: null
+closure_summary: null
+supersedes: null
+retrieval_priority: "high"
+---
+
+# Provenance-Durability Campaign — 2026-06-14
+author: operator-claude-opus-4-8-001
+
+## Origin
+
+The Hippo remaining-campaign run (`run_44ada924ad1ea88f08e28f254a3197b5`,
+`/home/halbritt/git/hippo`, model GPT-5-Codex) was retrospected in
+`hippo/HIPPO_RUN_RETROSPECTIVE_HIPPO_REMAINING_CAMPAIGN_GPT_5_CODEX_2026-06-14.md`.
+Verdict: **`PROCESS_UNRELIABLE`**. 7 of 12 required gate artifacts (every review
+artifact + one design) were not durably committed/reconstructable on the run
+branch, yet the finalizer counted those gates as passed — **false process
+confidence**. The run produced 14 friction issues (GH #270–#283). This plan is
+the campaign that addresses all of them, plus the retrospective's four structural
+recommendations, autonomously and per Striatum's design principles (daemon
+boundary, blob+git substrate, operators scaffold dogfoods, RFC 0106 shape freeze,
+no hosted services).
+
+## Triage outcome (all 14 issues, labeled `ready-for-agent`)
+
+Clustered by owning mechanism. The architecture was derived via a divergent
+design pass (`/adhd`, 5 isolated frames + 3 codebase-grounded deepen branches);
+the spine is **RFC 0125**.
+
+### Cluster A — Artifact body durability (RFC 0125 spine)
+- **#275** `artifact.get_content` "body file does not exist on disk" though row +
+  `size_bytes` exist — *the gap*: completion gate checks row, not body.
+- **#281** `git.commit_apply` refuses detached-HEAD job worktrees.
+- **#278** declared artifact path is gitignored; `work.complete` blocks after
+  publish succeeds.
+- **#272** lane OS user cannot enter the operator-owned job worktree to commit.
+
+  → **Fixed by Mechanism 1 (daemon-as-porter)** + **Mechanism 2 (body-reconstructability
+  gate)** + **Mechanism 4 (shift-left path validation)**.
+
+### Cluster B — Recovery ergonomics (RFC 0125 recovery layer)
+- **#271** no audited same-attempt recovery path for a remediated durability blocker.
+- **#273** `run retry-job` bumps a job past `max_attempts` during recovery.
+- **#274** `recovery auto-finalize` reports `eligible_count: 0` with no explanation
+  and does not inspect job worktrees.
+- **#270** `recovery resume --help` advertises positional `run-id`; daemon requires
+  `blocker_id`.
+
+  → **Fixed by Mechanism 3 (same-attempt reseal / RMA + recovery legibility)**.
+
+### Cluster C — Stale-verdict lifecycle (companion workstream)
+- **#282** revision cycles leave stale non-accepting verdicts blocking finalization
+  with an empty `why` trace.
+- **#283** run status reports superseded non-accepting verdicts after recovery/completion.
+
+  → **Workstream 2** (verdict-accounting legibility; rides RFC 0118's surface,
+  specified as bugfixes, not RFC 0125).
+
+### Cluster D — Lane provisioning hardening (companion workstream)
+- **#279** scratch ACLs for ephemeral MCP config files at lane startup.
+- **#280** cross-repo jobs need lane write provisioning for secondary repos.
+- **#277** lanes cannot push completed branches without operator credentials.
+- **#276** lane env (`STRIATUM_REPOSITORY_ID`) leaks into `make check` dispatch tests.
+
+  → **Workstream 3** (provisioning + hermeticity; mostly bugfixes + one enhancement).
+
+## Workstreams & sequencing
+
+The bounded companion fixes land **first** — they make future dogfoods reliable,
+and the spine (RFC 0125) is best dogfooded on a daemon that no longer wedges on
+the very bugs we are fixing.
+
+| Order | Workstream | Issues | Vehicle | Risk |
+| --- | --- | --- | --- | --- |
+| 1 | **WS3a** lane-env hermeticity | #276 | direct (test-infra) | low |
+| 2 | **WS2** stale-verdict legibility | #283, #282 | impl dogfood | low–med |
+| 3 | **WS3b** scratch ACL prep + cross-repo preflight + push handoff | #279, #280, #277 | impl dogfood | med |
+| 4 | **WS1 P0** porter + reconstructability gate | #272, #278, #281, #275 | design adjudication → impl dogfood | high |
+| 5 | **WS1 P1** RUN_LEDGER + reseal + recovery legibility | #271, #273, #270, #274 | impl dogfood | med |
+| 6 | **WS1 P2** shift-left validation + (optional) retire lane git identity | #278 prevention | impl dogfood | med |
+
+## Execution principles
+
+- **Operators scaffold dogfoods; they do not hand-implement role artifacts.**
+  RFC 0125 and this plan are operator-authored docs. The Go changes are produced
+  by striatum implementation lanes (and adjudicated by a design panel for the P0
+  spine), driven through the daemon — which also dogfoods the durability fix.
+- **Cowboy is reserved for test-infra + docs.** WS3a (#276) is a hermeticity
+  fix in a test and may be landed directly; everything else routes through a
+  dogfood.
+- **Land code via isolated worktrees off `origin/main`**; FF + `sha:main` ref-push
+  after a clean re-check; never checkout in the shared tree (concurrent agents
+  sweep it).
+- **No self-ratification.** RFC 0125 stays `proposed` until a maintainer accepts
+  it and assigns the next D-number. No decision-log row is written by the operator.
+- **Commit and push frequently.** The RFC + this plan land on the
+  `rfc/0125-durable-gate-artifact-provenance` review branch (RFCs are not
+  auto-FF'd to main). Bounded fixes land on their own branches and FF to main.
+
+## Definition of done
+
+- RFC 0125 reviewed/accepted (maintainer) with a D-number and decision-log row.
+- All 14 issues closed by landed, tested changes (or explicitly re-dispositioned).
+- The six RFC 0125 test obligations are green in CI, including the #275 regression
+  fence and the RFC 0118 no-regression test.
+- A re-run of a hippo-shaped multi-lane dogfood completes with a RUN_LEDGER from
+  which a retrospective reconstructs every gate offline — i.e. the original
+  incident is no longer reproducible.
+
+## Tracking
+
+- Umbrella issue: **#284** (filed with this plan).
+- Sub-issues: #270–#283.
+- RFC: `docs/rfcs/0125-durable-gate-artifact-provenance.md` (review branch
+  `rfc/0125-durable-gate-artifact-provenance`).
