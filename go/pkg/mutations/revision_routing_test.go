@@ -514,10 +514,27 @@ func TestRevisionCycleReReviewsAndUnblocksDownstream(t *testing.T) {
 	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "blocked" {
 		t.Fatalf("review state = %q, want blocked (re-blocked for re-review)", got)
 	}
-	// Its stale needs_revision verdict must be cleared so the gate re-evaluates
-	// the fresh round.
-	if n := countVerdicts(t, ctx, runner, repoID, reviewJobID); n != 0 {
-		t.Fatalf("review verdicts after re-block = %d, want 0 (stale round cleared)", n)
+	// RFC 0126 P0 (D194): the stale needs_revision verdict is NOT cleared — verdict
+	// history is now append-only. It survives the re-block (and, where the
+	// review_generation columns are present, is rendered non-current by generation
+	// mismatch); the fresh round's accept is recorded by a different session and
+	// becomes the latest verdict.
+	if n := countVerdicts(t, ctx, runner, repoID, reviewJobID); n != 1 {
+		t.Fatalf("review verdicts after re-block = %d, want 1 (append-only; prior round preserved)", n)
+	}
+	// In production a revision round spans the time the build takes to re-run and
+	// the reviewer to re-review (minutes), so the fresh round's verdict is
+	// unambiguously newer than the preserved prior round. This fixture compresses
+	// the whole loop into one wall-clock second and nowString() truncates to the
+	// second, so without aging the two rounds tie on created_at and the random
+	// verdict_id tiebreak in the latest-verdict read could surface the stale
+	// needs_revision. Age the preserved prior round to model the real time gap —
+	// RFC 0126 P0 keeps it as durable, non-current history rather than DELETEing it
+	// (the generation-scoped gate that makes this unconditional lands in P2).
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.verdicts SET created_at = created_at - INTERVAL '1 hour'
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, reviewJobID); err != nil {
+		t.Fatalf("age preserved prior-round verdict: %v", err)
 	}
 	// implement was already blocked and stays blocked (it never reached).
 	if got := jobState(t, ctx, runner, repoID, implementJobID); got != "blocked" {
@@ -534,8 +551,9 @@ func TestRevisionCycleReReviewsAndUnblocksDownstream(t *testing.T) {
 	}
 
 	// Step 3: re-claim the review and record a fresh accepting verdict. The new
-	// verdict supersedes the (now cleared) prior round; the downstream gate sees
-	// an accept and the implement job becomes reachable.
+	// verdict (recorded by a different session) becomes the latest over the
+	// preserved-but-non-current prior round; the downstream gate sees an accept
+	// and the implement job becomes reachable.
 	sessionID2, leaseID2 := reclaimReviewRunning(t, ctx, runner, repoID, runID, reviewJobID)
 	acceptResult, err := HandleRecordVerdict(ctx, runner, intgEnv(repoID, map[string]any{
 		"session_id": sessionID2,

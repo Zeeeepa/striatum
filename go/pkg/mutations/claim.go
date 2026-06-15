@@ -730,13 +730,15 @@ func workflowJobInterrogable(workflow map[string]any, workflowJobID string) bool
 //
 // Data availability (#206): the prior FINDING artifact persists (artifacts are
 // attempt-scoped and append-only), so prior_finding_artifact_id is exact. The
-// prior VERDICT row is DELETED when the job is re-opened (resetJobToBlocked frees
-// the (job, session) verdict uniqueness constraint), but the durable
-// `verdict.recorded` event survives — and since the current attempt has not yet
-// recorded a verdict, the latest such event for the job is necessarily the prior
-// round's, so prior_verdict is recovered from it. The free-text revision REASON
-// is not separately recorded anywhere durable (it lived only on the deleted
-// verdict row's rationale), so it is omitted rather than fabricated.
+// prior verdict is recovered from the durable `verdict.recorded` event — and
+// since the current attempt has not yet recorded a verdict, the latest such
+// event for the job is necessarily the prior round's. (RFC 0126 P0 / D194: the
+// prior verdict ROW now also survives the re-open — verdict history is
+// append-only, stamped per build generation — so the event read is no longer
+// the only durable source, though it remains the source used here.) The
+// free-text revision REASON is not separately recorded anywhere durable (it
+// lived only on the verdict row's rationale), so it is omitted rather than
+// fabricated.
 func revisionContextForPacket(ctx context.Context, runner any, repositoryID string, job map[string]any) (map[string]any, error) {
 	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
 		return nil, nil

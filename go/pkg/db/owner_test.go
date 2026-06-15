@@ -60,3 +60,29 @@ func TestOwnerBundleEightAddsArtifactSearch(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnerBundleNineAddsReviewGeneration(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 9 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 9 is missing")
+	}
+	for _, needle := range []string{
+		"ALTER TABLE striatumd.jobs",
+		"ALTER TABLE striatumd.verdicts",
+		"ADD COLUMN IF NOT EXISTS review_generation integer NOT NULL DEFAULT 1",
+	} {
+		if !strings.Contains(bundle.SQL, needle) {
+			t.Fatalf("bundle 9 missing %q", needle)
+		}
+	}
+}

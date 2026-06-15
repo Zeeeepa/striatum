@@ -39,10 +39,14 @@ func reopenReviewToAttempt2(t *testing.T, ctx context.Context, runner db.Runner,
 		repoID, leaseID, runID, jobID, sessionID, now, now.Add(time.Hour)); err != nil {
 		t.Fatalf("insert attempt-2 lease: %v", err)
 	}
-	// The production re-open (resetJobToBlocked) deletes the job's prior verdicts
-	// to free the (job, session) verdict uniqueness constraint so a re-claiming
-	// session can record again. The durable verdict.recorded EVENT survives (and
-	// is what revisionContextForPacket reads), so prior_verdict stays recoverable.
+	// This fixture re-claims the SAME session at attempt 2, so it clears the prior
+	// verdict to free the (job, session) verdict uniqueness constraint. (Production
+	// no longer DELETEs verdicts on re-open — RFC 0126 P0 / D194 made verdict
+	// history append-only; a real re-review is claimed by a DIFFERENT session per
+	// the fresh-review lineage gate, which sidesteps the constraint without a
+	// clear. This is fixture convenience, not the production reset path.) The
+	// durable verdict.recorded EVENT survives regardless and is what
+	// revisionContextForPacket reads, so prior_verdict stays recoverable.
 	if err := runner.Exec(ctx, `
 		DELETE FROM striatumd.verdicts
 		 WHERE repository_id = $1 AND job_id = $2`, repoID, jobID); err != nil {

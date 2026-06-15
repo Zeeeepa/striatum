@@ -91,7 +91,11 @@ func HandleRecoveryInvalidateJob(ctx context.Context, runner db.Runner, envelope
 		if err := resetDownstreamForRevision(ctx, tx, repositoryID, jobID, now); err != nil {
 			return nil, err
 		}
-		if err := resetJobToBlockedPreservingVerdicts(ctx, tx, repositoryID, jobID, now, "job_invalidated"); err != nil {
+		// RFC 0126 P0 (D194): the shared reset is now append-only for verdicts, so
+		// the rows superseded above survive as the durable invalidation receipt
+		// (superseded rows stay invisible to latestVerdict and the run-completion
+		// gate). The dedicated "preserving" reset variant is no longer needed.
+		if err := resetJobToBlockedWithReason(ctx, tx, repositoryID, jobID, now, "job_invalidated"); err != nil {
 			return nil, err
 		}
 		messageID, err := enqueueJob(ctx, tx, repositoryID, jobID)

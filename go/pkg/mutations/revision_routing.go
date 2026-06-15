@@ -244,6 +244,43 @@ func latestJobForWorkflowID(ctx context.Context, runner any, repositoryID, runID
 	return rows[0], nil
 }
 
+// reviewedBuildGeneration returns the current review_generation of the
+// build/synthesis job this verdict-capable job reviews — its revision-cycle
+// target (cycle.to). RFC 0126 P0 (D194): applyVerdict stamps each verdict with
+// this value at record time so a later build revision (which bumps the build's
+// review_generation) renders the verdict non-current by GENERATION MISMATCH
+// rather than by DELETE. A job with no declared needs_revision cycle has no
+// build whose revision could invalidate it, so it defaults to generation 1.
+// The read is intentionally non-locking: it runs under the per-run advisory
+// lock that already serializes the verdict-record and reopen paths, so the
+// committed generation it sees is authoritative.
+func reviewedBuildGeneration(ctx context.Context, runner any, repositoryID string, job map[string]any) (int, error) {
+	cycles, err := workflowCyclesForJob(ctx, runner, repositoryID, job)
+	if err != nil {
+		return 0, err
+	}
+	cycle, matched := matchRevisionCycle(cycles, "needs_revision")
+	if !matched {
+		return 1, nil
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT review_generation FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2 AND workflow_job_id = $3
+		 ORDER BY attempt DESC, created_at DESC
+		 LIMIT 1`, repositoryID, fmt.Sprint(job["run_id"]), cycle.to)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return 1, nil
+		}
+		return 0, err
+	}
+	gen := intValue(row["review_generation"])
+	if gen < 1 {
+		gen = 1
+	}
+	return gen, nil
+}
+
 // isTerminalJobState reports whether a job state is one a revision cycle may
 // re-open: a finished state (completed/failed/canceled/skipped/waiting_human)
 // or `blocked` (not yet enqueued). Live states (queued/claimed/running) are
@@ -301,15 +338,73 @@ func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, j
 	if err := resetJobToBlockedWithReason(ctx, runner, repositoryID, jobID, now, reason); err != nil {
 		return "", err
 	}
+	// RFC 0126 P0 (D194 / GH #282): advance the reopened build/synthesis job's
+	// review epoch in the SAME transaction as its attempt bump. Verdicts recorded
+	// against the prior content were stamped with the prior generation, so this
+	// bump renders them non-current by GENERATION MISMATCH (no DELETE) — closing
+	// the stale-verdict window the verdict clear used to race. Only the directly
+	// reopened target advances; the transitively re-blocked downstream reviewers
+	// (resetDownstreamForRevision, above) keep their generation and are stamped
+	// with this new build generation when they re-review.
+	if err := bumpReviewGeneration(ctx, runner, repositoryID, jobID); err != nil {
+		return "", err
+	}
 	return enqueueJob(ctx, runner, repositoryID, jobID)
+}
+
+// bumpReviewGeneration advances a build/synthesis job's monotonic
+// review_generation by one (RFC 0126 P0 / D194). It is invoked from
+// reopenJobForAttempt so the increment is atomic with the attempt bump: a
+// verdict can never be stamped against a half-updated generation. The
+// generation is the build's "review epoch" — verdicts stamped with a prior
+// generation are non-current without being deleted.
+func bumpReviewGeneration(ctx context.Context, runner any, repositoryID, jobID string) error {
+	// review_generation is owner-bundle DDL (owner bundle 0009): present once the
+	// daemon has applied owner bundles, absent in a runtime-migrations-only DB
+	// (e.g. the default pgtest harness). When absent the build epoch is a no-op —
+	// the column cannot be stamped either, so there is nothing to keep current.
+	if !reviewGenerationEnabled(ctx, runner) {
+		return nil
+	}
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+	return exec.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET review_generation = review_generation + 1
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
+}
+
+// reviewGenerationEnabled reports whether the owner-bundle-0009 review_generation
+// columns are present on BOTH striatumd.jobs and striatumd.verdicts. The columns
+// are owner-table DDL (RFC 0126 P0 / D194), so production has them once owner
+// bundles are applied, but a runtime-migrations-only database (the default
+// pgtest harness) does not. The verdict write path and the build-epoch bump
+// branch on this, mirroring db.ArtifactPlacementColumnPresent for the artifact
+// placement column — a single catalog lookup, cheap on the verdict path.
+func reviewGenerationEnabled(ctx context.Context, runner any) bool {
+	row, err := oneRow(ctx, runner, `
+		SELECT (
+		  EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_schema = 'striatumd' AND table_name = 'jobs'
+		             AND column_name = 'review_generation')
+		  AND
+		  EXISTS (SELECT 1 FROM information_schema.columns
+		           WHERE table_schema = 'striatumd' AND table_name = 'verdicts'
+		             AND column_name = 'review_generation')
+		) AS enabled`)
+	return err == nil && boolValue(row["enabled"])
 }
 
 // resetJobToBlocked is the shared reset core used both to re-open the cycle
 // target and to re-block its transitive downstream jobs. It releases any active
-// lease, cancels in-flight work messages and open blockers, clears the
-// per-attempt verdicts of verdict-capable jobs (so a re-run review's fresh
-// verdict supersedes the prior round and the (job, session) verdict uniqueness
-// constraint is freed), clears terminal timestamps, and bumps the attempt.
+// lease, cancels in-flight work messages and open blockers, clears terminal
+// timestamps, and bumps the attempt. RFC 0126 P0 (D194): it no longer clears
+// verdicts — history is append-only and staleness is a build-generation
+// non-match.
 func resetJobToBlocked(ctx context.Context, runner any, repositoryID, jobID, now string) error {
 	return resetJobToBlockedWithReason(ctx, runner, repositoryID, jobID, now, "revision_cycle")
 }
@@ -319,21 +414,21 @@ func resetJobToBlocked(ctx context.Context, runner any, repositoryID, jobID, now
 // leases.release_reason); the reset itself is identical regardless of which
 // re-open path invoked it.
 func resetJobToBlockedWithReason(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
-	return resetJobToBlockedCore(ctx, runner, repositoryID, jobID, now, releaseReason, false)
+	return resetJobToBlockedCore(ctx, runner, repositoryID, jobID, now, releaseReason)
 }
 
-// resetJobToBlockedPreservingVerdicts is the RFC 0118 P1-6 reopen variant:
-// the caller has just superseded the job's verdict rows as the DURABLE
-// invalidation receipt, so the reset must NOT delete them. latestVerdict and
-// the run-completion gate ignore superseded rows, and the (job, session)
-// verdict uniqueness deliberately keeps the invalidated session from
-// re-recording on the fresh attempt (the fresh-review lineage gate demands a
-// different claimant anyway).
-func resetJobToBlockedPreservingVerdicts(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
-	return resetJobToBlockedCore(ctx, runner, repositoryID, jobID, now, releaseReason, true)
-}
-
-func resetJobToBlockedCore(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string, preserveVerdicts bool) error {
+// resetJobToBlockedCore is the shared reset body. RFC 0126 P0 (D194 / GH #282):
+// it no longer DELETEs the job's verdicts — verdict history is append-only and
+// staleness is a build-generation non-match (reopenJobForAttempt bumps the
+// build's review_generation). The (repository_id, job_id, session_id) verdict
+// uniqueness still bars the same session from re-recording on the fresh attempt,
+// and the fresh-review lineage gate (#206) requires a different claimant anyway,
+// so preserving the rows neither wedges a re-claim nor lets a stale verdict win
+// a latest-row tiebreak. (The RFC 0118 P1-6 invalidate path,
+// recovery.invalidate_job, supersedes the rows as a durable receipt before
+// calling the shared reset; superseded rows stay invisible to latestVerdict and
+// the run-completion gate.)
+func resetJobToBlockedCore(ctx context.Context, runner any, repositoryID, jobID, now, releaseReason string) error {
 	exec, ok := runner.(interface {
 		Exec(context.Context, string, ...any) error
 	})
@@ -374,25 +469,9 @@ func resetJobToBlockedCore(ctx context.Context, runner any, repositoryID, jobID,
 		now, repositoryID, jobID); err != nil {
 		return err
 	}
-	// Clear the job's verdicts so the downstream gate re-evaluates against the
-	// fresh review round. `latestVerdict` orders by created_at (truncated to the
-	// second), so a prior-round verdict recorded in the same wall-clock second
-	// as the new one could otherwise win the tiebreak (verdict_id is random).
-	// Deleting the stale rows removes that ambiguity and frees the
-	// (repository_id, job_id, session_id) uniqueness constraint so a re-claiming
-	// session can record again. Verdict rows are not referenced by any FK
-	// (events carry verdict_id in payload only), so deletion is safe.
-	// The P1-6 invalidate path preserves the rows instead — they were just
-	// superseded as the durable invalidation receipt, and superseded rows are
-	// invisible to latestVerdict and the run-completion gate.
-	if !preserveVerdicts {
-		if err := exec.Exec(ctx, `
-			DELETE FROM striatumd.verdicts
-			 WHERE repository_id = $1 AND job_id = $2`,
-			repositoryID, jobID); err != nil {
-			return err
-		}
-	}
+	// RFC 0126 P0 (D194): verdict history is NOT cleared here — see the function
+	// doc comment. A revision renders prior-round verdicts non-current by
+	// generation mismatch, preserving the full per-round audit trail.
 	// Reset the job to a clean blocked state and bump the attempt. enqueueJob
 	// (or the normal downstream gating) transitions blocked->queued and attaches
 	// a fresh message.
