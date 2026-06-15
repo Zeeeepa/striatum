@@ -275,6 +275,13 @@ func HandleOverrideVerdict(ctx context.Context, runner db.Runner, envelope rpc.E
 		// stamp (P0-1) records the lane state the override was issued against.
 		attestation := sessionLaneAttestation(ctx, tx, repositoryID, sessionID)
 		now := nowString()
+		// RFC 0126 P0 (D194 / GH #282): the operator-override INSERT intentionally
+		// does NOT name review_generation. In production (owner bundle 0009 applied)
+		// the column DEFAULTs to 1; stamping the live build generation onto an
+		// override is deferred to P1/P2, when the generation-scoped completion gate
+		// actually consults the column (this operator path is rare, and leaving it
+		// unstamped here keeps both the runtime-only harness and production correct
+		// without an adaptive branch on a non-hot path).
 		if err := tx.Exec(ctx, `
 			INSERT INTO striatumd.verdicts (
 			  repository_id, verdict_id, run_id, job_id, session_id,
@@ -643,7 +650,36 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	if !ok {
 		return nil, fmt.Errorf("runner does not support exec")
 	}
-	if err := exec.Exec(ctx, `
+	// RFC 0126 P0 (D194 / GH #282): stamp the verdict with the reviewed build's
+	// CURRENT review_generation at record time so a later build revision (which
+	// bumps the build's generation in reopenJobForAttempt) renders this verdict
+	// non-current by generation mismatch — it is never deleted. The column is
+	// owner-bundle DDL (owner bundle 0009): when it is absent (a
+	// runtime-migrations-only database such as the default pgtest harness) the
+	// INSERT omits it, exactly as db.appendArtifactRowDirect omits placement.
+	if reviewGenerationEnabled(ctx, runner) {
+		generation, gerr := reviewedBuildGeneration(ctx, runner, repositoryID, job)
+		if gerr != nil {
+			return nil, gerr
+		}
+		if err := exec.Exec(ctx, `
+			INSERT INTO striatumd.verdicts (
+			  repository_id, verdict_id, run_id, job_id, session_id, verdict,
+			  rationale, findings_artifact_id, created_at, posture,
+			  lane_attestation_at_record, review_provenance_override,
+			  review_provenance_decision_id, supervisor_id_at_record, review_generation
+			)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			repositoryID, verdictID, job["run_id"], jobID, sessionID, verdict,
+			rationale, findingsArtifactID, now, posture,
+			attestation["state"],
+			reviewProvenance["review_provenance_override"] == true,
+			nullable(reviewProvenance["review_provenance_decision_id"]),
+			attestation["supervisor_id"], generation,
+		); err != nil {
+			return nil, err
+		}
+	} else if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.verdicts (
 		  repository_id, verdict_id, run_id, job_id, session_id, verdict,
 		  rationale, findings_artifact_id, created_at, posture,
@@ -651,16 +687,8 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 		  review_provenance_decision_id, supervisor_id_at_record
 		)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
-		repositoryID,
-		verdictID,
-		job["run_id"],
-		jobID,
-		sessionID,
-		verdict,
-		rationale,
-		findingsArtifactID,
-		now,
-		posture,
+		repositoryID, verdictID, job["run_id"], jobID, sessionID, verdict,
+		rationale, findingsArtifactID, now, posture,
 		attestation["state"],
 		reviewProvenance["review_provenance_override"] == true,
 		nullable(reviewProvenance["review_provenance_decision_id"]),

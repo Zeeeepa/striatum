@@ -306,12 +306,17 @@ func TestVerdictWriteSurfacesAreClassified(t *testing.T) {
 		// applyVerdict INSERT — the chokepoint: lane verdicts stamp the threaded
 		// gate attestation; operator decisions arrive via review_provenance;
 		// work.claim_override decisions are carried forward; recovery surfaces
-		// declare recordVerdictOptions.ProvenanceOverrideBasis.
-		// HandleOverrideVerdict INSERT — operator surface, posture='override'
-		// literal + override stamp (TestOverrideVerdictForcesOverridePostureAndStamp).
+		// declare recordVerdictOptions.ProvenanceOverrideBasis. RFC 0126 P0 (D194)
+		// splits this INSERT into TWO branches — generation-stamped when the owner
+		// bundle 0009 review_generation column is present, and the historical
+		// (un-stamped) form when it is absent (a runtime-migrations-only DB) — so
+		// review.go now carries 3 verdict INSERTs (both applyVerdict branches plus
+		// the HandleOverrideVerdict operator INSERT). Both applyVerdict branches
+		// stamp the same provenance; the override INSERT keeps posture='override'
+		// (TestOverrideVerdictForcesOverridePostureAndStamp).
 		// recordVerdict callers: HandleRecordVerdict, HandleSubmitReview (lane
 		// surfaces behind the admission gate); applyVerdict caller: recordVerdict.
-		"review.go": {verdictInserts: 2, applyVerdictCalls: 1, recordVerdictCalls: 2},
+		"review.go": {verdictInserts: 3, applyVerdictCalls: 1, recordVerdictCalls: 2},
 		// checkpoint.override clearing INSERT — operator surface,
 		// posture='override' + decision-bound stamp
 		// (TestCheckpointOverrideStampsClearingVerdict).
