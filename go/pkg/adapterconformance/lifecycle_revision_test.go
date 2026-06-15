@@ -890,6 +890,14 @@ func copyDriveParams(params map[string]any) map[string]any {
 //     fresh window, a dead-lane-during-re-cascade same-attempt requeue, and a
 //     waiting-human consumer + advisory unavailable/required-skip evidence.
 //
+//   - the double fan-out/join divergent-ideation lifecycle
+//     (divergent_ideation_test.go) underwrites `divergent_ideation` — its
+//     distinctive structure is TWO fan-out/joins in series (diverge→converge,
+//     deepen→final_synthesis), and the load-bearing new coverage is a hard
+//     dead-lane fault in a branch of the SECOND fan-out, after the first join has
+//     already fired, recovering on the same attempt without the final join firing
+//     early or losing the branch.
+//
 // The remaining collaboration / interrogation shapes (conversation,
 // iterated_interrogating_panel, human_checkpoint, evidence_backed, custom)
 // deliberately have NO entry here and therefore stay `experimental` until a
@@ -903,4 +911,5 @@ var ReliabilityFixtureShapes = map[string]bool{
 	"falsification_gate":                true,
 	"cross_examination":                 true,
 	"adjudicated_constraint_extraction": true,
+	"divergent_ideation":                true,
 }

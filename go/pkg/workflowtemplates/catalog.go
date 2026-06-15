@@ -87,6 +87,7 @@ var supportedShapes = map[string]struct{}{
 	"falsification_gate":                {},
 	"cross_examination":                 {},
 	"adjudicated_constraint_extraction": {},
+	"divergent_ideation":                {},
 }
 
 // SupportTierForShape returns the RFC 0106 support tier for a shape template_id.

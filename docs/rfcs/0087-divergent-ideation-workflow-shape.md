@@ -4,8 +4,10 @@ Status: accepted (implemented 2026-06-14; frame layer per RFC 0129)
 Date: 2026-05-27
 Implementation note (2026-06-14): the `divergent_ideation` shape is implemented
 first-class in `go/pkg/workflowgenerate/shapes_divergent.go` (registered in the
-`shapes` set, the dispatch switch, and the template catalog at the `experimental`
-tier) with a starter fixture at `examples/divergent-ideation-flow/`. It compiles
+`shapes` set, the dispatch switch, and the template catalog at the `supported`
+tier — graduated D199 per RFC 0106 on a green RFC 0105 reliability fixture
+(`go/pkg/adapterconformance/divergent_ideation_test.go`)) with a starter fixture
+at `examples/divergent-ideation-flow/`. It compiles
 to flat `striatum.workflow.v1` (fan-out via `parallel_group` + edges, like
 `implementation_panel`) rather than the v1.1 phases sketched below — the proven
 shipped fan-out pattern. The frame library and selection policy moved to

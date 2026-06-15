@@ -4,6 +4,15 @@
 
 ### Decisions
 
+- **`divergent_ideation` graduated to `supported` (D199, RFC 0106).** The shape
+  now carries a green RFC 0105 unattended-reliability fixture
+  (`go/pkg/adapterconformance/divergent_ideation_test.go`), registered in
+  `ReliabilityFixtureShapes` and reconciled with `supportedShapes` by the
+  shape-tier guard. It proves the distinctive **double fan-out/join** lifecycle
+  (diverge→converge, deepen→final_synthesis) drives to `completed` unattended, and
+  that a hard dead-lane fault in a branch of *either* fan-out — including the
+  second one, after the first join fired — self-recovers on the same attempt via
+  the production sweep with no escalation. Docs flipped experimental→supported.
 - **RFC 0126 — multi-reviewer revision coherence accepted (D194).** The #282
   follow-up: replace DELETE-on-revision of reviewer verdicts with a build-owned
   monotonic `review_generation` stamped at the write boundary; finalization

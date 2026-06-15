@@ -272,8 +272,9 @@ convergence critic that scores/clusters/trap-detects, K deepen jobs, and a final
 synthesis. Frames are a curated, distortion-axis-tagged authoring library
 selected with an anti-redundancy + min-structure policy; the convergence critic
 can run on a different lane/family (the multi-model signal). It adds no daemon
-method and no model call in any state transition, and remains experimental until
-a graduation decision changes the support tier. Other built-in shapes emit V1.
+method and no model call in any state transition, and is `supported` (graduated
+D199 per RFC 0106) on a green RFC 0105 fixture covering its double fan-out/join
+and branch-death self-recovery. Other built-in shapes emit V1.
 Generator preview and `workflow validate --json` envelopes include the advisory
 lint payload, including warning count and coverage summary; lint
 remains informational except where a later rule explicitly promotes a finding
