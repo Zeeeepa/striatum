@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-14_rfc-0125-followups"
-supersedes: "brief_2026-06-13_v2.32.0-released"
+brief_id: "brief_2026-06-15_292-complete-stalled"
+supersedes: "brief_2026-06-14_rfc-0125-followups"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -10,7 +10,29 @@ status: "current"
 ---
 
 # Operator Brief
-author: operator-claude-fable-5-001
+author: operator-claude-opus-4-8-001
+
+## 2026-06-15 delta — #292 stalled-job finalize path (Unreleased, not yet tagged)
+
+Work after the 2026-06-14 delta, on `main`:
+
+- **#292 closed + landed** (`recovery.complete_stalled`, **D200**). New daemon
+  verb / CLI `recovery complete-stalled <run-id> <job-id>` that non-destructively
+  completes a job whose agent published its durable artifacts then died before
+  `work.complete` (the `recovery_exhausted` + `needs_operator` dead-end the #289
+  work surfaced but could not exit). Verifies required artifacts present +
+  body-reconstructable (RFC 0125 P0-3, worktree-independent), then completes the
+  job server-side and reuses the #207 path to resolve the moot blocker/escalation
+  and restore the run to `running`. Refuses verdict-capable jobs (RFC 0118),
+  refuses a live-leased job (finalizes a dead lane only); `--force` relaxes the
+  blocker precondition, `--dry-run` previews. 5 pgtests, adversarially reviewed,
+  CI-lint clean, built off `origin/main`. **No schema change.**
+- **Decision numbering:** **D199** was taken by the `divergent_ideation`
+  graduation (the 2026-06-14 delta's "next free D-number is D199" is now stale);
+  this work took **D200**. Next free D-number is **D201**.
+- **Daemon redeploy required:** `recovery.complete_stalled` is a new handler, so
+  it does not take effect until `systemctl --user restart striatumd` (or a
+  reboot). Verify the running `/proc/<pid>/exe` sha == installed after restart.
 
 ## 2026-06-14 delta — RFC 0125 follow-ups (Unreleased, not yet tagged)
 

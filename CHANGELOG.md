@@ -4,6 +4,21 @@
 
 ### Decisions
 
+- **#292 stalled-job finalize path — `recovery complete-stalled` (D200).** A new
+  daemon verb (`recovery.complete_stalled`, CLI `recovery complete-stalled
+  <run-id> <job-id>`) non-destructively completes a job whose agent published its
+  required artifacts (durably) then died before `work.complete`, leaving the run
+  `needs_operator` behind a `recovery_exhausted` blocker. It verifies the required
+  artifacts are present AND body-reconstructable from their declared placement
+  (RFC 0125 P0-3, worktree-independent), then drives the same server-side
+  completion `work.complete` would have — resolving the now-moot
+  `recovery_exhausted` blocker + escalation and restoring the run to `running`
+  (reusing the #207 path). It refuses verdict-capable jobs (never bypasses the
+  RFC 0118 verdict gate), refuses a job whose lane still holds a live active lease
+  (finalizes a dead lane only), and is keyed on an open `recovery_exhausted`
+  blocker (`--force` relaxes that; `--dry-run` previews). Closes the dead-end the
+  #289 work surfaced but could not exit. No schema change.
+
 - **`divergent_ideation` graduated to `supported` (D199, RFC 0106).** The shape
   now carries a green RFC 0105 unattended-reliability fixture
   (`go/pkg/adapterconformance/divergent_ideation_test.go`), registered in

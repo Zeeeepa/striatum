@@ -186,6 +186,11 @@ func positionalNames(group string) []string {
 		// `striatum recovery reseal <run-id> <job-id>` reaches the daemon
 		// handler (the durability gate writes no blocker row to key on).
 		return []string{"run_id", "job_id"}
+	case "recovery_complete_stalled":
+		// #292: recovery.complete_stalled keys on (run_id, job_id) so
+		// `striatum recovery complete-stalled <run-id> <job-id>` finalizes a
+		// recovery-exhausted job from its already-durable published artifacts.
+		return []string{"run_id", "job_id"}
 	case "evidence_export", "corpus_export", "archive_create":
 		return []string{"run_id", "out"}
 	case "recall_search":
