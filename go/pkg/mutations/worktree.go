@@ -1591,6 +1591,15 @@ func extractGitArchive(ctx context.Context, repoRoot, treeish, target string) er
 // extractTarStream extracts a tar stream into target, confining every entry to
 // target (rejecting absolute or escaping paths defensively even though the tar
 // comes from a daemon-controlled `git archive`).
+//
+// SAFE FOR SINGLE-TREE `git archive` INPUT ONLY. The confinement check tests the
+// cleaned entry path, not the resolved path, and the TypeSymlink branch writes
+// header.Linkname without validating the link target. That is sound here because
+// the source is one pinned git tree, which cannot store both a symlink and a
+// directory at the same name, so no later entry can traverse an earlier-created
+// symlink. Any reuse for a general/untrusted tar must first add resolved-path
+// (lstat-per-component) confinement and symlink-target validation (RFC 0127
+// review round 2, finding 1).
 func extractTarStream(reader *tar.Reader, target string) error {
 	for {
 		header, err := reader.Next()
@@ -1636,6 +1645,8 @@ func extractTarStream(reader *tar.Reader, target string) error {
 				return err
 			}
 		case tar.TypeSymlink:
+			// Link target is written unvalidated; safe only for single-tree
+			// git-archive input (see the extractTarStream doc comment).
 			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 				return err
 			}
