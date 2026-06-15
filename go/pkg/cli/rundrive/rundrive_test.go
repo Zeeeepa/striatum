@@ -1,9 +1,14 @@
 package rundrive
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -637,4 +642,118 @@ func cloneParams(row map[string]any) map[string]any {
 		result[key] = value
 	}
 	return result
+}
+
+// markerDriver builds a Driver with just enough Options for claimAdvisoryMarker.
+func markerDriver(repoRoot string, pid int, force bool, stderr *bytes.Buffer) *Driver {
+	return New(nil, Options{
+		RepositoryID:    "repo_1",
+		RunID:           "run_marker",
+		RepoRoot:        repoRoot,
+		PID:             pid,
+		ForceConcurrent: force,
+		Stderr:          stderr,
+	})
+}
+
+func markerPath(t *testing.T, repoRoot string) string {
+	t.Helper()
+	return filepath.Join(repoRoot, ".striatum", "scratch", "run-drive-run_marker.pid")
+}
+
+// deadPID returns a pid that is reliably not alive: it forks a trivial child,
+// waits for it to exit, and returns its (now reaped) pid.
+func deadPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("spawn helper for dead pid: %v", err)
+	}
+	return cmd.ProcessState.Pid()
+}
+
+// #293 claim 2: a live pre-existing drive for the same run must REFUSE the
+// second drive (not silently coexist behind the daemon double-claim guard).
+func TestClaimAdvisoryMarkerRefusesLiveDuplicate(t *testing.T) {
+	repoRoot := t.TempDir()
+	// First driver (the "existing" live drive: use our own pid, which is alive).
+	livePID := os.Getpid()
+	first := markerDriver(repoRoot, livePID, false, &bytes.Buffer{})
+	cleanup1, err := first.claimAdvisoryMarker()
+	if err != nil {
+		t.Fatalf("first claim should succeed: %v", err)
+	}
+	defer cleanup1()
+
+	// Second driver, different pid, marker names the live first pid -> refuse.
+	var stderr bytes.Buffer
+	second := markerDriver(repoRoot, livePID+100000, false, &stderr)
+	_, err = second.claimAdvisoryMarker()
+	var concurrent ConcurrentDriveError
+	if !errors.As(err, &concurrent) {
+		t.Fatalf("expected ConcurrentDriveError, got %v", err)
+	}
+	if concurrent.PID != livePID {
+		t.Errorf("ConcurrentDriveError.PID = %d, want %d", concurrent.PID, livePID)
+	}
+	// The first drive's marker must be intact (the refusal must not clobber it).
+	data, readErr := os.ReadFile(markerPath(t, repoRoot))
+	if readErr != nil {
+		t.Fatalf("marker should still exist after refusal: %v", readErr)
+	}
+	if strings.TrimSpace(string(data)) != strconv.Itoa(livePID) {
+		t.Errorf("marker = %q, want live pid %d preserved", string(data), livePID)
+	}
+}
+
+// #293 claim 2: a stale marker (dead pid) must be reaped, not block the drive.
+func TestClaimAdvisoryMarkerReapsDeadMarker(t *testing.T) {
+	repoRoot := t.TempDir()
+	dir := filepath.Join(repoRoot, ".striatum", "scratch")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	dead := deadPID(t)
+	if err := os.WriteFile(markerPath(t, repoRoot), []byte(strconv.Itoa(dead)+"\n"), 0o600); err != nil {
+		t.Fatalf("seed stale marker: %v", err)
+	}
+
+	mine := os.Getpid()
+	d := markerDriver(repoRoot, mine, false, &bytes.Buffer{})
+	cleanup, err := d.claimAdvisoryMarker()
+	if err != nil {
+		t.Fatalf("stale (dead-pid) marker must not refuse: %v", err)
+	}
+	defer cleanup()
+	data, readErr := os.ReadFile(markerPath(t, repoRoot))
+	if readErr != nil {
+		t.Fatalf("marker should exist after reap: %v", readErr)
+	}
+	if strings.TrimSpace(string(data)) != strconv.Itoa(mine) {
+		t.Errorf("stale marker not reaped: marker = %q, want our pid %d", string(data), mine)
+	}
+}
+
+// #293 claim 2: --force-concurrent (Options.ForceConcurrent) opts into
+// co-driving for the documented background + foreground-waiter composition.
+func TestClaimAdvisoryMarkerForceConcurrentCoDrives(t *testing.T) {
+	repoRoot := t.TempDir()
+	livePID := os.Getpid()
+	first := markerDriver(repoRoot, livePID, false, &bytes.Buffer{})
+	cleanup1, err := first.claimAdvisoryMarker()
+	if err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	defer cleanup1()
+
+	var stderr bytes.Buffer
+	second := markerDriver(repoRoot, livePID+100000, true, &stderr)
+	cleanup2, err := second.claimAdvisoryMarker()
+	if err != nil {
+		t.Fatalf("--force-concurrent must allow co-drive, got %v", err)
+	}
+	defer cleanup2()
+	if !strings.Contains(stderr.String(), "co-driving") {
+		t.Errorf("force-concurrent should warn about co-driving, got %q", stderr.String())
+	}
 }

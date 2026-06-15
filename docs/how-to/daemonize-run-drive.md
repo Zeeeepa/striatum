@@ -27,9 +27,16 @@ this page is just how to observe, stop, or opt out of it.
 ```sh
 striatum --repo /path/to/target run start --run-id run_abc123
 # run start: auto-driving run_abc123 in background
-#   (logs: journalctl --user -u striatum-drive-run_abc123 -f;
-#    stop:  systemctl --user stop striatum-drive-run_abc123)
+#   (logs:   journalctl --user -u striatum-drive-run_abc123 -f;
+#    stop:   systemctl --user stop striatum-drive-run_abc123;
+#    resume after stop: striatum --repo /path/to/target run drive --run-id run_abc123)
 ```
+
+The unit is registered with `--collect`, so `systemctl --user stop` does not
+merely pause it — it **removes** the transient unit. `systemctl --user start
+striatum-drive-<run>` after a stop therefore fails (`Unit ... not found`); the
+resume command is `striatum run drive --run-id <run>`, not `systemctl start`
+(#293).
 
 `run start` runs the start verbatim, then launches the driver in a **transient
 systemd user unit** named `striatum-drive-<run-id>`. The unit:
@@ -66,8 +73,15 @@ collected. A non-zero driver exit means it hit a refusal it surfaced loudly
 ## Stop or opt out
 
 ```sh
-systemctl --user stop striatum-drive-$RUN          # stop driving this run (safe; re-drive resumes)
+systemctl --user stop striatum-drive-$RUN          # stop driving this run (removes the transient unit)
+striatum --repo <target> run drive --run-id $RUN   # resume after a stop (NOT `systemctl start`)
 ```
+
+`run drive` refuses to start if a *live* drive for the same run is already
+running (it would otherwise leave a stray duplicate behind the daemon's
+double-claim guard, #293); stop that pid first, or pass `--force-concurrent` to
+deliberately co-drive (e.g. a foreground terminal-state waiter alongside the
+background unit).
 
 Per-invocation opt-out:
 
@@ -87,10 +101,12 @@ Because the driver is idempotent, auto-drive composes safely with anything that
 also calls `run drive`:
 
 - The **refactoring-campaign skill** (`run prepare` → `run start` → `run drive`)
-  still works unchanged. With auto-drive on, the explicit foreground `run drive`
-  is now *optional* — it remains useful purely as a terminal-state **waiter** for
-  stage sequencing (or use the passive `wait-run.sh`); the background driver and
-  a foreground driver reconcile the same run harmlessly.
+  still works. With auto-drive on, the explicit foreground `run drive` is now
+  *optional* — it remains useful purely as a terminal-state **waiter** for stage
+  sequencing (or use the passive `wait-run.sh`). Because the background unit is
+  already a live drive, a foreground `run drive` on the same run must pass
+  `--force-concurrent` to co-drive (otherwise it refuses with the live pid, #293);
+  the two reconcile the same run harmlessly behind the daemon double-claim guard.
 - `run drive --once` and `dashboard --once` are unchanged single-shot frames.
 
 ## What this does and does not buy you

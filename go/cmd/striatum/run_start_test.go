@@ -59,6 +59,57 @@ func TestRunRunStartAutoDrivesOnSuccess(t *testing.T) {
 	})
 }
 
+// TestRunRunStartAutoDrivesPositionalRunID is the #295 regression: `run start`
+// accepts the run id POSITIONALLY (`run start <id>`, the run_start ParamsGroup
+// maps the first positional to run_id), not only as `--run-id <id>`. Before the
+// fix the auto-drive run-id derivation only read the --run-id flag, so the
+// positional form silently skipped auto-drive — the run sat `running` with a
+// claimable job and zero lanes, with no unit, hint, or error.
+func TestRunRunStartAutoDrivesPositionalRunID(t *testing.T) {
+	withStubbedRunStart(t, 0, func(launches *[]driverLaunch) {
+		t.Setenv(envRunDriveAuto, "")
+		globals := leadingGlobals{
+			CommandArgs: []string{"run", "start", "run_pos123"},
+			RepoPath:    "/tmp/target",
+		}
+		args := []string{"--repo", "/tmp/target", "run", "start", "run_pos123"}
+		code := runRunStart(args, io.Discard, io.Discard, globals)
+		if code != 0 {
+			t.Fatalf("expected exit 0, got %d", code)
+		}
+		if len(*launches) != 1 {
+			t.Fatalf("positional run id must auto-drive, got %d launches", len(*launches))
+		}
+		if got := (*launches)[0].RunID; got != "run_pos123" {
+			t.Errorf("RunID = %q, want run_pos123", got)
+		}
+	})
+}
+
+// TestRunStartRunID covers both arg forms (and the flag-wins precedence) of the
+// run-id derivation that feeds auto-drive (#295).
+func TestRunStartRunID(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"flag space", []string{"--run-id", "r1"}, "r1"},
+		{"flag equals", []string{"--run-id=r2"}, "r2"},
+		{"positional", []string{"r3"}, "r3"},
+		{"positional after valueless flag", []string{"--json", "r4"}, "r4"},
+		{"flag wins over positional", []string{"r_pos", "--run-id", "r_flag"}, "r_flag"},
+		{"value-flag not mistaken for positional", []string{"--interval", "15s"}, ""},
+		{"none", []string{"--help"}, ""},
+		{"empty", nil, ""},
+	}
+	for _, c := range cases {
+		if got := runStartRunID(c.args); got != c.want {
+			t.Errorf("%s: runStartRunID(%v) = %q, want %q", c.name, c.args, got, c.want)
+		}
+	}
+}
+
 func TestRunRunStartNoDriveFlagOptsOut(t *testing.T) {
 	withStubbedRunStart(t, 0, func(launches *[]driverLaunch) {
 		t.Setenv(envRunDriveAuto, "")

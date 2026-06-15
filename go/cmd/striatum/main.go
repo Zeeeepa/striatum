@@ -291,6 +291,7 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 	interval := 15 * time.Second
 	once := false
 	jsonOutput := globals.JSONOutput
+	forceConcurrent := false
 	providerAuthGate := string(laneproviderauth.GateAuto)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -336,6 +337,8 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 			interval = parsed
 		case "once":
 			once = true
+		case "force-concurrent":
+			forceConcurrent = true
 		case "json":
 			jsonOutput = true
 		case "provider-auth-gate":
@@ -404,6 +407,7 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 		Stdout:           stdout,
 		Stderr:           stderr,
 		ProviderAuthGate: providerAuthGate,
+		ForceConcurrent:  forceConcurrent,
 	})
 	if err == nil {
 		return 0
@@ -412,6 +416,11 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 	if errors.As(err, &terminal) {
 		_, _ = fmt.Fprintln(stderr, terminal.Error())
 		return 1
+	}
+	var concurrent rundrive.ConcurrentDriveError
+	if errors.As(err, &concurrent) {
+		_, _ = fmt.Fprintln(stderr, concurrent.Error())
+		return 2
 	}
 	_, _ = fmt.Fprintln(stderr, err.Error())
 	return rpcclient.ExitCode(err)
@@ -435,10 +444,12 @@ func parseDriveInterval(value string) (time.Duration, error) {
 }
 
 func printRunDriveHelp(out io.Writer) {
-	_, _ = fmt.Fprintln(out, "usage: striatum run drive --run-id <id> [--interval 15s] [--provider-auth-gate auto|required|off] [--once] [--json]")
+	_, _ = fmt.Fprintln(out, "usage: striatum run drive --run-id <id> [--interval 15s] [--provider-auth-gate auto|required|off] [--once] [--force-concurrent] [--json]")
 	_, _ = fmt.Fprintln(out)
 	_, _ = fmt.Fprintln(out, "Drive one run by registering and supervising lanes as queued jobs unblock.")
 	_, _ = fmt.Fprintln(out, "This is a local operator loop over existing daemon RPC methods; it adds no daemon method.")
+	_, _ = fmt.Fprintln(out, "Refuses to start if a live drive for the same run already holds the advisory")
+	_, _ = fmt.Fprintln(out, "marker (stop that pid first); pass --force-concurrent to deliberately co-drive.")
 }
 
 func envLookup(env []string, key string) string {

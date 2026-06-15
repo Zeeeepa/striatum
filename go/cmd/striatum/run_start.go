@@ -45,9 +45,9 @@ func runRunStart(args []string, stdout, stderr io.Writer, globals leadingGlobals
 	if code != 0 || !autoDrive || !autoDriveEnabled(os.Environ()) {
 		return code
 	}
-	runID := flagValue(globals.CommandArgs[2:], "run-id")
+	runID := runStartRunID(globals.CommandArgs[2:])
 	if runID == "" {
-		// `run start` without --run-id either failed above or is a help/usage
+		// `run start` without a run id either failed above or is a help/usage
 		// path; nothing to drive.
 		return code
 	}
@@ -110,6 +110,35 @@ func flagValue(args []string, name string) string {
 		}
 		if v, ok := strings.CutPrefix(a, want+"="); ok {
 			return v
+		}
+	}
+	return ""
+}
+
+// runStartRunID derives the run id from the args that follow `run start`,
+// supporting BOTH the `--run-id <id>` / `--run-id=<id>` flag form and the bare
+// positional form (`run start <id>`), which `run start` also accepts (the
+// run_start ParamsGroup maps the first positional to run_id, and `--help`
+// advertises `<run-id>`). The flag form wins when present; otherwise the first
+// non-flag token is taken as the run id. Without this fallback the positional
+// form silently skipped auto-drive (#295): the run sat `running` with a
+// claimable job and zero lanes, with no unit, hint, or error.
+func runStartRunID(args []string) string {
+	if v := flagValue(args, "run-id"); v != "" {
+		return v
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "--") {
+			return a
+		}
+		// Skip a flag that consumes the next token as its value, so we do not
+		// mistake that value for the positional run id. `--no-drive` is already
+		// stripped before the start mutation, and `--json` is valueless; any
+		// other `--flag value` pair (e.g. `--run-id` handled above, or future
+		// flags) must not have its value misread as a positional.
+		if !strings.Contains(a, "=") && a != "--json" && i+1 < len(args) {
+			i++
 		}
 	}
 	return ""
@@ -179,7 +208,15 @@ func launchDetachedDriver(stderr io.Writer, l driverLaunch) error {
 		}
 		return err
 	}
-	_, _ = fmt.Fprintf(stderr, "run start: auto-driving %s in background (logs: journalctl --user -u %s -f; stop: systemctl --user stop %s)\n", l.RunID, unit, unit)
+	// The unit is registered with --collect, so `systemctl --user stop` does
+	// not just stop it: it removes the transient unit entirely. Resuming is
+	// therefore `striatum run drive`, NOT `systemctl --user start` (which fails
+	// "Unit ... not found"). Surface the accurate resume command up front (#293).
+	resume := "striatum"
+	if l.Repo != "" {
+		resume = "striatum --repo " + l.Repo
+	}
+	_, _ = fmt.Fprintf(stderr, "run start: auto-driving %s in background (logs: journalctl --user -u %s -f; stop: systemctl --user stop %s; resume after stop: %s run drive --run-id %s)\n", l.RunID, unit, unit, resume, l.RunID)
 	return nil
 }
 

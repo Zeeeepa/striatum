@@ -36,6 +36,24 @@ type Options struct {
 	Sleep            func(context.Context, time.Duration) error
 	PID              int
 	ProviderAuthGate string
+	// ForceConcurrent permits this drive to start even when a live drive for the
+	// same run already holds the advisory marker. Default (false) refuses with a
+	// clear "stop pid N first" so a stop/re-drive no longer leaves a stray
+	// duplicate drive coexisting behind the daemon's double-claim guard (#293).
+	// The intentional waiter composition (auto-drive in background + a foreground
+	// `run drive` used purely as a terminal-state waiter) sets this true.
+	ForceConcurrent bool
+}
+
+// ConcurrentDriveError reports that a live `run drive` for the same run already
+// holds the advisory marker, so a second drive was refused (#293 claim 2).
+type ConcurrentDriveError struct {
+	RunID string
+	PID   int
+}
+
+func (e ConcurrentDriveError) Error() string {
+	return fmt.Sprintf("run %s is already being driven by pid %d; stop it first (e.g. `kill %d`) or pass --force-concurrent to co-drive", e.RunID, e.PID, e.PID)
 }
 
 type Driver struct {
@@ -144,7 +162,10 @@ func Run(ctx context.Context, invoker Invoker, options Options) error {
 		return fmt.Errorf("run drive requires run_id")
 	}
 	driver := New(invoker, options)
-	cleanup := driver.claimAdvisoryMarker()
+	cleanup, err := driver.claimAdvisoryMarker()
+	if err != nil {
+		return err
+	}
 	defer cleanup()
 	for {
 		actions, state, terminal, err := driver.ReconcileOnce(ctx)
@@ -588,35 +609,48 @@ func (d *Driver) timestamp() string {
 	return d.options.Now().UTC().Format(time.RFC3339)
 }
 
-func (d *Driver) claimAdvisoryMarker() func() {
+// claimAdvisoryMarker records this drive's pid in a per-run advisory marker and
+// returns a cleanup that removes it. If a pre-existing marker names a *live*
+// drive for the same run it REFUSES (returns ConcurrentDriveError) rather than
+// coexisting behind the daemon's double-claim guard — a stop/re-drive otherwise
+// leaves a stray duplicate drive an operator must hunt down and kill (#293).
+// A marker that names a dead pid is reaped (overwritten). Set
+// Options.ForceConcurrent to opt into co-driving (the documented background +
+// foreground-waiter composition).
+func (d *Driver) claimAdvisoryMarker() (func(), error) {
 	if d.options.RepoRoot == "" || d.options.RunID == "" {
-		return func() {}
+		return func() {}, nil
 	}
 	dir := filepath.Join(d.options.RepoRoot, ".striatum", "scratch")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		_, _ = fmt.Fprintf(d.options.Stderr, "warning: could not create run drive marker dir: %v\n", err)
-		return func() {}
+		return func() {}, nil
 	}
 	path := filepath.Join(dir, "run-drive-"+safeFileComponent(d.options.RunID)+".pid")
 	if prior, err := os.ReadFile(path); err == nil {
 		fields := strings.Fields(string(prior))
 		if len(fields) > 0 {
 			if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 && pid != d.options.PID && processAlive(pid) {
-				_, _ = fmt.Fprintf(d.options.Stderr, "warning: another run drive appears active for this run (pid %d); daemon session guards prevent duplicate claims\n", pid)
+				if !d.options.ForceConcurrent {
+					return func() {}, ConcurrentDriveError{RunID: d.options.RunID, PID: pid}
+				}
+				_, _ = fmt.Fprintf(d.options.Stderr, "warning: co-driving run %s with existing drive (pid %d); daemon session guards prevent duplicate claims\n", d.options.RunID, pid)
 			}
 		}
+		// A stale marker (dead pid, our own pid, or unparseable) is reaped by the
+		// write below.
 	}
 	content := fmt.Sprintf("%d\n", d.options.PID)
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		_, _ = fmt.Fprintf(d.options.Stderr, "warning: could not write run drive marker: %v\n", err)
-		return func() {}
+		return func() {}, nil
 	}
 	return func() {
 		current, err := os.ReadFile(path)
 		if err == nil && string(current) == content {
 			_ = os.Remove(path)
 		}
-	}
+	}, nil
 }
 
 func anyStopped(actions []Action) bool {

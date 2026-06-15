@@ -47,8 +47,11 @@ For each stage, in order:
    terminal, registering/supervising one fresh session per role/lane as the DAG
    unblocks and closing terminal or superseded launched lanes before fresh
    reviewers. With auto-drive on, this explicit driver is **optional** — it is
-   idempotent, so it composes safely with the background driver (it then just
-   serves as a foreground terminal-state waiter).
+   idempotent, but because the background unit is already a live drive, a
+   foreground `run drive` on the same run must pass `--force-concurrent` to
+   co-drive (otherwise it refuses with the live pid, #293). Prefer the passive
+   `scripts/wait-run.sh` as the terminal-state waiter; reach for `--no-drive` +
+   a single foreground `run drive` if you want to own driving yourself.
    Use `--json` for machine-readable progress or `--once` when an external
    harness owns the polling. A `needs_revision` verdict still auto-spawns the
    next attempt through daemon state; do not fight it with manual session loops.
