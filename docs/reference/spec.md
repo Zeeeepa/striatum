@@ -2557,7 +2557,17 @@ The supervise CLI surface:
 Recovery: before ordinary stale-lease handling, `recovery.sweep` evaluates
 attached supervisors with active claimed/running work. A stale-but-unexpired
 heartbeat emits `supervisor.heartbeat_stall` once per lease/supervisor so
-`doctor`, `why`, and status surfaces show the lane as suspect. When the
+`doctor`, `why`, and status surfaces show the lane as suspect.
+The autonomous decision tree additionally scans `queued`/claimable jobs whose
+bound supervised session is hung (D201, #291): a never-claimed (leaseless)
+queued job is bound to a supervised session by the same role+lane eligibility
+the claim path uses (only when exactly one such still-active, non-terminal-pointer
+session matches), and when that bound session is honestly stalled past its idle
+deadline or its agent process/pane is confirmed dead, the sweep closes the hung
+owning session so a fresh lane can claim the already-pending job. The dashboard
+`supervisor_stalls` projection surfaces the same leaseless hung session as a
+stall once its heartbeat ages past the stall threshold (a `leaseless_count`
+counter), instead of reporting `stalled_count:0` while the run sits wedged. When the
 same attached supervisor's active lease has expired, sweep opens a
 `heartbeat_stall_lease_expired` blocker, transitions the job/message to
 `blocked`, expires the lease with `release_reason='heartbeat_stall'`, marks

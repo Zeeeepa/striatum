@@ -776,11 +776,24 @@ func dashboardAllAutoFinalizeDefaultLiveGate() map[string]any {
 }
 
 func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, repositoryID, runID string) (map[string]any, error) {
+	// #291: the leases join is LEFT (not INNER) and the job-state filter includes
+	// 'queued' so an active-but-LEASELESS bound supervised session — a hung lane
+	// that never claimed its packet, or a dead tmux pane still marked active —
+	// surfaces instead of reporting stalled_count:0 forever. The leaseless job is
+	// bound to the supervisor's session by the SAME role+lane eligibility the claim
+	// path uses (so the projection and the claim path agree on which job the session
+	// would have taken), and only its still-pending work message counts (a genuinely
+	// claimable job). The original leased claimed/running path is unchanged: those
+	// rows still resolve their job via the active lease and stall on lease age.
 	where := `ps.repository_id = $1
 		    AND ps.state = 'attached'
-		    AND l.state = 'active'
-		    AND l.resource_type = 'job'
-		    AND j.state IN ('claimed', 'running')`
+		    AND s.state = 'active'
+		    AND (
+		      (l.state = 'active' AND l.resource_type = 'job'
+		         AND j.state IN ('claimed', 'running')
+		         AND j.current_lease_id = l.lease_id)
+		      OR (l.lease_id IS NULL AND j.state = 'queued')
+		    )`
 	args := []any{repositoryID}
 	if runID != "" {
 		where += " AND ps.run_id = $2"
@@ -791,23 +804,43 @@ func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, reposit
 		        ps.state AS supervisor_state,
 		        COALESCE(ptr.updated_at, ps.heartbeat_at) AS supervisor_heartbeat_at,
 		        s.last_heartbeat_at AS session_last_heartbeat_at,
-		        l.lease_id, l.resource_id AS job_id, l.acquired_at,
+		        l.lease_id, COALESCE(l.resource_id, j.job_id) AS job_id, l.acquired_at,
 		        l.expires_at, l.last_heartbeat_at AS lease_last_heartbeat_at,
 		        j.workflow_job_id, j.state AS job_state,
 		        j.current_message_id AS message_id,
-		        qm.state AS message_state
+		        qm.state AS message_state,
+		        (l.lease_id IS NULL) AS leaseless
 		   FROM striatumd.process_supervisors ps
 		   JOIN striatumd.sessions s
 		     ON s.repository_id = ps.repository_id
 		    AND s.session_id = ps.session_id
-		   JOIN striatumd.leases l
+		   LEFT JOIN striatumd.leases l
 		     ON l.repository_id = ps.repository_id
 		    AND l.run_id = ps.run_id
 		    AND l.owner_session_id = ps.session_id
-		   JOIN striatumd.jobs j
-		     ON j.repository_id = l.repository_id
-		    AND j.job_id = l.resource_id
-		    AND j.current_lease_id = l.lease_id
+		    AND l.state = 'active'
+		    AND l.resource_type = 'job'
+		   LEFT JOIN striatumd.jobs j
+		     ON j.repository_id = ps.repository_id
+		    AND (
+		      (l.lease_id IS NOT NULL AND j.job_id = l.resource_id
+		         AND j.current_lease_id = l.lease_id)
+		      OR (l.lease_id IS NULL
+		         AND j.run_id = ps.run_id
+		         AND j.state = 'queued'
+		         AND j.role_id = s.role_id
+		         AND (
+		           NULLIF(j.lane_selector_json->>'lane_id','') IS NULL
+		           OR j.lane_selector_json->>'lane_id' = s.lane_id
+		         )
+		         AND EXISTS (
+		           SELECT 1 FROM striatumd.queue_messages wm
+		            WHERE wm.repository_id = j.repository_id
+		              AND wm.message_id = j.current_message_id
+		              AND wm.kind = 'work'
+		              AND wm.state = 'pending'
+		         ))
+		    )
 		   LEFT JOIN striatumd.queue_messages qm
 		     ON qm.repository_id = j.repository_id
 		    AND qm.message_id = j.current_message_id
@@ -825,12 +858,32 @@ func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, reposit
 	supervisors := []map[string]any{}
 	expiredCount := 0
 	warningCount := 0
+	leaselessCount := 0
 	for _, row := range rows {
-		progress := enrichSupervisorProgress(row, now, defaultSupervisorStallAfterSeconds)
-		if progress["stalled"] != true {
+		leaseless := row["leaseless"] == true
+		var progress map[string]any
+		stalled := false
+		if leaseless {
+			// A leaseless bound session has no lease clock; its progress is the
+			// freshest of the session/supervisor heartbeats. Flag it stalled once
+			// that progress is older than the stall threshold — a freshly spawned
+			// session that has simply not claimed yet stays within the window and is
+			// NOT flagged, so a healthy queued job is never reported.
+			progress = enrichSupervisorProgress(row, now, defaultSupervisorStallAfterSeconds)
+			if age, ok := progress["last_progress_age_seconds"].(int); ok && age >= defaultSupervisorStallAfterSeconds {
+				stalled = true
+			}
+		} else {
+			progress = enrichSupervisorProgress(row, now, defaultSupervisorStallAfterSeconds)
+			stalled = progress["stalled"] == true
+		}
+		if !stalled {
 			continue
 		}
-		if progress["lease_expired"] == true {
+		if leaseless {
+			leaselessCount++
+			warningCount++
+		} else if progress["lease_expired"] == true {
 			expiredCount++
 		} else {
 			warningCount++
@@ -847,6 +900,7 @@ func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, reposit
 			"last_progress_age_seconds": progress["last_progress_age_seconds"],
 			"lease_expires_at":          progress["lease_expires_at"],
 			"lease_expired":             progress["lease_expired"],
+			"leaseless":                 leaseless,
 		})
 	}
 	nextActions := []string{}
@@ -857,6 +911,7 @@ func dashboardAllSupervisorStalls(ctx context.Context, runner db.Runner, reposit
 		"stalled_count":       len(supervisors),
 		"warning_count":       warningCount,
 		"expired_count":       expiredCount,
+		"leaseless_count":     leaselessCount,
 		"stall_after_seconds": defaultSupervisorStallAfterSeconds,
 		"supervisors":         supervisors,
 		"next_actions":        nextActions,

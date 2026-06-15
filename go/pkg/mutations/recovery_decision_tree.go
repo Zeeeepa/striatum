@@ -260,9 +260,47 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		              lz.acquired_at DESC, lz.lease_id DESC
 		     LIMIT 1
 		  ) l ON true
+		  -- #291: bind the supervised session for a never-claimed (leaseless) queued
+		  -- job. A hung supervised lane (dead tmux pane, or alive but never claiming
+		  -- its packet) leaves its job in 'queued' with NO lease, so the lease-anchored
+		  -- session join above resolves nothing and the whole job is invisible to
+		  -- recovery. The pointer carries only run_id+session_id (no job_id), so we
+		  -- bind by the SAME eligibility the claim path uses (claim.go: target_role_id
+		  -- = session.role_id AND (lane unset OR session.lane_id match)) so recovery and
+		  -- claim agree on which session would have taken the job. Gated on a
+		  -- NON-TERMINAL pointer (starting/attached/detached) — a lost/stopped pointer
+		  -- means the lane already tore down and there is no live bound session to act
+		  -- on. To avoid mis-binding job A to session B in a multi-lane run (the repro
+		  -- is two parallel build lanes), we bind ONLY when exactly one such session
+		  -- matches (COUNT(*) OVER () = 1). Restricted to leaseless queued jobs so the
+		  -- claimed/running/stale_lease + running-limbo paths keep their lease-latest
+		  -- session resolution untouched.
+		  LEFT JOIN LATERAL (
+		    SELECT bound_session_id FROM (
+		      SELECT bs.session_id AS bound_session_id,
+		             COUNT(*) OVER () AS match_count
+		        FROM striatumd.sessions bs
+		        JOIN striatumd.process_supervisor_pointers bp
+		          ON bp.repository_id = bs.repository_id
+		         AND bp.session_id = bs.session_id
+		         AND bp.state IN ('starting','attached','detached')
+		       WHERE j.state = 'queued'
+		         AND l.owner_session_id IS NULL
+		         AND bs.repository_id = j.repository_id
+		         AND bs.run_id = j.run_id
+		         AND bs.state = 'active'
+		         AND bs.role_id = j.role_id
+		         AND (
+		           NULLIF(j.lane_selector_json->>'lane_id','') IS NULL
+		           OR bs.lane_id = j.lane_selector_json->>'lane_id'
+		         )
+		    ) bound_candidates
+		     WHERE match_count = 1
+		     LIMIT 1
+		  ) bs ON true
 		  LEFT JOIN striatumd.sessions s
 		    ON s.repository_id = j.repository_id
-		   AND s.session_id = l.owner_session_id
+		   AND s.session_id = COALESCE(l.owner_session_id, bs.bound_session_id)
 		  LEFT JOIN LATERAL (
 		    SELECT az.lease_id, az.acquired_at, az.expires_at, az.last_heartbeat_at
 		      FROM striatumd.leases az
@@ -282,7 +320,10 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		  ) sp ON true
 		 WHERE j.repository_id = $1
 		   AND j.run_id = $2
-		   AND j.state IN ('claimed','running','stale_lease')
+		   -- #291: 'queued' is scanned so a never-claimed job with a hung bound
+		   -- supervised session is recoverable. The hasBoundSupervisedSession guard
+		   -- below ensures a normal queued job with NO bound session is never acted on.
+		   AND j.state IN ('queued','claimed','running','stale_lease')
 		 ORDER BY j.workflow_job_id
 		 FOR UPDATE OF j`, repositoryID, runID)
 	if err != nil {
@@ -292,6 +333,32 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 	for _, row := range rows {
 		jobID := fmt.Sprint(row["job_id"])
 		workflowJobID := fmt.Sprint(row["workflow_job_id"])
+		jobState := fmt.Sprint(nullable(row["job_state"]))
+
+		// #291 guard (MANDATORY): a 'queued' job is only ever acted on when its bound
+		// supervised session is still ACTIVE — i.e. the #291 hung-but-active case (a
+		// dead tmux pane still marked active, or an alive session that never claimed
+		// its packet). Two healthy/converged populations MUST be skipped here, or the
+		// newly-scanned 'queued' state would re-requeue them on every sweep:
+		//   1. A normal freshly-queued job with NO resolvable bound session (waiting
+		//      for a lane to spawn, or just enqueued) — empty session_id.
+		//   2. A job ALREADY requeued by a prior sweep / dead-lane path, whose only
+		//      resolvable session is a closed/absent one reachable via its stale
+		//      released lease. It is already claimable and just awaiting a fresh lane;
+		//      acting again would break the convergence invariant (the dead-lane
+		//      requeue case keeps its own scan via the claimed/running/stale_lease
+		//      states and is NOT re-entered through 'queued').
+		// Only an active bound session represents an unhandled hung lane wedging the
+		// run, which the switch below then classifies (CASE 2 transfer for an honest
+		// stall, or the confirmedDead default for a dead pane/PID) and recovers by
+		// closing the hung owner so a fresh lane can claim the already-pending job.
+		if jobState == "queued" {
+			boundSession := fmt.Sprint(nullable(row["session_id"]))
+			boundSessionState := fmt.Sprint(nullable(row["session_state"]))
+			if boundSession == "" || boundSession == "<nil>" || boundSessionState != "active" {
+				continue
+			}
+		}
 
 		// Classify the owning session. A job with no resolvable owning session
 		// row is treated as absent (dead lane / closed session) — Classify on an
@@ -504,9 +571,34 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		if rqerr != nil {
 			return nil, rqerr
 		}
-		if res.alreadyReclaimable {
+		// RFC 0101 Phase 3 Slice 2b: when CASE 2 transferred a job away from a
+		// still-active stalled owning session, close that session so the parked
+		// lane cannot wake up to double-work or reclaim the job a fresh lane now
+		// owns. Mirrors the #121 manual flow (the operator did `session close`).
+		// Only the session that OWNS this job is touched; interrogation-target
+		// sessions are handled by the panel-window logic (closeLeakedInterrogationWindow),
+		// not here. The close is guarded on still-active (idempotent).
+		//
+		// #291: for a never-claimed 'queued' job whose bound supervised session is
+		// hung (dead pane, or alive-but-leaseless), the job's work message is ALREADY
+		// pending so requeueJobSameAttempt is a no-op (alreadyReclaimable=true) — but
+		// the run is still wedged because the hung session is what blocks progress.
+		// Closing that owning session IS the recovery action here (the manual
+		// `supervise stop` the issue reporter had to run by hand), so it must happen
+		// even on the already-reclaimable path. We therefore close the stalled owner
+		// before deciding how to report the action.
+		ownerClosed := false
+		if closeStalledOwner && !sessionAbsent {
+			closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClass)
+			if cerr != nil {
+				return nil, cerr
+			}
+			ownerClosed = closed
+		}
+		if res.alreadyReclaimable && !ownerClosed {
 			// Convergent no-op: the job was already queued+pending (a prior sweep
-			// requeued it). Do NOT increment the budget; just note it.
+			// requeued it) and there was no live owning session to close. Do NOT
+			// increment the budget; just note it.
 			actions = append(actions, map[string]any{
 				"workflow_job_id": workflowJobID,
 				"job_id":          jobID,
@@ -518,21 +610,6 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		}
 		if err := recordRecoveryAction(ctx, tx, repositoryID, runID, jobID, counterColumn, action, stallClass); err != nil {
 			return nil, err
-		}
-		// RFC 0101 Phase 3 Slice 2b: when CASE 2 transferred a job away from a
-		// still-active stalled owning session, close that session so the parked
-		// lane cannot wake up to double-work or reclaim the job a fresh lane now
-		// owns. Mirrors the #121 manual flow (the operator did `session close`).
-		// Only the session that OWNS this job is touched; interrogation-target
-		// sessions are handled by the panel-window logic (closeLeakedInterrogationWindow),
-		// not here. The close is guarded on still-active (idempotent).
-		ownerClosed := false
-		if closeStalledOwner && !sessionAbsent {
-			closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClass)
-			if cerr != nil {
-				return nil, cerr
-			}
-			ownerClosed = closed
 		}
 		actions = append(actions, map[string]any{
 			"workflow_job_id":       workflowJobID,
