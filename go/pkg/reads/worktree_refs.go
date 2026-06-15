@@ -28,19 +28,20 @@ func addWorktreeAnchorProjection(ctx context.Context, row map[string]any) {
 	}
 }
 
-func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID string) (map[string]any, []string, []map[string]any) {
+func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID string) (map[string]any, []string, []map[string]any, []string, []map[string]any) {
 	block := map[string]any{
 		"checked":   false,
 		"worktrees": []map[string]any{},
 	}
 	if repositoryID == "" {
-		return block, nil, nil
+		return block, nil, nil, nil, nil
 	}
 	rows, err := collectRows(ctx, runner, `
 		SELECT w.worktree_id, w.run_id, w.job_id, w.lease_id,
 		       w.base_branch, w.worktree_path, w.state, w.created_at,
 		       w.released_at, w.removed_at, j.workflow_job_id,
-		       j.state AS job_state, r.repo_root, r.branch_name
+		       j.state AS job_state, r.repo_root, r.branch_name,
+		       r.state AS run_state
 		  FROM striatumd.job_worktrees w
 		  JOIN striatumd.jobs j
 		    ON j.repository_id = w.repository_id
@@ -55,11 +56,14 @@ func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID strin
 	)
 	if err != nil {
 		block["error"] = err.Error()
-		return block, nil, nil
+		return block, nil, nil, nil, nil
 	}
 	block["checked"] = true
 	problems := []string{}
 	records := []map[string]any{}
+	warnings := []string{}
+	warningRecords := []map[string]any{}
+	defaultRefByRoot := map[string]string{}
 	for _, row := range rows {
 		addWorktreeAnchorProjection(ctx, row)
 		if stringFrom(row, "anchor") != worktreeAnchorUnreachable {
@@ -68,7 +72,39 @@ func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID strin
 		worktreeID := stringFrom(row, "worktree_id")
 		jobID := stringFrom(row, "job_id")
 		head := stringFrom(row, "head")
+		repoRoot := strings.TrimSpace(stringFrom(row, "repo_root"))
 		remediation := worktreeAnchorRemediation(row)
+
+		// Legibility rule 1 (D-doctor-integrity-legibility): a worktree HEAD that
+		// is reachable from the repository default branch is durably preserved —
+		// normal post-merge run-branch deletion (AGENTS.md: "Do not strand pushed
+		// branches") drops the run branch but not the merged content. The operator
+		// should still create a refs/striatum pin, so keep it visible as a warning
+		// rather than an ok-reddening problem.
+		defaultRef := resolveDefaultRefCached(ctx, repoRoot, defaultRefByRoot)
+		if defaultRef != "" && head != "" && readGitAncestor(ctx, repoRoot, head, defaultRef) {
+			warnings = append(warnings, fmt.Sprintf(
+				"worktree_unanchored_on_default_branch.%s: worktree HEAD %s is preserved on the default branch (%s) but has no refs/striatum pin; run %s to anchor it",
+				worktreeID, head, defaultRef, remediation,
+			))
+			warningRecords = append(warningRecords, worktreeReclassRecord("worktree_unanchored_on_default_branch", worktreeID, row, defaultRef))
+			continue
+		}
+
+		// Legibility rule 2: a worktree whose run is in a terminal debris state
+		// (canceled/failed) is archived leftover, not an active durability gap.
+		// `worktree release --force` refuses an undurable published artifact and the
+		// worktree dir is owned by the lane sandbox user, so this debris cannot be
+		// physically cleaned — emit a warning instead of a permanent problem.
+		if terminalDebrisRunState(stringFrom(row, "run_state")) {
+			warnings = append(warnings, fmt.Sprintf(
+				"worktree_debris_terminal_run.%s: worktree HEAD %s belongs to a %s run; archived debris, not an active durability gap",
+				worktreeID, head, stringFrom(row, "run_state"),
+			))
+			warningRecords = append(warningRecords, worktreeReclassRecord("worktree_debris_terminal_run", worktreeID, row, ""))
+			continue
+		}
+
 		problems = append(problems, fmt.Sprintf(
 			"worktree_head_unreachable.%s: worktree HEAD %s is not reachable from the run branch or refs/striatum pins; run %s while the worktree exists",
 			worktreeID, head, remediation,
@@ -83,7 +119,75 @@ func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID strin
 		}
 	}
 	block["worktrees"] = rows
-	return block, problems, records
+	return block, problems, records, warnings, warningRecords
+}
+
+// terminalDebrisRunState reports whether a run state represents abandoned,
+// archived work whose worktree/artifact leftovers are debris rather than active
+// durability gaps. Successful (`completed`) runs are intentionally excluded:
+// their preservation is verified against durable refs / the default branch.
+func terminalDebrisRunState(state string) bool {
+	switch strings.TrimSpace(state) {
+	case "canceled", "failed":
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveDefaultRefCached resolves the repository default-branch ref once per
+// repo root, memoizing the (possibly empty) result so a doctor pass that scans
+// hundreds of rows issues at most one resolution per repo.
+func resolveDefaultRefCached(ctx context.Context, repoRoot string, cache map[string]string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	if ref, ok := cache[repoRoot]; ok {
+		return ref
+	}
+	ref := readGitDefaultBranchRef(ctx, repoRoot)
+	cache[repoRoot] = ref
+	return ref
+}
+
+// readGitDefaultBranchRef resolves the repository's default-branch ref without
+// hardcoding "main". It prefers the remote HEAD symbolic ref, then common remote
+// default branches, then local ones. It degrades safely to "" (callers fall
+// back to the run-branch/pin-only behavior) and never crashes or hangs: every
+// git call is ctx-cancellable and a missing ref is treated as "not resolvable".
+func readGitDefaultBranchRef(ctx context.Context, repoRoot string) string {
+	if strings.TrimSpace(repoRoot) == "" {
+		return ""
+	}
+	if out, err := readGitOutput(ctx, repoRoot, "symbolic-ref", "--quiet", "refs/remotes/origin/HEAD"); err == nil {
+		if ref := strings.TrimSpace(out); ref != "" {
+			return ref
+		}
+	}
+	for _, ref := range []string{
+		"refs/remotes/origin/main",
+		"refs/remotes/origin/master",
+		"refs/heads/main",
+		"refs/heads/master",
+	} {
+		if _, err := readGitCommit(ctx, repoRoot, ref); err == nil {
+			return ref
+		}
+	}
+	return ""
+}
+
+// worktreeReclassRecord builds a verbose record for a reclassified
+// (warning, not problem) worktree finding, mirroring worktreeProblemRecord but
+// carrying the run state and any preserving ref.
+func worktreeReclassRecord(check, id string, row map[string]any, preservedRef string) map[string]any {
+	record := worktreeProblemRecord(check, id, row)
+	contextMap := record["context"].(map[string]any)
+	contextMap["run_state"] = row["run_state"]
+	if preservedRef != "" {
+		contextMap["preserved_ref"] = preservedRef
+	}
+	return record
 }
 
 func worktreeProblemRecord(check, id string, row map[string]any) map[string]any {

@@ -64,7 +64,7 @@ func TestHandleDoctorSkipsArtifactAnchorIntegrityWhenBlobDisabled(t *testing.T) 
 
 func TestDoctorArtifactAnchorIntegritySkipsWhenBucketNotOK(t *testing.T) {
 	runner := &doctorArtifactAnchorRunner{artifactRows: []map[string]any{artifactAnchorRow("/tmp/repo", "art_skip", "run_skip", "job_skip", "main", "docs/a.md", testSHA256("a"))}}
-	block, problems, records := doctorArtifactAnchorIntegrity(context.Background(), runner, "repo_anchor", map[string]any{
+	block, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), runner, "repo_anchor", map[string]any{
 		"configured":    true,
 		"reachable":     true,
 		"bucket_status": "not_provisioned",
@@ -84,7 +84,7 @@ func TestDoctorArtifactAnchorIntegrityAcceptsRunBranchMatch(t *testing.T) {
 	repoRoot, runBranch, artifactPath, contentSHA := seedAnchoredArtifact(t, "run-branch-match\n")
 	row := artifactAnchorRow(repoRoot, "art_match", "run_match", "job_match", runBranch, artifactPath, contentSHA)
 
-	block, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	block, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	if block["checked"] != true || len(problems) != 0 || len(records) != 0 {
 		t.Fatalf("block=%#v problems=%#v records=%#v, want clean match", block, problems, records)
 	}
@@ -95,7 +95,7 @@ func TestDoctorArtifactAnchorIntegrityDoesNotGitCheckBlobExhaustArtifact(t *test
 	row["artifact_kind"] = "synthesis"
 	row["placement"] = "blob_exhaust"
 
-	block, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	block, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	if block["git_anchor_count"] != 0 || block["blob_exhaust_count"] != 1 {
 		t.Fatalf("block counts = %#v", block)
 	}
@@ -117,7 +117,7 @@ func TestDoctorArtifactAnchorIntegrityGitChecksExplicitGitPublicationSynthesis(t
 	row["artifact_kind"] = "synthesis"
 	row["placement"] = "git_publication"
 
-	block, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	block, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	if block["git_anchor_count"] != 1 || block["blob_exhaust_count"] != 0 {
 		t.Fatalf("block counts = %#v", block)
 	}
@@ -131,7 +131,7 @@ func TestDoctorArtifactAnchorIntegrityReportsRunBranchMismatch(t *testing.T) {
 	expectedSHA := testSHA256("expected body\n")
 	row := artifactAnchorRow(repoRoot, "art_mismatch", "run_mismatch", "job_mismatch", runBranch, artifactPath, expectedSHA)
 
-	_, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	_, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	problemText := strings.Join(problems, "\n")
 	if !strings.Contains(problemText, "artifact_anchor_hash_mismatch.art_mismatch") {
 		t.Fatalf("problems = %#v, want hash mismatch", problems)
@@ -152,7 +152,7 @@ func TestDoctorArtifactAnchorIntegrityReportsMissingFile(t *testing.T) {
 	readsGitRun(t, repoRoot, "branch", runBranch, baseSHA)
 	row := artifactAnchorRow(repoRoot, "art_missing", "run_missing", "job_missing", runBranch, "docs/missing.md", testSHA256("missing body\n"))
 
-	_, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	_, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	if !strings.Contains(strings.Join(problems, "\n"), "artifact_anchor_missing_file.art_missing") {
 		t.Fatalf("problems = %#v, want missing file", problems)
 	}
@@ -170,7 +170,7 @@ func TestDoctorArtifactAnchorIntegrityReportsJobPinMismatch(t *testing.T) {
 	readsGitRun(t, repoRoot, "update-ref", "refs/striatum/"+runID+"/"+jobID+"/1", commit)
 	row := artifactAnchorRow(repoRoot, "art_pin_mismatch", runID, jobID, "", artifactPath, testSHA256("expected pinned body\n"))
 
-	_, problems, records := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	_, problems, records, _, _ := doctorArtifactAnchorIntegrity(context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
 	if !strings.Contains(strings.Join(problems, "\n"), "artifact_anchor_hash_mismatch.art_pin_mismatch") {
 		t.Fatalf("problems = %#v, want job-pin hash mismatch", problems)
 	}

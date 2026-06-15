@@ -25,6 +25,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	verbose := boolValue(envelope.Params["verbose"])
 	problems := []string{}
 	problemRecords := []map[string]any{}
+	warningRecords := []map[string]any{}
 
 	schemaVersion, err := db.ReadSchemaVersion(ctx, runner)
 	if err != nil {
@@ -184,9 +185,11 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// ownership probes rather than hard-coded.
 	pgReadScopeBlock := pgReadScopeDoctorBlock(ctx, runner)
 
-	worktreeRefSafetyBlock, worktreeProblems, worktreeProblemRecords := doctorWorktreeRefSafety(ctx, runner, repositoryID)
+	worktreeRefSafetyBlock, worktreeProblems, worktreeProblemRecords, worktreeWarnings, worktreeWarningRecords := doctorWorktreeRefSafety(ctx, runner, repositoryID)
 	problems = append(problems, worktreeProblems...)
 	problemRecords = append(problemRecords, worktreeProblemRecords...)
+	warnings = append(warnings, worktreeWarnings...)
+	warningRecords = append(warningRecords, worktreeWarningRecords...)
 
 	skillsBlock := map[string]any{"checked": false}
 	if repoRoot := doctorRepoRoot(ctx, runner, repositoryID); repoRoot != "" {
@@ -209,9 +212,11 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	}
 
 	blobBlock := blobDoctorBlock(ctx, runner, repositoryID)
-	artifactAnchorBlock, artifactAnchorProblems, artifactAnchorRecords := doctorArtifactAnchorIntegrity(ctx, runner, repositoryID, blobBlock)
+	artifactAnchorBlock, artifactAnchorProblems, artifactAnchorRecords, artifactAnchorWarnings, artifactAnchorWarningRecords := doctorArtifactAnchorIntegrity(ctx, runner, repositoryID, blobBlock)
 	problems = append(problems, artifactAnchorProblems...)
 	problemRecords = append(problemRecords, artifactAnchorRecords...)
+	warnings = append(warnings, artifactAnchorWarnings...)
+	warningRecords = append(warningRecords, artifactAnchorWarningRecords...)
 
 	result := map[string]any{
 		"ok":                        len(problems) == 0,
@@ -235,6 +240,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	}
 	if verbose {
 		result["problem_records"] = problemRecords
+		result["warning_records"] = warningRecords
 	}
 	return result, nil
 }
