@@ -110,3 +110,42 @@ Autonomous daemon code is never trusted on a completion claim alone.
   branch — the lane's actual Go edits live in its per-job worktree and must be
   operator-captured (as done for 0126) or the workflow extended to declare the
   source files as artifacts.
+
+## Update 2026-06-15 — 0127 P0 landed (operator-captured; honest incident record), 0128 deferred
+
+**RFC 0127 P0 — on `main`** (`e5bd0390` + `ab9073e8`): opt-in `workspace_kind: plain_dir`
+on `workspace.create`; a new daemon-owned `job_workspaces` table via runtime migration
+`0028_plain_dir_job_workspaces.sql` (a safe **CREATE**, not an `ALTER` of the owner-held
+`job_worktrees` — the crash-loop hazard was correctly avoided); daemon-side change-set
+diff for write-scope; base-tree-sha recorded before the lane starts.
+Independently verified before landing: `go build` OK, the `db` migration + owner-DDL-guard
+tests pass, the workspace/worktree pgtests pass, CI lint `0 issues`; `0028` collision-free,
+`LatestDaemonDBVersion`→28.
+
+**Provenance — recorded honestly, NOT a clean daemon landing.** The implementation was
+produced by dogfood `run_cd01aaa9af929c23e91bf52aeae8f38a` (draft → review(accept) →
+apply), but its `apply` lane idle-stalled before `work.complete`, so the run ended
+**`canceled`**. The deliverable was then **operator-captured** — cherry-picked the run's
+own commits onto current `main` (dropping stale-base noise; see #299). **This was the
+"paste over a broken runner" anti-pattern** (`AGENTS.md` guardrail `9614c57d`), recorded
+here as an incident rather than presented as a daemon-completed landing. `striatum doctor`
+does **not** flag it as a problem: per **D204** (doctor integrity legibility), code
+preserved on the default branch from a canceled run is a *warning*, not genuine loss — so
+the residual is only the run-record/`main` mismatch, not a durability defect.
+
+**The enabling gaps were since fixed/filed**, so future RFC 0127 phases route cleanly
+through the daemon: **#297** stranded in-scope files (**D203**), **#291** hung supervised
+sessions (**D201**), **#293/#295** auto-drive lifecycle (**D202**), and **D197**'s opt-in
+`write_scope.publish_source_changes` (RFC 0127 P1's git-worktree form) which commits the
+lane's in-scope source edits to the run branch — removing the operator-capture pressure.
+Open: **#299** (run-branch base-drift: `run integrate` would revert work landed since the
+fork — the other reason the daemon path was unusable here).
+
+**RFC 0128 P0 — deferred to the shared campaign.** Two attempts: `run_bd756d…` idle-stalled
+with no claim (nothing produced); `run_78a6bd6f…` produced the cross-repo-lint impl in its
+worktree but was `operator_canceled`. A concurrent session (all campaign work commits as
+`halbritt` — there is no separable per-agent git identity) handled it the guardrail-correct
+way: it **quarantined** the stranded impl to `origin/striatum/quarantine-rfc-0128-wt-929`
+(not `main`, explicit non-completion), ran focused tests, and filed the recovery gap
+**#298** — exactly the pattern I should have used for 0127. 0128 P0 is left to the shared
+campaign; I stood down to avoid colliding with it.
