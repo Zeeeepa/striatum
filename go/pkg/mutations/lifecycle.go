@@ -1185,6 +1185,17 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if err != nil {
 			return nil, err
 		}
+		// #297 (D201): make the silent-drop loud. Files the lane wrote inside its
+		// write_scope but neither declared as expected_artifacts nor published via the
+		// source-publish path above would otherwise be committed only if the lane
+		// happened to `git add` them — and stranded untracked (lost to worktree gc)
+		// otherwise. Compute the residual and surface it prominently in the completion
+		// result + a provenance event. This is non-breaking by design: it warns, it
+		// never refuses, so existing flows still complete.
+		strandedInScopePaths, err := detectStrandedInScopePaths(ctx, tx, repositoryID, job, publishedSourcePaths)
+		if err != nil {
+			return nil, err
+		}
 		now := nowString()
 		messageID := nullable(job["current_message_id"])
 		if len(publishedSourcePaths) > 0 {
@@ -1199,6 +1210,21 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}
 			payload["paths"] = eventPaths
 			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.source_changes_published", sessionID, jobID, messageID, nil, leaseID, payload); err != nil {
+				return nil, err
+			}
+		}
+		// #297 (D201): record the stranded in-scope paths as durable provenance so the
+		// drop is legible in the event chain (not just the transient RPC result).
+		if len(strandedInScopePaths) > 0 {
+			const maxEventPaths = 500
+			eventPaths := strandedInScopePaths
+			payload := map[string]any{"count": len(strandedInScopePaths)}
+			if len(eventPaths) > maxEventPaths {
+				eventPaths = append([]string(nil), eventPaths[:maxEventPaths]...)
+				payload["paths_truncated"] = true
+			}
+			payload["paths"] = eventPaths
+			if _, err := appendEvent(ctx, tx, repositoryID, job["run_id"], "job.in_scope_paths_stranded", sessionID, jobID, messageID, nil, leaseID, payload); err != nil {
 				return nil, err
 			}
 		}
@@ -1283,6 +1309,18 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if interrogable {
 			result["interrogable"] = true
 			result["session_phase"] = "awaiting_interrogation"
+		}
+		// #297 (D201): surface stranded in-scope authored paths prominently. The job
+		// still completes (non-breaking warning), but the operator/agent gets the exact
+		// list of files written inside write_scope that did NOT reach the run branch —
+		// declare them as expected_artifacts or set write_scope.publish_source_changes
+		// so they are committed, or remove them if they were not meant to ship.
+		if len(strandedInScopePaths) > 0 {
+			result["stranded_in_scope_paths"] = strandedInScopePaths
+			result["warnings"] = append(asStringSlice(result["warnings"]), fmt.Sprintf(
+				"%d in-scope file(s) the lane wrote were neither declared as expected_artifacts nor published to the run branch and will be lost on worktree gc: %s. Declare them as expected_artifacts, set write_scope.publish_source_changes=true to commit them, or remove them if unintended.",
+				len(strandedInScopePaths), strings.Join(strandedInScopePaths, ", "),
+			))
 		}
 		return result, nil
 	})

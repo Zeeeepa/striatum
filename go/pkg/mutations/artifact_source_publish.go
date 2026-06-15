@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -116,6 +117,128 @@ func publishWorktreeSourceChanges(ctx context.Context, runner any, repositoryID 
 			gitWorktreeErrorMessage("daemon source-change publish commit failed", committed), nil)
 	}
 	return dedupeStrings(staged), nil
+}
+
+// detectStrandedInScopePaths computes the #297 stranded set at work.complete: the
+// in-scope, attempt-authored changed paths in the per-job worktree that are
+// NEITHER declared as expected_artifacts NOR published via the source-publish path
+// (publishWorktreeSourceChanges). These are files the lane genuinely wrote inside
+// its write_scope but that the publication step silently dropped — multi-file code
+// slices stranding their tests/migrations untracked in the worktree.
+//
+// It is the loud, non-silent half of the #297 fix (D201). It is read-only: it
+// commits nothing and never refuses; it only surfaces the paths so the caller can
+// warn. The write-scope guard already proved every reported path is in-scope; the
+// source-publish step (when opted in) already committed its own set; so the
+// residual here is exactly what would otherwise vanish on worktree gc.
+//
+// Returns nil (no warning) for non-repo-write jobs, shared-checkout jobs (no
+// per-job worktree to inspect), jobs with no allowed_paths, and jobs where every
+// authored in-scope path is covered by a declared artifact or the published
+// source set.
+func detectStrandedInScopePaths(ctx context.Context, runner any, repositoryID string, job map[string]any, publishedSourcePaths []string) ([]string, error) {
+	scope := asMap(job["write_scope_json"])
+	if !isRepoWriteScope(scope) {
+		return nil, nil
+	}
+	allowed := stringListFromAny(scope["allowed_paths"])
+	if len(allowed) == 0 {
+		// An unbounded write scope cannot define an "in-scope authored" set without
+		// claiming the whole worktree; mirror the source-publish guard and stay quiet.
+		return nil, nil
+	}
+	forbidden := stringListFromAny(scope["forbidden_paths"])
+
+	required, worktree, err := worktreeRequirementForJob(ctx, runner, repositoryID, job)
+	if err != nil {
+		return nil, err
+	}
+	if !required || worktree == nil {
+		// A shared-checkout job has no per-job worktree whose dirt is unambiguously
+		// this attempt's write, so the #297 detection (which depends on the fresh
+		// detached worktree's nil baseline) does not apply here.
+		return nil, nil
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(worktree["worktree_path"]))
+	if err != nil {
+		return nil, err
+	}
+
+	current, err := gitChangedPathSnapshots(ctx, target)
+	if err != nil {
+		return nil, rpc.NewError("invalid_transition", "stranded-path detection failed: "+err.Error(), nil)
+	}
+	if len(current) == 0 {
+		return nil, nil
+	}
+	currentPaths := make([]string, 0, len(current))
+	for _, item := range current {
+		currentPaths = append(currentPaths, item.Path)
+	}
+	// A sibling lane's published artifact in a shared run is not this attempt's
+	// write; exclude it exactly as the write-scope guard and source-publish do.
+	ignored, err := publishedRunArtifactIgnoredPaths(ctx, runner, repositoryID, target, job, currentPaths)
+	if err != nil {
+		return nil, rpc.NewError("invalid_transition", "stranded-path detection failed: "+err.Error(), nil)
+	}
+	// The per-job worktree is a fresh detached checkout (nil baseline), so every
+	// in-scope changed path is this attempt's write.
+	authored := collectInScopeAuthoredPaths(current, nil, allowed, forbidden, ignored)
+	if len(authored) == 0 {
+		return nil, nil
+	}
+
+	// Covered = declared expected_artifacts (attempt-resolved) ∪ source-published
+	// paths. The complement of authored is the stranded set.
+	covered := publishedAndDeclaredPathSet(job, publishedSourcePaths)
+	return strandedInScopeAuthoredPaths(authored, covered), nil
+}
+
+// publishedAndDeclaredPathSet collects the repo paths that DO reach the run branch
+// at work.complete: the job's declared expected_artifacts (resolved against the
+// current attempt's revision-cycle placement) plus whatever the source-publish step
+// actually committed. Paths are normalized to the same key space as
+// collectInScopeAuthoredPaths so the set difference is exact.
+func publishedAndDeclaredPathSet(job map[string]any, publishedSourcePaths []string) map[string]bool {
+	covered := map[string]bool{}
+	attempt := jobAttemptValue(job["attempt"])
+	for _, item := range resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), attempt) {
+		entry := asMap(item)
+		if clean, ok := normalizeScopePath(fmt.Sprint(entry["path"])); ok {
+			covered[clean] = true
+		}
+	}
+	for _, p := range publishedSourcePaths {
+		if clean, ok := normalizeScopePath(p); ok {
+			covered[clean] = true
+		}
+	}
+	return covered
+}
+
+// strandedInScopeAuthoredPaths returns the authored in-scope paths that are not in
+// the covered (declared-or-published) set, sorted for stable reporting. This is the
+// pure core of the #297 detection, factored out so it is directly testable without
+// a worktree or database.
+func strandedInScopeAuthoredPaths(authored []string, covered map[string]bool) []string {
+	out := make([]string, 0)
+	for _, p := range authored {
+		clean, ok := normalizeScopePath(p)
+		if !ok {
+			clean = p
+		}
+		if covered[clean] {
+			continue
+		}
+		out = append(out, clean)
+	}
+	out = dedupeStrings(out)
+	sort.Strings(out)
+	return out
 }
 
 // collectInScopeAuthoredPaths returns the changed paths attributable to the
