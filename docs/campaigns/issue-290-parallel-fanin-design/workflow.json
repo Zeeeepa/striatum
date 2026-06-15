@@ -6,7 +6,7 @@
   },
   "context_docs": [],
   "coordinator": {
-    "lane_id": "local",
+    "lane_id": "claude",
     "role_id": "problem_framer"
   },
   "cycles": [],
@@ -104,8 +104,8 @@
         }
       ],
       "id": "frame_problem",
-      "lane_id": "local",
-      "objective": "Publish a concise problem brief — the open-ended question to ideate on, plus constraints, goals, non-goals, and decision criteria. Do not propose solutions.",
+      "lane_id": "claude",
+      "objective": "Publish a concise problem brief \u2014 the open-ended question to ideate on, plus constraints, goals, non-goals, and decision criteria. Do not propose solutions.",
       "role_id": "problem_framer",
       "task_prompt": {
         "path": "prompts/frame_problem.md"
@@ -135,8 +135,8 @@
       ],
       "fresh_session_required": true,
       "id": "branch_1_archaeologist_2200",
-      "lane_id": "local",
-      "objective": "Vantage frame (archaeologist_2200): Excavate this artifact 174 years from now with no living witnesses; reconstruct what problem it solved from physical evidence alone.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "lane_id": "claude",
+      "objective": "Vantage frame (archaeologist_2200): Excavate this artifact 174 years from now with no living witnesses; reconstruct what problem it solved from physical evidence alone.\n\nYou are in DIVERGENT mode \u2014 a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
       "parallel_group": "diverge",
       "role_id": "diverger",
       "task_prompt": {
@@ -167,8 +167,8 @@
       ],
       "fresh_session_required": true,
       "id": "branch_2_regulator",
-      "lane_id": "local",
-      "objective": "Vantage frame (regulator): Audit the system for what must be provable, traceable, or refusable; surface failure modes.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "lane_id": "codex",
+      "objective": "Vantage frame (regulator): Audit the system for what must be provable, traceable, or refusable; surface failure modes.\n\nYou are in DIVERGENT mode \u2014 a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
       "parallel_group": "diverge",
       "role_id": "diverger",
       "task_prompt": {
@@ -199,8 +199,8 @@
       ],
       "fresh_session_required": true,
       "id": "branch_3_dual_problem",
-      "lane_id": "local",
-      "objective": "FIRST apply this transform to the problem statement, then ideate against the transformed problem (keep the original in view too): Invert the optimization target: maximize the thing being avoided and describe what you would build to achieve it reliably.\n\nVantage frame (dual_problem): Design the failure on purpose; the load-bearing machinery you must build to do it reliably reveals the real solution.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches. Include the checkable intermediate your transform produced (the kernel / dual objective / invariant / restated problem) so the critic can confirm the transform did real work.",
+      "lane_id": "agy",
+      "objective": "FIRST apply this transform to the problem statement, then ideate against the transformed problem (keep the original in view too): Invert the optimization target: maximize the thing being avoided and describe what you would build to achieve it reliably.\n\nVantage frame (dual_problem): Design the failure on purpose; the load-bearing machinery you must build to do it reliably reveals the real solution.\n\nYou are in DIVERGENT mode \u2014 a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches. Include the checkable intermediate your transform produced (the kernel / dual objective / invariant / restated problem) so the critic can confirm the transform did real work.",
       "parallel_group": "diverge",
       "role_id": "diverger",
       "task_prompt": {
@@ -231,8 +231,8 @@
       ],
       "fresh_session_required": true,
       "id": "branch_4_logistics",
-      "lane_id": "local",
-      "objective": "Vantage frame (logistics): Steal mechanisms from logistics: queues, batching, just-in-time, hub-and-spoke, returns, last-mile.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "lane_id": "claude",
+      "objective": "Vantage frame (logistics): Steal mechanisms from logistics: queues, batching, just-in-time, hub-and-spoke, returns, last-mile.\n\nYou are in DIVERGENT mode \u2014 a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
       "parallel_group": "diverge",
       "role_id": "diverger",
       "task_prompt": {
@@ -263,8 +263,8 @@
       ],
       "fresh_session_required": true,
       "id": "branch_5_markets",
-      "lane_id": "local",
-      "objective": "Vantage frame (markets): Treat the problem as a market: buyers, sellers, market-makers, auctions, futures, clearing houses.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "lane_id": "codex",
+      "objective": "Vantage frame (markets): Treat the problem as a market: buyers, sellers, market-makers, auctions, futures, clearing houses.\n\nYou are in DIVERGENT mode \u2014 a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
       "parallel_group": "diverge",
       "role_id": "diverger",
       "task_prompt": {
@@ -294,8 +294,8 @@
         }
       ],
       "id": "converge",
-      "lane_id": "local",
-      "objective": "You are the CRITIC. Read every branch's ideas (each branch ran a different frame, and branches may have run on different models). Score every idea on novelty, viability, and fit (0-10 each; weighted novelty 0.35 / viability 0.40 / fit 0.25 for ranking). Cluster the ideas by their underlying angle, not surface keywords. Flag traps — ideas that look attractive but are a hidden cost, false economy, or won't scale — each with a one-line reason. Select the top 3 picks by weighted score, excluding traps. CROSS-MODEL SIGNAL: explicitly note any idea independently surfaced by branches running on DIFFERENT model families — convergence across families is a confidence boost; record it. Publish the scored, clustered ledger.",
+      "lane_id": "agy",
+      "objective": "You are the CRITIC. Read every branch's ideas (each branch ran a different frame, and branches may have run on different models). Score every idea on novelty, viability, and fit (0-10 each; weighted novelty 0.35 / viability 0.40 / fit 0.25 for ranking). Cluster the ideas by their underlying angle, not surface keywords. Flag traps \u2014 ideas that look attractive but are a hidden cost, false economy, or won't scale \u2014 each with a one-line reason. Select the top 3 picks by weighted score, excluding traps. CROSS-MODEL SIGNAL: explicitly note any idea independently surfaced by branches running on DIFFERENT model families \u2014 convergence across families is a confidence boost; record it. Publish the scored, clustered ledger.",
       "role_id": "convergence_critic",
       "task_prompt": {
         "path": "prompts/converge.md"
@@ -325,7 +325,7 @@
       ],
       "fresh_session_required": true,
       "id": "deepen_1",
-      "lane_id": "local",
+      "lane_id": "claude",
       "objective": "Take the idea ranked #1 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
       "parallel_group": "deepen",
       "role_id": "deepener",
@@ -357,7 +357,7 @@
       ],
       "fresh_session_required": true,
       "id": "deepen_2",
-      "lane_id": "local",
+      "lane_id": "codex",
       "objective": "Take the idea ranked #2 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
       "parallel_group": "deepen",
       "role_id": "deepener",
@@ -389,7 +389,7 @@
       ],
       "fresh_session_required": true,
       "id": "deepen_3",
-      "lane_id": "local",
+      "lane_id": "agy",
       "objective": "Take the idea ranked #3 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
       "parallel_group": "deepen",
       "role_id": "deepener",
@@ -420,7 +420,7 @@
         }
       ],
       "id": "final_synthesis",
-      "lane_id": "local",
+      "lane_id": "claude",
       "objective": "Assemble the operator-facing result from the deepened picks and the convergence ledger: the shortlist (2-4 ideas) with why each is on it, the non-obvious-but-viable pick marked with a star, the trap list (each with its one-line reason), and one wildcard provocation that opens a new direction.",
       "role_id": "final_synthesizer",
       "task_prompt": {
@@ -441,18 +441,66 @@
     }
   ],
   "lanes": {
-    "local": {
+    "agy": {
       "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
       "capabilities": [
         "write",
-        "review"
+        "review",
+        "synthesis"
       ],
       "command": [
-        "sh",
-        "-c",
-        "cat \u003e/dev/null"
+        "agy",
+        "--dangerously-skip-permissions"
       ],
-      "display_model": "Local Fixture"
+      "display_model": "Gemini 3.5 Flash High",
+      "worktree_isolation": "per_job"
+    },
+    "claude": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions"
+      ],
+      "display_model": "Claude Opus 4.8",
+      "supervision": {
+        "compatible": true,
+        "require_tmux": true,
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "codex": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "Codex GPT-5.5 xhigh",
+      "supervision": {
+        "compatible": true,
+        "require_tmux": true,
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
     }
   },
   "name": "issue-290-parallel-fanin",
