@@ -112,6 +112,22 @@
 
 ### Changed
 
+- **#300 doctor integrity legibility (D204).** `striatum doctor`'s artifact/worktree
+  integrity checks no longer red `ok=false` on un-actionable findings: content
+  reachable from / present on the repository default branch is treated as durably
+  preserved (a `worktree_unanchored_on_default_branch` warning, not a problem),
+  `canceled`/`failed`-run worktree/artifact leftovers become `*_debris_terminal_run`
+  warnings, and pre-blob-storage artifacts (empty `blob_key`) become
+  `artifact_legacy_unverifiable` warnings — while genuine unpreserved loss stays a
+  problem. Reclassified findings move to an additive `warnings` channel (`ok` is
+  unchanged: `len(problems)==0`); verbose mode gains `warning_records`. The default
+  branch is resolved without hardcoding `main` and degrades safely. Read-only change
+  in `go/pkg/reads/{worktree_refs,doctor_artifact_anchor,doctor}.go`; no schema
+  change. This makes a red `doctor` an actionable stop-condition again — the
+  prerequisite for the `AGENTS.md` "Do not paste over a broken runner" guardrail to
+  be enforceable. Produced by the `docs/campaigns/doctor-integrity-legibility/`
+  dogfood (operator-gated). **Takes effect on daemon restart.**
+
 - **#294 `revision_routing` checkpoint affordances — clarify `continue` vs
   `override` (docs/affordance only, no behavior change).** On a `revision_routing`
   checkpoint, `continue` re-runs the reviewer on the current branch (a revision
