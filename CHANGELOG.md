@@ -4,6 +4,24 @@
 
 ### Decisions
 
+- **#297 undeclared in-scope files no longer drop silently at `work.complete` (D203).**
+  Completion now computes the in-scope, attempt-authored files that are neither
+  declared as `expected_artifacts` nor published via the D197
+  `write_scope.publish_source_changes` opt-in and surfaces them loudly
+  (`stranded_in_scope_paths` + a `warnings` entry on the result, plus a durable
+  `job.in_scope_paths_stranded` provenance event). Non-breaking: it warns, never
+  refuses — the silent drop becomes loud without changing the legacy default.
+- **`run start` / `run drive` auto-drive lifecycle fixes (D202, #295/#293).**
+  Auto-drive derives the run id from both the `--run-id` flag and the positional
+  `<run-id>` form; `run drive` refuses a second live drive for the same run (and
+  reaps a stale dead-pid marker) instead of warning-and-coexisting; the stop hint
+  and `daemonize-run-drive.md` name `run drive` as the resume command.
+- **#291 hung-supervised-session stall detection + recovery (D201).** A
+  `queued`/claimable job whose bound supervised session is hung (dead `tmux`
+  pane still `active`, or an `active` session that never claimed and holds
+  `no_lease`) is now detected and recovered: the decision tree scans `queued`
+  jobs and binds the leaseless session by the claim path's role+lane eligibility,
+  and the dashboard surfaces the wedge (`leaseless_count`).
 - **#292 stalled-job finalize path — `recovery complete-stalled` (D200).** A new
   daemon verb (`recovery.complete_stalled`, CLI `recovery complete-stalled
   <run-id> <job-id>`) non-destructively completes a job whose agent published its
@@ -94,6 +112,13 @@
 
 ### Changed
 
+- **#294 `revision_routing` checkpoint affordances — clarify `continue` vs
+  `override` (docs/affordance only, no behavior change).** On a `revision_routing`
+  checkpoint, `continue` re-runs the reviewer on the current branch (a revision
+  cycle) — the sanctioned proceed-past-the-verdict path is `override --decision-id`
+  (D157). The `checkpoint resolve --action` CLI help, the per-checkpoint
+  `resolve_action_hints` in `status` (now carries `continue`/`cancel`, not just
+  `override`), and the checkpoint `description` now say so.
 - **Operator guardrail: do not paste over a broken runner.** A new project rule
   in `AGENTS.md` and a shared boundary rendered into every generated operator
   skill (`striatum-scaffold`/`workflow`/`supervise`/`recover`/`claim-loop`, both
@@ -164,6 +189,21 @@
 
 ### Fixed
 
+- **#291 hung supervised sessions no longer stall a run silently.** A
+  `queued`/claimable job whose bound supervised session is hung used to sit
+  indefinitely with `supervisor_stalls.stalled_count:0` and no blocker; the
+  recovery decision tree and dashboard projection now scan `queued` jobs and
+  resolve the leaseless bound session, so the stall is detected, surfaced, and
+  recovered (closing the hung owner). (D201)
+- **#295 `run start <id>` positional form no longer skips auto-drive.** The
+  positional run id previously left auto-drive with an empty run id, so the run
+  sat `running` with a claimable job and zero lanes; the id is now derived from
+  both arg forms. **#293** `run drive` refuses a duplicate live drive and the
+  stop/resume guidance points at `run drive`. (D202)
+- **#297 multi-file code slices no longer strand undeclared in-scope files.**
+  Tests/migrations/secondary modules an agent wrote but did not declare as
+  `expected_artifacts` are now reported loudly at `work.complete` instead of
+  being dropped untracked. (D203)
 - `run.retry_job` refuses to bump a job past its `max_attempts` during recovery,
   points the operator at `recovery reseal` (the same-attempt path), and records a
   deliberate override as an audited `attempt_budget_override`; revision-cycle
