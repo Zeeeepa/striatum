@@ -1646,3 +1646,199 @@ func TestEnsureWorktreeBaseBranchRefToleratesLostCreateRace(t *testing.T) {
 		t.Fatal("real branch-create failure must still refuse")
 	}
 }
+
+// TestWorkspaceTargetConfinesPathToStateWorkspaces is the RFC 0127 P0 path-safety
+// guard for plain-dir workspaces: the resolved path must stay under
+// .striatum/workspaces and reject repo-escaping or worktree-namespace paths.
+func TestWorkspaceTargetConfinesPathToStateWorkspaces(t *testing.T) {
+	repoRoot := t.TempDir()
+	got, err := workspaceTarget(repoRoot, ".striatum/workspaces/ws_1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(repoRoot, ".striatum", "workspaces", "ws_1")
+	if got != want {
+		t.Fatalf("target = %q, want %q", got, want)
+	}
+	for _, path := range []string{
+		"docs/not-a-workspace",
+		".striatum/worktrees/wt_1", // a worktree path is not a workspace path
+		".striatum/../docs/escape",
+		filepath.Join(filepath.Dir(repoRoot), "outside"),
+	} {
+		t.Run(path, func(t *testing.T) {
+			_, err := workspaceTarget(repoRoot, path)
+			var rpcErr *rpc.Error
+			if !errors.As(err, &rpcErr) {
+				t.Fatalf("error = %v, want rpc error", err)
+			}
+			if rpcErr.Code != "invalid_transition" {
+				t.Fatalf("error code = %q, want invalid_transition", rpcErr.Code)
+			}
+		})
+	}
+}
+
+// TestStagePlainDirBaseContentStagesTreeWithoutGit is the RFC 0127 P0 staging
+// proof (hermetic, no DB): the daemon stages the run-branch base content into a
+// plain directory, returns the exact tree sha it staged, and leaves no .git
+// behind — the lane sees a pure byte directory.
+func TestStagePlainDirBaseContentStagesTreeWithoutGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	gitInit(t, repoRoot) // seeds seed.txt
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "docs", "nested.md"), []byte("nested\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", ".")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "nested")
+	runBranch := "wf/plain-dir"
+	gitRun(t, repoRoot, "branch", runBranch, "HEAD")
+	wantTree := gitRevParse(t, repoRoot, runBranch+"^{tree}")
+
+	target := filepath.Join(repoRoot, ".striatum", "workspaces", "ws_stage")
+	gotTree, err := stagePlainDirBaseContent(ctx, repoRoot, runBranch, target)
+	if err != nil {
+		t.Fatalf("stagePlainDirBaseContent: %v", err)
+	}
+	if gotTree != wantTree {
+		t.Fatalf("base tree sha = %s, want %s", gotTree, wantTree)
+	}
+	if got, err := os.ReadFile(filepath.Join(target, "seed.txt")); err != nil || string(got) != "seed\n" {
+		t.Fatalf("seed.txt = %q err=%v, want seed", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(target, "docs", "nested.md")); err != nil || string(got) != "nested\n" {
+		t.Fatalf("docs/nested.md = %q err=%v, want nested", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf(".git must not exist in a plain-dir workspace: err=%v", err)
+	}
+}
+
+// TestHandleWorktreeCreateStagesPlainDirWorkspace is the RFC 0127 P0 acceptance
+// test through the full handler: a job created with workspace_kind=plain_dir gets
+// a .git-free directory with the base content staged and the base tree sha
+// recorded in job_workspaces — and writes no job_worktrees row.
+func TestHandleWorktreeCreateStagesPlainDirWorkspace(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "plain_dir", false)
+	wantTree := gitRevParse(t, repoRoot, ids.runBranch+"^{tree}")
+
+	result, err := HandleWorktreeCreate(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id":     ids.sessionID,
+		"job_id":         ids.jobID,
+		"lease_id":       ids.leaseID,
+		"workspace_kind": "plain_dir",
+	}))
+	if err != nil {
+		t.Fatalf("HandleWorktreeCreate plain_dir: %v", err)
+	}
+	if result["workspace_kind"] != "plain_dir" {
+		t.Fatalf("workspace_kind = %#v, want plain_dir", result["workspace_kind"])
+	}
+	if result["base_tree_sha"] != wantTree {
+		t.Fatalf("base_tree_sha = %#v, want %s", result["base_tree_sha"], wantTree)
+	}
+	wsPath, _ := result["workspace_path"].(string)
+	if !strings.HasPrefix(wsPath, ".striatum/workspaces/") {
+		t.Fatalf("workspace_path = %q, want under .striatum/workspaces/", wsPath)
+	}
+
+	abs := filepath.Join(repoRoot, filepath.FromSlash(wsPath))
+	if got, err := os.ReadFile(filepath.Join(abs, "seed.txt")); err != nil || string(got) != "seed\n" {
+		t.Fatalf("staged seed.txt = %q err=%v, want seed", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(abs, ".git")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf(".git must not exist in a plain-dir workspace: err=%v", err)
+	}
+
+	row, err := oneRow(ctx, runner, `
+		SELECT workspace_kind, base_tree_sha, workspace_path, state
+		  FROM striatumd.job_workspaces
+		 WHERE repository_id = $1 AND job_id = $2`, ids.repoID, ids.jobID)
+	if err != nil {
+		t.Fatalf("job_workspaces row: %v", err)
+	}
+	if row["workspace_kind"] != "plain_dir" || row["base_tree_sha"] != wantTree || row["state"] != "active" {
+		t.Fatalf("job_workspaces row = %#v, want plain_dir/%s/active", row, wantTree)
+	}
+
+	// The plain-dir opt-in must not touch the legacy git-worktree table.
+	count, err := runner.QueryScalar(ctx, `SELECT count(*) FROM striatumd.job_worktrees WHERE repository_id = $1 AND job_id = $2`, ids.repoID, ids.jobID)
+	if err != nil {
+		t.Fatalf("job_worktrees count: %v", err)
+	}
+	if strings.TrimSpace(count) != "0" {
+		t.Fatalf("plain-dir create wrote job_worktrees rows: count=%s", count)
+	}
+}
+
+// TestHandleWorktreeCreateDefaultStillCreatesGitWorktree guards that the legacy
+// per-job git-worktree path is the unchanged default when workspace_kind is
+// omitted (RFC 0127 P0 reversibility: no in-flight per_job run breaks).
+func TestHandleWorktreeCreateDefaultStillCreatesGitWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "default_worktree", false)
+
+	result, err := HandleWorktreeCreate(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"session_id": ids.sessionID,
+		"job_id":     ids.jobID,
+		"lease_id":   ids.leaseID,
+	}))
+	if err != nil {
+		t.Fatalf("HandleWorktreeCreate default: %v", err)
+	}
+	wtPath, _ := result["worktree_path"].(string)
+	if !strings.HasPrefix(wtPath, ".striatum/worktrees/") {
+		t.Fatalf("worktree_path = %q, want under .striatum/worktrees/", wtPath)
+	}
+	// A real git worktree has a .git pointer file at its root.
+	abs := filepath.Join(repoRoot, filepath.FromSlash(wtPath))
+	if _, err := os.Stat(filepath.Join(abs, ".git")); err != nil {
+		t.Fatalf("default worktree must contain a .git pointer: %v", err)
+	}
+	count, err := runner.QueryScalar(ctx, `SELECT count(*) FROM striatumd.job_worktrees WHERE repository_id = $1 AND job_id = $2 AND state = 'active'`, ids.repoID, ids.jobID)
+	if err != nil {
+		t.Fatalf("job_worktrees count: %v", err)
+	}
+	if strings.TrimSpace(count) != "1" {
+		t.Fatalf("default create must record one active job_worktrees row: count=%s", count)
+	}
+}
+
+// TestHandleWorktreeCreateRejectsUnknownWorkspaceKind keeps the opt-in selector a
+// closed enum.
+func TestHandleWorktreeCreateRejectsUnknownWorkspaceKind(t *testing.T) {
+	_, err := HandleWorktreeCreate(context.Background(), inertRunner{}, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_bad_workspace_kind",
+		Method:        "worktree.create",
+		Params: map[string]any{
+			"repository_id":  "repo_1",
+			"session_id":     "sess_1",
+			"job_id":         "job_1",
+			"lease_id":       "lease_1",
+			"workspace_kind": "overlayfs",
+		},
+	})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "schema_invalid" {
+		t.Fatalf("error = %v, want schema_invalid for unknown workspace_kind", err)
+	}
+}

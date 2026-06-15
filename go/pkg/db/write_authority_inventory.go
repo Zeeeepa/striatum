@@ -65,6 +65,7 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"interrogations":                 ClassRuntimeDML,
 	"job_dependencies":               ClassRuntimeDML,
 	"job_recovery_state":             ClassRuntimeDML,
+	"job_workspaces":                 ClassRuntimeDML,
 	"job_worktrees":                  ClassRuntimeDML,
 	"jobs":                           ClassRuntimeDML,
 	"leases":                         ClassRuntimeDML,

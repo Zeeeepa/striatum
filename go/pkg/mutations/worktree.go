@@ -1,10 +1,12 @@
 package mutations
 
 import (
+	"archive/tar"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,15 @@ import (
 const (
 	worktreeStateDir = ".striatum"
 	worktreeSubdir   = "worktrees"
+	// workspacesSubdir holds RFC 0127 plain-dir workspaces (no .git), parallel
+	// to worktreeSubdir which holds the legacy per-job git worktrees.
+	workspacesSubdir = "workspaces"
+
+	// workspaceKindPerJob is the legacy default: a per-job git worktree the lane
+	// writes into. workspaceKindPlainDir is the RFC 0127 P0 opt-in: a plain,
+	// daemon-owned, .git-free directory staged from the run-branch base.
+	workspaceKindPerJob   = "per_job"
+	workspaceKindPlainDir = "plain_dir"
 )
 
 type worktreeCreateInputs struct {
@@ -56,6 +67,16 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
+	// RFC 0127 P0 (D195): opt-in plain-dir workspace_kind. Default keeps the
+	// legacy per-job git-worktree path unchanged; validate the enum before any DB
+	// or filesystem work.
+	workspaceKind := strings.TrimSpace(stringParam(envelope, "workspace_kind"))
+	if workspaceKind == "" {
+		workspaceKind = workspaceKindPerJob
+	}
+	if workspaceKind != workspaceKindPerJob && workspaceKind != workspaceKindPlainDir {
+		return nil, rpc.NewError("schema_invalid", fmt.Sprintf("workspace_kind must be %q or %q", workspaceKindPerJob, workspaceKindPlainDir), nil)
+	}
 	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
 	if err != nil {
 		return nil, err
@@ -71,6 +92,10 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 		return map[string]any{}, nil
 	}); err != nil {
 		return nil, err
+	}
+
+	if workspaceKind == workspaceKindPlainDir {
+		return handlePlainDirWorkspaceCreate(ctx, runner, repositoryID, sessionID, jobID, leaseID, repoRoot, inputs)
 	}
 
 	worktreeID, err := newID("wt")
@@ -1269,8 +1294,23 @@ func jobLaneID(job map[string]any) string {
 }
 
 func worktreeTarget(repoRoot string, pathText string) (string, error) {
+	return confinedScratchTarget(repoRoot, pathText, worktreeSubdir, "worktree")
+}
+
+// workspaceTarget confines an RFC 0127 plain-dir workspace path to
+// .striatum/workspaces, with the same symlink/traversal safety the legacy
+// worktree path enforces.
+func workspaceTarget(repoRoot string, pathText string) (string, error) {
+	return confinedScratchTarget(repoRoot, pathText, workspacesSubdir, "workspace")
+}
+
+// confinedScratchTarget resolves a repository-relative scratch path to an
+// absolute path confined to .striatum/<subdir>, rejecting paths that escape the
+// repository or traverse a symlinked component. label names the surface in error
+// messages ("worktree" / "workspace").
+func confinedScratchTarget(repoRoot, pathText, subdir, label string) (string, error) {
 	if strings.TrimSpace(pathText) == "" {
-		return "", rpc.NewError("invalid_transition", "worktree path must stay under .striatum/worktrees", nil)
+		return "", rpc.NewError("invalid_transition", label+" path must stay under "+worktreeStateDir+"/"+subdir, nil)
 	}
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -1288,14 +1328,14 @@ func worktreeTarget(repoRoot string, pathText string) (string, error) {
 	}
 	target = filepath.Clean(target)
 	if !pathWithin(root, target) {
-		return "", rpc.NewError("invalid_transition", "worktree path must stay inside the repository", nil)
+		return "", rpc.NewError("invalid_transition", label+" path must stay inside the repository", nil)
 	}
-	worktreesRoot := filepath.Join(root, worktreeStateDir, worktreeSubdir)
-	if worktreePathHasSymlinkComponent(root, worktreesRoot) || worktreePathHasSymlinkComponent(root, target) {
-		return "", rpc.NewError("invalid_transition", "worktree path must not traverse symlinks", nil)
+	scratchRoot := filepath.Join(root, worktreeStateDir, subdir)
+	if worktreePathHasSymlinkComponent(root, scratchRoot) || worktreePathHasSymlinkComponent(root, target) {
+		return "", rpc.NewError("invalid_transition", label+" path must not traverse symlinks", nil)
 	}
-	if !pathWithin(worktreesRoot, target) {
-		return "", rpc.NewError("invalid_transition", "worktree path must stay under .striatum/worktrees", nil)
+	if !pathWithin(scratchRoot, target) {
+		return "", rpc.NewError("invalid_transition", label+" path must stay under "+worktreeStateDir+"/"+subdir, nil)
 	}
 	return target, nil
 }
@@ -1383,4 +1423,238 @@ func requiredStringParam(params map[string]any, key string) (string, error) {
 		return "", rpc.NewError("schema_invalid", key+" must be a non-empty string", nil)
 	}
 	return text, nil
+}
+
+// handlePlainDirWorkspaceCreate implements the RFC 0127 P0 (D195) opt-in: instead
+// of `git worktree add --detach`, the daemon creates a plain, daemon-owned,
+// .git-free directory under .striatum/workspaces/<id>, stages the run-branch base
+// content into it, and records the base tree sha it staged in job_workspaces
+// BEFORE the lane starts. The lane sees no git repo at all (a pure byte
+// producer); the durable base-tree pin lets a retrospective reconstruct the exact
+// diff (base tree XOR published tree) without trusting the lane. This is the only
+// P0 behavior — daemon-side diff/write-scope, the porter commit from the plain
+// dir, and the default flip are P1-P3 and are intentionally not implemented here.
+func handlePlainDirWorkspaceCreate(ctx context.Context, runner db.Runner, repositoryID, sessionID, jobID, leaseID, repoRoot string, inputs worktreeCreateInputs) (map[string]any, error) {
+	workspaceID, err := newID("ws")
+	if err != nil {
+		return nil, err
+	}
+	relative := filepath.ToSlash(filepath.Join(worktreeStateDir, workspacesSubdir, workspaceID))
+	target, err := workspaceTarget(repoRoot, relative)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return nil, err
+	}
+
+	// Repair a confirmed-but-unborn run branch ref (#183) exactly like the git
+	// worktree path, so base staging resolves a real commit/tree.
+	if err := ensureWorktreeBaseBranchRef(ctx, repoRoot, inputs.BaseBranch, inputs.BranchBase); err != nil {
+		return nil, err
+	}
+
+	// Stage the base content (no .git) and pin the durable base tree sha. This is
+	// the "before" state recorded before the lane runs.
+	baseTreeSHA, err := stagePlainDirBaseContent(ctx, repoRoot, inputs.BaseBranch, target)
+	if err != nil {
+		_ = os.RemoveAll(target)
+		return nil, err
+	}
+
+	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		validated, err := validatedWorktreeCreateInputs(ctx, tx, repositoryID, sessionID, jobID, leaseID)
+		if err != nil {
+			return nil, err
+		}
+		if active, err := activeWorkspaceForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		} else if active != nil {
+			return nil, rpc.NewError("invalid_transition", "job already has an active workspace", nil)
+		}
+		now := nowString()
+		if err := tx.Exec(ctx, `
+			INSERT INTO striatumd.job_workspaces (
+			  repository_id, workspace_id, run_id, job_id, lease_id,
+			  workspace_kind, base_branch, base_tree_sha, workspace_path, state, created_at
+			)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',$10)`,
+			repositoryID,
+			workspaceID,
+			validated.RunID,
+			jobID,
+			leaseID,
+			workspaceKindPlainDir,
+			validated.BaseBranch,
+			baseTreeSHA,
+			relative,
+			now,
+		); err != nil {
+			return nil, err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, validated.RunID, "workspace.created", sessionID, jobID, nil, nil, leaseID, map[string]any{
+			"workspace_id":   workspaceID,
+			"workspace_kind": workspaceKindPlainDir,
+			"workspace_path": relative,
+			"base_branch":    validated.BaseBranch,
+			"base_tree_sha":  baseTreeSHA,
+		}); err != nil {
+			return nil, err
+		}
+		return map[string]any{}, nil
+	}); err != nil {
+		_ = os.RemoveAll(target)
+		return nil, err
+	}
+
+	return map[string]any{
+		"workspace_id":   workspaceID,
+		"workspace_kind": workspaceKindPlainDir,
+		"workspace_path": relative,
+		"base_branch":    inputs.BaseBranch,
+		"base_tree_sha":  baseTreeSHA,
+		// Memory-digest grounding (recall shelf) is a worktree convenience deferred
+		// for plain-dir parity; reported skipped to keep the return shape stable.
+		"memory_digest": map[string]any{"status": "skipped"},
+	}, nil
+}
+
+func activeWorkspaceForJob(ctx context.Context, runner any, repositoryID, jobID string) (map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT *
+		  FROM striatumd.job_workspaces
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'active'
+		 LIMIT 1
+		 FOR UPDATE`,
+		repositoryID,
+		jobID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	return rows[0], nil
+}
+
+// stagePlainDirBaseContent stages the base content of ref into a plain, .git-free
+// directory and returns the tree sha it staged. It is the RFC 0127 P0 "before"
+// pin: the daemon owns the staging and records the exact tree the lane will
+// diverge from, so a retrospective reconstructs the diff without trusting the
+// lane. Staging uses `git archive` (a tar stream of the tree) extracted
+// in-process, so the directory never contains a .git and no external tar binary
+// is required.
+func stagePlainDirBaseContent(ctx context.Context, repoRoot, ref, target string) (string, error) {
+	treeSHA, err := gitRevParseTree(ctx, repoRoot, ref)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		return "", err
+	}
+	if err := extractGitArchive(ctx, repoRoot, treeSHA, target); err != nil {
+		return "", err
+	}
+	return treeSHA, nil
+}
+
+func gitRevParseTree(ctx context.Context, repoRoot, ref string) (string, error) {
+	out, exit, err := integrateGit(ctx, repoRoot, "rev-parse", "--verify", ref+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	if exit != 0 {
+		return "", rpc.NewError("invalid_transition", fmt.Sprintf("git tree %q does not resolve for plain-dir staging", ref), nil)
+	}
+	sha := firstLine(out)
+	if !isFullGitSHA(sha) {
+		return "", rpc.NewError("invalid_transition", fmt.Sprintf("git tree %q resolved to invalid sha %q", ref, sha), nil)
+	}
+	return sha, nil
+}
+
+// extractGitArchive writes the tree's tar archive into target. The full archive
+// is read before extraction so the git child cannot deadlock on a stalled pipe.
+func extractGitArchive(ctx context.Context, repoRoot, treeish, target string) error {
+	cmd := exec.CommandContext(ctx, "git", "archive", "--format=tar", treeish)
+	cmd.Dir = repoRoot
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return rpc.NewError("invalid_transition", gitArchiveErrorMessage(stderr.String(), err), nil)
+	}
+	return extractTarStream(tar.NewReader(bytes.NewReader(out)), target)
+}
+
+// extractTarStream extracts a tar stream into target, confining every entry to
+// target (rejecting absolute or escaping paths defensively even though the tar
+// comes from a daemon-controlled `git archive`).
+func extractTarStream(reader *tar.Reader, target string) error {
+	for {
+		header, err := reader.Next()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return rpc.NewError("invalid_transition", "plain-dir staging archive read failed: "+err.Error(), nil)
+		}
+		name := filepath.Clean(filepath.FromSlash(header.Name))
+		if name == "." {
+			continue
+		}
+		if filepath.IsAbs(name) || name == ".." || strings.HasPrefix(name, ".."+string(os.PathSeparator)) {
+			return rpc.NewError("invalid_transition", fmt.Sprintf("plain-dir staging refused unsafe archive path %q", header.Name), nil)
+		}
+		dest := filepath.Join(target, name)
+		if dest != target && !strings.HasPrefix(dest, target+string(os.PathSeparator)) {
+			return rpc.NewError("invalid_transition", fmt.Sprintf("plain-dir staging refused archive path %q escaping the workspace", header.Name), nil)
+		}
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(dest, 0o755); err != nil {
+				return err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return err
+			}
+			mode := os.FileMode(header.Mode).Perm()
+			if mode == 0 {
+				mode = 0o644
+			}
+			file, err := os.OpenFile(dest, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(file, reader); err != nil { //nolint:gosec // daemon-controlled git archive of a pinned tree
+				_ = file.Close()
+				return err
+			}
+			if err := file.Close(); err != nil {
+				return err
+			}
+		case tar.TypeSymlink:
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				return err
+			}
+			if err := os.Symlink(header.Linkname, dest); err != nil {
+				return err
+			}
+		default:
+			// Skip other entry types (extended headers, etc.).
+		}
+	}
+}
+
+func gitArchiveErrorMessage(stderr string, err error) string {
+	message := strings.TrimSpace(stderr)
+	if message == "" {
+		message = err.Error()
+	}
+	if len(message) > 200 {
+		message = message[:200] + "..."
+	}
+	return "git archive for plain-dir staging failed: " + message
 }

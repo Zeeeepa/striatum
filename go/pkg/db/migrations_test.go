@@ -295,6 +295,58 @@ func TestMigrationTwentyThreePrincipalsIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationTwentyEightJobWorkspacesIsOwnershipSafe is RFC 0127 P0 (D195): the
+// plain-dir workspace migration creates a NEW runtime-owned table + grants the
+// runtime role, recording the staged base tree sha. Like migrations 16/23 it must
+// NOT ALTER any table (the regular-migration owner-DDL guard forbids ALTER of
+// striatumd.* for versions >= 27 outright) and must declare NO foreign key
+// (referential integrity is enforced in Go in the workspace.create handler), so
+// the runtime role striatumd_rw can apply it without the RFC 0081 owner-table
+// crash-loop.
+func TestMigrationTwentyEightJobWorkspacesIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 28 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 28 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.job_workspaces",
+		"PRIMARY KEY (repository_id, workspace_id)",
+		"base_tree_sha text NOT NULL",
+		"workspace_kind text NOT NULL CHECK (workspace_kind IN ('plain_dir'))",
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.job_workspaces TO striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 28 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER/DROP of any table, and no foreign key to any
+	// table. striatumd_rw must be able to apply this migration.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.runs",
+		"REFERENCES striatumd.jobs",
+		"REFERENCES striatumd.leases",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 28 must not contain %q (owner-table dependency / future-runtime-DDL guard); integrity is enforced in Go", forbidden)
+		}
+	}
+}
+
 // TestMigrationEighteenWidensArtifactAttemptScope is RFC 0095 §1 / GH #84:
 // migration 18 records the producing attempt on each artifact and widens BOTH
 // artifact unique keys with `attempt`, so a re-opened attempt may republish the

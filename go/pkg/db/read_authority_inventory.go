@@ -65,6 +65,7 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"interrogations":              ReadClassRuntimeSensitive,
 	"job_dependencies":            ReadClassRuntimeSensitive,
 	"job_recovery_state":          ReadClassRuntimeSensitive,
+	"job_workspaces":              ReadClassRuntimeSensitive,
 	"job_worktrees":               ReadClassRuntimeSensitive,
 	"jobs":                        ReadClassRuntimeSensitive,
 	"leases":                      ReadClassRuntimeSensitive,
