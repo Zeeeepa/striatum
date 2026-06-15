@@ -94,6 +94,20 @@
 
 ### Changed
 
+- **Operator guardrail: do not paste over a broken runner.** A new project rule
+  in `AGENTS.md` and a shared boundary rendered into every generated operator
+  skill (`striatum-scaffold`/`workflow`/`supervise`/`recover`/`claim-loop`, both
+  profiles): when a verb fails, a lane strands edits in its per-job worktree, a
+  run wedges, or `doctor` is red (`job_completed_without_anchor`,
+  `worktree_head_unreachable`, `artifact_anchor_missing_file` / `_hash_mismatch`,
+  `artifact_blob_metadata_missing`), never hand-finish the work (manual worktree
+  capture, cherry-pick, hand-commit) and report it complete — that masks the
+  defect as success and corrupts daemon-owned provenance. Recover through the
+  daemon (`recovery requeue-stale`/`resume`/`complete-stalled`,
+  `checkpoint resolve`) or surface it (issue + friction + escalate). The
+  `striatum-recover` skill gains a "Recover honestly" section and lists
+  `recovery complete-stalled` (D200) in its verb table.
+
 - **#288 `workflow generate` DX.** `--scaffold-root` (and generated scaffold
   targets) may live under `.striatum/scratch/`; `--option workflow_id` /
   `artifact_root` / `scaffold_root` route to the matching top-level field; missing

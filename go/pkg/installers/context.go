@@ -48,6 +48,7 @@ var verbGroups = map[string][]verbEntry{
 		{"recovery requeue-stale", "Requeue an expired non-repo-write job."},
 		{"recovery process-reconcile", "Reconcile externally-killed processes."},
 		{"recovery resume", "Resolve remediated process-adapter blockers."},
+		{"recovery complete-stalled", "Finalize a dead lane's job from its durable artifacts instead of hand-capturing the worktree (D200)."},
 		{"checkpoint resolve", "Resolve a `human_checkpoint` blocker."},
 		{"dashboard --once", "Render a single dashboard frame for scripts."},
 	},
@@ -61,6 +62,7 @@ var boundaries = []string{
 	"Do not capture stdout/stderr transcripts; D028 keeps them off by default.",
 	"Do not derive bylines from job titles; use the byline supplied in your work packet.",
 	"Do not parse a supervisor's own output for workflow state; supervisors send DEVNULL.",
+	"Do not paste over a broken runner: never hand-finish stranded or wedged work (manual worktree capture, cherry-pick, or hand-commit) and report it complete, and never proceed while `doctor` is red — recover through the daemon (`recovery requeue-stale`/`resume`/`complete-stalled`, `checkpoint resolve`) or surface the defect (file an issue, record the friction, escalate) instead of masking it as a success.",
 }
 
 // frontMatterKinds mirrors sorted(ALLOWED_ARTIFACT_KINDS) from

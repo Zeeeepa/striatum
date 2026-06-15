@@ -49,6 +49,28 @@ abandoned repo-write work, inspect with `recovery stale-leases
 For remediated process-adapter blockers, use `recovery resume`; if a
 review verdict is missing, resume first and then record the verdict normally.
 
+## Recover honestly — never paste over the defect
+
+Recovery means routing the work back through the daemon, not finishing it by
+hand and declaring victory. The sanctioned moves: `recovery requeue-stale` for
+an expired non-repo-write job, `recovery resume` for a remediated
+process-adapter blocker, `recovery complete-stalled` to finalize a dead lane's
+job **from its durable artifacts**, and `checkpoint resolve` for a human
+checkpoint (or the matching daemon MCP recovery methods).
+
+Do **not** "fix" a stranded or wedged run by capturing the lane's uncommitted
+per-job-worktree edits, cherry-picking, or hand-committing them onto the run
+branch or `main` and reporting the job complete. That lands the deliverable
+while leaving the runner defect recorded as a success and corrupts daemon-owned
+provenance — exactly the `job_completed_without_anchor` /
+`worktree_head_unreachable` / `artifact_anchor_missing_file` problems `doctor`
+then accumulates. A red `doctor` is a stop-and-fix condition.
+
+If the sanctioned recovery verbs cannot cleanly resolve it, the run is exposing
+a real runner defect: surface it — file or update an issue, record the friction
+in the operator report and `docs/operator/BRIEF.md`, and fix the runner (or
+escalate) before continuing. Never silently route around it.
+
 ## Where to look next
 
 - **`striatum-claim-loop`** — once the blocker is clear, the loop

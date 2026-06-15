@@ -132,6 +132,23 @@ Examples live under `examples`. Historical execution prompts live under
   local doc links (frozen provenance under `docs/rfcs/`, `docs/_archive/`, and
   similar is excluded via `.check-docs-ignore`). It currently passes; keep it
   green (it can be promoted into `make check` when the team is ready).
+- **Do not paste over a broken runner.** The daemon's own state machine is the
+  only legitimate way a lane's work reaches a run branch and then `main`. When a
+  verb fails, a lane strands its edits in its per-job worktree, a run wedges, or
+  `striatum doctor` reports integrity problems (`job_completed_without_anchor`,
+  `worktree_head_unreachable`, `artifact_anchor_missing_file` /
+  `artifact_anchor_hash_mismatch`, `artifact_blob_metadata_missing`), do **not**
+  hand-finish the work — manual worktree capture, cherry-pick, or a direct
+  hand-commit — and report it complete. That lands the deliverable while leaving
+  the defect recorded as a success, and it corrupts the daemon-owned provenance
+  the product depends on. Route recovery back through the daemon instead
+  (`recovery requeue-stale`, `recovery resume`, `recovery complete-stalled`,
+  `checkpoint resolve`, or the matching MCP recovery methods); if it cannot be
+  cleanly recovered, the run is exposing a real runner defect — **surface it**:
+  file or update a GitHub issue, record the friction in the operator report and
+  `docs/operator/BRIEF.md`, and fix the runner (or escalate) before continuing. A
+  red `doctor` is a stop-and-fix condition, not a thing to route around: do not
+  launch or continue dogfoods on top of accumulating integrity problems.
 
 ## Historical Prompts
 
