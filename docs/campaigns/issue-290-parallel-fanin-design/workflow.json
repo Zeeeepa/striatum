@@ -1,0 +1,484 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/issue-290-parallel-fanin"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "problem_framer"
+  },
+  "cycles": [],
+  "edges": [
+    {
+      "from": "frame_problem",
+      "on": "completed",
+      "to": "branch_1_archaeologist_2200"
+    },
+    {
+      "from": "frame_problem",
+      "on": "completed",
+      "to": "branch_2_regulator"
+    },
+    {
+      "from": "frame_problem",
+      "on": "completed",
+      "to": "branch_3_dual_problem"
+    },
+    {
+      "from": "frame_problem",
+      "on": "completed",
+      "to": "branch_4_logistics"
+    },
+    {
+      "from": "frame_problem",
+      "on": "completed",
+      "to": "branch_5_markets"
+    },
+    {
+      "from": "branch_1_archaeologist_2200",
+      "on": "completed",
+      "to": "converge"
+    },
+    {
+      "from": "branch_2_regulator",
+      "on": "completed",
+      "to": "converge"
+    },
+    {
+      "from": "branch_3_dual_problem",
+      "on": "completed",
+      "to": "converge"
+    },
+    {
+      "from": "branch_4_logistics",
+      "on": "completed",
+      "to": "converge"
+    },
+    {
+      "from": "branch_5_markets",
+      "on": "completed",
+      "to": "converge"
+    },
+    {
+      "from": "converge",
+      "on": "completed",
+      "to": "deepen_1"
+    },
+    {
+      "from": "converge",
+      "on": "completed",
+      "to": "deepen_2"
+    },
+    {
+      "from": "converge",
+      "on": "completed",
+      "to": "deepen_3"
+    },
+    {
+      "from": "deepen_1",
+      "on": "completed",
+      "to": "final_synthesis"
+    },
+    {
+      "from": "deepen_2",
+      "on": "completed",
+      "to": "final_synthesis"
+    },
+    {
+      "from": "deepen_3",
+      "on": "completed",
+      "to": "final_synthesis"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "problem_brief",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/PROBLEM_BRIEF.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "frame_problem",
+      "lane_id": "local",
+      "objective": "Publish a concise problem brief — the open-ended question to ideate on, plus constraints, goals, non-goals, and decision criteria. Do not propose solutions.",
+      "role_id": "problem_framer",
+      "task_prompt": {
+        "path": "prompts/frame_problem.md"
+      },
+      "title": "Frame problem",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "branch_1_archaeologist_2200",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_1_archaeologist_2200/IDEAS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "branch_1_archaeologist_2200",
+      "lane_id": "local",
+      "objective": "Vantage frame (archaeologist_2200): Excavate this artifact 174 years from now with no living witnesses; reconstruct what problem it solved from physical evidence alone.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "parallel_group": "diverge",
+      "role_id": "diverger",
+      "task_prompt": {
+        "path": "prompts/diverge.md"
+      },
+      "title": "Diverge under frame: archaeologist_2200",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_1_archaeologist_2200/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "branch_2_regulator",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_2_regulator/IDEAS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "branch_2_regulator",
+      "lane_id": "local",
+      "objective": "Vantage frame (regulator): Audit the system for what must be provable, traceable, or refusable; surface failure modes.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "parallel_group": "diverge",
+      "role_id": "diverger",
+      "task_prompt": {
+        "path": "prompts/diverge.md"
+      },
+      "title": "Diverge under frame: regulator",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_2_regulator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "branch_3_dual_problem",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_3_dual_problem/IDEAS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "branch_3_dual_problem",
+      "lane_id": "local",
+      "objective": "FIRST apply this transform to the problem statement, then ideate against the transformed problem (keep the original in view too): Invert the optimization target: maximize the thing being avoided and describe what you would build to achieve it reliably.\n\nVantage frame (dual_problem): Design the failure on purpose; the load-bearing machinery you must build to do it reliably reveals the real solution.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches. Include the checkable intermediate your transform produced (the kernel / dual objective / invariant / restated problem) so the critic can confirm the transform did real work.",
+      "parallel_group": "diverge",
+      "role_id": "diverger",
+      "task_prompt": {
+        "path": "prompts/diverge.md"
+      },
+      "title": "Diverge under frame: dual_problem",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_3_dual_problem/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "branch_4_logistics",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_4_logistics/IDEAS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "branch_4_logistics",
+      "lane_id": "local",
+      "objective": "Vantage frame (logistics): Steal mechanisms from logistics: queues, batching, just-in-time, hub-and-spoke, returns, last-mile.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "parallel_group": "diverge",
+      "role_id": "diverger",
+      "task_prompt": {
+        "path": "prompts/diverge.md"
+      },
+      "title": "Diverge under frame: logistics",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_4_logistics/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "branch_5_markets",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_5_markets/IDEAS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "branch_5_markets",
+      "lane_id": "local",
+      "objective": "Vantage frame (markets): Treat the problem as a market: buyers, sellers, market-makers, auctions, futures, clearing houses.\n\nYou are in DIVERGENT mode — a generator, not a critic. Produce 6 short, distinct ideas under this frame. Do not evaluate, rank, or hedge. The first three obvious answers everyone would give are banned; push past them into the awkward middle. You cannot see the other branches.",
+      "parallel_group": "diverge",
+      "role_id": "diverger",
+      "task_prompt": {
+        "path": "prompts/diverge.md"
+      },
+      "title": "Diverge under frame: markets",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/branches/branch_5_markets/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "findings_ledger",
+          "logical_name": "convergence_ledger",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/CONVERGENCE.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "converge",
+      "lane_id": "local",
+      "objective": "You are the CRITIC. Read every branch's ideas (each branch ran a different frame, and branches may have run on different models). Score every idea on novelty, viability, and fit (0-10 each; weighted novelty 0.35 / viability 0.40 / fit 0.25 for ranking). Cluster the ideas by their underlying angle, not surface keywords. Flag traps — ideas that look attractive but are a hidden cost, false economy, or won't scale — each with a one-line reason. Select the top 3 picks by weighted score, excluding traps. CROSS-MODEL SIGNAL: explicitly note any idea independently surfaced by branches running on DIFFERENT model families — convergence across families is a confidence boost; record it. Publish the scored, clustered ledger.",
+      "role_id": "convergence_critic",
+      "task_prompt": {
+        "path": "prompts/converge.md"
+      },
+      "title": "Converge: score, cluster, trap-detect",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "deepen_1",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_1/DEEPENED.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "deepen_1",
+      "lane_id": "local",
+      "objective": "Take the idea ranked #1 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
+      "parallel_group": "deepen",
+      "role_id": "deepener",
+      "task_prompt": {
+        "path": "prompts/deepen.md"
+      },
+      "title": "Deepen pick 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "deepen_2",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_2/DEEPENED.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "deepen_2",
+      "lane_id": "local",
+      "objective": "Take the idea ranked #2 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
+      "parallel_group": "deepen",
+      "role_id": "deepener",
+      "task_prompt": {
+        "path": "prompts/deepen.md"
+      },
+      "title": "Deepen pick 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "deepen_3",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_3/DEEPENED.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "deepen_3",
+      "lane_id": "local",
+      "objective": "Take the idea ranked #3 in the convergence ledger. Sketch how it would actually work in 4-8 sentences, name the load-bearing risk, name the first concrete step a builder would take, then generate 3-5 child ideas (variations, hybrids, unlocks).",
+      "parallel_group": "deepen",
+      "role_id": "deepener",
+      "task_prompt": {
+        "path": "prompts/deepen.md"
+      },
+      "title": "Deepen pick 3",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/deepened/deepen_3/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "ideation_synthesis",
+          "path": "docs/campaigns/issue-290-parallel-fanin-design/artifacts/IDEATION_SYNTHESIS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_synthesis",
+      "lane_id": "local",
+      "objective": "Assemble the operator-facing result from the deepened picks and the convergence ledger: the shortlist (2-4 ideas) with why each is on it, the non-obvious-but-viable pick marked with a star, the trap list (each with its one-line reason), and one wildcard provocation that opens a new direction.",
+      "role_id": "final_synthesizer",
+      "task_prompt": {
+        "path": "prompts/final_synthesis.md"
+      },
+      "title": "Final synthesis",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/campaigns/issue-290-parallel-fanin-design/artifacts/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "issue-290-parallel-fanin",
+  "parallelism": {
+    "max_active_jobs": 5,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "convergence_critic": {
+      "definition_path": "roles/convergence_critic.md"
+    },
+    "deepener": {
+      "definition_path": "roles/deepener.md"
+    },
+    "diverger": {
+      "definition_path": "roles/diverger.md"
+    },
+    "final_synthesizer": {
+      "definition_path": "roles/final_synthesizer.md"
+    },
+    "problem_framer": {
+      "definition_path": "roles/problem_framer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "issue-290-parallel-fanin",
+  "workflow_version": "2026-06-15"
+}
