@@ -775,9 +775,9 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 				return map[string]any{"status": "completed", "job_id": jobID, "verdict": verdict, "verdict_id": verdictID, "absorbed_by_adjudicator": true}, nil
 			}
 		}
-		description := "needs_revision verdict has no matching workflow cycle"
+		description := "needs_revision verdict has no matching workflow cycle. Resolve with `continue` to re-review the revised branch (fix the findings first, or it re-reproduces the verdict and re-opens this checkpoint), or `override --decision-id <id>` to proceed past the verdict. Workflow authors can declare a bounded revision `cycle` so a needs_revision verdict routes back to the implementer automatically instead of parking here."
 		if matched {
-			description = "needs_revision verdict matched a workflow cycle but its iteration budget is exhausted or its target is unavailable"
+			description = "needs_revision verdict matched a workflow cycle but its iteration budget is exhausted or its target is unavailable. Resolve with `continue` to re-review the revised branch (fix the findings first), or `override --decision-id <id>` to proceed past the verdict. Workflow authors can raise the revision `cycle` iteration budget for this review job."
 		}
 		blockerID, err := openHumanCheckpoint(ctx, runner, repositoryID, job, sessionID, leaseID, description)
 		if err != nil {

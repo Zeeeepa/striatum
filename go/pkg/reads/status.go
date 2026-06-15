@@ -509,12 +509,16 @@ func drainStatusHelperEvents(ctx context.Context, runner db.Runner, repositoryID
 func decorateCheckpointResolveActions(checkpoints []map[string]any) {
 	for _, cp := range checkpoints {
 		actions := []any{"continue", "cancel"}
+		hints := map[string]any{
+			"continue": "re-run the reviewer on the current branch (a revision cycle); fix the findings first, or it re-reproduces the verdict and re-opens this checkpoint",
+			"cancel":   "cancel the gated work",
+		}
 		if stringFrom(cp, "blocker_kind") == "revision_routing" {
 			actions = append(actions, "override")
-			cp["resolve_action_hints"] = map[string]any{
-				"override": "accept as superseded by a recorded decision; requires --decision-id",
-			}
+			hints["continue"] = "re-review the revised branch (a revision cycle); fix the findings first, or it re-reproduces needs_revision and re-opens this checkpoint. Use override to proceed past the verdict instead of re-reviewing"
+			hints["override"] = "proceed past the verdict, accepting it as superseded by a recorded decision; requires --decision-id"
 		}
+		cp["resolve_action_hints"] = hints
 		cp["resolve_actions"] = actions
 	}
 }
