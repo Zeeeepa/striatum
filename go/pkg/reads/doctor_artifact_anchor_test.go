@@ -127,7 +127,25 @@ func TestDoctorArtifactAnchorIntegrityGitChecksExplicitGitPublicationSynthesis(t
 }
 
 func TestDoctorArtifactAnchorIntegrityReportsRunBranchMismatch(t *testing.T) {
-	repoRoot, runBranch, artifactPath, _ := seedAnchoredArtifact(t, "actual body\n")
+	repoRoot := t.TempDir()
+	readsGitInit(t, repoRoot)
+	runBranch := "wf/artifact-anchor"
+	// Put the artifact ONLY on the run branch, absent from the default branch, so
+	// the durable run-branch anchor mismatch is a genuine loss -> problem, not a
+	// D205 superseded-on-default-branch warning (Rule B only fires when the path is
+	// still live on the default-branch tip).
+	readsGitRun(t, repoRoot, "checkout", "-q", "-b", runBranch)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := "docs/artifact.md"
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(artifactPath)), []byte("actual body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, repoRoot, "add", artifactPath)
+	readsGitRun(t, repoRoot, "commit", "-q", "-m", "artifact on run branch")
+	readsGitRun(t, repoRoot, "checkout", "-q", "main")
+
 	expectedSHA := testSHA256("expected body\n")
 	row := artifactAnchorRow(repoRoot, "art_mismatch", "run_mismatch", "job_mismatch", runBranch, artifactPath, expectedSHA)
 
@@ -163,10 +181,26 @@ func TestDoctorArtifactAnchorIntegrityReportsMissingFile(t *testing.T) {
 }
 
 func TestDoctorArtifactAnchorIntegrityReportsJobPinMismatch(t *testing.T) {
-	repoRoot, _, artifactPath, _ := seedAnchoredArtifact(t, "actual pinned body\n")
+	repoRoot := t.TempDir()
+	readsGitInit(t, repoRoot)
 	runID := "run_pin"
 	jobID := "job_pin"
+	// Put the artifact ONLY behind a refs/striatum job pin, absent from the default
+	// branch and every branch, so the pin mismatch is a genuine loss -> problem,
+	// not a D205 superseded-on-default-branch warning.
+	readsGitRun(t, repoRoot, "checkout", "-q", "-b", "tmp-pin")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := "docs/artifact.md"
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(artifactPath)), []byte("actual pinned body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, repoRoot, "add", artifactPath)
+	readsGitRun(t, repoRoot, "commit", "-q", "-m", "artifact behind job pin")
 	commit := readsGitRevParse(t, repoRoot, "HEAD")
+	readsGitRun(t, repoRoot, "checkout", "-q", "main")
+	readsGitRun(t, repoRoot, "branch", "-D", "tmp-pin")
 	readsGitRun(t, repoRoot, "update-ref", "refs/striatum/"+runID+"/"+jobID+"/1", commit)
 	row := artifactAnchorRow(repoRoot, "art_pin_mismatch", runID, jobID, "", artifactPath, testSHA256("expected pinned body\n"))
 

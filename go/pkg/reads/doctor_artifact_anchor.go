@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
@@ -23,7 +24,49 @@ const (
 	// non-ok-reddening counterparts of the integrity problems above.
 	artifactLegacyUnverifiable = "artifact_legacy_unverifiable"
 	artifactDebrisTerminalRun  = "artifact_debris_terminal_run"
+
+	// P1 legibility warning codes (D205): a deliverable whose path is still live
+	// on the default-branch tip (only the recorded draft sha is unverifiable) and
+	// a curated, operator-acknowledged immaterial loss.
+	artifactSupersededOnDefaultBranch = "artifact_superseded_on_default_branch"
+	artifactAcknowledgedLoss          = "artifact_acknowledged_loss"
+
+	// defaultRefHistoryRevisionCap bounds the default-branch history scan (Rule A)
+	// so a pathological history can never blow up or hang a doctor pass.
+	defaultRefHistoryRevisionCap = 200
 )
+
+// artifactAnchorPass bundles the per-doctor-pass caches threaded through the
+// artifact integrity checks so a pass that scans hundreds of rows does bounded
+// work: the default-branch ref is resolved once per repo root, default-branch
+// history hits are memoized by (root|ref|path|sha), and the curated
+// acknowledged-loss baseline is loaded once per repo root.
+type artifactAnchorPass struct {
+	defaultRefByRoot map[string]string
+	historyByKey     map[string]bool
+	ackByRoot        map[string]acknowledgedLossSet
+}
+
+func newArtifactAnchorPass() *artifactAnchorPass {
+	return &artifactAnchorPass{
+		defaultRefByRoot: map[string]string{},
+		historyByKey:     map[string]bool{},
+		ackByRoot:        map[string]acknowledgedLossSet{},
+	}
+}
+
+// ackSet loads (and memoizes) the curated acknowledged-loss baseline for a repo
+// root. Loading never errors; a missing/unparseable file yields an empty set so
+// nothing is downgraded.
+func (p *artifactAnchorPass) ackSet(repoRoot string) acknowledgedLossSet {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if set, ok := p.ackByRoot[repoRoot]; ok {
+		return set
+	}
+	set := loadAcknowledgedLossSet(repoRoot)
+	p.ackByRoot[repoRoot] = set
+	return set
+}
 
 func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, repositoryID string, blobBlock map[string]any) (map[string]any, []string, []map[string]any, []string, []map[string]any) {
 	block := map[string]any{
@@ -77,21 +120,21 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 			return block, nil, nil, nil, nil
 		}
 	}
-	defaultRefByRoot := map[string]string{}
+	pass := newArtifactAnchorPass()
 	for _, row := range rows {
 		placement := artifactcontracts.ResolvePlacement(stringFrom(row, "artifact_kind"), row["placement"])
 		row["placement"] = placement
-		defaultRef := resolveDefaultRefCached(ctx, strings.TrimSpace(stringFrom(row, "repo_root")), defaultRefByRoot)
+		defaultRef := resolveDefaultRefCached(ctx, strings.TrimSpace(stringFrom(row, "repo_root")), pass.defaultRefByRoot)
 		var problem string
 		var record map[string]any
 		var warning string
 		var warningRecord map[string]any
 		if artifactcontracts.PlacementUsesBlob(placement) {
 			blobChecked++
-			problem, record, warning, warningRecord = checkBlobExhaustArtifact(ctx, row, bucket, defaultRef)
+			problem, record, warning, warningRecord = checkBlobExhaustArtifact(ctx, row, bucket, defaultRef, pass)
 		} else if artifactcontracts.PlacementUsesGitAnchor(placement) {
 			gitChecked++
-			problem, record, warning, warningRecord = checkArtifactAnchor(ctx, row, defaultRef)
+			problem, record, warning, warningRecord = checkArtifactAnchor(ctx, row, defaultRef, pass)
 		}
 		if problem != "" {
 			problems = append(problems, problem)
@@ -106,10 +149,19 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 	block["blob_exhaust_count"] = blobChecked
 	block["problem_count"] = len(problems)
 	block["warning_count"] = len(warnings)
+	// Surface the curated acknowledged-loss baseline status (Rule C) so verbose
+	// consumers can see whether it was absent (the normal state), loaded, or
+	// unparseable. All rows of a pass share a repository (one repo root), so the
+	// first row's repo root is representative; the load is memoized.
+	ackRepoRoot := ""
+	if len(rows) > 0 {
+		ackRepoRoot = strings.TrimSpace(stringFrom(rows[0], "repo_root"))
+	}
+	block["acknowledged_loss_status"] = pass.ackSet(ackRepoRoot).status
 	return block, problems, records, warnings, warningRecords
 }
 
-func checkBlobExhaustArtifact(ctx context.Context, row map[string]any, bucket, defaultRef string) (string, map[string]any, string, map[string]any) {
+func checkBlobExhaustArtifact(ctx context.Context, row map[string]any, bucket, defaultRef string, pass *artifactAnchorPass) (string, map[string]any, string, map[string]any) {
 	blobKey := strings.TrimSpace(stringFrom(row, "blob_key"))
 	expected := strings.TrimSpace(stringFrom(row, "blob_sha256"))
 	if expected == "" {
@@ -119,14 +171,28 @@ func checkBlobExhaustArtifact(ctx context.Context, row map[string]any, bucket, d
 		// Legibility rule 3 (D-doctor-integrity-legibility): an empty blob_key is
 		// the signature of a legacy artifact that predates RFC 0125 blob storage,
 		// not a fresh durability gap. If its content is still verifiable on a
-		// durable ref or the default branch, downgrade to a legacy warning; only
-		// genuine loss (content absent everywhere) stays an ok-reddening problem.
-		if artifactContentPreserved(ctx, row, defaultRef) {
+		// durable ref, the default-branch tip, or (D205 Rule A) anywhere in
+		// default-branch history, downgrade to a legacy warning; only genuine loss
+		// (content absent everywhere) stays an ok-reddening problem.
+		if artifactContentPreserved(ctx, row, defaultRef, pass.historyByKey) {
 			warning, record := artifactWarning(artifactLegacyUnverifiable, row, "blob_key_absent_predates_blob_storage", defaultRef)
 			return "", nil, warning, record
 		}
 		if terminalDebrisRunState(stringFrom(row, "run_state")) {
 			warning, record := artifactWarning(artifactDebrisTerminalRun, row, "blob_key_or_sha_missing", "")
+			return "", nil, warning, record
+		}
+		repoRoot := strings.TrimSpace(stringFrom(row, "repo_root"))
+		repoPath, pathOK := cleanArtifactAnchorPath(stringFrom(row, "repo_path"))
+		// D205 Rule B: the deliverable path is still live on the default-branch tip
+		// (only the recorded draft sha is unverifiable) -> superseded warning.
+		if pathOK && defaultRef != "" && pathExistsOnRef(ctx, repoRoot, defaultRef, repoPath) {
+			warning, record := artifactWarning(artifactSupersededOnDefaultBranch, row, "recorded_content_sha_unverifiable_path_live_on_default", defaultRef)
+			return "", nil, warning, record
+		}
+		// D205 Rule C: a curated, sha-bound acknowledged immaterial loss -> warning.
+		if entry, ok := pass.ackSet(repoRoot).honor(stringFrom(row, "artifact_id"), expected); ok {
+			warning, record := acknowledgedLossWarning(row, entry)
 			return "", nil, warning, record
 		}
 		problem, record := artifactBlobProblem(artifactBlobMetadataMissing, row, "blob_key_or_sha_missing")
@@ -176,7 +242,7 @@ func artifactAnchorSkipReason(repositoryID string, blobBlock map[string]any) str
 	return ""
 }
 
-func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef string) (string, map[string]any, string, map[string]any) {
+func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef string, pass *artifactAnchorPass) (string, map[string]any, string, map[string]any) {
 	repoPath, ok := cleanArtifactAnchorPath(stringFrom(row, "repo_path"))
 	if !ok {
 		problem, record := artifactAnchorProblem(artifactAnchorMissingFile, row, "", "", "invalid_repo_path")
@@ -228,6 +294,16 @@ func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef str
 		return "", nil, "", nil
 	}
 
+	// D205 Rule A: content that matches the artifact's content_sha256 at ANY
+	// reachable revision of the default branch (not only its tip) is durably
+	// preserved — the deliverable was merged, then the path was later deleted or
+	// rewritten. The recorded content still has a durable home in history, so this
+	// is clean, like a tip match. Must run before the hash_mismatch verdict so a
+	// merged-then-edited path is recovered rather than flagged.
+	if defaultRef != "" && artifactContentInDefaultRefHistory(ctx, repoRoot, defaultRef, repoPath, expected, pass.historyByKey) {
+		return "", nil, "", nil
+	}
+
 	// Legibility rule 2: a finding from an abandoned (terminal-debris) run is
 	// archived leftover, not an active gap.
 	if terminalDebrisRunState(stringFrom(row, "run_state")) {
@@ -236,6 +312,24 @@ func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef str
 			detail = "anchor_content_sha_mismatch"
 		}
 		warning, record := artifactWarning(artifactDebrisTerminalRun, row, detail, "")
+		return "", nil, warning, record
+	}
+
+	// D205 Rule B: the deliverable's repo_path is still live on the default-branch
+	// tip (in any content). The deliverable landed at that path; only the recorded
+	// draft content_sha256 is unverifiable (the lane draft was revised before
+	// merge). That is not an active durability gap -> warning, not a problem.
+	if defaultRef != "" && pathExistsOnRef(ctx, repoRoot, defaultRef, repoPath) {
+		warning, record := artifactWarning(artifactSupersededOnDefaultBranch, row, "recorded_draft_sha_unverifiable_path_live_on_default", defaultRef)
+		return "", nil, warning, record
+	}
+
+	// D205 Rule C: a genuinely lost artifact (path absent from the default branch,
+	// content on no ref) whose loss the operator has reviewed and recorded in the
+	// curated, sha-bound acknowledged-loss baseline -> warning. Anything NOT in the
+	// baseline (and any id-match-but-sha-mismatch) still reds ok below.
+	if entry, ok := pass.ackSet(repoRoot).honor(stringFrom(row, "artifact_id"), expected); ok {
+		warning, record := acknowledgedLossWarning(row, entry)
 		return "", nil, warning, record
 	}
 
@@ -248,10 +342,11 @@ func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef str
 }
 
 // artifactContentPreserved reports whether the artifact's content_sha256 is
-// present at its repo_path on any durable ref (run branch / refs/striatum pins)
-// or at the default-branch tip. It degrades safely: a missing repo root, path,
-// sha, or ref is treated as "not preserved here".
-func artifactContentPreserved(ctx context.Context, row map[string]any, defaultRef string) bool {
+// present at its repo_path on any durable ref (run branch / refs/striatum pins),
+// at the default-branch tip, or (D205 Rule A) at any reachable revision of the
+// default branch's history. It degrades safely: a missing repo root, path, sha,
+// or ref is treated as "not preserved here".
+func artifactContentPreserved(ctx context.Context, row map[string]any, defaultRef string, historyCache map[string]bool) bool {
 	repoRoot := strings.TrimSpace(stringFrom(row, "repo_root"))
 	repoPath, ok := cleanArtifactAnchorPath(stringFrom(row, "repo_path"))
 	expected := strings.TrimSpace(stringFrom(row, "content_sha256"))
@@ -262,7 +357,87 @@ func artifactContentPreserved(ctx context.Context, row map[string]any, defaultRe
 	if defaultRef != "" {
 		refs = appendUniqueString(refs, defaultRef)
 	}
-	return artifactContentMatchesAnyRef(ctx, repoRoot, repoPath, expected, refs)
+	if artifactContentMatchesAnyRef(ctx, repoRoot, repoPath, expected, refs) {
+		return true
+	}
+	// Rule A: also consult default-branch history, not only ref tips, so a
+	// legacy artifact merged then deleted/rewritten is still recognized as
+	// preserved (legacy warning) rather than reported as missing metadata.
+	return defaultRef != "" && artifactContentInDefaultRefHistory(ctx, repoRoot, defaultRef, repoPath, expected, historyCache)
+}
+
+// artifactContentInDefaultRefHistory reports whether expectedSHA equals the
+// sha256 of repoPath's blob at ANY reachable revision of the default branch, not
+// only its tip (D205 Rule A). This recovers content that was merged to the
+// default branch and then deleted or rewritten later: the recorded draft still
+// has a durable home in history. It is bounded (at most
+// defaultRefHistoryRevisionCap revisions of that path), ctx-cancellable, memoized
+// per (root|ref|path|sha), and safe-degrades to false on any git error.
+func artifactContentInDefaultRefHistory(ctx context.Context, repoRoot, defaultRef, repoPath, expectedSHA string, cache map[string]bool) bool {
+	repoRoot = strings.TrimSpace(repoRoot)
+	defaultRef = strings.TrimSpace(defaultRef)
+	repoPath = strings.TrimSpace(repoPath)
+	expectedSHA = strings.TrimSpace(expectedSHA)
+	if repoRoot == "" || defaultRef == "" || repoPath == "" || expectedSHA == "" {
+		return false
+	}
+	key := repoRoot + "|" + defaultRef + "|" + repoPath + "|" + expectedSHA
+	if cache != nil {
+		if hit, ok := cache[key]; ok {
+			return hit
+		}
+	}
+	result := computeContentInDefaultRefHistory(ctx, repoRoot, defaultRef, repoPath, expectedSHA)
+	if cache != nil {
+		cache[key] = result
+	}
+	return result
+}
+
+func computeContentInDefaultRefHistory(ctx context.Context, repoRoot, defaultRef, repoPath, expectedSHA string) bool {
+	// `git log <defaultRef> --max-count=N --format=%H -- <repoPath>` lists only the
+	// commits that touched that path (cheap; bounded by --max-count so a
+	// pathological history cannot blow up the pass). A missing ref/path errors out
+	// and we safe-degrade to false.
+	out, err := readGitOutput(ctx, repoRoot, "log", "--max-count="+strconv.Itoa(defaultRefHistoryRevisionCap), "--format=%H", defaultRef, "--", repoPath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if ctx.Err() != nil {
+			return false
+		}
+		commit := strings.TrimSpace(line)
+		if commit == "" {
+			continue
+		}
+		probe, err := readGitBlobSHA256(ctx, repoRoot, commit, repoPath)
+		if err != nil || !probe.Exists {
+			continue
+		}
+		if probe.SHA256 == expectedSHA {
+			return true
+		}
+	}
+	return false
+}
+
+// pathExistsOnRef reports whether repoPath exists in the tree at ref's tip (D205
+// Rule B). ctx-cancellable; safe-degrades to false on a missing ref/path or any
+// git error.
+func pathExistsOnRef(ctx context.Context, repoRoot, ref, repoPath string) bool {
+	repoRoot = strings.TrimSpace(repoRoot)
+	ref = strings.TrimSpace(ref)
+	repoPath = strings.TrimSpace(repoPath)
+	if repoRoot == "" || ref == "" || repoPath == "" {
+		return false
+	}
+	commit, err := readGitCommit(ctx, repoRoot, ref)
+	if err != nil {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", repoRoot, "cat-file", "-e", commit+":"+repoPath)
+	return cmd.Run() == nil
 }
 
 func artifactContentMatchesAnyRef(ctx context.Context, repoRoot, repoPath, expectedSHA string, refs []string) bool {
@@ -406,6 +581,10 @@ func artifactWarning(check string, row map[string]any, detail, preservedRef stri
 		message = fmt.Sprintf("%s.%s: legacy artifact %s at %s predates blob storage; content is preserved on a durable ref or the default branch", check, artifactID, artifactID, repoPath)
 	case artifactDebrisTerminalRun:
 		message = fmt.Sprintf("%s.%s: artifact %s at %s belongs to an abandoned run; archived debris, not an active durability gap", check, artifactID, artifactID, repoPath)
+	case artifactSupersededOnDefaultBranch:
+		message = fmt.Sprintf("%s.%s: deliverable for artifact %s is present at %s on the default branch in a revised form; the recorded draft content_sha256 is not verifiable but this is not a durability gap", check, artifactID, artifactID, repoPath)
+	case artifactAcknowledgedLoss:
+		message = fmt.Sprintf("%s.%s: artifact %s at %s is a curated, operator-acknowledged immaterial loss; recorded as reviewed provenance, not an active durability gap", check, artifactID, artifactID, repoPath)
 	default:
 		message = fmt.Sprintf("%s.%s: artifact %s at %s reclassified to warning", check, artifactID, artifactID, repoPath)
 	}
@@ -431,6 +610,21 @@ func artifactWarning(check string, row map[string]any, detail, preservedRef stri
 		"context": contextMap,
 	}
 	return message, record
+}
+
+// acknowledgedLossWarning builds the artifact_acknowledged_loss warning for a
+// curated, sha-bound loss acknowledgment (D205 Rule C), carrying the operator's
+// recorded reason + acknowledged_by into the verbose record context so the
+// warning channel still tells the full provenance story.
+func acknowledgedLossWarning(row map[string]any, entry acknowledgedLossEntry) (string, map[string]any) {
+	warning, record := artifactWarning(artifactAcknowledgedLoss, row, entry.Reason, "")
+	if contextMap, ok := record["context"].(map[string]any); ok {
+		contextMap["acknowledged_by"] = entry.AcknowledgedBy
+		if at := strings.TrimSpace(entry.AcknowledgedAt); at != "" {
+			contextMap["acknowledged_at"] = at
+		}
+	}
+	return warning, record
 }
 
 func artifactAnchorKind(ref string) string {
