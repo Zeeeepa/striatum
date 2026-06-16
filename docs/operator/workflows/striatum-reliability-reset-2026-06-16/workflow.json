@@ -1,0 +1,275 @@
+{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "striatum-reliability-reset-2026-06-16",
+  "workflow_version": "2026-06-16",
+  "name": "Striatum Reliability Reset Evaluation",
+  "branch": {
+    "mode": "confirm",
+    "suggested_name": "striatum/reliability-reset-2026-06-16",
+    "allow_dirty": false
+  },
+  "coordinator": {
+    "role_id": "reset_synthesizer",
+    "lane_id": "local"
+  },
+  "allow_same_model_review_pairing": true,
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "display_model": "Local Operator Fixture",
+      "command": ["sh", "-c", "cat >/dev/null"],
+      "capabilities": ["write", "review", "synthesis"]
+    }
+  },
+  "roles": {
+    "reliability_auditor": {"definition_path": "roles/reliability_auditor.md"},
+    "doctor_auditor": {"definition_path": "roles/doctor_auditor.md"},
+    "workflow_shape_auditor": {"definition_path": "roles/workflow_shape_auditor.md"},
+    "recovery_auditor": {"definition_path": "roles/recovery_auditor.md"},
+    "reset_synthesizer": {"definition_path": "roles/reset_synthesizer.md"},
+    "evidence_auditor": {"definition_path": "roles/evidence_auditor.md"},
+    "final_reviewer": {"definition_path": "roles/final_reviewer.md"}
+  },
+  "context_docs": [
+    {"path": "README.md", "required": true},
+    {"path": "docs/index.md", "required": true},
+    {"path": "docs/reference/spec.md", "required": true},
+    {"path": "docs/decisions/decision-log.md", "required": true},
+    {"path": "docs/reference/ubiquitous-language.md", "required": true},
+    {"path": "docs/reference/todo.md", "required": true},
+    {"path": "docs/operator/BRIEF.md", "required": true},
+    {"path": "docs/how-to/how-to-agent.md", "required": true},
+    {"path": "docs/reference/workflow-catalog.md", "required": true},
+    {"path": "docs/reference/workflow-types.md", "required": true},
+    {"path": "docs/reference/command-authority-matrix.md", "required": false},
+    {"path": "contracts/daemon_methods.json", "required": false},
+    {"path": "go/pkg/workflowgenerate/shapes_divergent.go", "required": false},
+    {"path": "go/pkg/workflowgenerate/shapes_divergent_test.go", "required": false},
+    {"path": "go/pkg/adapterconformance/divergent_ideation_test.go", "required": false}
+  ],
+  "parallelism": {
+    "mode": "declared",
+    "max_active_jobs": 4,
+    "require_disjoint_write_scopes": true
+  },
+  "jobs": [
+    {
+      "id": "reliability_spine_audit",
+      "type": "review",
+      "title": "Audit the reliability spine",
+      "role_id": "reliability_auditor",
+      "lane_id": "local",
+      "parallel_group": "independent_audits",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:reliability_spine",
+      "objective": "Find the highest-leverage reliability failures in daemon state transitions, run driving, leases, artifacts, completion gates, branch/worktree anchoring, and tests.",
+      "task_prompt": {"path": "prompts/reliability_spine_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/reliability_spine/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "reliability_spine_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/reliability_spine/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "doctor_signal_audit",
+      "type": "review",
+      "title": "Audit doctor signal",
+      "role_id": "doctor_auditor",
+      "lane_id": "local",
+      "parallel_group": "independent_audits",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:doctor_signal",
+      "objective": "Assess whether striatum doctor is a trustworthy operator signal after recent reclassifications and divergent-ideation incidents.",
+      "task_prompt": {"path": "prompts/doctor_signal_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/doctor_signal/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "doctor_signal_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/doctor_signal/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "workflow_shape_audit",
+      "type": "review",
+      "title": "Audit workflow shapes",
+      "role_id": "workflow_shape_auditor",
+      "lane_id": "local",
+      "parallel_group": "independent_audits",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:shape_complexity",
+      "objective": "Determine whether workflow shape complexity, especially divergent_ideation, is outrunning Striatum's proven reliability envelope.",
+      "task_prompt": {"path": "prompts/workflow_shape_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/workflow_shapes/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "workflow_shape_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/workflow_shapes/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "recovery_supervision_audit",
+      "type": "review",
+      "title": "Audit recovery and supervision",
+      "role_id": "recovery_auditor",
+      "lane_id": "local",
+      "parallel_group": "independent_audits",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:recovery_liveness",
+      "objective": "Find recovery, supervision, lane delivery, liveness, lease, auto-finalization, and run-drive behaviors that create stalled or operator-heavy runs.",
+      "task_prompt": {"path": "prompts/recovery_supervision_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/recovery_supervision/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "recovery_supervision_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/recovery_supervision/REVIEW.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "reset_synthesis",
+      "type": "synthesis",
+      "title": "Synthesize reset plan",
+      "role_id": "reset_synthesizer",
+      "lane_id": "local",
+      "objective": "Synthesize the independent audits into a concrete reliability reset plan with delete, freeze, fix, two-week plan, and definition of done.",
+      "task_prompt": {"path": "prompts/reset_synthesis.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/RESET_SYNTHESIS.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "reset_synthesis",
+          "kind": "synthesis",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/RESET_SYNTHESIS.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "write_support_ledger",
+      "type": "ledger",
+      "title": "Write support ledger",
+      "role_id": "reset_synthesizer",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "objective": "Map every important reset synthesis claim to concrete local evidence.",
+      "task_prompt": {"path": "prompts/write_support_ledger.md"},
+      "write_scope": {
+        "mode": "repo_write",
+        "repo_write": true,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/SUPPORT_LEDGER.md"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "support_ledger",
+          "kind": "support_ledger",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/SUPPORT_LEDGER.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "evidence_audit",
+      "type": "review",
+      "title": "Audit reset evidence",
+      "role_id": "evidence_auditor",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "custom:evidence_support",
+      "objective": "Verify that the reset synthesis claims are supported by the support ledger and cited local evidence.",
+      "task_prompt": {"path": "prompts/evidence_audit.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/evidence_audit/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "evidence_audit",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/evidence_audit/AUDIT.md",
+          "required": true
+        }
+      ]
+    },
+    {
+      "id": "final_review",
+      "type": "review",
+      "title": "Final adversarial review",
+      "role_id": "final_reviewer",
+      "lane_id": "local",
+      "fresh_session_required": true,
+      "reviewer_context_policy": "fresh",
+      "review_posture": "devils_advocate",
+      "objective": "Decide whether the reliability reset plan is honest, sufficiently ruthless, and actionable enough to restore operator trust.",
+      "task_prompt": {"path": "prompts/final_review.md"},
+      "write_scope": {
+        "mode": "review_only_artifact",
+        "repo_write": false,
+        "allowed_paths": ["docs/operator/artifacts/striatum-reliability-reset-2026-06-16/final/"],
+        "forbidden_paths": [".striatum/"]
+      },
+      "expected_artifacts": [
+        {
+          "logical_name": "final_review",
+          "kind": "finding",
+          "path": "docs/operator/artifacts/striatum-reliability-reset-2026-06-16/final/FINAL_REVIEW.md",
+          "required": true
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {"from": "reliability_spine_audit", "to": "reset_synthesis", "on": "completed"},
+    {"from": "doctor_signal_audit", "to": "reset_synthesis", "on": "completed"},
+    {"from": "workflow_shape_audit", "to": "reset_synthesis", "on": "completed"},
+    {"from": "recovery_supervision_audit", "to": "reset_synthesis", "on": "completed"},
+    {"from": "reset_synthesis", "to": "write_support_ledger", "on": "completed"},
+    {"from": "write_support_ledger", "to": "evidence_audit", "on": "completed"},
+    {"from": "evidence_audit", "to": "final_review", "on": "completed"}
+  ],
+  "cycles": []
+}
+
