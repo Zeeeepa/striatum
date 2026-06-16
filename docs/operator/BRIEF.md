@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-15_292-complete-stalled"
-supersedes: "brief_2026-06-14_rfc-0125-followups"
+brief_id: "brief_2026-06-16_deploy-and-triage"
+supersedes: "brief_2026-06-15_292-complete-stalled"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,43 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-16 delta — deploy confirmed + full backlog triage
+
+Operator actions only this delta (no source change): deploy verification +
+GitHub triage.
+
+- **D201–D204 are DEPLOYED.** The running daemon (pid 635208,
+  `/proc/<pid>/exe` → `~/.local/bin/striatumd`, both stamped 2026-06-15 21:42,
+  NOT `(deleted)`) was started from the post-D204 binary, so the whole landing
+  set is live: **#291/D201** (hung-supervised-session stall recovery),
+  **#295+#293/D202** (`run start`/`run drive` auto-drive lifecycle),
+  **#297/D203** (loud stranded-in-scope paths), **#294**, and **#300/D204**
+  doctor integrity legibility. The #292 "Daemon redeploy required" note below
+  is discharged; no further restart pending.
+- **Doctor legibility live:** `striatum doctor` problems dropped ~278 → **42**;
+  preserved-on-default-branch / terminal-run / legacy-pre-blob-storage findings
+  are now `warnings` (173), not `ok=false` problems. The residual 42
+  (`artifact_anchor_missing_file` + `artifact_blob_metadata_missing`, content
+  absent from every durable ref AND the default-branch tip) is the known
+  historical-loss baseline; reaching `ok=true` is the open **P1 of #300**
+  (history-aware preservation + an acknowledge/prune tier — decide with #303).
+- **Full backlog triage (2026-06-16):** every open issue now carries a
+  disposition label. **ready-for-agent (bugs):** #301 (`workflow generate`
+  sets `per_job` on only the first multi-lane lane → `validate` rejects its
+  own output), #302 (recovery sweep doesn't reclaim a `tmux_pane_dead`-but-
+  `active` session → wedged lane). **ready-for-human:** #298 (canceled-run
+  dirty-worktree disposition), #299 (`run.integrate` base-drift semantics),
+  #300 (doctor legibility P1), #303 (prune-verb retention/safety), plus the
+  pre-existing #290 / #296.
+- **#290 / #296 divergent-design runs: scaffolded, NOT started.** The
+  `docs/campaigns/issue-290-parallel-fanin-design/` and
+  `issue-296-codex-mcp-injection-design/` workflows (claude + `codex --yolo` +
+  agy, per-job worktree isolation) `validate` clean but await an **explicit
+  operator go-ahead** before `run prepare` / `run start`.
+- **Stale below:** the "Blockers / Open Issues (6)" + "Next Actions" #263–#267
+  sets in the older sections are CLOSED. The live open set is
+  #290/#296/#298/#299/#300/#301/#302/#303.
 
 ## 2026-06-15 delta — #292 stalled-job finalize path (Unreleased, not yet tagged)
 
