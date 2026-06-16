@@ -22,7 +22,7 @@ collectively, not individually.
 | [postgres-transition.md](how-to/postgres-transition.md) | Operator | The D094 / RFC 0043 PostgreSQL runbook: prerequisites, role setup, `daemon migrate-db`, `daemon owner-ddl apply`, daemon startup, `striatum repo add`, PostgreSQL verification, and exit codes 11 / 12. |
 | [blob-transition.md](explanation/blob-transition.md) | Operator | The RFC 0072 blob-storage runbook: configuring `striatumd` against an S3-compatible service, adopting repos with `--apply-blob-creation`, bulk-migrating `docs/dogfood/` into blob storage, and verifying the round trip. |
 | [daemon-runbook.md](how-to/daemon-runbook.md) | Operator | The RFC 0079 daemon operability runbook: `striatum daemon install/uninstall/status`, the portable systemd user unit, runtime layout (`daemon-go.sock`, `client-token`, `mcp-http-endpoint`, pidfile), `daemon.toml` DSN, `journalctl --user -u striatumd`, and troubleshooting. |
-| [operator/INDEX.md](operator/INDEX.md) | Operator | RFC 0058 current-state surface: read `operator/BRIEF.md`, then only its bounded plan links unless a task asks for deeper history. |
+| [operator/INDEX.md](operator/INDEX.md) | Operator | RFC 0058 current-state surface: read `operator/BRIEF.md` first; it owns the live frontier and points to bounded plan links. Treat older roadmap/todo issue lists as secondary until they are refreshed. |
 
 ## Specifications and decisions
 
@@ -35,8 +35,8 @@ collectively, not individually.
 | [prd.md](reference/prd.md) | Product reader | The product requirements that drove the V1 design. |
 | [decision-log.md](decisions/decision-log.md) | Product / architecture reader | Every product and architecture decision (`D###` rows) with reason, consequences, and revisit triggers. |
 | [ubiquitous-language.md](reference/ubiquitous-language.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
-| [todo.md](reference/todo.md) | Maintainer | Active product-improvement tracker. |
-| [roadmap.md](reference/roadmap.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, open GH issues, and active runway. Use after `operator/BRIEF.md` when picking up cold. Stays in sync with version bumps. |
+| [todo.md](reference/todo.md) | Maintainer | Product-improvement tracker. Verify current issue state against `operator/BRIEF.md` and GitHub before treating older entries as live work. |
+| [roadmap.md](reference/roadmap.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, and active runway. Use only after `operator/BRIEF.md`; live issue frontiers belong in the brief until roadmap refresh is mechanized. |
 | [releasing.md](how-to/releasing.md) | Maintainer | Versioning policy and release cadence: when to bump major/minor/patch, the pre-release checklist, and changelog discipline. |
 | [command-authority-matrix.md](reference/command-authority-matrix.md) | Maintainer | Inventory of CLI/RPC authority paths across Go daemon RPC route translations, capability scopes, and local PostgreSQL authority guardrails. |
 | [daemon-method-tables.md](reference/daemon-method-tables.md) | Maintainer | Generated daemon method registry and CLI route translation reference, sourced from `contracts/daemon_methods.json` and guarded by Go daemon handler coverage and contract registry tests. |
@@ -83,6 +83,6 @@ collectively, not individually.
 
 | File | Summary |
 |---|---|
-| [../README.md](../README.md) | Top-level pitch, daemon/Postgres quick start, project status, and documentation table. |
+| [../README.md](../README.md) | Top-level pitch, daemon/Postgres quick start, current release/status table, and documentation table. |
 | [../AGENTS.md](../AGENTS.md) | Project instructions for agents and contributors working on the striatum source. |
 | [../CHANGELOG.md](../CHANGELOG.md) | Per-version release notes since `0.1.0`. |

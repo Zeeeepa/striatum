@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-16_290-296-implemented"
-supersedes: "brief_2026-06-16_300-p1-doctor-ok"
+brief_id: "brief_2026-06-16_reliability-reset-closeout"
+supersedes: "brief_2026-06-16_290-296-implemented"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,31 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-16 delta — reliability reset closeout
+
+`striatum-reliability-reset-2026-06-16` completed on `proximal` as
+`run_8489e7d2df3b56e1ed7fdb49ff5c8ba7` with all 8 jobs completed,
+`completion_mode=lanes_attested`, and accepting verdicts with findings on every
+review gate. The useful outputs are durable run artifacts:
+
+- `RESET_SYNTHESIS.md` and `SUPPORT_LEDGER.md` are blob-backed, verified in the
+  run completion record.
+- Checked-out finding artifacts live under
+  `docs/operator/artifacts/striatum-reliability-reset-2026-06-16/`.
+- `FINAL_REVIEW.md` accepted the reset plan only with release-gate conditions:
+  one current-state issue frontier, no stale README status, closed #302/#308/#309
+  regressions kept covered by a live recovery fixture, bounded doctor warnings,
+  and no feature growth until those gates pass.
+- The run itself reproduced the final-review `agent_exited_unsealed` class
+  twice before a fresh lane sealed the verdict. Recovery stayed daemon-bound:
+  `recovery requeue-stale`, scoped operator decision
+  `DECISION-striatum-reliability-reset-final-review-requeue-2026-06-16`, and
+  `escalation resolve`.
+
+Live GitHub open issues were rechecked on 2026-06-16T21:47Z. The current issue
+frontier is the 19 open GitHub issues listed in [Blockers / Open Issues](#blockers--open-issues-19);
+older #212/#263-#267 text is historical only.
 
 ## 2026-06-16 delta — #300 P1 LANDED + DEPLOYED (doctor artifact problems → 0, D205)
 
@@ -89,70 +114,22 @@ and the issues CLOSED. `doctor` stayed green throughout.
 - **Concurrent-agent ownership (do not duplicate):** another agent is implementing
   **#308** (sweep auto-finalize of a published-but-unsealed final job) + its coupled
   prerequisite **#309** (finalize liveness test → session-liveness not lease-time).
-- **Live open set:** #298/#299/#300/#301/#302/#303/#304/#305/#306/#307/#308/#309/
-  #310/#311 + follow-ups #316/#319. ready-for-agent bugs: #301/#302 (+#308/#309 owned).
+- **Historical live open set at that point:** #298/#299/#300/#301/#302/#303/
+  #304/#305/#306/#307/#308/#309/#310/#311 + follow-ups #316/#319. This list is
+  superseded by the 2026-06-16T21:47Z tracker snapshot below.
 
 ## State
 
 Latest release is **v2.33.0 (2026-06-16)**, the `v2.33.0` tag at `564a8209`
 (release workflow `27632712989`, published 2026-06-16T16:40Z), daemon redeployed
-+ verified (running sha == installed). It packages the post-v2.32.0 landing set:
+and verified (running sha == installed). It packages the post-v2.32.0 landing set:
 doctor integrity legibility **P0+P1** (D204/D205, #300), **#290/D206** fan-in
 run-branch integration, **#296** codex push-lane loud-fallback, **#301/#307**
 workflowgenerate fixes, **#304** dangling-blocker resolution, and **#311**
-recovery-escalation legibility (details in CHANGELOG `v2.33.0`). The in-flight
-recovery cluster **#308/#309/#302** (PR #318, conflicting) is held for **v2.34.0**.
-The prior **v2.32.0** (2026-06-13) packaged RFC 0118/0119/0120 + session-recovery
-edge fixes. The prior full brief stopped at v2.9.3 (2026-06-02); below is the delta.
-
-**The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
-
-- **Autonomy cluster (v2.10–v2.14):** RFC 0103 workstreams closed; RFC 0104
-  per-run serialization invariant; RFC 0105 standing reliability harness
-  (D161). **Unattended DoD met:** `scripts/dod/driver.py` drove 10/10
-  consecutive clean zero-rescue runs, verified in the daemon.
-- **RFC 0111** in-band failure legibility (v2.16.0, D165): 72-code error
-  catalog + `rpc.Error.Suggestion` remediation on every denial.
-- **RFC 0110** daemon→PG auth + DB-enforced write boundary: v3 flip live on
-  prod (v2.18.x, D164). A leaked runtime DSN can no longer forge artifacts
-  or rewrite the hash chain.
-- **RFC 0108** parallel independent runs, all 5 phases (v2.19–v2.23):
-  isolation, collision, multi-run view, gated `run.integrate`.
-- **RFC 0106** shape governance: new-shape FREEZE + one genuine reliability
-  fixture per graduation. Graduated since: `implementation_panel` (D166),
-  `falsification_gate` (D168), `cross_examination` (D169/D170 isomorphism
-  proof), `adjudicated_constraint_extraction` (D172, v2.28.0, 4-cell
-  interrogation fixture). Catalog: 7 supported / 6 experimental. Freeze holds.
-- **RFC 0112** explicit interrogation consumers: accepted (D171) +
-  implemented (v2.27.0). Lane run-as (cross-user lanes) landed alongside.
-- **Seats:** agy graduated (D163) → demoted (D174) → re-promoted supported
-  (D177). Supported seats = **codex + agy**. Claude has NO installed-CLI
-  conformance fixture (see review finding below).
-- **Triage-execution waves** v2.29.0 (17 issues) + v2.30.0 (13 issues from
-  multi-run load): the **#198 daemon-load convoy** root-caused — the 60s
-  recovery sweep held run advisory locks while shelling tmux/proc probes;
-  fixed with a pre-transaction liveness oracle. Plus #197 transient-load
-  classification, #193 bounded status payloads, #203 revision-cycle
-  auto-publish integrity. RFC 0115 supervised token-usage telemetry landed.
-- **RFC 0116** zero-operator-touch DAG (D175): **`striatum run drive`** —
-  foreground idempotent reconcile loop (productized driver.py) — accepted
-  and implemented. Daemon auto-spawn explicitly DEFERRED (#212, three-part
-  evidence trigger).
-- **RFC 0117** worktree/branch ref-safety (D176): completed job commit
-  stacks always reachable from a durable ref (FF-or-pin under
-  `refs/striatum/`); closed the **#186 silent data-loss** incident and #184;
-  `worktree gc` companion (D178).
-- **v2.31.0 — RFC 0114** identity read-scope (#164 CLOSED): owner bundle
-  0006 transfers `principals`/`principal_clients`/`client_sessions`
-  ownership + SECURITY DEFINER projections; doctor
-  `pg_read_scope.posture=partial_projection_gated` (derived, not
-  hard-coded). `private_read_denial` stays false — RFC 0113 R2/R3 open.
-
-**Issue burn-down:** 32 → 6 open. The ready-for-human cluster
-(#220/#215/#214/#223/#222/#201/#243) all closed by 2026-06-10, and the
-2026-06-12/13 landing wave closed #240, #248, #253, #254, #255, #258,
-#259, #260, #261, #262, and #217. The current open set is parked #212 and
-five fresh 2026-06-13 `needs-triage` reports (#263-#267).
+recovery-escalation legibility (details in CHANGELOG `v2.33.0`). The prior
+**v2.32.0** (2026-06-13) packaged RFC 0118/0119/0120 plus session-recovery edge
+fixes; the v2.10.0 → v2.31.0 release burst is indexed in CHANGELOG and the
+decision log. Historical open sets such as #212/#263-#267 are no longer current.
 
 ## Deep architecture review 2026-06-11 — the standing work-list
 
@@ -184,10 +161,10 @@ asks:
 - **P1 conformance honesty:** scheduled installed-CLI CI runs agy only;
   claude (the flagship adapter) has no fixture; the "tier cannot lie" guard
   checks registry↔registry, not registry↔CI.
-- **P1 truth mechanization:** guard-test BRIEF freshness / README status
-  (still says v2.9.x) / docs index / authority matrix (missing 16 live
-  methods; `supervise.rebridge` bypassed the contract); retire
-  roadmap.md/todo.md to archive.
+- **P1 truth mechanization:** guard-test BRIEF freshness / README status /
+  docs index / authority matrix (missing 16 live methods;
+  `supervise.rebridge` bypassed the contract); retire roadmap.md/todo.md to
+  archive.
 - **P2:** relocate `docs/operator/` exhaust (44% of tracked files);
   boundary-hygiene batch (CLI suggestion surfacing, read deadlines,
   `seenRequests` bound, FIFO delivered-lie, `--apply-blob-creation` no-op,
@@ -195,6 +172,17 @@ asks:
 
 ## Current Frontier
 
+- **Reliability reset gate is active.** Do not start feature growth, new
+  workflow-shape graduation, broader auto-spawn authority, or release work until
+  the trust-restoration gates below are green or explicitly quarantined with
+  owner, reason, and removal condition.
+- **Recovery fixture gate:** #302/#308/#309 are closed, but their failure class
+  remains load-bearing evidence: prove `agent_exited_unsealed` plus durable,
+  valid artifacts reaches completion without renewed-lease waiting, then keep
+  `striatum doctor --json` green.
+- **Docs/current-state truth:** this brief, README status, docs index, and
+  roadmap/todo references must share one current issue frontier. This revision
+  updates the brief/README/index; roadmap/todo guardrails remain follow-up work.
 - **RFC 0120 (await-packet idle exit + wake boundary, D180) — LANDED.**
   Phase 1 terminal idle envelopes carry `idle_behavior=exit_session`;
   bootstrap no longer tells lanes to poll after `no_work`; the PTY receiver
@@ -224,32 +212,36 @@ asks:
 
 ## Next Actions
 
-1. **Triage the fresh 2026-06-13 reports:** #263 Codex generated-workflow
-   lanes exit before claim, #264 missing supervisor env file, #265
-   `supervise trajectory --tail` parsing, #266 token-in-argv exposure
-   (security-relevant), and #267 one-shot Codex lane stalls before ack.
-2. **Review P0s:** contain the sweep (error → log+backoff+skip, never
-   daemon cancel; git out of the sweep tx; #246 abandoned-run GC) and test
-   the spine (heartbeat, worktree.create, packet blocks, escalation-redrive
-   `lockRun` + guard coverage).
-3. **Review P1s:** deletion pass, token-out-of-argv, conformance honesty
-   (claude installed-CLI fixture + codex in the cron), truth mechanization
-   (brief-staleness CI guard landed 2026-06-12 —
-   `TestOperatorBriefStaysCurrent` reuses the bootstrap probe; remaining:
-   guard README status / docs index / authority matrix against the
-   contract).
-4. **Package the next release block deliberately:** #217 landed after the
-   v2.32.0 tag, so the next release should include it plus any accepted fixes
-   from #263-#267 with matching changelog coverage.
+1. **Keep the reliability recovery gate green:** preserve closed #302/#308/#309
+   as regression evidence, then prove the final-review failure shape from
+   `run_8489e7d2df3b56e1ed7fdb49ff5c8ba7` no longer needs operator
+   requeue/escalation handling.
+2. **Keep current-state docs truthful:** after every issue-closeout or release,
+   refresh this brief, README status, docs index summaries, and any roadmap/todo
+   surface that claims to list current open work.
+3. **Triage the 2026-06-16 issue wave:** #322-#327 and #329 are newer than the
+   v2.33.0 brief and should be classified before release planning resumes.
+4. **Bound doctor warnings:** keep `problem_count=0`, but turn the 219-warning
+   channel into named classes with allowed baselines/deltas.
 
-## Blockers / Open Issues (6)
+## Blockers / Open Issues (19)
 
-Open tracker state as of 2026-06-13: **#263** generated Codex lanes validate
-but exit before claim; **#264** supervised lane dies sourcing a missing
-`/tmp/striatum-supervisor-env` file; **#265** `supervise trajectory --tail`
-rejects a numeric line count; **#266** injected `STRIATUM_MCP_TOKEN` exposed
-in lane process argv; **#267** one-shot Codex lane stalls before ack; and
-**#212** parked auto-spawn (do not implement).
+Open GitHub tracker state as of 2026-06-16T21:47Z. #302/#308/#309 were checked
+separately and are closed; keep them as regression references, not open work.
+
+- **Ready-for-human / operator decisions:** #298 dirty lane worktree recovery,
+  #299 run-branch base drift, #303 terminal-run debris prune, #305 terminal-run
+  provenance legibility, #310 lane-owned artifact ACL gap, #311 agy liveness
+  wedge.
+- **Divergent/fan-in follow-ups:** #306 blob-routed divergent inputs, #316
+  codex/MCP boot-epoch defense, #317 same-attempt byline mismatch wedge, #319
+  deferred fan-in join barrier, #322 `parallelism.max_active_jobs` ignored,
+  #327 sibling-publication fan-in false rejection.
+- **Fresh 2026-06-16 triage wave:** #312 `repo add --init` flag mismatch, #313
+  operator-by-hand path non-functional, #323 daemon restart orphans claude lane,
+  #324 stale endpoint lane spins forever, #325 daemon DB deadlock under parallel
+  completion, #326 artifact publication drops undeclared in-scope files, #329
+  missing daemon authority secret drops control events.
 
 ## Hazards / Do Not
 
