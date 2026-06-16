@@ -1,6 +1,6 @@
 # RFC 0096: Supervised-Lane Trust Boundary and Control-Plane Sandboxing
 
-Status: proposed
+Status: partially implemented (Phase 1 landed; V2 lane-user launch support landed; hardened host gate pending)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 

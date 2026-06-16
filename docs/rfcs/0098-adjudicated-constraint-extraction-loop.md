@@ -1,6 +1,6 @@
 # RFC 0098: Adjudicated Constraint-Extraction Loop (Refusal-to-Constraint)
 
-Status: proposed
+Status: partially implemented (V1 slices 1-3 landed)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 Source: GitHub issue #89 — surfaced by the Engram entity-relationship forum run

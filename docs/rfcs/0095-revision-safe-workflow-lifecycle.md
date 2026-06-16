@@ -1,6 +1,6 @@
 # RFC 0095: Revision-Safe Workflow Lifecycle — coherent job attempts, leases, sessions, artifacts, and interrogation windows
 
-Status: proposed
+Status: partially implemented (Phases 1-3 landed; deployed)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 

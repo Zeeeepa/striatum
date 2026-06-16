@@ -1,6 +1,6 @@
 # RFC 0101: Robust Autonomous Workflow Execution — survive lane failure, run to completion or fail loudly, without a human babysitter
 
-Status: proposed
+Status: partially implemented (Phases 1-2 landed; Phases 3-5 in progress)
 Date: 2026-05-31
 author: proposer-claude-opus-4-8-001
 

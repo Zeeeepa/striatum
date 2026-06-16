@@ -1,6 +1,6 @@
 # RFC 0100: Self-Describing Artifact Contracts — packet + error ergonomics
 
-Status: proposed
+Status: partially implemented (Phase 1 landed)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 
