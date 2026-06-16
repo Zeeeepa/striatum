@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-16_300-p1-doctor-ok"
-supersedes: "brief_2026-06-16_deploy-and-triage"
+brief_id: "brief_2026-06-16_290-296-implemented"
+supersedes: "brief_2026-06-16_300-p1-doctor-ok"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -65,42 +65,32 @@ The open **P1 of #300** (flagged in the delta below) is done and live.
   "clean up the 4 residual #290/#296 problems" decision is RESOLVED — doctor is
   green.)
 
-## 2026-06-16 delta — deploy confirmed + full backlog triage
+## 2026-06-16 delta — #296 + #290 IMPLEMENTED + DEPLOYED (the two design picks)
 
-Operator actions only this delta (no source change): deploy verification +
-GitHub triage.
+The #290/#296 divergent-design picks were implemented from their synthesis,
+landed off `origin/main`, deployed (daemon restarted, running image == installed),
+and the issues CLOSED. `doctor` stayed green throughout.
 
-- **D201–D204 are DEPLOYED.** The running daemon (pid 635208,
-  `/proc/<pid>/exe` → `~/.local/bin/striatumd`, both stamped 2026-06-15 21:42,
-  NOT `(deleted)`) was started from the post-D204 binary, so the whole landing
-  set is live: **#291/D201** (hung-supervised-session stall recovery),
-  **#295+#293/D202** (`run start`/`run drive` auto-drive lifecycle),
-  **#297/D203** (loud stranded-in-scope paths), **#294**, and **#300/D204**
-  doctor integrity legibility. The #292 "Daemon redeploy required" note below
-  is discharged; no further restart pending.
-- **Doctor legibility live:** `striatum doctor` problems dropped ~278 → **42**;
-  preserved-on-default-branch / terminal-run / legacy-pre-blob-storage findings
-  are now `warnings` (173), not `ok=false` problems. The residual 42
-  (`artifact_anchor_missing_file` + `artifact_blob_metadata_missing`, content
-  absent from every durable ref AND the default-branch tip) is the known
-  historical-loss baseline; reaching `ok=true` is the open **P1 of #300**
-  (history-aware preservation + an acknowledge/prune tier — decide with #303).
-- **Full backlog triage (2026-06-16):** every open issue now carries a
-  disposition label. **ready-for-agent (bugs):** #301 (`workflow generate`
-  sets `per_job` on only the first multi-lane lane → `validate` rejects its
-  own output), #302 (recovery sweep doesn't reclaim a `tmux_pane_dead`-but-
-  `active` session → wedged lane). **ready-for-human:** #298 (canceled-run
-  dirty-worktree disposition), #299 (`run.integrate` base-drift semantics),
-  #300 (doctor legibility P1), #303 (prune-verb retention/safety), plus the
-  pre-existing #290 / #296.
-- **#290 / #296 divergent-design runs: scaffolded, NOT started.** The
-  `docs/campaigns/issue-290-parallel-fanin-design/` and
-  `issue-296-codex-mcp-injection-design/` workflows (claude + `codex --yolo` +
-  agy, per-job worktree isolation) `validate` clean but await an **explicit
-  operator go-ahead** before `run prepare` / `run start`.
-- **Stale below:** the "Blockers / Open Issues (6)" + "Next Actions" #263–#267
-  sets in the older sections are CLOSED. The live open set is
-  #290/#296/#298/#299/#300/#301/#302/#303.
+- **#296 CLOSED + LIVE** (`d9329618`). codex push (stdin-FIFO) lane now FAILS
+  LOUD when the MCP endpoint/token can't resolve (was a silent degrade to bare
+  `codex` that no-ops the control plane); precedence locked in by a codex-CLI-gated
+  test proving the `-c mcp_servers.striatum.url` override beats a stale config.toml
+  section. Bug fix, no D-number; boot-epoch/port-reuse long-tail → follow-up **#316**.
+- **#290 CLOSED + LIVE** (`bd79ab51`, **D206**). Fan-in siblings that can't
+  fast-forward the run branch are now INTEGRATED via a conflict-free object-DB
+  content merge (`merge-tree`→`commit-tree`→CAS `update-ref`, like `run integrate`)
+  instead of stranded under a pin; overlap errors loudly. New `doctor`
+  `fanin_sibling_unintegrated` warning (running runs only). Deferred join barrier +
+  manifest → follow-up **#319**. Direct impl (operator-chosen) — smallest correct slice.
+- **Also landed (kept main green):** brief trimmed under its 300-line budget
+  (`ea3b237f`, the brief-guard had held CI red 4+ commits); embedded
+  refactoring-campaign `REFERENCE.md` re-synced (`f636be15`, drifted in 61ab3ea1 →
+  red `TestEmbeddedOptionalSkillMatchesCanonicalSource`).
+- **Concurrent-agent ownership (do not duplicate):** another agent is implementing
+  **#308** (sweep auto-finalize of a published-but-unsealed final job) + its coupled
+  prerequisite **#309** (finalize liveness test → session-liveness not lease-time).
+- **Live open set:** #298/#299/#300/#301/#302/#303/#304/#305/#306/#307/#308/#309/
+  #310/#311 + follow-ups #316/#319. ready-for-agent bugs: #301/#302 (+#308/#309 owned).
 
 ## State
 
