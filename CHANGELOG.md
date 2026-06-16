@@ -223,6 +223,19 @@
 
 ### Fixed
 
+- **#296 codex push lanes fail loud when the MCP endpoint/token is unresolvable.**
+  A stdin-FIFO ("push") codex lane whose live Striatum MCP endpoint or session
+  capability token could not be resolved used to silently degrade to a bare
+  `codex` — which launches, looks healthy, but points its MCP client at a stale
+  port (or nothing), so it can never reach `work.await_packet`/publish/complete
+  and the run wedges while `doctor` shows only a warning. `supervisedPushCommand`
+  now refuses such a launch (loud + recoverable: the supervisor is marked lost
+  and `supervise.start` returns a legible error), bringing the push path to
+  parity with the already-loud self-drive path. A hermetic, codex-CLI-gated
+  regression test pins the other half of #296 — that the launch-time
+  `-c mcp_servers.striatum.url=<live>` override wins over a pre-existing
+  `[mcp_servers.striatum]` config.toml section (previously asserted, never
+  tested). No schema/RPC change.
 - **#291 hung supervised sessions no longer stall a run silently.** A
   `queued`/claimable job whose bound supervised session is hung used to sit
   indefinitely with `supervisor_stalls.stalled_count:0` and no blocker; the
