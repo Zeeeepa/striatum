@@ -16,8 +16,11 @@
   "lanes": {
     "local": {
       "adapter": "process",
-      "display_model": "Local Operator Fixture",
-      "command": ["sh", "-c", "cat >/dev/null"],
+      "display_model": "Codex via live Striatum MCP",
+      "command": ["striatum", "codex", "--dangerously-bypass-approvals-and-sandbox"],
+      "adapter_capabilities": {"agent_loop": true},
+      "supervision": {"transport": "pty_helper", "compatible": true, "require_tmux": true},
+      "worktree_isolation": "per_job",
       "capabilities": ["write", "review", "synthesis"]
     }
   },
@@ -272,4 +275,3 @@
   ],
   "cycles": []
 }
-

@@ -19,6 +19,11 @@ striatum operator bootstrap --markdown
 striatum workflow validate docs/operator/workflows/striatum-reliability-reset-2026-06-16/workflow.json --json
 ```
 
+The workflow's lane command is intentionally `striatum codex`, which resolves
+the live daemon MCP endpoint and runtime token before launching Codex. If
+`codex` is not available on `proximal`, stop and fix the lane command or
+provider install before preparing the run.
+
 Do not start the run until there are no non-terminal runs. Striatum's current
 operator bootstrap treats these run states as terminal: `completed`, `failed`,
 and `canceled`.
@@ -59,4 +64,3 @@ Do not treat this workflow as successful just because it reaches a terminal
 state. The useful outcome is an accepted reset synthesis with a support ledger,
 an evidence audit, and a final review that names the first tickets and the
 feature-freeze release gate.
-
