@@ -118,7 +118,7 @@ so external references keep resolving even as items move between sections.
 | 64 | RFC 0071 operator diagnostics and cutover evidence | ✅ accepted diagnostic slice done |
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
-| 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
+| 67 | RFC 0130/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
 | 68 | RFC 0078 Go-only runtime and Python removal | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
@@ -743,7 +743,7 @@ section is the canonical status snapshot.
     the urgency** — RFC 0049 is now a capability RFC rather than a
     blocker. D106 records the durable shelf decision. Reopen only if
     billing terms change materially or an operator explicitly funds the
-    PTY/MCP spike. A 2026-05-23 closure workflow rechecked RFC 0050/0075
+    PTY/MCP spike. A 2026-05-23 closure workflow rechecked RFC 0130/0075
     prerequisites and current Claude plan-credit docs; the reopen criteria
     are still unmet. ROADMAP §5.5.
 
@@ -1355,7 +1355,7 @@ review and plan are root-level operator artifacts:
     operator-tree init/rotation as optional future work outside the accepted
     RFC 0058 V1.5 slice.
 
-67. ~~**RFC 0050/RFC 0075: MCP cutover and tmux-observable sessions.**~~
+67. ~~**RFC 0130/RFC 0075: MCP cutover and tmux-observable sessions.**~~
     Done. Native Go daemon MCP HTTP/SSE, autonomous MCP packet-loop proof,
     `session.report`, agent-loop PTY bootstrap, Python MCP wrapper deletion,
     RFC 0077 daemon-owned MCP activity liveness, tmux attach metadata, web

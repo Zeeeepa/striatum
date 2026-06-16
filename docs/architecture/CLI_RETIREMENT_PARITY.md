@@ -3,9 +3,9 @@ author: implementer-codex-gpt-5-001
 
 Status: checked architecture artifact
 Date: 2026-05-23
-Scope inputs: `contracts/daemon_methods.json`, `docs/rfcs/0050-go-daemon-http-sse-mcp.md`, `docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md`, `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`, and `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`.
+Scope inputs: `contracts/daemon_methods.json`, `docs/rfcs/0130-go-daemon-http-sse-mcp.md`, `docs/rfcs/0075-tmux-observable-mcp-agent-sessions.md`, `docs/operator/plans/rfc-0050-cli-retirement-cutover.md`, and `docs/operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md`.
 
-This ledger classifies non-read CLI routes after the RFC 0050/RFC 0075 live
+This ledger classifies non-read CLI routes after the RFC 0130/RFC 0075 live
 workflow-control cutover. It does not hide, deprecate, or delete commands.
 The terminal gate for each row records why the CLI command survives as a
 daemon-backed client: bootstrap, lane compatibility, or operator

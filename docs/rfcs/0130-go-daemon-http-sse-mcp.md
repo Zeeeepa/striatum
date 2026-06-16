@@ -1,7 +1,17 @@
-# RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop
+# RFC 0130 — Native Go Daemon HTTP/SSE MCP and Agent Loop
 
-**Status:** accepted (native MCP slices implemented; numbering collision)
+**Status:** accepted (native MCP slices implemented)
 **Scope:** Architecture alignment / Python MCP and CLI control-plane deprecation
+
+> **Provenance:** Formerly numbered `0050-mcp` (it was indexed under that label in
+> `docs/rfcs/README.md`). Renumbered to **RFC 0130** on 2026-06-16 to resolve the
+> duplicate `0050` prefix it shared with
+> [`RFC 0050 — Operator UI rework and provenance honesty`](0050-operator-ui-rework-and-provenance-honesty.md)
+> (GitHub issue #320). The operator-UI RFC keeps `0050` (it owns the `rfc-0050`
+> label and the `docs/rfc-0050/` design tree). Historical operator run records and
+> the example fixture under `docs/operator/{plans,workflows,artifacts}/rfc-0050-*`
+> and `examples/rfc-0050-http-sse-mcp/` retain their original `rfc-0050-*` slugs as
+> frozen run-record provenance (`.check-docs-ignore`).
 
 ## Background
 

@@ -42,7 +42,7 @@ dependency edges, and "what would I do next" framing. Update on every
   0040 V1.6, and the deferred items formerly listed as 14-27. The actionable
   result is narrower than the old backlog: D125 evidence gate is satisfied
   and D133 flips default-live auto-finalize with explicit workflow opt-out,
-  RFC 0050/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
+  RFC 0130/0075 live workflow-control cutover is closed, TODO 52 and TODO 53
   have additional bounded cleanup slices landed, TODO 49/61 cleanup is closed,
   RFC 0074 Phase B generator support has landed for the lightweight
   `implementation_panel` shape. On 2026-05-25, the remaining RFC 0078 gates
@@ -78,13 +78,13 @@ dependency edges, and "what would I do next" framing. Update on every
 
 ### 1.1 Current Operator Track: HTTP/SSE MCP Daemon And CLI Compatibility
 
-Native HTTP MCP in the Go daemon has landed for RFC 0050 Phase A-G: `/mcp` is
+Native HTTP MCP in the Go daemon has landed for RFC 0130 Phase A-G: `/mcp` is
 the primary direct request endpoint, `/mcp/sse` remains the SSE/backcompat
 alias, tool discovery/calls reuse daemon RPC authorization, the fake MCP agent
 coverage completes a packet loop through `/mcp`, agent-loop is a PTY/MCP
-bootstrapper, the Python MCP wrapper is deleted, and the final RFC 0050/RFC
+bootstrapper, the Python MCP wrapper is deleted, and the final RFC 0130/RFC
 0075 live workflow-control cutover is complete. The working spec is
-[`RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](../rfcs/0050-go-daemon-http-sse-mcp.md).
+[`RFC 0130 — Native Go Daemon HTTP/SSE MCP and Agent Loop`](../rfcs/0130-go-daemon-http-sse-mcp.md).
 
 Order the work as a set of gates, not as one all-or-nothing cutover:
 
@@ -102,7 +102,7 @@ Order the work as a set of gates, not as one all-or-nothing cutover:
    own MCP client.
 6. [done] Move live operator actions to MCP/UI surfaces until no
    workflow-control operation requires a human or AI operator to invoke
-   `striatum` CLI verbs. The final RFC 0050/RFC 0075 cutover adds web/UI
+   `striatum` CLI verbs. The final RFC 0130/RFC 0075 cutover adds web/UI
    parity for the remaining operator actions, updates current agent docs and
    skill templates to MCP-first control, and reclassifies surviving CLI verbs
    as bootstrap, lane compatibility, or operator compatibility in
@@ -125,9 +125,9 @@ workflow state.
 landed the daemon-owned MCP activity timestamp and deadline-classification
 slice; D131 accepts the current RFC 0075 tmux-observable session contract.
 The current closure artifacts are
-[`RFC 0050/RFC 0075 Final Cutover Design`](../operator/plans/rfc-0050-0075-final-cutover-design.md)
+[`RFC 0130/RFC 0075 Final Cutover Design`](../operator/plans/rfc-0050-0075-final-cutover-design.md)
 and
-[`RFC 0050/RFC 0075 Final Cutover Implementation`](../operator/plans/rfc-0050-0075-final-cutover-implementation.md).
+[`RFC 0130/RFC 0075 Final Cutover Implementation`](../operator/plans/rfc-0050-0075-final-cutover-implementation.md).
 
 ## 2. Just shipped (this week)
 
@@ -1219,7 +1219,7 @@ is the runner-owned historical bootstrap successor, and
 
 | Item | Blocker | Unblock criterion |
 |---|---|---|
-| RFC 0049 spike | Shelved by D106; closure rechecked RFC 0050/0075 and current Claude plan-credit docs. | Explicit operator-funded spike + measurement. |
+| RFC 0049 spike | Shelved by D106; closure rechecked RFC 0130/0075 and current Claude plan-credit docs. | Explicit operator-funded spike + measurement. |
 | RFC 0052 Phase A | V0 proposal is not implementation-ready. | New bounded Phase A implementation RFC/design. |
 | RFC 0053 schema/runtime rename | Breaking workflow/state rename needs coordinated migration. | New schema/runtime migration RFC with upgrade rule and compatibility policy. |
 | RFC 0074 Phase C chooser UX | Phase B generator support has landed for `implementation_panel`; richer chooser cost/artifact-volume UX is still future work. | New bounded UI workflow or product decision. |

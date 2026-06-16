@@ -4,7 +4,7 @@ Status: accepted
 Date: 2026-05-22
 author: proposer-codex-gpt-5-001
 Context:
-[`RFC 0050 MCP`](0050-go-daemon-http-sse-mcp.md),
+[`RFC 0130 MCP`](0130-go-daemon-http-sse-mcp.md),
 [`RFC 0058`](0058-operator-progress-surface.md),
 [`RFC 0063`](0063-hardened-pty-supervision.md),
 [`RFC 0075`](0075-tmux-observable-mcp-agent-sessions.md),
@@ -17,7 +17,7 @@ Decision: D129
 
 ## Problem
 
-RFC 0075 defines the broader post-RFC-0050 interactive-agent
+RFC 0075 defines the broader post-RFC-0130 interactive-agent
 observability contract: agents should operate as autonomous MCP clients,
 tmux panes should be attachable for local inspection, and the daemon
 should classify sessions that are alive but not making protocol

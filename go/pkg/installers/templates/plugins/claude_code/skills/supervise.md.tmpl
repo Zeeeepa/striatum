@@ -9,7 +9,7 @@ profile: claude_code
 
 # Striatum: Supervised Sessions
 
-RFC 0009/RFC 0050 can hold a single agent process alive across multiple work
+RFC 0009/RFC 0130 can hold a single agent process alive across multiple work
 packets. The current path is daemon MCP: the supervisor exports the endpoint,
 token, repository, and session context, then the agent calls `tools/list` and
 `work.await_packet`. The older stdin packet delivery path remains a CLI

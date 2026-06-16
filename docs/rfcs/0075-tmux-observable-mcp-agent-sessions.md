@@ -7,7 +7,7 @@ Decision: D131
 Context:
 [`RFC 0009`](0009-long-lived-process-supervision.md),
 [`RFC 0020`](0020-autonomous-stalled-run-recovery.md),
-[`RFC 0050 MCP`](0050-go-daemon-http-sse-mcp.md),
+[`RFC 0130 MCP`](0130-go-daemon-http-sse-mcp.md),
 [`RFC 0058`](0058-operator-progress-surface.md),
 [`RFC 0063`](0063-hardened-pty-supervision.md),
 [`docs/HOW_TO_AGENT.md`](../how-to/how-to-agent.md),
@@ -15,7 +15,7 @@ Context:
 
 ## Problem
 
-RFC 0050 moves live lane execution toward autonomous MCP agents: the
+RFC 0130 moves live lane execution toward autonomous MCP agents: the
 daemon exposes `/mcp`, agents discover tools, call `work.await_packet`,
 and drive the lane loop through `tools/call` instead of being spoon-fed
 JSON packets by a CLI or wrapper.
@@ -82,7 +82,7 @@ states without parsing terminal output or capturing transcripts.
 
 ### 1. Make live interactive agent sessions tmux-observable
 
-After RFC 0050 Phase D/E are accepted and live agents are expected to use
+After RFC 0130 Phase D/E are accepted and live agents are expected to use
 MCP directly, Striatum should treat PTY supervision plus tmux attach metadata
 as the operator-observability surface for live interactive agent lanes. The
 accepted current implementation provides fail-closed tmux through
@@ -262,7 +262,7 @@ The first implementation workflow is scaffolded at
 It deliberately starts with a cutover map and liveness-contract design before
 any source implementation. The paired operator plans are:
 
-- [`RFC 0050 CLI Retirement Cutover`](../operator/plans/rfc-0050-cli-retirement-cutover.md)
+- [`RFC 0130 CLI Retirement Cutover`](../operator/plans/rfc-0050-cli-retirement-cutover.md)
 - [`RFC 0075 Tmux-Observable MCP Agent Sessions`](../operator/plans/rfc-0075-tmux-observable-mcp-agent-sessions.md)
 
 ## Resolved Questions
