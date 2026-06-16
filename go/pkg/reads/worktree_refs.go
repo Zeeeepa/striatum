@@ -67,6 +67,26 @@ func doctorWorktreeRefSafety(ctx context.Context, runner any, repositoryID strin
 	for _, row := range rows {
 		addWorktreeAnchorProjection(ctx, row)
 		if stringFrom(row, "anchor") != worktreeAnchorUnreachable {
+			// #290 fan-in reachability invariant: in a still-RUNNING run, a completed
+			// repo-write job's commit stack must be reachable from the RUN BRANCH — not
+			// merely from a refs/striatum pin. The run branch is probed first (see
+			// durableWorktreeProbeRefs), so a "job_pin" classification means the head is
+			// reachable via a pin but is NOT on the run branch. That is a stranded fan-in
+			// author: a downstream worktree seeded from the run branch would never see
+			// it — the exact bug #290 fixes at completion via a conflict-free fan-in
+			// merge. Emit a warning (not an ok-reddening problem) scoped to running runs,
+			// so the green doctor baseline and historical/terminal/default-branch-merged
+			// runs are untouched; this only fires on a live integration regression.
+			if stringFrom(row, "anchor") == worktreeAnchorJobPin &&
+				stringFrom(row, "job_state") == "completed" &&
+				stringFrom(row, "run_state") == "running" {
+				worktreeID := stringFrom(row, "worktree_id")
+				warnings = append(warnings, fmt.Sprintf(
+					"fanin_sibling_unintegrated.%s: completed job %s worktree HEAD %s is reachable only via a refs/striatum pin, not from the run branch of a still-running run; a downstream worktree seeded from the run branch would not see it — recover/anchor it to integrate the fan-in sibling",
+					worktreeID, stringFrom(row, "job_id"), stringFrom(row, "head"),
+				))
+				warningRecords = append(warningRecords, worktreeReclassRecord("fanin_sibling_unintegrated", worktreeID, row, ""))
+			}
 			continue
 		}
 		worktreeID := stringFrom(row, "worktree_id")

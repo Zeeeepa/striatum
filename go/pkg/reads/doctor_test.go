@@ -337,3 +337,73 @@ func TestDoctorFlagsUnreachableWorktreeHead(t *testing.T) {
 		t.Fatalf("problem_records = %#v", records)
 	}
 }
+
+// TestDoctorWarnsFanInSiblingUnintegrated is the #290 doctor reachability
+// invariant: in a still-running run, a completed repo-write job whose worktree
+// HEAD is reachable only via a refs/striatum pin (NOT from the run branch) is a
+// stranded fan-in author. Doctor surfaces it as a WARNING (ok stays true — it
+// must not re-red the green baseline or fire on historical/terminal runs).
+func TestDoctorWarnsFanInSiblingUnintegrated(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	repoRoot := t.TempDir()
+	baseSHA := readsGitInit(t, repoRoot)
+	runID := "run_doctor_fanin"
+	jobID := "job_doctor_fanin"
+	worktreeID := "wt_doctor_fanin"
+	runBranch := "wf/doctor-fanin"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	// Worktree HEAD diverges from the run branch (a sibling advanced it) and is
+	// preserved ONLY under a refs/striatum pin — never integrated into the run branch.
+	readsGitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	readsGitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, baseSHA)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "worktree.txt"), []byte("worktree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, worktreeRoot, "add", "worktree.txt")
+	readsGitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
+	worktreeHead := readsGitRevParse(t, worktreeRoot, "HEAD")
+	// Advance the run branch to a disjoint sibling commit so the worktree HEAD is
+	// NOT on the run branch.
+	if err := os.WriteFile(filepath.Join(repoRoot, "mainline.txt"), []byte("mainline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, repoRoot, "add", "mainline.txt")
+	readsGitRun(t, repoRoot, "commit", "-q", "-m", "sibling run branch change")
+	readsGitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, readsGitRevParse(t, repoRoot, "HEAD"))
+	// Pin the worktree HEAD (reachable via pin, not the run branch).
+	readsGitRun(t, repoRoot, "update-ref", "refs/striatum/"+runID+"/"+jobID+"/1", worktreeHead)
+
+	runner := &doctorWorktreeAnchorFakeRunner{rows: []map[string]any{{
+		"worktree_id":     worktreeID,
+		"run_id":          runID,
+		"job_id":          jobID,
+		"lease_id":        "lease_doctor_fanin",
+		"base_branch":     runBranch,
+		"branch_name":     runBranch,
+		"repo_root":       repoRoot,
+		"worktree_path":   worktreeRel,
+		"state":           "active",
+		"workflow_job_id": "author_draft",
+		"job_state":       "completed",
+		"run_state":       "running",
+	}}}
+
+	result, err := HandleDoctor(context.Background(), runner, rpc.Envelope{
+		Params: map[string]any{"repository_id": "repo_doctor_fanin", "verbose": true},
+	})
+	if err != nil {
+		t.Fatalf("HandleDoctor: %v", err)
+	}
+	// Warning only — must NOT red ok.
+	if result["ok"] != true {
+		t.Fatalf("doctor ok = %v, want true (fan-in stranding is a warning, not a problem):\nproblems=%v", result["ok"], result["problems"])
+	}
+	warnings := strings.Join(result["warnings"].([]string), "\n")
+	if !strings.Contains(warnings, "fanin_sibling_unintegrated."+worktreeID) || !strings.Contains(warnings, worktreeHead) {
+		t.Fatalf("warnings missing fanin_sibling_unintegrated for %s:\n%s", worktreeID, warnings)
+	}
+}

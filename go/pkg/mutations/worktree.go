@@ -1010,7 +1010,123 @@ func anchorWorktreeCommitStack(ctx context.Context, repoRoot, runID, jobID, runB
 		}
 		payload["ff_failed"] = strings.TrimSpace(out)
 	}
-	return pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload, attempt)
+	// #290: head cannot fast-forward the run branch — a concurrent fan-in sibling
+	// advanced it after this worktree forked from the run-branch tip. Do NOT leave
+	// this sibling stranded under a pin only (the original bug: a downstream job's
+	// worktree, seeded from the run branch, never sees the pinned stack). Integrate
+	// the sibling's disjoint subtree into the run branch with a conflict-free
+	// content merge (parallel fan-in lanes are authored to write disjoint scopes,
+	// RFC 0101; an overlap is surfaced LOUDLY, never silently last-writer-wins),
+	// then ALSO pin the exact commit stack for provenance — now reachable from the
+	// run-branch HEAD (the merge commit's second parent), satisfying the fan-in
+	// reachability invariant doctor asserts.
+	merge, err := fanInIntegrateRunBranch(ctx, repoRoot, runRef, runTip, head, jobID, attempt)
+	if err != nil {
+		return nil, err
+	}
+	pinned, err := pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload, attempt)
+	if err != nil {
+		return nil, err
+	}
+	pinned["anchor"] = "run_branch_fanin_merge"
+	pinned["fanin_merge"] = merge
+	return pinned, nil
+}
+
+// fanInIntegrateRunBranch advances the run branch to include a fan-in sibling's
+// commit stack (head) that can no longer fast-forward it, WITHOUT a worktree
+// checkout (it operates on the object database). It is the per-completion form of
+// the RFC 0101 / #290 join: the run branch is the single integration point, so a
+// downstream job's worktree (seeded from the run branch after its upstream
+// siblings complete) sees every sibling under any completion order.
+//
+//   - If head became fast-forwardable after a re-read (it lost the earlier FF
+//     compare-and-swap race), advance the ref to head directly.
+//   - Otherwise perform a 3-way content merge via `git merge-tree --write-tree`.
+//     Because parallel fan-in lanes write disjoint subtrees, the merge has no
+//     overlapping changes; if it DOES conflict (two siblings wrote the same path)
+//     that is surfaced as a loud `git_commit_apply_failed` rather than silently
+//     resolved to a last writer, which would re-strand one sibling's work — the
+//     exact failure mode #290 exists to remove.
+//
+// The run ref is advanced with a compare-and-swap `update-ref <new> <expected>`
+// and retried against concurrent sibling movement; if a concurrent integration
+// already made head reachable, it returns idempotently.
+func fanInIntegrateRunBranch(ctx context.Context, repoRoot, runRef, runTip, head, jobID string, attempt int) (map[string]any, error) {
+	const maxAttempts = 6
+	tip := runTip
+	for i := 0; i < maxAttempts; i++ {
+		if ok, err := gitIsAncestor(ctx, repoRoot, head, tip); err != nil {
+			return nil, err
+		} else if ok {
+			// A concurrent sibling already integrated this stack; nothing to do.
+			return map[string]any{"integration": "already_reachable", "run_tip": tip, "retries": i}, nil
+		}
+		var newRef, mode, mergedTree string
+		if ok, err := gitIsAncestor(ctx, repoRoot, tip, head); err != nil {
+			return nil, err
+		} else if ok {
+			newRef = head
+			mode = "fast_forward"
+		} else {
+			out, exit, err := integrateGit(ctx, repoRoot, "merge-tree", "--write-tree", tip, head)
+			if err != nil {
+				return nil, err
+			}
+			if exit != 0 {
+				conflicts := parseMergeTreeConflicts(out)
+				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
+					"fan-in integration of job %s (attempt %d) conflicts in %d path(s): %s. Two parallel siblings wrote overlapping paths; parallel fan-in lanes must use disjoint write scopes (RFC 0101). The conflict is surfaced rather than silently resolved to a last writer (which would re-strand one sibling's work).",
+					jobID, attempt, len(conflicts), strings.Join(conflicts, ", ")),
+					map[string]any{"conflicting_paths": conflicts, "job_id": jobID, "attempt": attempt})
+			}
+			tree := firstLine(out)
+			if !isFullGitSHA(tree) {
+				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in merge-tree produced invalid tree oid %q for job %s", tree, jobID), nil)
+			}
+			msg := fmt.Sprintf("striatum fan-in: integrate %s (attempt %d) into run branch", jobID, attempt)
+			// Set an explicit committer identity (RFC 0127 retired the lane git
+			// identity, and the daemon must not depend on ambient git config), mirroring
+			// HandleRunIntegrate's commit-tree.
+			cout, cexit, err := integrateGit(ctx, repoRoot,
+				"-c", "user.name=striatum-fanin", "-c", "user.email=fanin@striatum.local",
+				"commit-tree", tree, "-p", tip, "-p", head, "-m", msg)
+			if err != nil {
+				return nil, err
+			}
+			if cexit != 0 {
+				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in commit-tree failed for job %s: %s", jobID, strings.TrimSpace(cout)), nil)
+			}
+			newRef = firstLine(cout)
+			if !isFullGitSHA(newRef) {
+				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in commit-tree produced invalid commit oid %q for job %s", newRef, jobID), nil)
+			}
+			mergedTree = tree
+			mode = "merge"
+		}
+		_, uexit, err := integrateGit(ctx, repoRoot, "update-ref", runRef, newRef, tip)
+		if err != nil {
+			return nil, err
+		}
+		if uexit == 0 {
+			result := map[string]any{"integration": mode, "from": tip, "to": newRef, "retries": i}
+			if mode == "merge" {
+				result["merge_commit"] = newRef
+				result["merged_tree"] = mergedTree
+				result["sibling_head"] = head
+			}
+			return result, nil
+		}
+		refreshed, err := gitRevParseCommit(ctx, repoRoot, runRef)
+		if err != nil {
+			return nil, err
+		}
+		if refreshed == tip {
+			return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in update-ref compare-and-swap failed for the run branch without movement (job %s)", jobID), nil)
+		}
+		tip = refreshed
+	}
+	return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in integration of job %s exhausted %d compare-and-swap retries advancing the run branch", jobID, maxAttempts), nil)
 }
 
 // pinWorktreeCommitStack anchors a worktree's diverged HEAD under an

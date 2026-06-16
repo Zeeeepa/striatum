@@ -277,17 +277,24 @@ func TestAnchorWorktreeCommitStackFastForwardsRunBranchWithoutCheckout(t *testin
 	}
 }
 
-func TestAnchorWorktreeCommitStackPinsDivergedHead(t *testing.T) {
+// TestAnchorWorktreeCommitStackMergesDivergedFanInSibling is the #290 fix: a
+// fan-in sibling whose worktree forked from an earlier run-branch tip (a
+// concurrent sibling has since advanced it) used to be PINNED only and stranded
+// — its work never reached the run branch, so a downstream worktree seeded from
+// the run branch never saw it. The anchor now integrates the sibling's disjoint
+// subtree into the run branch with a conflict-free content merge, so BOTH the
+// sibling's file and the run-branch sibling's file are present at the run tip.
+func TestAnchorWorktreeCommitStackMergesDivergedFanInSibling(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
 	}
 	ctx := context.Background()
 	repoRoot := t.TempDir()
 	baseSHA := gitInit(t, repoRoot)
-	runID := "run_git_pin"
-	jobID := "job_git_pin"
-	runBranch := "wf/git-pin"
-	worktreeID := "wt_git_pin"
+	runID := "run_git_fanin"
+	jobID := "job_git_fanin"
+	runBranch := "wf/git-fanin"
+	worktreeID := "wt_git_fanin"
 	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
 	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
 
@@ -300,6 +307,8 @@ func TestAnchorWorktreeCommitStackPinsDivergedHead(t *testing.T) {
 	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree change")
 	worktreeHead := gitRevParse(t, worktreeRoot, "HEAD")
 
+	// A concurrent sibling advanced the run branch to a disjoint path after this
+	// worktree forked, so the worktree HEAD can no longer fast-forward it.
 	if err := os.WriteFile(filepath.Join(repoRoot, "mainline.txt"), []byte("mainline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -315,32 +324,163 @@ func TestAnchorWorktreeCommitStackPinsDivergedHead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("anchor diverged worktree: %v", err)
 	}
+	if payload["anchor"] != "run_branch_fanin_merge" {
+		t.Fatalf("anchor payload = %#v, want run_branch_fanin_merge", payload)
+	}
+	merge, _ := payload["fanin_merge"].(map[string]any)
+	if merge == nil || merge["integration"] != "merge" {
+		t.Fatalf("fanin_merge payload = %#v, want integration=merge", payload["fanin_merge"])
+	}
+	// The provenance pin still records the exact sibling stack.
 	pinRef := "refs/striatum/" + runID + "/" + jobID + "/1"
-	if payload["anchor"] != "job_pin" || payload["pin_ref"] != pinRef {
-		t.Fatalf("anchor payload = %#v, want job_pin at %s", payload, pinRef)
-	}
-	if payload["pin_shape"] != "attempt" {
-		t.Fatalf("pin_shape = %#v, want attempt", payload["pin_shape"])
-	}
 	if got := gitRevParse(t, repoRoot, pinRef); got != worktreeHead {
 		t.Fatalf("pin ref = %s, want worktree head %s", got, worktreeHead)
 	}
-	if got := gitRevParse(t, repoRoot, "refs/heads/"+runBranch); got != siblingHead {
-		t.Fatalf("run branch was clobbered: got %s want sibling %s", got, siblingHead)
+	// The run branch advanced to a merge commit whose parents are the prior tip
+	// and the sibling head — and BOTH files are present at the new tip.
+	runTip := gitRevParse(t, repoRoot, "refs/heads/"+runBranch)
+	if runTip == siblingHead || runTip == worktreeHead {
+		t.Fatalf("run branch did not advance to a merge commit: %s", runTip)
 	}
+	parents := strings.Fields(gitRun(t, repoRoot, "rev-list", "--parents", "-n", "1", runTip))
+	if len(parents) != 3 || parents[1] != siblingHead || parents[2] != worktreeHead {
+		t.Fatalf("merge parents = %v, want [%s %s %s]", parents, runTip, siblingHead, worktreeHead)
+	}
+	tree := gitRun(t, repoRoot, "ls-tree", "-r", "--name-only", "refs/heads/"+runBranch)
+	for _, want := range []string{"worktree.txt", "mainline.txt"} {
+		if !strings.Contains(tree, want) {
+			t.Fatalf("run branch tip missing %q after fan-in merge; tree:\n%s", want, tree)
+		}
+	}
+	// The sibling HEAD is now reachable from the run branch (no longer stranded).
 	reachability, err := worktreeHeadReachability(ctx, repoRoot, worktreeRoot, map[string]any{
 		"run_id":      runID,
 		"job_id":      jobID,
 		"base_branch": runBranch,
 	})
 	if err != nil {
-		t.Fatalf("reachability after pin: %v", err)
+		t.Fatalf("reachability after fan-in merge: %v", err)
 	}
 	if !reachability.Reachable {
-		t.Fatalf("pinned worktree HEAD should be reachable: %#v", reachability)
+		t.Fatalf("fan-in sibling HEAD should be reachable from the run branch: %#v", reachability)
 	}
 	if head := gitSymbolicHead(t, repoRoot); head != "main" {
 		t.Fatalf("primary HEAD moved to %q, want main", head)
+	}
+}
+
+// TestAnchorWorktreeCommitStackFanInOverlapErrorsLoudly: when two parallel
+// siblings wrote the SAME path with different content (a violation of the
+// disjoint-write-scope authoring rule), the fan-in integration must surface the
+// conflict loudly rather than silently pick a last writer — which would re-strand
+// one sibling's work, the exact failure mode #290 removes.
+func TestAnchorWorktreeCommitStackFanInOverlapErrorsLoudly(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_git_overlap"
+	jobID := "job_git_overlap"
+	runBranch := "wf/git-overlap"
+	worktreeID := "wt_git_overlap"
+	worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
+	worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
+
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, runBranch)
+	if err := os.WriteFile(filepath.Join(worktreeRoot, "shared.txt"), []byte("from worktree sibling\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, worktreeRoot, "add", "shared.txt")
+	gitRun(t, worktreeRoot, "commit", "-q", "-m", "worktree writes shared.txt")
+
+	// A concurrent sibling wrote the SAME path (overlapping scope) on the run branch.
+	if err := os.WriteFile(filepath.Join(repoRoot, "shared.txt"), []byte("from run-branch sibling\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "shared.txt")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "sibling writes shared.txt")
+	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, gitRevParse(t, repoRoot, "HEAD"))
+
+	_, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, map[string]any{
+		"worktree_id":   worktreeID,
+		"worktree_path": worktreeRel,
+	}, 1)
+	if err == nil {
+		t.Fatal("expected a loud conflict error when two siblings wrote overlapping paths, got nil")
+	}
+	if !strings.Contains(err.Error(), "overlapping paths") {
+		t.Fatalf("conflict error should name overlapping paths, got: %v", err)
+	}
+}
+
+// TestAnchorWorktreeCommitStackFanInAllSiblingsReachableAnyOrder is the core #290
+// invariant: with N parallel disjoint siblings, no sibling strands under any
+// completion order — every sibling's file is present at the run-branch tip and
+// every sibling HEAD is reachable. Models three siblings all forked from the same
+// base and anchored in sequence (only the first fast-forwards; the rest merge).
+func TestAnchorWorktreeCommitStackFanInAllSiblingsReachableAnyOrder(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runID := "run_git_nfanin"
+	runBranch := "wf/git-nfanin"
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+
+	type sibling struct {
+		jobID, file, wtRel, wtRoot, head string
+	}
+	siblings := make([]sibling, 3)
+	for i := range siblings {
+		jobID := fmt.Sprintf("job_fanin_%d", i)
+		wtID := fmt.Sprintf("wt_fanin_%d", i)
+		wtRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", wtID))
+		wtRoot := filepath.Join(repoRoot, filepath.FromSlash(wtRel))
+		// Every sibling forks from the SAME (base) run-branch tip, so only the first
+		// to anchor fast-forwards; the others diverge and must merge.
+		gitRun(t, repoRoot, "worktree", "add", "--detach", wtRoot, runBranch)
+		file := fmt.Sprintf("branches/branch_%d/IDEAS.md", i)
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(wtRoot, file)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wtRoot, file), []byte(fmt.Sprintf("ideas %d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		gitRun(t, wtRoot, "add", file)
+		gitRun(t, wtRoot, "commit", "-q", "-m", fmt.Sprintf("sibling %d", i))
+		siblings[i] = sibling{jobID: jobID, file: file, wtRel: wtRel, wtRoot: wtRoot, head: gitRevParse(t, wtRoot, "HEAD")}
+	}
+
+	for _, s := range siblings {
+		if _, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, s.jobID, runBranch, map[string]any{
+			"worktree_id":   filepath.Base(s.wtRel),
+			"worktree_path": s.wtRel,
+		}, 1); err != nil {
+			t.Fatalf("anchor sibling %s: %v", s.jobID, err)
+		}
+	}
+
+	tree := gitRun(t, repoRoot, "ls-tree", "-r", "--name-only", "refs/heads/"+runBranch)
+	for _, s := range siblings {
+		if !strings.Contains(tree, s.file) {
+			t.Fatalf("sibling %s stranded: %q missing from run-branch tip; tree:\n%s", s.jobID, s.file, tree)
+		}
+		reach, err := worktreeHeadReachability(ctx, repoRoot, s.wtRoot, map[string]any{
+			"run_id":      runID,
+			"job_id":      s.jobID,
+			"base_branch": runBranch,
+		})
+		if err != nil {
+			t.Fatalf("reachability for %s: %v", s.jobID, err)
+		}
+		if !reach.Reachable {
+			t.Fatalf("sibling %s HEAD not reachable from the run branch: %#v", s.jobID, reach)
+		}
 	}
 }
 
@@ -415,11 +555,16 @@ func TestAnchorWorktreeCommitStackNamespacesAttemptsWithoutClobber(t *testing.T)
 	gitRun(t, repoRoot, "commit", "-q", "-m", "sibling run branch change")
 	gitRun(t, repoRoot, "update-ref", "refs/heads/"+runBranch, gitRevParse(t, repoRoot, "HEAD"))
 
-	anchorAttempt := func(attempt int, content string) string {
+	// A revision's worktree forks from the CURRENT run-branch tip (which carries
+	// the prior attempt's content), so attempt 2 builds on attempt 1 — i.e. its
+	// rewrite is a clean 3-way modify against attempt 1 as the merge base, not an
+	// artificial add/add. Each diverged attempt is integrated into the run branch
+	// (#290) AND pinned under its own attempt ref (#215).
+	anchorAttempt := func(attempt int, base, content string) string {
 		worktreeID := fmt.Sprintf("wt_attempt_%d", attempt)
 		worktreeRel := filepath.ToSlash(filepath.Join(".striatum", "worktrees", worktreeID))
 		worktreeRoot := filepath.Join(repoRoot, filepath.FromSlash(worktreeRel))
-		gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, baseSHA)
+		gitRun(t, repoRoot, "worktree", "add", "--detach", worktreeRoot, base)
 		if err := os.WriteFile(filepath.Join(worktreeRoot, "attempt.txt"), []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -441,10 +586,14 @@ func TestAnchorWorktreeCommitStackNamespacesAttemptsWithoutClobber(t *testing.T)
 		return head
 	}
 
-	head1 := anchorAttempt(1, "one\n")
-	head2 := anchorAttempt(2, "two\n")
+	head1 := anchorAttempt(1, baseSHA, "one\n")
+	head2 := anchorAttempt(2, head1, "two\n")
 	if head1 == head2 {
 		t.Fatalf("attempt heads collided: %s", head1)
+	}
+	// The latest revision's content is what lands on the run branch.
+	if got := gitRun(t, repoRoot, "show", "refs/heads/"+runBranch+":attempt.txt"); got != "two" {
+		t.Fatalf("run branch attempt.txt = %q, want the latest revision \"two\"", got)
 	}
 
 	ref1 := fmt.Sprintf("refs/striatum/%s/%s/1", runID, jobID)
