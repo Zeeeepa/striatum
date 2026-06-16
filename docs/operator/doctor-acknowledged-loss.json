@@ -1,0 +1,133 @@
+{
+  "schema": "striatum.doctor.acknowledged_loss.v1",
+  "entries": [
+    {
+      "artifact_id": "art_44c0d0128e854e92b60f64eb4c3bc7e2",
+      "repo_path": "docs/dogfood/058/DESIGN_SYNTHESIS.md",
+      "content_sha256": "d1af32f2f4d31f83f4f8e70491961d1f116eadc5cbdec09f30ef9355b12cb8f9",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_c54a09c111abebf151178a68e5c9b271",
+      "repo_path": "docs/issues/22/build/HANDOFF.md",
+      "content_sha256": "21a9970805e95f6abb11bff21573636481e7c8d4bd28d356e19d14553623104e",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_4ededdae881c7836f2c3d8f505999543",
+      "repo_path": "docs/issues/23/build/HANDOFF.md",
+      "content_sha256": "2d6c7c42779140ead421be5c55c08306d0503eb9ca55686601c11f2443d81ffb",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_b43ed38bf89023bde8536638d94daff6",
+      "repo_path": "docs/issues/24/build/HANDOFF.md",
+      "content_sha256": "cd573ad49431993f1a30773c75ce2ee68ecbde6effaa2bc0be3aefb63b6538a8",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_ce23c15802b9bac82b5ae91ede26e2a1",
+      "repo_path": "docs/issues/25/build/HANDOFF.md",
+      "content_sha256": "8c54e5c5d9050e2830751bf5fff1a3cbb51d08a24f3d42b579998da9d843c58b",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_89deb76af41b68ae40ff8fda088cd0fd",
+      "repo_path": "docs/issues/26/build/HANDOFF.md",
+      "content_sha256": "7c8db4df027b98e8e739f1fe4cb525b4f76ca76cf009fb8d610624033ccdb40a",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_1a797d7f4026c94827cf6e5a732d8f8f",
+      "repo_path": "docs/issues/27/build/HANDOFF.md",
+      "content_sha256": "216771ea7cc4609e48254a9c98db20eed539496b42da28cb6ceee4e7ace20f8e",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_3df320bd455c327ae031ecf36c5411ff",
+      "repo_path": "docs/operator/workflows/agy-loop-smoke/artifacts/HELLO.md",
+      "content_sha256": "5ee9c432dd6ea96a94ae68f36c2f96e919ff60299908edfb23a7513b603217f1",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_4db46bf6cc668d1f8b671bd667cfaf93",
+      "repo_path": "docs/operator/workflows/f42-conversation-turn-driver/artifacts/build/HANDOFF.md",
+      "content_sha256": "71b7b75421104176a635758144266d61d16eb042ebe860dcc04086f4553b4743",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_22faac60d65fcea6ddd544d83d993589",
+      "repo_path": "docs/operator/workflows/f44-supervised-turndriver/artifacts/build/HANDOFF.md",
+      "content_sha256": "a48d2b3082bc973ccd07c150e174eb668b1a9cb573ebbe4f80ba0e6ba349a4a0",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_c309c11fec1f3ed06f2b56d8900bc537",
+      "repo_path": "docs/operator/workflows/interrogating-panel-2026-05-25/artifacts/build/HANDOFF.md",
+      "content_sha256": "87a6b6bd0dcd191f1251475ce0008042af84cfcc65d6aaf8406e70282e283ad1",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_45867bf152d5895a9dfab9ca2c0028ed",
+      "repo_path": "docs/operator/workflows/rfc-0088-p1-verify/artifacts/VERIFY.md",
+      "content_sha256": "de510faed9fc2802eae2110f5965a3feed8e3ec1ea8b5181fe0904fefe48fd17",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_da2d97be0d7815a4cc325db9e842bc23",
+      "repo_path": "docs/operator/workflows/rfc-0088-p1-verify/artifacts/VERIFY.md",
+      "content_sha256": "c5ecbad9feab1f233bc8ce3497ec955e8250cadda38a017d944593c675a0f9d8",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_4c847231e1b0a1bfda5500857251cbbf",
+      "repo_path": "docs/operator/workflows/rfc-0098-adjudicated-constraint-extraction/artifacts/build/HANDOFF.md",
+      "content_sha256": "cc4201e620323e85801120aaacc8d1e1e615045f59318ca7c8ebb4cbef8d2cd3",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_c08b1a9c48817d8d8012728d84e8af7d",
+      "repo_path": "docs/reviews/ace-graduation/ACE_GRAD_DRAFT.md",
+      "content_sha256": "318202097f21bcdb82d2ba206be3956077b552b1f39420d9d7149415cb48e529",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    },
+    {
+      "artifact_id": "art_0705a86c334eb49f606b040bde42b0fd",
+      "repo_path": "docs/reviews/ace-graduation/PANEL_RECOMMENDATION.md",
+      "content_sha256": "5aebf596d867a2c14b4be8198ffa3519459fbbd437af68bd79d3b03827ddd310",
+      "reason": "Superseded dogfood draft; deliverable path absent from origin/main (never merged or fully removed). Immaterial historical loss from early incubation/runner-development dogfoods.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-16"
+    }
+  ]
+}
