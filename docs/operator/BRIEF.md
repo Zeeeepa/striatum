@@ -102,67 +102,6 @@ GitHub triage.
   sets in the older sections are CLOSED. The live open set is
   #290/#296/#298/#299/#300/#301/#302/#303.
 
-## 2026-06-15 delta — #292 stalled-job finalize path (Unreleased, not yet tagged)
-
-Work after the 2026-06-14 delta, on `main`:
-
-- **#292 closed + landed** (`recovery.complete_stalled`, **D200**). New daemon
-  verb / CLI `recovery complete-stalled <run-id> <job-id>` that non-destructively
-  completes a job whose agent published its durable artifacts then died before
-  `work.complete` (the `recovery_exhausted` + `needs_operator` dead-end the #289
-  work surfaced but could not exit). Verifies required artifacts present +
-  body-reconstructable (RFC 0125 P0-3, worktree-independent), then completes the
-  job server-side and reuses the #207 path to resolve the moot blocker/escalation
-  and restore the run to `running`. Refuses verdict-capable jobs (RFC 0118),
-  refuses a live-leased job (finalizes a dead lane only); `--force` relaxes the
-  blocker precondition, `--dry-run` previews. 5 pgtests, adversarially reviewed,
-  CI-lint clean, built off `origin/main`. **No schema change.**
-- **Decision numbering:** **D199** was taken by the `divergent_ideation`
-  graduation (the 2026-06-14 delta's "next free D-number is D199" is now stale);
-  this work took **D200**. Next free D-number is **D201**.
-- **Daemon redeploy required:** `recovery.complete_stalled` is a new handler, so
-  it does not take effect until `systemctl --user restart striatumd` (or a
-  reboot). Verify the running `/proc/<pid>/exe` sha == installed after restart.
-
-## 2026-06-14 delta — RFC 0125 follow-ups (Unreleased, not yet tagged)
-
-Work after the v2.32.0 brief below, all on `main`. The #285/#286 daemon change
-is **deployed** (daemon restarted 2026-06-14, running `/proc/<pid>/exe` sha
-`dbbbe8c7` == installed, clean startup, read path verified); a **version bump is
-not yet cut** (deliberately — package the next release when ready):
-
-- **RFC 0125 provenance-durability campaign closed out** (#270–#284) — see
-  `docs/operator/plans/provenance-durability-campaign-2026-06-14.md`.
-- **Three follow-up RFCs accepted:** RFC 0126 (multi-reviewer revision
-  coherence, **D194**), RFC 0127 (retire the lane git identity, **D195**),
-  RFC 0128 (cross-repo run boundary, **D196**). Next free D-number is **D199**
-  (D197/D198 taken by the #287/#289 friction fixes below).
-  (Note: **D193** was taken by the hippo-S12 git-eviction taxonomy merge.)
-- **Dogfood-friction fixes #287/#288/#289 landed + closed** (`741d5c8b` #288,
-  `37276a73` #289, `fc651158` #287 — all direct fixes, code-reviewed, pgtested,
-  CI-lint clean, off `origin/main`). These fix the `code_change` dogfood pipeline
-  itself: **#288** (`workflow generate` DX — `.striatum/scratch` scaffold root,
-  `--option workflow_id/artifact_root`, batched lane-command errors, single_agent
-  code_change validates out of the box); **#289** (`agent_exited_unsealed`
-  recovery class + smaller budget + inspect-the-worktree escalation, **D198**);
-  **#287** (opt-in `write_scope.publish_source_changes` — the lane's source edits
-  land on the run branch, **D197**; generator opts `code_change` in by default).
-  The daemon (#287/#289) was restarted + verified to pick these up.
-- **#285 landed** (`579c1c34`) — RFC 0125 P0-3 body-reconstructability completion
-  gate (`verifyRequiredArtifactReconstructable`, fail key
-  `required_artifact_unreconstructable`, degrade ladder warns-not-wedges).
-- **#286 landed** (`d9ae5411`) — RFC 0125 P1-1 content-addressed RUN_LEDGER in
-  the completion record. Both pgtested + adversarially reviewed; #285/#286 closed.
-- **RFC implementation dogfoods scaffolded** (`b8d6be77`,
-  `docs/campaigns/rfc-012{6,7,8}/` + `docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md`).
-  **0126 P0 launched live** (`run_806f8cc15784dd1f85ae2900eb70de45`); operator
-  review gate applies before integrating its feature branch.
-- **#285/#286 deployed + verified** (daemon pid restarted, sha `dbbbe8c7`, no
-  startup errors). **Pending:** promote CHANGELOG `Unreleased` → a version bump
-  (the block also holds #217 + the concurrent #264/#266 set) when the maintainer
-  says go; review + merge `rfc-0126-p0-review` (the dogfood-produced RFC 0126 P0
-  implementation, verified); optionally launch the 0127/0128 dogfoods.
-
 ## State
 
 Latest release is **v2.32.0 (2026-06-13)**, deployed from the signed
