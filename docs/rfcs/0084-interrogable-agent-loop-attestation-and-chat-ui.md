@@ -1,6 +1,6 @@
 # RFC 0084: Interrogable agent-loop attestation + interrogation-log chat UI
 
-Status: proposed
+Status: accepted (D141)
 Date: 2026-05-26
 Author: proposer-claude-opus-4-7-001
 Context: builds on [`RFC 0082`](0082-interrogation-sessions.md) (interrogation

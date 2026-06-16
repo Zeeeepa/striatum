@@ -119,7 +119,7 @@ so external references keep resolving even as items move between sections.
 | 65 | RFC 0058 operator progress surface | ✅ done |
 | 66 | Decision/RFC supersession hygiene and duplicate decision-id cleanup | ✅ done |
 | 67 | RFC 0050/RFC 0075 MCP cutover and tmux-observable sessions | ✅ done |
-| 68 | RFC 0078 Go-only runtime and Python removal | 🟡 gates executed; final deletion blocked |
+| 68 | RFC 0078 Go-only runtime and Python removal | ✅ done |
 
 Legend: ✅ done · 🟡 most done (sub-tasks remain) · ⏳ open/blocked · 💤 shelved
 
@@ -1388,8 +1388,8 @@ review and plan are root-level operator artifacts:
     produced the cutover ledger and per-surface handoffs, added the first Go
     `striatum workflow validate` CLI scaffold, and expanded Go artifact
     contract/front-matter parity for operator, Git/PR, and auto-finalize gate
-    artifacts. Remaining work is the final documentation rewrite and the
-    terminal Python source/test deletion. On 2026-05-25, the remaining work
+    artifacts. Remaining work at that point was the final documentation rewrite
+    and the terminal Python source/test deletion. On 2026-05-25, the remaining work
     was split into six dedicated executable workflows plus an umbrella tracker,
     then executed with six parallel sub-agents. Landed slices include the
     generated Go CLI RPC router, shared Go artifact contracts, expanded Go
@@ -1398,7 +1398,8 @@ review and plan are root-level operator artifacts:
     Python-trace deletion guardrail. Aggregate validation is green for Go
     tests, workflow validation, frontend API-client tests, release/package
     smokes, doc-link/current-brief tests, and route freshness checks.
-    Final Python deletion is the last remaining gate.
+    RFC 0078 is complete: the terminal `src/` Python tree was deleted
+    (Gate G, commit a382dd7d) and the runtime is Go-only.
 
 ## GH issue follow-ups
 

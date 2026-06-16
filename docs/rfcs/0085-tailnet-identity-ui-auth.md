@@ -1,6 +1,6 @@
 # RFC 0085: Tailnet-identity UI authentication (loopback-preserving)
 
-Status: proposed
+Status: accepted (D143)
 Date: 2026-05-26
 Author: proposer-claude-opus-4-7-001
 Context: builds on [`RFC 0084`](0084-interrogable-agent-loop-attestation-and-chat-ui.md)

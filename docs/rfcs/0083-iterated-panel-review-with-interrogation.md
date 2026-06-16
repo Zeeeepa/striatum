@@ -1,6 +1,6 @@
 # RFC 0083: Iterated Panel Review with Interrogation
 
-Status: proposed
+Status: accepted (D139)
 Date: 2026-05-25
 author: proposer-claude-opus-4-7-001
 Context:

@@ -1,6 +1,6 @@
 # RFC 0129: Cognitive frame library — categories, anti-redundancy selection, and the multi-model convergence signal
 
-Status: proposed
+Status: accepted / implemented (D199)
 Date: 2026-06-14
 author: proposer-claude-opus-4-8-001
 Context:

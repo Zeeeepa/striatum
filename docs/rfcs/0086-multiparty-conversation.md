@@ -1,6 +1,6 @@
 # RFC 0086: Multi-party conversation on the MCP agent-loop
 
-Status: proposed
+Status: accepted (D144)
 Date: 2026-05-26
 Author: proposer-claude-opus-4-7-001
 Context: generalizes [`RFC 0082`](0082-interrogation-sessions.md) (interrogation =

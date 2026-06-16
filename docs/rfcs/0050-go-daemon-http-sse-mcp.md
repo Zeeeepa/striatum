@@ -1,6 +1,6 @@
 # RFC 0050 — Native Go Daemon HTTP/SSE MCP and Agent Loop
 
-**Status:** accepted (active implementation roadmap)
+**Status:** accepted (native MCP slices implemented; numbering collision)
 **Scope:** Architecture alignment / Python MCP and CLI control-plane deprecation
 
 ## Background

@@ -1,6 +1,6 @@
 # RFC 0047 — Decision-record propagation and compromised run state
 
-**Status:** proposed
+**Status:** accepted / landed
 **Scope:** V1.8 (multi-step)
 **Closes:** GH #3
 

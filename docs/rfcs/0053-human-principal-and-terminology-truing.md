@@ -1,6 +1,6 @@
 # RFC 0053 — Human principal as escalation-only role + terminology truing
 
-**Status:** proposed (core escalation surfaces partially landed)
+**Status:** accepted (core escalation surfaces partially landed)
 **Scope:** prose + escalation surfaces landed; vocabulary rename and
 notification rails remain deferred
 **Closes (partially):** the ambient "human operator" framing baked into

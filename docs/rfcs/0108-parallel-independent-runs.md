@@ -1,6 +1,6 @@
 # RFC 0108: Parallel independent runs on one repo — many operators, one repository, no collisions
 
-Status: proposed
+Status: accepted / implemented (P1–P5, v2.19.0–v2.23.0)
 Date: 2026-06-02
 author: proposer-claude-opus-4-8-001
 Context: RFC 0104 (per-run serialization invariant), RFC 0008 (worktree isolation for parallel jobs), RFC 0067 (optional git/PR integration), RFC 0107 (multi-principal trust model), RFC 0105 (unattended-reliability harness), RFC 0028/0032 (multi-repository control plane), RFC 0102 (operator attention economy); `go/pkg/mutations/run.go`, `claim.go`, `worktree.go`, `write_scope_guard.go`, `go/pkg/apply`, `go/pkg/reads/dashboard_all.go`, `go/pkg/workflowauthoring/{workflow.go,lint.go}`.
