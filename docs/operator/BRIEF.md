@@ -46,17 +46,24 @@ The open **P1 of #300** (flagged in the delta below) is done and live.
   did not time-expire for ~31 min (a requeue renewed it), so `complete-stalled`
   refused until then. Reinforces that follow-up (a way to finalize a confirmed-dead
   unsealed lane without waiting out the renewed lease).
-- **Global `doctor ok` is still `false` — but for 4 NON-#300 problems** from a
-  concurrent agent's runs, NOT historical noise (the fix working as intended):
-  the **#290** (`run_a016c955`, `issue-290-parallel-fanin`) and **#296**
-  (`run_685ae8f4`, `issue-296-codex-mcp-injection`) divergent_ideation runs are
-  each wedged at their final job (10/11 jobs completed, same #289 pattern), drive
-  units **inactive**, plus their 2 orphaned `supervisor_liveness:
-  tmux_session_missing` supervisors. Left untouched (concurrent-agent ownership) —
-  finalize-vs-cancel is an operator decision pending the owner.
-- **Open operator decisions (not blockers):** (1) clean up the 4 residual #290/#296
-  problems to reach a true global `ok=true`; (2) version bump / tag for D204+D205
-  (per the release convention) — both deferred to the operator.
+- **`doctor ok=True, problem_count=0` — fully green (first time).** The 4
+  NON-#300 problems above were the **#290** (`run_a016c955`) and **#296**
+  (`run_685ae8f4`) `divergent_ideation` runs wedged at their final job (same #289
+  pattern). The runs' owner (this operator pack) gave them go-ahead, drove both
+  to completion, and **finalized both via `recovery complete-stalled`** (→
+  `completed`, `IDEATION_SYNTHESIS.md` `readback_verified`); that cleared the 4
+  residual problems, so global doctor is now green. Both runs produced full
+  option-sets (pushed branches `origin/striatum/issue-290-parallel-fanin` /
+  `issue-296-codex-mcp-injection`; headlines commented on #290/#296). Landing
+  the artifacts to `main` is deferred behind #299 (base-drift → `run integrate`
+  non-FF). The recovery defect itself is filed as **#308** (bug, ready-for-agent):
+  the autonomous sweep should auto-finalize an `agent_exited_unsealed` job whose
+  artifacts are reconstructable, instead of escalating to `needs_operator`. See
+  [[project_292_complete_stalled]].
+- **Open operator decisions (not blockers):** version bump / tag for D204+D205
+  (per the release convention) — deferred to the operator. (The earlier
+  "clean up the 4 residual #290/#296 problems" decision is RESOLVED — doctor is
+  green.)
 
 ## 2026-06-16 delta — deploy confirmed + full backlog triage
 
