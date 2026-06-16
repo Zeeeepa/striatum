@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.33.0 — 2026-06-16
+
 ### Decisions
 
 - **Doctor integrity legibility P1 — artifact-loss problems → `0` (D205, #300).**
