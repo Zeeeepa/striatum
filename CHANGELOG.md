@@ -223,6 +223,19 @@
 
 ### Fixed
 
+- **#290 parallel fan-in siblings are integrated into the run branch, not stranded
+  (D206).** When N author jobs fanned in to a downstream job, only the first to
+  complete fast-forwarded the run branch; each later sibling's worktree had forked
+  from the pre-FF tip, so its HEAD could no longer FF and was only pinned under
+  `refs/striatum/<run>/<job>/<attempt>` — durable but unreachable, so a downstream
+  worktree (seeded from the run branch) never saw it. The anchor now integrates a
+  non-fast-forwardable HEAD via a conflict-free object-DB content merge
+  (`merge-tree --write-tree` → `commit-tree` → compare-and-swap `update-ref`, the
+  same plumbing as `run integrate`) and still pins it for provenance; an overlap
+  (two siblings wrote the same path) is surfaced loudly rather than silently
+  resolved to a last writer. `doctor` gains a `fanin_sibling_unintegrated` warning
+  (running runs only) for a completed job reachable only via a pin. No schema/RPC
+  change. The deferred post-completion join barrier + join manifest remain follow-ups.
 - **#296 codex push lanes fail loud when the MCP endpoint/token is unresolvable.**
   A stdin-FIFO ("push") codex lane whose live Striatum MCP endpoint or session
   capability token could not be resolved used to silently degrade to a bare
