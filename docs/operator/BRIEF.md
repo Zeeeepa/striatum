@@ -94,19 +94,16 @@ and the issues CLOSED. `doctor` stayed green throughout.
 
 ## State
 
-Latest release is **v2.32.0 (2026-06-13)**, deployed from the signed
-`v2.32.0` tag at `0f44933a` (release workflow `27469264131`, published
-2026-06-13T14:24Z). It packages the post-v2.31.0 landing set: the **RFC 0118
-implementation** (#240, run-completion provenance gate, P0-1 through P1-6),
-the **RFC 0119 acceptance** (D179), **RFC 0120 Phase 1 + Phase 2** (#248,
-D180: await-packet idle exit plus notify-only wake bus), the **session
-recovery edge fixes** (#253/#254/#255), the
-provider-auth/worktree-row/run-drive teardown/config preflight fixes
-(#259/#260/#261/#262), and a CLI-reference/doc-truth pass. Runtime schema
-remains 26 with owner bundles 0001–0006. `main` is now one commit past the
-release tag with the #217 doctor artifact-anchor integrity check, which is
-closed and belongs to the next release block. The prior full brief stopped at
-v2.9.3 (2026-06-02); everything below is the delta.
+Latest release is **v2.33.0 (2026-06-16)**, the `v2.33.0` tag at `564a8209`
+(release workflow `27632712989`, published 2026-06-16T16:40Z), daemon redeployed
++ verified (running sha == installed). It packages the post-v2.32.0 landing set:
+doctor integrity legibility **P0+P1** (D204/D205, #300), **#290/D206** fan-in
+run-branch integration, **#296** codex push-lane loud-fallback, **#301/#307**
+workflowgenerate fixes, **#304** dangling-blocker resolution, and **#311**
+recovery-escalation legibility (details in CHANGELOG `v2.33.0`). The in-flight
+recovery cluster **#308/#309/#302** (PR #318, conflicting) is held for **v2.34.0**.
+The prior **v2.32.0** (2026-06-13) packaged RFC 0118/0119/0120 + session-recovery
+edge fixes. The prior full brief stopped at v2.9.3 (2026-06-02); below is the delta.
 
 **The 2026-06-03 → 06-07 release burst (v2.10.0 → v2.31.0, 22 minors):**
 
