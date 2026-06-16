@@ -19,10 +19,11 @@ striatum operator bootstrap --markdown
 striatum workflow validate docs/operator/workflows/striatum-reliability-reset-2026-06-16/workflow.json --json
 ```
 
-The workflow's lane command is intentionally `striatum codex`, which resolves
-the live daemon MCP endpoint and runtime token before launching Codex. If
-`codex` is not available on `proximal`, stop and fix the lane command or
-provider install before preparing the run.
+The workflow's lane command is intentionally direct `codex`, because
+`supervise.start` only accepts supported agent-loop adapter argv0 values
+(`codex`, `agy`, or `claude`) and injects the live daemon MCP endpoint and
+runtime token before launching Codex. If `codex` is not available on `proximal`,
+stop and fix the provider install before preparing the run.
 
 Do not start the run until there are no non-terminal runs. Striatum's current
 operator bootstrap treats these run states as terminal: `completed`, `failed`,
@@ -32,7 +33,7 @@ One quick check:
 
 ```bash
 striatum status --json \
-  | jq -r '.data.runs[]? | select((.state == "completed" or .state == "failed" or .state == "canceled") | not) | "\(.run_id)\t\(.state)"'
+  | jq -r '.runs[]? | select((.state == "completed" or .state == "failed" or .state == "canceled") | not) | "\(.run_id)\t\(.state)"'
 ```
 
 If that prints any rows, wait or settle those runs first.
