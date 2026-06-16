@@ -1023,7 +1023,10 @@ func TestSupervisedPushCommandInjectsCodexMCPConfigBeforeExec(t *testing.T) {
 		RepoRoot:        t.TempDir(),
 		CapabilityToken: "stok_session_secret",
 	}
-	got := supervisedPushCommand(config, []string{"STRIATUM_MCP_URL=http://127.0.0.1:42727/mcp"})
+	got, err := supervisedPushCommand(config, []string{"STRIATUM_MCP_URL=http://127.0.0.1:42727/mcp"})
+	if err != nil {
+		t.Fatalf("supervisedPushCommand: %v", err)
+	}
 	wantPrefix := []string{
 		"codex",
 		"-c", `mcp_servers.striatum.url="http://127.0.0.1:42727/mcp"`,
@@ -1034,6 +1037,72 @@ func TestSupervisedPushCommandInjectsCodexMCPConfigBeforeExec(t *testing.T) {
 	}
 	if got[len(got)-1] != "-" {
 		t.Fatalf("codex stdin marker moved: %#v", got)
+	}
+}
+
+// TestSupervisedPushCommandRefusesCodexWithoutEndpoint is the #296 silent-fallback
+// guard: a codex push lane that cannot resolve a live MCP endpoint must FAIL the
+// launch (loud + recoverable) instead of degrading to a bare codex that silently
+// no-ops against a dead/absent work-packet control plane.
+func TestSupervisedPushCommandRefusesCodexWithoutEndpoint(t *testing.T) {
+	config := supervisionStartConfig{
+		AgentLoopMode:   agentLoopModePush,
+		Command:         []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},
+		OriginalCommand: []string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},
+		RepoRoot:        t.TempDir(), // no .striatum metadata → no endpoint
+		CapabilityToken: "stok_session_secret",
+	}
+	// Empty env (and an isolated HOME) so ResolveMCPEndpoint finds no live endpoint.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	got, err := supervisedPushCommand(config, []string{})
+	if err == nil {
+		t.Fatalf("expected codex push launch to refuse without an endpoint, got command %#v", got)
+	}
+	if !strings.Contains(err.Error(), "codex push lane") {
+		t.Fatalf("refusal message should name the codex push lane, got: %v", err)
+	}
+}
+
+// TestSupervisedPushCommandRefusesCodexWithoutToken: even with a resolvable
+// endpoint, a codex push lane with no session capability token cannot authenticate
+// to MCP — refuse rather than launch a bare codex that can never claim work.
+func TestSupervisedPushCommandRefusesCodexWithoutToken(t *testing.T) {
+	config := supervisionStartConfig{
+		AgentLoopMode:   agentLoopModePush,
+		Command:         []string{"codex", "exec", "-"},
+		OriginalCommand: []string{"codex", "exec", "-"},
+		RepoRoot:        t.TempDir(),
+		CapabilityToken: "", // no session-bound token
+	}
+	got, err := supervisedPushCommand(config, []string{"STRIATUM_MCP_URL=http://127.0.0.1:42727/mcp"})
+	if err == nil {
+		t.Fatalf("expected codex push launch to refuse without a capability token, got command %#v", got)
+	}
+	if !strings.Contains(err.Error(), "capability token") {
+		t.Fatalf("refusal message should name the missing capability token, got: %v", err)
+	}
+}
+
+// TestSupervisedPushCommandPassesNonCodexThrough confirms the refusal is scoped to
+// codex push lanes: a non-codex push lane (or a self-driving lane) is returned
+// verbatim with no error even when no endpoint resolves (its injection, if any,
+// happens on a different path).
+func TestSupervisedPushCommandPassesNonCodexThrough(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	config := supervisionStartConfig{
+		AgentLoopMode:   agentLoopModePush,
+		Command:         []string{"claude", "-"},
+		OriginalCommand: []string{"claude", "-"},
+		RepoRoot:        t.TempDir(),
+	}
+	got, err := supervisedPushCommand(config, []string{})
+	if err != nil {
+		t.Fatalf("non-codex push lane should pass through without error, got: %v", err)
+	}
+	if strings.Join(got, "\x00") != strings.Join(config.Command, "\x00") {
+		t.Fatalf("non-codex push command should be verbatim, got %#v", got)
 	}
 }
 

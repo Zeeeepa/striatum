@@ -53,7 +53,11 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	}
 	defer func() { _ = stdin.Close() }()
 	laneEnv := supervisedLaneEnv(config, supervisorID)
-	command := supervisedPushCommand(config, laneEnv)
+	command, err := supervisedPushCommand(config, laneEnv)
+	if err != nil {
+		cleanupStdin()
+		return supervisionLaunchResult{}, err
+	}
 	envFilePath := ""
 	cleanupEnvFile := func() {}
 	if strings.TrimSpace(config.RunAsUser) != "" {
@@ -145,16 +149,37 @@ func openOneShotPipeStdin(pipePath string) (*os.File, func(), error) {
 	return reader, cleanup, nil
 }
 
-func supervisedPushCommand(config supervisionStartConfig, env []string) []string {
+// supervisedPushCommand builds the argv for a stdin-FIFO ("push") supervised
+// lane. For a codex push lane it injects the live Striatum MCP endpoint as
+// per-key `-c mcp_servers.striatum.*` overrides (codex has no --mcp-config; the
+// override wins over any stale `[mcp_servers.striatum]` section in the user's
+// ~/.codex/config.toml — verified against codex-cli, see codex_mcp_precedence_test.go).
+//
+// #296: a codex push lane that cannot resolve a live endpoint OR has no session
+// capability token must NOT silently degrade to a bare `codex` command. A bare
+// codex still launches and looks healthy, but its MCP client points at whatever
+// stale port the on-disk config pins (or nothing), so the lane can never reach
+// work.await_packet / publish / complete — it silently no-ops while the run wedges
+// and doctor only ever shows a warning. Refuse the launch instead: the caller
+// marks the supervisor lost (recoverable) and returns a legible error, so the
+// operator/recovery retries once the endpoint/token is available rather than
+// trusting a lane that is dead on arrival.
+func supervisedPushCommand(config supervisionStartConfig, env []string) ([]string, error) {
 	command := append([]string(nil), config.Command...)
 	if config.AgentLoopMode != agentLoopModePush || config.adapterName() != "codex" {
-		return command
+		return command, nil
 	}
 	endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, env)
-	if err != nil || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(config.CapabilityToken) == "" {
-		return command
+	if err != nil {
+		return nil, fmt.Errorf("codex push lane cannot resolve a live Striatum MCP endpoint (%w); refusing to launch a bare codex that would silently no-op against the work-packet control plane", err)
 	}
-	return agentloop.InjectCodexMCPConfigArgs(command, config.RepoRoot, endpoint)
+	if strings.TrimSpace(endpoint) == "" {
+		return nil, fmt.Errorf("codex push lane resolved an empty Striatum MCP endpoint; refusing to launch a bare codex that would silently no-op against the work-packet control plane")
+	}
+	if strings.TrimSpace(config.CapabilityToken) == "" {
+		return nil, fmt.Errorf("codex push lane has no session capability token to inject as %s; refusing to launch a bare codex that cannot authenticate to the MCP control plane", agentloop.EnvMCPToken)
+	}
+	return agentloop.InjectCodexMCPConfigArgs(command, config.RepoRoot, endpoint), nil
 }
 
 // startHelperReaper harvests a supervisor-helper child's exit status so it is
