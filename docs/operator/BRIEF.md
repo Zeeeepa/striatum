@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-16_deploy-and-triage"
-supersedes: "brief_2026-06-15_292-complete-stalled"
+brief_id: "brief_2026-06-16_300-p1-doctor-ok"
+supersedes: "brief_2026-06-16_deploy-and-triage"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,52 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-16 delta — #300 P1 LANDED + DEPLOYED (doctor artifact problems → 0, D205)
+
+The open **P1 of #300** (flagged in the delta below) is done and live.
+
+- **D205 landed + deployed.** `striatum doctor`'s artifact-integrity check now
+  takes its 42 residual historical-loss problems to **`problem_count: 0`** via
+  three additive rules (read-only `go/pkg/reads/`): **(A)** default-branch
+  *history* awareness → clean; **(B)** `artifact_superseded_on_default_branch`
+  warning (path live on default tip, content revised pre-merge); **(C)**
+  `artifact_acknowledged_loss` warning from a curated, **sha-bound** baseline
+  (`docs/operator/doctor-acknowledged-loss.json`, schema
+  `striatum.doctor.acknowledged_loss.v1`). An unlisted genuine loss still reds
+  `ok` (load-bearing safety, tested both ways). Daemon redeployed — running pid's
+  `/proc/<pid>/exe` embeds git sha `f0c29f67`, NOT `(deleted)`; live doctor shows
+  the artifact block `problem_count: 0`, `acknowledged_loss_status: loaded`, with
+  16 `artifact_acknowledged_loss` + 12 `artifact_superseded_on_default_branch`
+  warnings.
+- **The real split was 14 / 12 / 16, not the handoff's 27 / 15.** By *content
+  sha* (not path presence): 14 recoverable via history (Rule A), 12 superseded
+  (Rule B), 16 genuinely path-gone (Rule C baseline). The 16 are immaterial early
+  dogfood drafts (`docs/issues/22-27` handoffs, `agy-loop-smoke`, `f42`/`f44`
+  driver handoffs, `interrogating-panel`, `rfc-0088-p1` verify, `rfc-0098`
+  handoff, `ace-graduation` drafts, `docs/dogfood/058` synthesis). This is the
+  "acknowledge" half of the #303 acknowledge/prune tier; a record-prune verb
+  remains #303's domain.
+- **Built via the `doctor-integrity-legibility-p1` dogfood** (`run_d6134a8a`,
+  `code_change` single claude lane, `publish_source_changes`), operator-gated
+  (build, CI lint `0 issues`, full `pkg/reads` tests incl. both safety
+  sub-cases). The apply lane hit **#289 again** (`agent_exited_unsealed` →
+  `recovery_exhausted`); finalized through the daemon with `recovery
+  complete-stalled` — and the **#292 lease-timing gap recurred**: the apply lease
+  did not time-expire for ~31 min (a requeue renewed it), so `complete-stalled`
+  refused until then. Reinforces that follow-up (a way to finalize a confirmed-dead
+  unsealed lane without waiting out the renewed lease).
+- **Global `doctor ok` is still `false` — but for 4 NON-#300 problems** from a
+  concurrent agent's runs, NOT historical noise (the fix working as intended):
+  the **#290** (`run_a016c955`, `issue-290-parallel-fanin`) and **#296**
+  (`run_685ae8f4`, `issue-296-codex-mcp-injection`) divergent_ideation runs are
+  each wedged at their final job (10/11 jobs completed, same #289 pattern), drive
+  units **inactive**, plus their 2 orphaned `supervisor_liveness:
+  tmux_session_missing` supervisors. Left untouched (concurrent-agent ownership) —
+  finalize-vs-cancel is an operator decision pending the owner.
+- **Open operator decisions (not blockers):** (1) clean up the 4 residual #290/#296
+  problems to reach a true global `ok=true`; (2) version bump / tag for D204+D205
+  (per the release convention) — both deferred to the operator.
 
 ## 2026-06-16 delta — deploy confirmed + full backlog triage
 

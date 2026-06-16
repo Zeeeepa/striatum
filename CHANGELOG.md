@@ -4,6 +4,24 @@
 
 ### Decisions
 
+- **Doctor integrity legibility P1 — artifact-loss problems → `0` (D205, #300).**
+  Extends the D204 reclassification so `striatum doctor`'s artifact integrity
+  check (read-only, `go/pkg/reads/`) no longer reds `ok` on preserved-but-not-at-tip
+  or operator-acknowledged historical content, taking the 42 residual artifact
+  problems to `0`. Three rules: **(A) default-branch *history* awareness** — content
+  whose `content_sha256` matches `repo_path` at any reachable revision of the default
+  branch (not only its tip) is durably preserved → clean (bounded `--max-count=200`,
+  `ctx`-cancellable, memoized, safe-degrading); **(B) `artifact_superseded_on_default_branch`**
+  — a deliverable whose `repo_path` is still live on the default-branch tip (only the
+  recorded draft `content_sha256` is unverifiable, the lane draft having been revised
+  before merge) → warning, not a problem; **(C) `artifact_acknowledged_loss`** — a
+  curated, sha-bound baseline (`docs/operator/doctor-acknowledged-loss.json`, schema
+  `striatum.doctor.acknowledged_loss.v1`) downgrades reviewed, immaterial losses to a
+  warning. Rule C is honored **only** on `artifact_id` + `content_sha256` match, so a
+  stale/wrong entry can never mask a different or future loss; an unlisted genuine loss
+  still reds `ok`. The reader safe-degrades when the baseline is absent. No
+  schema/migration/RPC. Tied to the `AGENTS.md` "Do not paste over a broken runner"
+  guardrail: a green doctor is only trustworthy if any future real gap flips it red.
 - **#297 undeclared in-scope files no longer drop silently at `work.complete` (D203).**
   Completion now computes the in-scope, attempt-authored files that are neither
   declared as `expected_artifacts` nor published via the D197
