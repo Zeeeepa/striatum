@@ -4,12 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/halbritt/striatum/go/pkg/blob"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +22,12 @@ const latestRepoLocalSchemaVersion = 16
 
 type Service struct {
 	Runner db.Runner
+	// BlobClient is the daemon's S3 client (nil when blob storage is not
+	// configured). When set and the caller passes apply_blob_creation, repo.add
+	// provisions the per-repo bucket — the behaviour the RFC 0072 runbook and the
+	// blob_apply_required suggestion have always documented for
+	// `repo add --apply-blob-creation`, but which repo.add previously ignored (#358).
+	BlobClient *blob.Client
 }
 
 func (s Service) Register(server *rpc.Server) {
@@ -53,9 +62,27 @@ func (s Service) Add(ctx context.Context, envelope rpc.Envelope) (map[string]any
 		return nil, err
 	}
 	if existing != nil {
+		// Re-adopt of an already-registered repo. Backfill the blob bucket if
+		// blob storage is configured, the caller asked to apply it, and the row
+		// has no bucket yet (the repo was registered before blob was configured).
+		// This is the documented `repo add --apply-blob-creation` backfill path.
+		if s.BlobClient != nil && rowBlobBucket(existing) == "" && boolParam(envelope.Params, "apply_blob_creation") {
+			repositoryID, _ := existing["repository_id"].(string)
+			bucket, createdAt, provErr := s.provisionRepoBucket(ctx, repositoryID, envelope.Params)
+			if provErr != nil {
+				return nil, provErr
+			}
+			if err := s.recordRepoBucket(ctx, repositoryID, bucket, createdAt); err != nil {
+				return nil, err
+			}
+			existing["blob_bucket"] = bucket
+		}
 		existing["already_registered"] = true
 		result := publicRepository(existing)
 		result["already_registered"] = true
+		if bucket := rowBlobBucket(existing); bucket != "" {
+			result["blob_bucket"] = bucket
+		}
 		return result, nil
 	}
 	pathExisting, err := findByRoot(ctx, s.Runner, repo, false)
@@ -70,28 +97,114 @@ func (s Service) Add(ctx context.Context, envelope rpc.Envelope) (map[string]any
 	if displayName == "" {
 		displayName = filepath.Base(repo)
 	}
+
+	// RFC 0072: provision the blob bucket BEFORE the INSERT so a refusal
+	// (repo_blob_conflict, blob_apply_required) does not leave a half-registered
+	// row behind. With no blob configured or apply_blob_creation unset, we skip
+	// and record a NULL bucket — exactly as the admin repo.init path does.
+	var blobBucket string
+	var blobCreatedAt *time.Time
+	if s.BlobClient != nil && boolParam(envelope.Params, "apply_blob_creation") {
+		bucket, createdAt, provErr := s.provisionRepoBucket(ctx, repositoryID, envelope.Params)
+		if provErr != nil {
+			return nil, provErr
+		}
+		blobBucket = bucket
+		blobCreatedAt = createdAt
+	}
+	var blobBucketArg any
+	if blobBucket != "" {
+		blobBucketArg = blobBucket
+	}
+	var blobCreatedAtArg any
+	if blobCreatedAt != nil {
+		blobCreatedAtArg = *blobCreatedAt
+	}
+
 	if err := s.Runner.Exec(ctx, `
 		INSERT INTO striatumd.repositories(repository_id, repo_identity, repo_root,
 		  state_db_path, display_name, registered_at, removed_at, last_seen_at,
-		  last_schema_version, state, settings_json)
-		VALUES ($1, $2, $3, $4, $5, now(), NULL, now(), $6, 'active', '{}'::jsonb)`,
+		  last_schema_version, state, settings_json, blob_bucket, blob_created_at)
+		VALUES ($1, $2, $3, $4, $5, now(), NULL, now(), $6, 'active', '{}'::jsonb, $7, $8)`,
 		repositoryID,
 		identity,
 		repo,
 		stateDir,
 		displayName,
 		latestRepoLocalSchemaVersion,
+		blobBucketArg,
+		blobCreatedAtArg,
 	); err != nil {
 		return nil, err
 	}
-	return map[string]any{
+	result := map[string]any{
 		"repository_id":  repositoryID,
 		"repo_root":      repo,
 		"repo_identity":  identity,
 		"state_db_path":  stateDir,
 		"schema_version": latestRepoLocalSchemaVersion,
 		"state":          "active",
-	}, nil
+	}
+	if blobBucket != "" {
+		result["blob_bucket"] = blobBucket
+	}
+	return result, nil
+}
+
+func rowBlobBucket(row map[string]any) string {
+	if value, ok := row["blob_bucket"].(string); ok {
+		return value
+	}
+	return ""
+}
+
+// provisionRepoBucket runs the RFC 0072 adopt-time blob provisioning for repo.add
+// and returns the resulting bucket name and creation timestamp. Errors are
+// already RPC-shaped (blob_apply_required, repo_blob_conflict,
+// blob_provision_failed) and can be returned directly to the client. It mirrors
+// the admin repo.init provisioning contract so `repo add --apply-blob-creation`
+// and the admin path behave identically (#358).
+func (s Service) provisionRepoBucket(ctx context.Context, repositoryID string, params map[string]any) (string, *time.Time, error) {
+	bucket := stringParam(params, "blob_bucket")
+	if bucket == "" {
+		bucket = blob.DefaultBucketName("", repositoryID)
+	}
+	apply := boolParam(params, "apply_blob_creation")
+	result, err := s.BlobClient.Provision(ctx, bucket, blob.ProvisionOptions{
+		ApplyCreation: apply,
+		RepositoryID:  repositoryID,
+	})
+	if errors.Is(err, blob.ErrApplyRequired) {
+		return "", nil, rpc.NewError(
+			"blob_apply_required",
+			fmt.Sprintf("bucket %q does not exist; re-run repo add with --apply-blob-creation to create it", bucket),
+			map[string]any{"bucket": bucket},
+		)
+	}
+	if err != nil {
+		return "", nil, rpc.NewError("blob_provision_failed", err.Error(), map[string]any{"bucket": bucket})
+	}
+	if result.Refused != "" {
+		return "", nil, rpc.NewError("repo_blob_conflict", result.Refused, map[string]any{
+			"bucket":        bucket,
+			"repository_id": repositoryID,
+		})
+	}
+	now := time.Now().UTC()
+	return result.BucketName, &now, nil
+}
+
+func (s Service) recordRepoBucket(ctx context.Context, repositoryID, bucket string, createdAt *time.Time) error {
+	var createdAtArg any
+	if createdAt != nil {
+		createdAtArg = *createdAt
+	}
+	return s.Runner.Exec(ctx, `
+		UPDATE striatumd.repositories
+		   SET blob_bucket = $1, blob_created_at = $2
+		 WHERE repository_id = $3`,
+		bucket, createdAtArg, repositoryID,
+	)
 }
 
 func (s Service) List(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {

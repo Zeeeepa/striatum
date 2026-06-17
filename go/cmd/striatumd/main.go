@@ -934,7 +934,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	// Python; same response shapes.
 	reads.Register(server, runner, reads.Options{BlobClient: options.BlobClient, StriatumVersion: daemonVersion})
 	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath, MCPBootEpoch: options.MCPBootEpoch, RecallDigest: options.RecallDigest})
-	repositories.Service{Runner: runner}.Register(server)
+	repositories.Service{Runner: runner, BlobClient: options.BlobClient}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",
 		"evidence.export", "corpus.export", "run.summary", "run.graph",

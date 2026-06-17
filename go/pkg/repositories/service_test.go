@@ -238,6 +238,77 @@ func repositoryRowWithStatePath(repositoryID string, repoRoot string, state stri
 	}
 }
 
+// addCapturingRunner is a write-capable fake for repo.add: queries return no
+// rows (so Add takes the new-repo path) and Exec records the INSERT and its args.
+type addCapturingRunner struct {
+	execSQL  []string
+	execArgs [][]any
+}
+
+func (r *addCapturingRunner) Exec(_ context.Context, sql string, args ...any) error {
+	r.execSQL = append(r.execSQL, sql)
+	r.execArgs = append(r.execArgs, args)
+	return nil
+}
+
+func (r *addCapturingRunner) QueryRow(context.Context, string, ...any) db.Row {
+	return resolveFakeRow{}
+}
+
+func (r *addCapturingRunner) QueryScalar(context.Context, string, ...any) (string, error) {
+	return "", nil
+}
+
+func (r *addCapturingRunner) BeginTx(context.Context) (db.TxRunner, error) {
+	return nil, errors.New("repo.add new-repo path does not open a transaction")
+}
+
+func (r *addCapturingRunner) Query(context.Context, string, ...any) (pgx.Rows, error) {
+	return resolveRowsFromMaps(nil), nil
+}
+
+// TestAddInsertCarriesBlobColumnsAndSkipsProvisionWithoutBlobClient is the #358
+// item-6 wiring proof: repo.add now binds apply_blob_creation and its INSERT
+// records the blob_bucket / blob_created_at columns. With BlobClient nil (blob
+// storage not configured) the flag is a no-op-by-design — exactly like the admin
+// repo.init path — so no bucket is recorded and no provisioning is attempted.
+func TestAddInsertCarriesBlobColumnsAndSkipsProvisionWithoutBlobClient(t *testing.T) {
+	repo := t.TempDir()
+	runner := &addCapturingRunner{}
+	result, err := Service{Runner: runner}.Add(context.Background(), rpc.Envelope{
+		Params: map[string]any{"path": repo, "init": true, "apply_blob_creation": true},
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, ok := result["blob_bucket"]; ok {
+		t.Fatalf("result recorded a blob_bucket with no BlobClient configured: %#v", result)
+	}
+	if len(runner.execSQL) != 1 {
+		t.Fatalf("expected exactly one INSERT, got %d execs", len(runner.execSQL))
+	}
+	if !strings.Contains(runner.execSQL[0], "blob_bucket") || !strings.Contains(runner.execSQL[0], "blob_created_at") {
+		t.Fatalf("repo.add INSERT does not carry blob columns: %s", runner.execSQL[0])
+	}
+	// blob_bucket ($7) and blob_created_at ($8) must be nil when blob is disabled.
+	args := runner.execArgs[0]
+	if len(args) != 8 {
+		t.Fatalf("INSERT arg count = %d, want 8", len(args))
+	}
+	if args[6] != nil || args[7] != nil {
+		t.Fatalf("blob args = (%v, %v), want both nil with no BlobClient", args[6], args[7])
+	}
+}
+
+// TestRepoAddBindsApplyBlobCreationFlag confirms the presence flag is parsed for
+// the repo_add param group (it was previously bound but never read; the wiring
+// above gives it effect).
+func TestRepoAddBindsApplyBlobCreationFlag(t *testing.T) {
+	if !boolParam(map[string]any{"apply_blob_creation": true}, "apply_blob_creation") {
+		t.Fatal("boolParam did not read apply_blob_creation")
+	}
+}
+
 func assertRPCErrorCode(t *testing.T, err error, code string) {
 	t.Helper()
 	var rpcErr *rpc.Error

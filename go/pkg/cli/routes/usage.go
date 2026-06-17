@@ -304,6 +304,7 @@ var usageByGroup = map[string]Usage{
 			{Name: "display-name", Help: "operator-facing repository name; defaults to the directory basename"},
 			{Name: "no-migrate", Bool: true, Help: "accepted compatibility flag; production registration never imports retired SQLite state"},
 			{Name: "apply-blob-creation", Bool: true, Help: "create the blob-storage bucket for this repository if it does not yet exist; required when the daemon is configured for blob storage and the bucket is absent"},
+			{Name: "blob-bucket", Help: "explicit blob-storage bucket name to provision (with --apply-blob-creation); defaults to the per-repo derived name"},
 		},
 	},
 	"register_session": {
