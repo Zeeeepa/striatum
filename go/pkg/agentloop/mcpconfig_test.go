@@ -152,6 +152,62 @@ func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 	}
 }
 
+// TestRewriteEphemeralMCPConfigSwapsEndpointAndToken is the #323 rotation
+// rewriter fixture: an ephemeral claude config written at endpoint A must, after
+// RewriteEphemeralMCPConfig with endpoint B + a new token, report B in place —
+// same path, 0600 preserved — so a mid-run port rotation reaches the lane CLI
+// without persisting the rotating endpoint anywhere but the ephemeral scratch.
+func TestRewriteEphemeralMCPConfigSwapsEndpointAndToken(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path, cleanup, err := writeEphemeralMCPConfig(repo, "http://127.0.0.1:37637/mcp/sse", "dtok_launch")
+	if err != nil {
+		t.Fatalf("write ephemeral config: %v", err)
+	}
+	defer cleanup()
+
+	parse := func() (url, auth string) {
+		t.Helper()
+		body, rerr := os.ReadFile(path)
+		if rerr != nil {
+			t.Fatalf("read config: %v", rerr)
+		}
+		var parsed struct {
+			MCPServers map[string]struct {
+				URL     string            `json:"url"`
+				Headers map[string]string `json:"headers"`
+			} `json:"mcpServers"`
+		}
+		if jerr := json.Unmarshal(body, &parsed); jerr != nil {
+			t.Fatalf("config json: %v", jerr)
+		}
+		s := parsed.MCPServers["striatum"]
+		return s.URL, s.Headers["Authorization"]
+	}
+
+	if url, auth := parse(); url != "http://127.0.0.1:37637/mcp/sse" || auth != "Bearer dtok_launch" {
+		t.Fatalf("pre-rewrite content wrong: url=%q auth=%q", url, auth)
+	}
+
+	if err := RewriteEphemeralMCPConfig(path, "http://127.0.0.1:41283/mcp/sse", "dtok_rotated"); err != nil {
+		t.Fatalf("rewrite: %v", err)
+	}
+
+	if url, auth := parse(); url != "http://127.0.0.1:41283/mcp/sse" || auth != "Bearer dtok_rotated" {
+		t.Fatalf("post-rewrite content wrong: url=%q auth=%q", url, auth)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat rewritten config: %v", err)
+	}
+	if info.Mode()&0o077 != 0 {
+		t.Fatalf("rewritten config not 0600: %v", info.Mode())
+	}
+}
+
 func TestInjectLaneMCPConfigAgyWritesEphemeralGeminiSettings(t *testing.T) {
 	repo := t.TempDir()
 	home := t.TempDir()

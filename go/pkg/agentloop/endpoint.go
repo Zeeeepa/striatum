@@ -71,6 +71,72 @@ func ResolveMCPEndpoint(repoRoot string, env []string) (string, error) {
 	return "", fmt.Errorf("agent-loop requires %s, %s, %s, %s, or a daemon MCP endpoint file", EnvMCPURL, EnvDaemonMCPHTTPURL, EnvDaemonMCPHTTPAddr, EnvMCPPort)
 }
 
+// ResolveMCPEndpointFresh re-reads the daemon's runtime MCP endpoint file
+// directly, deliberately ignoring any env-baked launch literal (STRIATUM_MCP_URL
+// / STRIATUM_DAEMON_MCP_HTTP_URL). It is the #323 rotation-recovery reader: when
+// a daemon restarts mid-run its MCP HTTP listener rotates to a fresh dynamic
+// port and rewrites the runtime endpoint file, but the supervised helper that
+// survived the restart (#141) still holds the dead launch-time port. Calling
+// this returns whatever endpoint the daemon last wrote on disk so the lane can
+// detect the rotation and reconnect.
+//
+// Source order mirrors ResolveMCPEndpoint's daemon-file tier: an explicit
+// endpoint-file pointer (STRIATUM_DAEMON_MCP_HTTP_ENDPOINT_FILE) wins, then the
+// runtime dir (env override or admin.RuntimeDir()). The token-bearing env
+// values are intentionally NOT consulted — the whole point is to bypass the
+// cached launch literal.
+func ResolveMCPEndpointFresh(repoRoot string) (string, error) {
+	env := os.Environ()
+	if path, ok := envLookup(env, EnvDaemonMCPHTTPEndpointFile); ok && strings.TrimSpace(path) != "" {
+		endpoint, found, err := endpointFromTextFile(path, true)
+		if err != nil || found {
+			return endpoint, err
+		}
+	}
+	if runtimeDir, ok := envLookup(env, EnvDaemonRuntimeDir); ok && strings.TrimSpace(runtimeDir) != "" {
+		endpoint, found, err := endpointFromRuntimeDir(runtimeDir)
+		if err != nil || found {
+			return endpoint, err
+		}
+	} else if path, err := admin.RuntimeMCPEndpointPath(); err == nil {
+		endpoint, found, err := endpointFromTextFile(path, false)
+		if err != nil || found {
+			return endpoint, err
+		}
+	}
+	return "", fmt.Errorf("agent-loop fresh MCP endpoint unavailable: no runtime endpoint file")
+}
+
+// ResolveTokenMaterialFresh re-reads the daemon runtime client token directly,
+// ignoring any env-baked launch literal. The token does NOT rotate on a normal
+// daemon restart (only the endpoint does), so on the #323 path this typically
+// returns the same bearer the lane already holds; re-reading it keeps the
+// reconnect path correct if the operator ever re-minted the runtime token. It
+// reuses the same session-bound bearer the lane uses (#135/#296) — the runtime
+// client-token file — never a different credential.
+func ResolveTokenMaterialFresh(repoRoot string) (TokenMaterial, error) {
+	env := os.Environ()
+	if path, ok := envLookup(env, EnvMCPTokenFile); ok && strings.TrimSpace(path) != "" {
+		token, found, err := readOptionalTokenFile(path)
+		if err != nil || found {
+			return TokenMaterial{Token: token, Source: path}, err
+		}
+	}
+	if runtimeDir, ok := envLookup(env, EnvDaemonRuntimeDir); ok && strings.TrimSpace(runtimeDir) != "" {
+		path := filepath.Join(runtimeDir, "client-token")
+		token, found, err := readOptionalTokenFile(path)
+		if err != nil || found {
+			return TokenMaterial{Token: token, Source: path}, err
+		}
+	} else if path, err := admin.RuntimeTokenPath(); err == nil {
+		token, found, err := readOptionalTokenFile(path)
+		if err != nil || found {
+			return TokenMaterial{Token: token, Source: path}, err
+		}
+	}
+	return TokenMaterial{}, nil
+}
+
 func endpointFromRuntimeDir(runtimeDir string) (string, bool, error) {
 	for _, name := range []string{"mcp-http-endpoint", "mcp-http-url"} {
 		endpoint, found, err := endpointFromTextFile(filepath.Join(runtimeDir, name), false)

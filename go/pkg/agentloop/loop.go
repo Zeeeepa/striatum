@@ -171,16 +171,16 @@ func writePromptThenSubmit(w io.Writer, prompt string, delay time.Duration, subm
 	return err
 }
 
-func prepareLaneCommandForBootstrap(command []string, repoRoot, endpoint string, token TokenMaterial, prompt string) ([]string, func(), bootstrapDeliveryMode, error) {
-	laneCommand, cleanupMCP, err := injectLaneMCPConfig(command, repoRoot, endpoint, token)
+func prepareLaneCommandForBootstrap(command []string, repoRoot, endpoint string, token TokenMaterial, prompt string) ([]string, func(), bootstrapDeliveryMode, string, error) {
+	laneCommand, cleanupMCP, mcpConfigPath, err := injectLaneMCPConfigWithRewritePath(command, repoRoot, endpoint, token)
 	if err != nil {
-		return nil, cleanupMCP, "", err
+		return nil, cleanupMCP, "", "", err
 	}
 	mode := bootstrapDeliveryModeFor(laneCommand)
 	if mode == bootstrapDeliveryArgv {
-		return appendBootstrapArgv(laneCommand, prompt), cleanupMCP, mode, nil
+		return appendBootstrapArgv(laneCommand, prompt), cleanupMCP, mode, mcpConfigPath, nil
 	}
-	return laneCommand, cleanupMCP, mode, nil
+	return laneCommand, cleanupMCP, mode, mcpConfigPath, nil
 }
 
 func bootstrapDeliveryModeFor(command []string) bootstrapDeliveryMode {
@@ -244,7 +244,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	// RFC 0088 Decision 5: give the lane CLI a striatum MCP server pointed at
 	// the live endpoint + token, generated fresh into ephemeral scratch and
 	// removed on exit (never persist the rotating port).
-	laneCommand, cleanupMCP, bootstrapDelivery, err := prepareLaneCommandForBootstrap(cfg.Command, cfg.RepoRoot, cfg.Endpoint, cfg.Token, prompt)
+	laneCommand, cleanupMCP, bootstrapDelivery, mcpConfigPath, err := prepareLaneCommandForBootstrap(cfg.Command, cfg.RepoRoot, cfg.Endpoint, cfg.Token, prompt)
 	if err != nil {
 		return fmt.Errorf("agent-loop command preparation: %w", err)
 	}
@@ -332,6 +332,15 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 			_ = cmd.Process.Signal(syscall.SIGTERM)
 		}
 	})
+
+	// #323: a mid-run daemon restart rotates the MCP HTTP endpoint (dynamic
+	// port) and rewrites the runtime endpoint file, but this supervised lane
+	// (which survived the restart, #141) still holds the dead launch-time port,
+	// losing the only repo_write path for a striatum-lane lane against a
+	// halbritt-owned worktree. Watch the runtime endpoint file; when it rotates
+	// away from the launch value, rewrite the ephemeral --mcp-config and prompt
+	// the CLI to reconnect its striatum MCP server.
+	startMCPEndpointRotationWatcher(ctx, cfg, laneCommand[0], mcpConfigPath, ptmx, stderr)
 
 	if stdin != nil {
 		go func() {
@@ -424,6 +433,120 @@ func startDaemonReceiverLoop(ctx context.Context, cfg runConfig, adapter string,
 			}
 		}
 	}()
+}
+
+// mcpRotationPollInterval is how often the #323 watcher re-reads the runtime
+// MCP endpoint file to detect a mid-run daemon-restart port rotation. Override
+// via STRIATUM_AGENT_LOOP_MCP_ROTATION_POLL_MS (>=0; 0 disables the watcher).
+func mcpRotationPollInterval() time.Duration {
+	if raw := strings.TrimSpace(os.Getenv("STRIATUM_AGENT_LOOP_MCP_ROTATION_POLL_MS")); raw != "" {
+		if ms, err := strconv.Atoi(raw); err == nil && ms >= 0 {
+			return time.Duration(ms) * time.Millisecond
+		}
+	}
+	return 10 * time.Second
+}
+
+// startMCPEndpointRotationWatcher launches the #323 rotation-recovery loop. On a
+// periodic tick it re-resolves the daemon's runtime MCP endpoint+token directly
+// from disk (ResolveMCPEndpointFresh, bypassing the cached launch literal). When
+// the fresh endpoint DIFFERS from the launch value it (a) rewrites the lane's
+// ephemeral --mcp-config file in place with the new endpoint+token, and (b)
+// sends an adapter-appropriate reconnect prompt into the PTY so the lane CLI
+// re-establishes its striatum MCP server. The daemon-receiver loop itself uses
+// the stable unix socket and already survives the restart (#141); this restores
+// the CLI's repo_write path.
+//
+// Deterministic core = the fresh re-resolution + ephemeral-config rewrite. The
+// PTY reconnect prompt is best-effort and adapter-gated: only adapters with a
+// known reconnect affordance (claude, via /mcp) are prompted; others fall back
+// to a no-op (logged), never a crash.
+func startMCPEndpointRotationWatcher(ctx context.Context, cfg runConfig, adapter, mcpConfigPath string, ptmx io.Writer, stderr io.Writer) {
+	interval := mcpRotationPollInterval()
+	if interval <= 0 {
+		return
+	}
+	launchEndpoint := strings.TrimSpace(cfg.Endpoint)
+	if launchEndpoint == "" {
+		return
+	}
+	go func() {
+		appliedEndpoint := launchEndpoint
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(interval):
+			}
+			fresh, err := ResolveMCPEndpointFresh(cfg.RepoRoot)
+			if err != nil {
+				// No runtime endpoint file (or unreadable) — nothing to compare
+				// against yet; the launch endpoint stays authoritative.
+				continue
+			}
+			fresh = strings.TrimSpace(fresh)
+			if fresh == "" || fresh == appliedEndpoint {
+				continue
+			}
+			// The endpoint rotated. Re-read the token too (it normally does not
+			// rotate, but re-mint is possible); fall back to the launch token.
+			token := cfg.Token
+			if freshTok, terr := ResolveTokenMaterialFresh(cfg.RepoRoot); terr == nil && strings.TrimSpace(freshTok.Token) != "" {
+				token = freshTok
+			}
+			if err := applyMCPEndpointRotation(adapter, mcpConfigPath, fresh, token, ptmx, stderr); err != nil {
+				_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation recovery failed (#323): %v\n", err)
+				// Do not advance appliedEndpoint: retry on the next tick.
+				continue
+			}
+			_, _ = fmt.Fprintf(stderr, "agent-loop MCP endpoint rotated (#323): %s -> %s; rewrote lane config and prompted reconnect\n", appliedEndpoint, fresh)
+			appliedEndpoint = fresh
+		}
+	}()
+}
+
+// applyMCPEndpointRotation rewrites the ephemeral --mcp-config (when present)
+// and sends the adapter-appropriate reconnect prompt. The config rewrite is the
+// deterministic core; the PTY reconnect prompt is best-effort and adapter-gated.
+func applyMCPEndpointRotation(adapter, mcpConfigPath, endpoint string, token TokenMaterial, ptmx io.Writer, stderr io.Writer) error {
+	if mcpConfigPath != "" {
+		if err := RewriteEphemeralMCPConfig(mcpConfigPath, endpoint, token.Token); err != nil {
+			return fmt.Errorf("rewrite ephemeral mcp config: %w", err)
+		}
+	}
+	prompt := mcpReconnectPrompt(adapter, endpoint)
+	if prompt == "" {
+		// Adapter has no known reconnect affordance — no-op fallback (the config
+		// was rewritten if it has an ephemeral file; codex/agy re-read their own
+		// config or env, and a future build may hot-reload). Never crash.
+		_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation (#323): adapter %q has no reconnect prompt; relying on config rewrite only\n", LaneAdapterName(adapter))
+		return nil
+	}
+	if err := writePromptThenSubmit(ptmx, prompt, agentLoopSubmitDelay(), agentLoopSubmitSequence()); err != nil {
+		return fmt.Errorf("send reconnect prompt: %w", err)
+	}
+	return nil
+}
+
+// mcpReconnectPrompt returns the PTY text that tells an interactive lane CLI to
+// re-establish its striatum MCP server after the ephemeral config was rewritten
+// to a new endpoint (#323). Only adapters with a known reconnect affordance get
+// a prompt; others return "" so the caller falls back to a config-rewrite-only
+// no-op rather than typing a command the CLI does not understand.
+func mcpReconnectPrompt(adapter, endpoint string) string {
+	switch LaneAdapterName(adapter) {
+	case "claude":
+		// claude exposes `/mcp` to manage MCP servers; after rewriting the
+		// --mcp-config file, ask claude to reconnect the striatum server so it
+		// picks up the rotated endpoint. The third-party binary may not hot-reload
+		// --mcp-config on its own, so this prompt is the reconnect trigger.
+		return fmt.Sprintf("\n\nThe Striatum MCP daemon restarted and its endpoint rotated to %s; your --mcp-config was refreshed. Run /mcp and reconnect the \"striatum\" server (or restart it) so MCP tools work again, then resume the active work packet. Do not answer in terminal prose only.\n", endpoint)
+	default:
+		// agy/codex/others: no reliable PTY reconnect affordance. The config
+		// rewrite (claude) / env+config (codex) is the best-effort path; return
+		// empty so the caller logs a no-op rather than mistyping into the TUI.
+		return ""
+	}
 }
 
 // EnvelopeRequestsIdleExit reports whether a work.await_packet envelope is the

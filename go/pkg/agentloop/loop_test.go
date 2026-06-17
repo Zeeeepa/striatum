@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -38,7 +39,7 @@ func TestAgentLoopSubmitSequenceOverride(t *testing.T) {
 
 func TestPrepareLaneCommandForBootstrapUsesCodexInitialPromptArg(t *testing.T) {
 	prompt := "bootstrap prompt\nwith multiple lines"
-	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
+	cmd, cleanup, mode, _, err := prepareLaneCommandForBootstrap(
 		[]string{"/home/x/.local/bin/codex", "--model", "gpt-5.5"},
 		t.TempDir(),
 		"http://127.0.0.1:42727/mcp",
@@ -67,7 +68,7 @@ func TestPrepareLaneCommandForBootstrapUsesAgyInitialPromptArg(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_loop_agy")
 	prompt := "bootstrap prompt\nwith multiple lines"
-	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
+	cmd, cleanup, mode, _, err := prepareLaneCommandForBootstrap(
 		[]string{"/home/x/.local/bin/agy", "--dangerously-skip-permissions"},
 		repo,
 		"http://127.0.0.1:42727/mcp",
@@ -112,7 +113,7 @@ func TestPrepareLaneCommandForBootstrapUsesClaudeInitialPromptArg(t *testing.T) 
 		t.Fatal(err)
 	}
 	prompt := "bootstrap prompt\nwith multiple lines"
-	cmd, cleanup, mode, err := prepareLaneCommandForBootstrap(
+	cmd, cleanup, mode, _, err := prepareLaneCommandForBootstrap(
 		[]string{"/home/x/.local/bin/claude", "--model", "claude-opus-4-7"},
 		repo,
 		"http://127.0.0.1:42727/mcp",
@@ -254,6 +255,133 @@ func TestNormalizeAgentExitErrorTreatsRequestedIdleExitAsClean(t *testing.T) {
 	if err := normalizeAgentExitError(exitErr, false); err == nil || !strings.Contains(err.Error(), "agent command exited") {
 		t.Fatalf("non-idle exit err = %v, want wrapped error", err)
 	}
+}
+
+// TestApplyMCPEndpointRotationRewritesClaudeConfigAndPrompts is the #323
+// rotation-recovery core: given a rotated runtime endpoint, the claude path
+// rewrites the ephemeral --mcp-config in place AND sends a /mcp reconnect prompt
+// into the PTY. The re-resolve uses the on-disk runtime file, not the launch
+// literal.
+func TestApplyMCPEndpointRotationRewritesClaudeConfigAndPrompts(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath, cleanup, err := writeEphemeralMCPConfig(repo, "http://127.0.0.1:37637/mcp/sse", "dtok_launch")
+	if err != nil {
+		t.Fatalf("write ephemeral config: %v", err)
+	}
+	defer cleanup()
+
+	rec := &writeRecorder{}
+	var stderr strings.Builder
+	rotated := "http://127.0.0.1:41283/mcp/sse"
+	if err := applyMCPEndpointRotation("/home/x/.local/bin/claude", cfgPath, rotated, TokenMaterial{Token: "dtok_rotated"}, rec, &stderr); err != nil {
+		t.Fatalf("applyMCPEndpointRotation: %v", err)
+	}
+
+	body, _ := os.ReadFile(cfgPath)
+	if !strings.Contains(string(body), rotated) || !strings.Contains(string(body), "Bearer dtok_rotated") {
+		t.Fatalf("config not rewritten to rotated endpoint/token:\n%s", body)
+	}
+	joined := strings.Join(rec.writes, "")
+	if !strings.Contains(joined, "/mcp") || !strings.Contains(joined, rotated) {
+		t.Fatalf("claude reconnect prompt missing /mcp + rotated endpoint:\n%s", joined)
+	}
+}
+
+// TestApplyMCPEndpointRotationNoopAdapterFallsBack proves an adapter with no
+// reconnect affordance (agy) does NOT crash and writes no PTY prompt — the
+// config-rewrite-only no-op fallback.
+func TestApplyMCPEndpointRotationNoopAdapterFallsBack(t *testing.T) {
+	rec := &writeRecorder{}
+	var stderr strings.Builder
+	// No ephemeral config path for agy (its config is the gemini settings file);
+	// applyMCPEndpointRotation must still succeed and emit no PTY prompt.
+	if err := applyMCPEndpointRotation("/home/x/.local/bin/agy", "", "http://127.0.0.1:41283/mcp/sse", TokenMaterial{Token: "dtok"}, rec, &stderr); err != nil {
+		t.Fatalf("applyMCPEndpointRotation agy: %v", err)
+	}
+	if len(rec.writes) != 0 {
+		t.Fatalf("agy should get no reconnect prompt, got %#v", rec.writes)
+	}
+	if !strings.Contains(stderr.String(), "no reconnect prompt") {
+		t.Fatalf("expected no-op fallback log, got: %s", stderr.String())
+	}
+}
+
+// TestStartMCPEndpointRotationWatcherRewritesOnRotation is the focused watcher
+// test: with a short poll interval and a fake runtime dir, rotating the runtime
+// endpoint file mid-run causes the watcher to rewrite the ephemeral claude config
+// to the new endpoint — without any live CLI or daemon.
+func TestStartMCPEndpointRotationWatcherRewritesOnRotation(t *testing.T) {
+	repo := t.TempDir()
+	runtimeDir := t.TempDir()
+	t.Setenv(EnvDaemonRuntimeDir, runtimeDir)
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	endpointFile := filepath.Join(runtimeDir, "mcp-http-endpoint")
+	if err := os.WriteFile(endpointFile, []byte("127.0.0.1:37637\n"), 0o600); err != nil {
+		t.Fatalf("write initial runtime endpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "client-token"), []byte("dtok_runtime\n"), 0o600); err != nil {
+		t.Fatalf("write runtime token: %v", err)
+	}
+
+	launchEndpoint := "http://127.0.0.1:37637/mcp/sse"
+	cfgPath, cleanup, err := writeEphemeralMCPConfig(repo, launchEndpoint, "dtok_launch")
+	if err != nil {
+		t.Fatalf("write ephemeral config: %v", err)
+	}
+	defer cleanup()
+
+	t.Setenv("STRIATUM_AGENT_LOOP_MCP_ROTATION_POLL_MS", "20")
+	t.Setenv("STRIATUM_AGENT_LOOP_SUBMIT_DELAY_MS", "0")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cfg := runConfig{
+		RepoRoot:  repo,
+		RunID:     "run_rot",
+		SessionID: "sess_rot",
+		Endpoint:  launchEndpoint,
+		Token:     TokenMaterial{Token: "dtok_launch"},
+		Command:   []string{"/home/x/.local/bin/claude"},
+		Env:       os.Environ(),
+	}
+	rec := &syncWriteRecorder{}
+	startMCPEndpointRotationWatcher(ctx, cfg, "/home/x/.local/bin/claude", cfgPath, rec, io.Discard)
+
+	// Rotate the runtime endpoint file as a mid-run daemon restart would.
+	rotated := "http://127.0.0.1:41283/mcp/sse"
+	if err := os.WriteFile(endpointFile, []byte("127.0.0.1:41283\n"), 0o600); err != nil {
+		t.Fatalf("rotate runtime endpoint: %v", err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		body, _ := os.ReadFile(cfgPath)
+		if strings.Contains(string(body), rotated) {
+			return // success: watcher rewrote the ephemeral config to the new endpoint
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	body, _ := os.ReadFile(cfgPath)
+	t.Fatalf("watcher did not rewrite config to rotated endpoint within deadline:\n%s", body)
+}
+
+// syncWriteRecorder is a goroutine-safe io.Writer for the watcher test (the
+// watcher writes the reconnect prompt from a background goroutine).
+type syncWriteRecorder struct {
+	mu     sync.Mutex
+	writes []string
+}
+
+func (r *syncWriteRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.writes = append(r.writes, string(p))
+	return len(p), nil
 }
 
 func TestRunWithIOCodexReceivesBootstrapAsInitialPromptArg(t *testing.T) {

@@ -137,6 +137,87 @@ func TestResolveMCPEndpointSourcePriority(t *testing.T) {
 	}
 }
 
+// TestResolveMCPEndpointFreshAfterRotation is the #323 rotation reader fixture:
+// a mid-run daemon restart rewrites the runtime endpoint file to a new dynamic
+// port; ResolveMCPEndpointFresh must return the NEW endpoint by re-reading the
+// file, ignoring any cached launch literal.
+func TestResolveMCPEndpointFreshAfterRotation(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(EnvDaemonRuntimeDir, runtimeDir)
+	path := filepath.Join(runtimeDir, "mcp-http-endpoint")
+
+	if err := os.WriteFile(path, []byte("127.0.0.1:37637\n"), 0o600); err != nil {
+		t.Fatalf("write initial endpoint: %v", err)
+	}
+	first, err := ResolveMCPEndpointFresh("")
+	if err != nil {
+		t.Fatalf("ResolveMCPEndpointFresh() initial error = %v", err)
+	}
+	if first != "http://127.0.0.1:37637/mcp/sse" {
+		t.Fatalf("initial endpoint = %q", first)
+	}
+
+	// Daemon restart rotates the dynamic port and rewrites the runtime file.
+	if err := os.WriteFile(path, []byte("127.0.0.1:41283\n"), 0o600); err != nil {
+		t.Fatalf("rotate endpoint: %v", err)
+	}
+	second, err := ResolveMCPEndpointFresh("")
+	if err != nil {
+		t.Fatalf("ResolveMCPEndpointFresh() after rotation error = %v", err)
+	}
+	if second != "http://127.0.0.1:41283/mcp/sse" {
+		t.Fatalf("rotated endpoint = %q, want the NEW port", second)
+	}
+}
+
+// TestResolveMCPEndpointFreshIgnoresLaunchEnvLiteral proves the fresh reader
+// bypasses the env-baked launch literal (STRIATUM_MCP_URL) that the lane was
+// launched with — the whole point of #323 is to NOT trust that stale value.
+func TestResolveMCPEndpointFreshIgnoresLaunchEnvLiteral(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(EnvDaemonRuntimeDir, runtimeDir)
+	// The lane's environment still carries the stale launch-time URL.
+	t.Setenv(EnvMCPURL, "http://127.0.0.1:11111/mcp/sse")
+	if err := os.WriteFile(filepath.Join(runtimeDir, "mcp-http-endpoint"), []byte("127.0.0.1:22222\n"), 0o600); err != nil {
+		t.Fatalf("write runtime endpoint: %v", err)
+	}
+	fresh, err := ResolveMCPEndpointFresh("")
+	if err != nil {
+		t.Fatalf("ResolveMCPEndpointFresh() error = %v", err)
+	}
+	if fresh != "http://127.0.0.1:22222/mcp/sse" {
+		t.Fatalf("fresh endpoint = %q, want the on-disk runtime value, not the stale env literal", fresh)
+	}
+}
+
+// TestResolveTokenMaterialFreshReadsRuntimeToken proves the sibling token reader
+// re-reads the runtime client-token file (the same session-bound bearer the lane
+// already uses, #135/#296).
+func TestResolveTokenMaterialFreshReadsRuntimeToken(t *testing.T) {
+	runtimeDir := t.TempDir()
+	t.Setenv(EnvDaemonRuntimeDir, runtimeDir)
+	// Ensure no env file pointer shadows the runtime-dir client-token. t.Setenv
+	// registers cleanup to restore the prior value after the test.
+	t.Setenv(EnvMCPTokenFile, "")
+	if err := os.Unsetenv(EnvMCPTokenFile); err != nil {
+		t.Fatalf("unset token file env: %v", err)
+	}
+	tokenPath := filepath.Join(runtimeDir, "client-token")
+	if err := os.WriteFile(tokenPath, []byte("dtok_runtime_secret\n"), 0o600); err != nil {
+		t.Fatalf("write runtime token: %v", err)
+	}
+	tok, err := ResolveTokenMaterialFresh("")
+	if err != nil {
+		t.Fatalf("ResolveTokenMaterialFresh() error = %v", err)
+	}
+	if tok.Token != "dtok_runtime_secret" {
+		t.Fatalf("token = %q, want runtime secret", tok.Token)
+	}
+	if tok.Source != tokenPath {
+		t.Fatalf("token source = %q, want %q", tok.Source, tokenPath)
+	}
+}
+
 func isolatedEndpointEnv(t *testing.T, env ...string) []string {
 	t.Helper()
 	return append([]string{EnvDaemonRuntimeDir + "=" + t.TempDir()}, env...)

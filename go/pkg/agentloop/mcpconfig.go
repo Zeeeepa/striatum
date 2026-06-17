@@ -38,9 +38,20 @@ const geminiExcludeMarker = " # striatum-agy-lane (RFC 0096 #70): ephemeral MCP 
 // config.toml per-key with `-c key=value`); the bearer is read by codex from
 // the STRIATUM_MCP_TOKEN env var supervisedEnv already provides.
 func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token TokenMaterial) ([]string, func(), error) {
+	out, cleanup, _, err := injectLaneMCPConfigWithRewritePath(command, repoRoot, endpoint, token)
+	return out, cleanup, err
+}
+
+// injectLaneMCPConfigWithRewritePath is injectLaneMCPConfig plus the path of the
+// ephemeral --mcp-config file when one was written (claude only). The returned
+// path is what the #323 rotation-recovery loop rewrites in place when the daemon
+// MCP endpoint rotates; for adapters that have no in-place-rewritable ephemeral
+// claude config (agy/codex/others) it is empty and the rotation loop falls back
+// to a no-op for that adapter.
+func injectLaneMCPConfigWithRewritePath(command []string, repoRoot, endpoint string, token TokenMaterial) ([]string, func(), string, error) {
 	noop := func() {}
 	if len(command) == 0 || strings.TrimSpace(endpoint) == "" || strings.TrimSpace(token.Token) == "" {
-		return command, noop, nil
+		return command, noop, "", nil
 	}
 	switch LaneAdapterName(command[0]) {
 	case "claude":
@@ -49,11 +60,11 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		// global config entry.
 		path, cleanup, err := writeEphemeralMCPConfig(repoRoot, endpoint, token.Token)
 		if err != nil {
-			return command, noop, err
+			return command, noop, "", err
 		}
 		out := append([]string(nil), command...)
 		out = append(out, "--mcp-config", path, "--strict-mcp-config")
-		return out, cleanup, nil
+		return out, cleanup, path, nil
 	case "agy":
 		// agy (Antigravity) has NO --mcp-config flag; passing claude-shaped
 		// flags makes it print usage and exit. It reads MCP servers from a
@@ -63,9 +74,9 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		// footgun). The command itself is unchanged.
 		cleanup, err := writeEphemeralGeminiSettings(repoRoot, endpoint, token.Token)
 		if err != nil {
-			return command, noop, err
+			return command, noop, "", err
 		}
-		return command, cleanup, nil
+		return command, cleanup, "", nil
 	case "codex":
 		// Codex stores the striatum MCP server in ~/.codex/config.toml; the
 		// bearer is read from STRIATUM_MCP_TOKEN (supervisedEnv provides it).
@@ -75,9 +86,9 @@ func injectLaneMCPConfig(command []string, repoRoot, endpoint string, token Toke
 		// runs create fresh temp repos. Current Codex builds can still render the
 		// workspace-trust TUI despite this override, so the PTY responder remains
 		// the launch backstop.
-		return InjectCodexMCPConfigArgs(command, repoRoot, endpoint), noop, nil
+		return InjectCodexMCPConfigArgs(command, repoRoot, endpoint), noop, "", nil
 	default:
-		return command, noop, nil
+		return command, noop, "", nil
 	}
 }
 
@@ -431,7 +442,11 @@ func CleanupClaudeScheduledTasksLock(repoRoot string) {
 	_ = os.Remove(lockPath)
 }
 
-func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(), error) {
+// ephemeralMCPConfigBody renders the claude --mcp-config JSON for the striatum
+// MCP server at the given endpoint + bearer. It is the single source of the
+// ephemeral config shape so the launch-time writer and the #323 rotation-time
+// rewriter stay byte-identical.
+func ephemeralMCPConfigBody(endpoint, bearer string) ([]byte, error) {
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
 			"striatum": map[string]any{
@@ -441,7 +456,52 @@ func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(),
 			},
 		},
 	}
-	body, err := json.Marshal(cfg)
+	return json.Marshal(cfg)
+}
+
+// RewriteEphemeralMCPConfig overwrites an existing ephemeral claude --mcp-config
+// file in place with a new endpoint + bearer, preserving 0600 mode. It is the
+// #323 rotation-recovery writer: when a mid-run daemon restart rotates the MCP
+// HTTP port, the lane re-resolves the fresh endpoint (ResolveMCPEndpointFresh)
+// and rewrites the same ephemeral scratch file claude was launched with — never
+// a tracked or gitignored file, so the F45 stale-port footgun stays structurally
+// impossible (the rotating endpoint only ever touches this ephemeral scratch
+// path). The write is atomic (temp-file + rename within the same dir) so a
+// concurrent claude config reload never observes a partial JSON.
+func RewriteEphemeralMCPConfig(path, endpoint, bearer string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("ephemeral mcp config path is empty")
+	}
+	body, err := ephemeralMCPConfigBody(endpoint, bearer)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "lane-mcp-config-rewrite-*.json")
+	if err != nil {
+		return fmt.Errorf("create ephemeral mcp config rewrite temp: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }()
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("rewrite ephemeral mcp config %s: %w", path, err)
+	}
+	return nil
+}
+
+func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(), error) {
+	body, err := ephemeralMCPConfigBody(endpoint, bearer)
 	if err != nil {
 		return "", func() {}, err
 	}
