@@ -4,6 +4,55 @@
 
 ### Added
 
+- **#347 RFC 0135 P3 — barrier doctor invariant + `BARRIER_BLOCKED` +
+  `striatum join verify`.** P3 closes the sealed expectation barrier primitive
+  with its doctor/refusal/verify surface. **Runtime migration `0031`**
+  (`go/pkg/db/sql/0031_barrier_status_view.sql`) adds the read-only
+  `striatumd.barrier_status` view over the three barrier tables (freeze /
+  staging / `barrier_state`) — `CREATE VIEW` is runtime-safe (no owner bundle, no
+  `ALTER`/`DROP`, no FK), with its own explicit `IF EXISTS striatumd_rw`-guarded
+  `GRANT SELECT`; `LatestDaemonDBVersion` 30→31. **Generalized barrier doctor
+  invariant** (`go/pkg/reads/doctor_barrier.go`, wired into `HandleDoctor` as the
+  `barrier_integrity` block): fires on a sealed-but-corrupt barrier — an
+  `assembling` barrier whose journaled `target_commit_sha` is unreachable
+  (`barrier_assembling_target_unreachable`), a `committed` barrier whose manifest
+  disagrees with the staged refs at the live seal
+  (`barrier_committed_manifest_mismatch`), an orphaned staging ref with no freeze
+  record (`barrier_orphaned_staging_ref`), and the `barrier_blocked` condition —
+  and stays quiet on a healthy in-flight barrier. It subsumes the per-integration
+  `fanin_sibling_unintegrated` check at the barrier level (the per-worktree warning
+  remains the worktree-scoped view). **`BARRIER_BLOCKED` + `blocked_manifest`:** a
+  barrier with a live blocking in-edge (a `blocked`/`waiting_human`/`failed` seat,
+  or an open blocking/human_checkpoint blocker) — not a clean terminal gap — is
+  surfaced as the named `BARRIER_BLOCKED` condition with a `blocked_manifest`
+  enumerating which seat blocks and why. **Placement choice:** `BARRIER_BLOCKED`
+  is a DERIVED runtime/doctor condition emitted by the `barrier_status` view and
+  the `barrier_blocked` error code — NOT a `barrier_state` CHECK value. The
+  `barrier_state` assembly-journal lifecycle stays
+  `sealed→assembling→committed|failed` (runtime-owned, owner-bundle-free); "blocked"
+  is an UPSTREAM, pre-seal condition over the in-edges, so keeping it out of the
+  `barrier_state` CHECK avoids touching an owner-held constraint (D215). **New RPC +
+  CLI verb `striatum join verify <barrier-id>`** (`join.verify`,
+  `go/pkg/reads/join_verify.go`): read-only verification that a barrier's manifest
+  matches the staged refs at the live seal and its assembly journal is consistent;
+  it returns `barrier_integrity_failed` / `barrier_blocked` (with `blocked_manifest`)
+  on a corrupted or blocked barrier so it is usable as a CI/operator gate. Wired
+  through `contracts/daemon_methods.json` + `go generate` (`registry_methods.go`,
+  `routes_generated.go`, `daemon-method-tables.md`), two new error-catalog codes,
+  and the command-authority matrix. **D206 per-completion remains the DEFAULT**
+  (the barrier stays opt-in/shadow; nothing flips here). Tests:
+  `TestMigrationThirtyOneBarrierStatusViewIsOwnershipSafe`,
+  `TestBarrierStatusViewReturnsExpectedRows`,
+  `TestDoctorBarrierQuietOnHealthyBarrier`,
+  `TestDoctorBarrierFiresOnBlockedBarrier`,
+  `TestDoctorBarrierFiresOnOrphanedStagingRef`,
+  `TestJoinVerifyPassesOnGoodBarrier`,
+  `TestJoinVerifyFailsOnTamperedBarrier`,
+  `TestJoinVerifyMissingBarrierIsNotFound`;
+  `TestBarrierPredicateHasNoRefCount`, `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL`,
+  the P1 equivalence + P2 deployment-tolerance/crash-recovery tests, and the
+  authority/contract/error-catalog guards all stay green.
+
 - **#346 RFC 0135 P2 — recoverable `barrier_assembly` job + owner bundle 0013 +
   N=1 unification.** The P1 opt-in fan-in assembly graduates into a first-class,
   CRASH-RECOVERABLE operation. **Owner bundle 0013**

@@ -103,4 +103,5 @@ var generatedRoutes = []Route{
 	{Command: "conversation", Subcommand: "close", Method: "conversation.close", ParamsGroup: "conversation_close", RequiredCapability: "write", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "conversation", Subcommand: "list", Method: "conversation.list", ParamsGroup: "conversation_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "conversation", Subcommand: "show", Method: "conversation.show", ParamsGroup: "conversation_show", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "join", Subcommand: "verify", Method: "join.verify", ParamsGroup: "join_verify", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 }

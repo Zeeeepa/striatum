@@ -74,6 +74,14 @@ var usageByGroup = map[string]Usage{
 			"Provider auth preflight may use network/provider tokens and is explicit-only: pass --lane-provider-auth codex, normally with --json.",
 		},
 	},
+	"join_verify": {
+		Params: []Param{
+			{Name: "barrier-id", Positional: true, Required: true, Help: "the sealed expectation barrier (RFC 0135) to verify"},
+		},
+		Notes: []string{
+			"Read-only. Verifies the barrier's manifest matches the staged refs at the live seal and its assembly journal is consistent; exits non-zero (barrier_integrity_failed / barrier_blocked) on a corrupted or blocked barrier, so it is usable as a CI/operator gate.",
+		},
+	},
 	"corpus_export": {
 		Params: []Param{
 			{Name: "run-id", Positional: true, Help: "optional run id used by additive feedstock classes such as lane_trajectory"},

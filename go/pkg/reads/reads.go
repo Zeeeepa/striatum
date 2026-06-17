@@ -122,6 +122,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("dashboard.all", makeHandler(runner, HandleDashboardAll))
 	server.Register("doctor", makeHandler(runner, HandleDoctor))
 	server.Register("doctor.blob_block", makeHandler(runner, HandleDoctorBlobBlock))
+	server.Register("join.verify", makeHandler(runner, HandleJoinVerify))
 	server.Register("why", makeHandler(runner, HandleWhy))
 	server.Register("list.runs", makeHandler(runner, HandleListRuns))
 	server.Register("list.sessions", makeHandler(runner, HandleListSessions))

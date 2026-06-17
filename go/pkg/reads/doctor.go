@@ -218,6 +218,20 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings = append(warnings, artifactAnchorWarnings...)
 	warningRecords = append(warningRecords, artifactAnchorWarningRecords...)
 
+	// RFC 0135 P3 (#347): the generalized barrier integrity invariant over the
+	// sealed expectation barrier tables (freeze / staging / barrier_state), surfaced
+	// through the migration-0031 striatumd.barrier_status view. It detects a
+	// BARRIER_BLOCKED condition (a live blocking in-edge), an 'assembling' barrier
+	// whose journaled target commit is unreachable, a 'committed' barrier whose
+	// manifest disagrees with the staged refs at the live seal, and orphaned staging
+	// refs. It subsumes the per-integration fanin_sibling_unintegrated warning at the
+	// barrier level (that per-worktree warning remains the worktree-scoped view).
+	barrierBlock, barrierProblems, barrierRecords, barrierWarnings, barrierWarningRecords := doctorBarrierIntegrity(ctx, runner, repositoryID)
+	problems = append(problems, barrierProblems...)
+	problemRecords = append(problemRecords, barrierRecords...)
+	warnings = append(warnings, barrierWarnings...)
+	warningRecords = append(warningRecords, barrierWarningRecords...)
+
 	result := map[string]any{
 		"ok":                        len(problems) == 0,
 		"schema_version":            schemaVersion,
@@ -235,6 +249,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"pg_read_scope":             pgReadScopeBlock,
 		"worktree_ref_safety":       worktreeRefSafetyBlock,
 		"artifact_anchor_integrity": artifactAnchorBlock,
+		"barrier_integrity":         barrierBlock,
 		"skills":                    skillsBlock,
 		"blob":                      blobBlock,
 	}
