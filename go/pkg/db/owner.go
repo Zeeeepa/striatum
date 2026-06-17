@@ -17,7 +17,7 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 10
+const LatestOwnerBundleVersion = 11
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
@@ -33,6 +33,7 @@ var ownerBundleLabels = map[int]string{
 	8:  "artifact metadata full-text search column and GIN index (RFC 0119 / D179)",
 	9:  "build-owned review_generation columns on jobs + verdicts (RFC 0126 P0 / D194 / GH #282)",
 	10: "wedged_no_tool_progress liveness stall class on sessions CHECK (GH #324)",
+	11: "hot event-read covering index on events (GH #330)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
