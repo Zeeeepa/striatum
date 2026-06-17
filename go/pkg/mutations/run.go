@@ -24,7 +24,14 @@ func HandleRunPrepare(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	if workflowPath == "" {
 		return nil, rpc.NewError("schema_invalid", "run.prepare requires workflow", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	// #355 victim-side mitigation: run.prepare is a plain control-plane append
+	// (`run.created`) that does nothing slow, yet under a multi-run supervise storm
+	// it was starved 100% behind a lock-holding sweep/reconcile transaction and
+	// surfaced the raw `append_event_row (sd): 57014` (it had no transient-load
+	// swallow). Wrap it in a bounded retry on isTransientDaemonLoadError so back-
+	// pressure self-heals instead of hard-failing the operator. The primary #355
+	// fix removes the convoy's source; this bounds the blast radius.
+	return withTxRetryOnTransientLoad(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		return runPrepare(ctx, tx, repositoryID, workflowPath)
 	})
 }

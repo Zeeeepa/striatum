@@ -60,6 +60,23 @@
 
 ### Fixed
 
+- **#355 reconcile liveness probe no longer runs inside the event-append tx
+  (uncovered #198 isomorph).** `HandleRecoveryProcessReconcile` opened a
+  lock-holding, `process.lost`-appending transaction and then shelled out to
+  `tmux list-panes` (wrapped as `sudo -n -u <user> -- env -i tmux …` under
+  `STRIATUM_LANE_OS_USER`) for every running process row — inside the window that
+  holds the per-repo `repo_event_chain_heads FOR UPDATE` (the global event-append
+  serialization point). Under a multi-run supervise storm every other append on
+  the repo, including `run prepare`'s `run.created`, queued behind it and died at
+  `statement_timeout` as `append_event_row (sd): 57014`. This was the one in-tx
+  subprocess path the #198 fix missed. The probe is now pre-computed OUTSIDE the
+  transaction via a reconcile-specific liveness oracle that mirrors the loop's
+  exact JOIN/probePID selection (so the cache key matches), and the in-tx loop
+  reads the snapshot through `probeLaneLivenessCached`. A bounded
+  `withTxRetryOnTransientLoad` now wraps `run prepare` so transient 57014
+  back-pressure self-heals into a legible `daemon_under_load` error instead of a
+  raw SQLSTATE, and a short `SET LOCAL statement_timeout` in the reconcile tx caps
+  any residual convoy as defense-in-depth. Closes #355.
 - **#330 hot event-read covering index.** The #1 daemon query by total exec time
   (~31.9k calls, ~1,190s cumulative) seq-scanned/under-indexed
   `striatumd.events`; owner bundle `0011` adds a composite covering index

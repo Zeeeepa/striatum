@@ -529,6 +529,58 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 	)
 }
 
+// withTxRetryOnTransientLoad runs fn inside a transaction, retrying up to a small
+// bounded number of times when the transaction fails with a transient
+// daemon-load error (isTransientDaemonLoadError: a statement_timeout 57014 or a
+// class-57 admin/crash/cannot-connect shutdown). This is the victim-side
+// mitigation for the #198/#355 event-append convoy: under a multi-run supervise
+// storm a lock-holding sweep/reconcile transaction can starve a plain
+// control-plane append (e.g. HandleRunPrepare's `run.created`) until it hits the
+// global statement_timeout and surfaces the raw `append_event_row (sd): 57014`.
+// That is transient back-pressure, not a real refusal of the transition, so the
+// control-plane verb retries with a short bounded backoff rather than hard-
+// failing the operator. Any non-transient error (validation, transition refusal,
+// etc.) is returned immediately. After the bounded attempts it surfaces a legible
+// "daemon under load, retry" error instead of the raw SQLSTATE.
+//
+// Modeled on withTxRetryOnDeadlock — same shape, classified via the existing
+// isTransientDaemonLoadError. The primary #355 fix removes the convoy's source
+// (the in-tx subprocess probe); this bounds the blast radius if any other
+// lock-holder regresses.
+func withTxRetryOnTransientLoad(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
+	const maxAttempts = 4
+	const baseBackoff = 25 * time.Millisecond
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result, err := withTx(ctx, runner, fn)
+		if err == nil {
+			return result, nil
+		}
+		if !isTransientDaemonLoadError(err) {
+			return nil, err
+		}
+		lastErr = err
+		if attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(baseBackoff * time.Duration(attempt+1)):
+		}
+	}
+	var sqlstate string
+	var pgErr *pgconn.PgError
+	if errors.As(lastErr, &pgErr) {
+		sqlstate = pgErr.Code
+	}
+	return nil, rpc.NewError(
+		"daemon_under_load",
+		"daemon is under load and the operation timed out after retrying; retry shortly",
+		map[string]any{"sqlstate": sqlstate, "attempts": maxAttempts},
+	)
+}
+
 // lockRun acquires the per-run transaction-scoped advisory lock that serializes
 // every mutation of a single run's aggregate (sessions, runs, jobs, leases,
 // queue_messages, verdicts, blockers, interrogations for that run). Per the

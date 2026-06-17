@@ -139,3 +139,74 @@ func buildRunLivenessOracle(ctx context.Context, runner db.Runner, repositoryID,
 	}
 	return oracle
 }
+
+// buildReconcileLivenessOracle is the #355 pre-tx oracle for
+// HandleRecoveryProcessReconcile. It is an isomorph of buildRunLivenessOracle —
+// the #198 hoist that HandleRecoveryProcessReconcile never received — but it
+// MUST mirror the reconcile loop's own row shape exactly or the cache misses and
+// silently falls back to the in-tx probe, re-creating the convoy (#355 Caveat
+// B). Specifically the reconcile loop (recovery.go) reads each running
+// process_executions row JOINed to its latest process_supervisor_pointers row
+// and:
+//
+//   - probePID prefers ptr.pid (supervisor_pid) over pe.pid when > 0,
+//   - expectedStart is ptr.pid_start_time (supervisor_pid_start_time),
+//   - metadata is ptr.metadata_json (supervisor_metadata_json).
+//
+// supervisorLivenessProbeKey is computed from (metadata, probePID, expectedStart),
+// so the oracle key MUST be built from the SAME JOINed selection. This query is
+// the SELECT shape from the reconcile loop with `FOR UPDATE OF pe` stripped (a
+// pure read), so the slow tmux/proc probe runs with no DB lock held and the
+// cache key matches the in-tx lookup byte-for-byte. A query error degrades to an
+// empty oracle (in-tx live fallback) rather than failing the reconcile.
+func buildReconcileLivenessOracle(ctx context.Context, runner db.Runner, repositoryID, runID string) *livenessOracle {
+	oracle := &livenessOracle{byKey: map[string]gosupervisor.LaneLiveness{}}
+	rows, err := queryRows(ctx, runner, `
+		SELECT pe.pid,
+		       p.metadata_json AS supervisor_metadata_json,
+		       p.pid_start_time AS supervisor_pid_start_time,
+		       p.pid AS supervisor_pid
+		  FROM striatumd.process_executions pe
+		  LEFT JOIN LATERAL (
+		    SELECT ptr.metadata_json, ptr.pid_start_time, ptr.pid
+		      FROM striatumd.process_supervisor_pointers ptr
+		     WHERE ptr.repository_id = pe.repository_id
+		       AND ptr.run_id = pe.run_id
+		       AND ptr.session_id = pe.session_id
+		     ORDER BY ptr.updated_at DESC, ptr.supervisor_id DESC
+		     LIMIT 1
+		  ) p ON true
+		 WHERE pe.repository_id = $1
+		   AND pe.run_id = $2
+		   AND pe.state = 'running'`,
+		repositoryID, runID)
+	if err != nil {
+		return oracle
+	}
+	for _, row := range rows {
+		metadata, probePID, expectedStart := reconcileProbeSelection(row)
+		if probePID <= 0 {
+			continue
+		}
+		key := supervisorLivenessProbeKey(metadata, probePID, expectedStart)
+		if _, seen := oracle.byKey[key]; seen {
+			continue
+		}
+		oracle.byKey[key] = probeLaneLiveness(ctx, metadata, probePID, expectedStart)
+	}
+	return oracle
+}
+
+// reconcileProbeSelection extracts the (metadata, probePID, expectedStart) triple
+// that the reconcile loop probes from a row, in the SAME way the in-tx loop does
+// (#355 Caveat B). It is shared between the pre-tx oracle builder and the in-tx
+// loop so the cache key cannot drift between the two call sites.
+func reconcileProbeSelection(row map[string]any) (map[string]any, int, string) {
+	metadata := asMap(row["supervisor_metadata_json"])
+	probePID := intValue(row["pid"])
+	if supervisorPID := intValue(row["supervisor_pid"]); supervisorPID > 0 {
+		probePID = supervisorPID
+	}
+	expectedStart, _ := row["supervisor_pid_start_time"].(string)
+	return metadata, probePID, expectedStart
+}
