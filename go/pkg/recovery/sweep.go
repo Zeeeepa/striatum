@@ -3,6 +3,7 @@ package recovery
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mutations"
@@ -199,7 +200,8 @@ func upsertAutoSpawnCursor(ctx context.Context, runner db.Runner, repositoryID s
 }
 
 func upsertSchedulerCursor(ctx context.Context, runner db.Runner, repositoryID string, runID string, result map[string]any, state string) error {
-	resultArg, err := db.JSONBArg(runner, result)
+	latched := recoveryCursorResultWithLatch(ctx, runner, repositoryID, runID, result)
+	resultArg, err := db.JSONBArg(runner, latched)
 	if err != nil {
 		return err
 	}
@@ -215,4 +217,99 @@ func upsertSchedulerCursor(ctx context.Context, runner db.Runner, repositoryID s
 		              last_result_json = EXCLUDED.last_result_json,
 		              state = EXCLUDED.state`,
 		repositoryID, runID, resultArg, state)
+}
+
+func recoveryCursorResultWithLatch(ctx context.Context, runner db.Runner, repositoryID string, runID string, result map[string]any) map[string]any {
+	latched := map[string]any{}
+	for key, value := range result {
+		latched[key] = value
+	}
+	latch, err := readRecoveryCursorLatch(ctx, runner, repositoryID, runID)
+	if err != nil {
+		latched["claimable_job_count"] = 0
+		latched["last_lane_advanced_at"] = nil
+		latched["recovery_cursor_latch_error"] = err.Error()
+		return latched
+	}
+	for key, value := range latch {
+		latched[key] = value
+	}
+	return latched
+}
+
+func readRecoveryCursorLatch(ctx context.Context, runner db.Runner, repositoryID string, runID string) (map[string]any, error) {
+	queryer, ok := runner.(queryRunner)
+	if !ok {
+		return nil, fmt.Errorf("recovery cursor latch runner does not support queries")
+	}
+	rows, err := queryer.Query(ctx, `
+		SELECT (
+		         SELECT COUNT(DISTINCT q.job_id)
+		           FROM striatumd.queue_messages q
+		           JOIN striatumd.jobs j
+		             ON j.repository_id = q.repository_id
+		            AND j.job_id = q.job_id
+		          WHERE q.repository_id = $1
+		            AND q.run_id = $2
+		            AND q.kind = 'work'
+		            AND q.state = 'pending'
+		            AND (q.visible_after IS NULL OR q.visible_after <= now())
+		       ) AS claimable_job_count,
+		       (
+		         SELECT MAX(activity_at)
+		           FROM (
+		             SELECT e.created_at AS activity_at
+		               FROM striatumd.events e
+		              WHERE e.repository_id = $1
+		                AND e.run_id = $2
+		                AND e.actor_session_id IS NOT NULL
+		                AND e.event_type IN (
+		                  'queue.claimed',
+		                  'artifact.published',
+		                  'verdict.recorded',
+		                  'job.completed'
+		                )
+		             UNION ALL SELECT s.last_mcp_request_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_tools_list_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_await_packet_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_packet_delivered_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_ack_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_work_block_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_work_release_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_work_complete_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_session_ready_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_session_question_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_session_escalate_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_tool_call_started_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		             UNION ALL SELECT s.last_tool_call_finished_at FROM striatumd.sessions s WHERE s.repository_id = $1 AND s.run_id = $2
+		           ) activity
+		          WHERE activity_at IS NOT NULL
+		       ) AS last_lane_advanced_at`,
+		repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return map[string]any{
+			"claimable_job_count":   0,
+			"last_lane_advanced_at": nil,
+		}, rows.Err()
+	}
+	var claimableJobCount int64
+	var lastLaneAdvancedAt *time.Time
+	if err := rows.Scan(&claimableJobCount, &lastLaneAdvancedAt); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result := map[string]any{
+		"claimable_job_count":   int(claimableJobCount),
+		"last_lane_advanced_at": nil,
+	}
+	if lastLaneAdvancedAt != nil {
+		result["last_lane_advanced_at"] = lastLaneAdvancedAt.UTC().Format(time.RFC3339)
+	}
+	return result, nil
 }

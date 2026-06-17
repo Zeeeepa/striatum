@@ -13,6 +13,7 @@ import (
 )
 
 const doctorSupervisorProbeTimeout = 5 * time.Second
+const doctorRecoveryCursorWedgedAfter = 5 * time.Minute
 
 // HandleDoctor mirrors reads/doctor.py. Returns a flat health report of
 // the running daemon-pg state: schema version, append-only invariants
@@ -232,6 +233,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings = append(warnings, barrierWarnings...)
 	warningRecords = append(warningRecords, barrierWarningRecords...)
 
+	recoveryCursorBlock, recoveryCursorProblems, recoveryCursorRecords := doctorRecoverySweepCursor(ctx, runner, repositoryID, time.Now().UTC())
+	problems = append(problems, recoveryCursorProblems...)
+	problemRecords = append(problemRecords, recoveryCursorRecords...)
+
 	result := map[string]any{
 		"ok":                        len(problems) == 0,
 		"schema_version":            schemaVersion,
@@ -250,6 +255,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"worktree_ref_safety":       worktreeRefSafetyBlock,
 		"artifact_anchor_integrity": artifactAnchorBlock,
 		"barrier_integrity":         barrierBlock,
+		"recovery_sweep_cursor":     recoveryCursorBlock,
 		"skills":                    skillsBlock,
 		"blob":                      blobBlock,
 	}
@@ -258,6 +264,113 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		result["warning_records"] = warningRecords
 	}
 	return result, nil
+}
+
+func doctorRecoverySweepCursor(ctx context.Context, runner db.Runner, repositoryID string, now time.Time) (map[string]any, []string, []map[string]any) {
+	block := map[string]any{
+		"checked": false,
+		"skipped": "repository_id required",
+	}
+	if repositoryID == "" {
+		return block, nil, nil
+	}
+	quietBefore := now.UTC().Add(-doctorRecoveryCursorWedgedAfter)
+	rows, err := collectRows(ctx, runner, `
+		SELECT r.run_id,
+		       r.state AS run_state,
+		       c.state AS cursor_state,
+		       c.last_sweep_at,
+		       COALESCE(c.last_result_json->>'claimable_job_count', '0') AS claimable_job_count,
+		       c.last_result_json->>'last_lane_advanced_at' AS last_lane_advanced_at,
+		       c.last_result_json->>'recovery_cursor_latch_error' AS recovery_cursor_latch_error,
+		       r.started_at,
+		       r.created_at
+		  FROM striatumd.runs r
+		  JOIN striatumd.scheduler_cursors c
+		    ON c.repository_id = r.repository_id
+		   AND c.run_id = r.run_id
+		   AND c.cursor_kind = 'recovery'
+		 WHERE r.repository_id = $1
+		   AND r.state = 'running'
+		   AND c.state <> 'removed'
+		 ORDER BY COALESCE(r.started_at, r.created_at), r.run_id`,
+		repositoryID)
+	if err != nil {
+		block["checked"] = true
+		block["skipped"] = nil
+		block["error"] = err.Error()
+		return block, []string{"recovery_sweep_cursor.read_failed: " + err.Error()}, []map[string]any{{
+			"check": "recovery_sweep_cursor_read_failed",
+			"error": err.Error(),
+		}}
+	}
+	block["checked"] = true
+	block["skipped"] = nil
+
+	wedged := []map[string]any{}
+	latchErrors := []map[string]any{}
+	problems := []string{}
+	records := []map[string]any{}
+	for _, row := range rows {
+		if stringFrom(row, "run_state") != "running" {
+			continue
+		}
+		runID := stringFrom(row, "run_id")
+		if latchError := stringFrom(row, "recovery_cursor_latch_error"); latchError != "" {
+			record := map[string]any{
+				"check":         "recovery_sweep_cursor_latch_error",
+				"run_id":        runID,
+				"error":         latchError,
+				"last_sweep_at": row["last_sweep_at"],
+				"cursor_state":  row["cursor_state"],
+			}
+			latchErrors = append(latchErrors, record)
+			records = append(records, record)
+			problems = append(problems, "recovery_sweep_cursor_latch_error."+runID+": "+latchError)
+			continue
+		}
+		claimableJobCount := intFrom(row, "claimable_job_count")
+		if claimableJobCount <= 0 {
+			continue
+		}
+		quietSince, ok := recoveryCursorQuietSince(row)
+		if !ok || !quietSince.Before(quietBefore) {
+			continue
+		}
+		lastLaneAdvancedAt := stringFrom(row, "last_lane_advanced_at")
+		record := map[string]any{
+			"check":                 "recovery_sweep_cursor_wedged",
+			"run_id":                runID,
+			"claimable_job_count":   claimableJobCount,
+			"last_lane_advanced_at": lastLaneAdvancedAt,
+			"quiet_since":           quietSince.UTC().Format(time.RFC3339),
+			"threshold_seconds":     int(doctorRecoveryCursorWedgedAfter.Seconds()),
+			"last_sweep_at":         row["last_sweep_at"],
+			"cursor_state":          row["cursor_state"],
+			"latch_error":           row["recovery_cursor_latch_error"],
+		}
+		wedged = append(wedged, record)
+		records = append(records, record)
+		problems = append(problems, "recovery_sweep_cursor_wedged."+runID+": claimable_job_count="+intPlaceholder(claimableJobCount)+" and no lane advance since "+record["quiet_since"].(string))
+	}
+	block["latch_error_count"] = len(latchErrors)
+	block["latch_errors"] = latchErrors
+	block["wedged_count"] = len(wedged)
+	block["wedged_runs"] = wedged
+	return block, problems, records
+}
+
+func recoveryCursorQuietSince(row map[string]any) (time.Time, bool) {
+	if quietSince, ok := parseTimeValue(row["last_lane_advanced_at"]); ok {
+		return quietSince, true
+	}
+	if quietSince, ok := parseTimeValue(row["started_at"]); ok {
+		return quietSince, true
+	}
+	if quietSince, ok := parseTimeValue(row["created_at"]); ok {
+		return quietSince, true
+	}
+	return parseTimeValue(row["quiet_since"])
 }
 
 func doctorRepoRoot(ctx context.Context, runner any, repositoryID string) string {

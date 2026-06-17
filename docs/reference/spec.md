@@ -2636,11 +2636,17 @@ restart, or a future alternate delivery path clears the degradation. Non-tmux
 or unproven attach exits still move the supervisor to `detached` instead of
 treating the lane as lost.
 Daemon `supervise.report` can consume those helper events as JSONL text, a
-path, or an object list and records them through the same durable
-`supervisor.<event>` event path used by wrapper reports. Helper timestamps are
-preserved as `reported_at`; `agent_exited` applies the normal stopped-state
-transition. The control channel carries lifecycle metadata and byte counts,
-not model transcript output.
+path, or an object list and records lifecycle events through the same durable
+`supervisor.<event>` event path used by wrapper reports. `progress` is the
+exception: it is liveness chatter, not durable provenance, and is not appended
+as `supervisor.progress` or stored in a separate off-chain table. A meaningful
+progress report still refreshes supervisor heartbeat state, stamps session PTY
+liveness, and, when the session owns an active lease, refreshes that lease; the
+derived `lease.heartbeat` event remains the durable record of the lease-state
+transition. Helper timestamps are preserved as `reported_at` on chained helper
+events; `agent_exited` applies the normal stopped-state transition. The control
+channel carries lifecycle metadata and byte counts, not model transcript
+output.
 
 Doctor: `striatum doctor` flags supervisors in `('starting','attached',
 'detached')` whose pid is gone, and `attached` supervisors whose

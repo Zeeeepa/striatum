@@ -63,6 +63,11 @@ type supervisorReportRow struct {
 	Metadata           map[string]any
 }
 
+type superviseReportRecordResult struct {
+	Data              map[string]any
+	DurableEventCount int
+}
+
 func HandleSuperviseReport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
 	if err != nil {
@@ -78,12 +83,14 @@ func HandleSuperviseReport(ctx context.Context, runner db.Runner, envelope rpc.E
 
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		results := make([]map[string]any, 0, len(events))
+		eventsRecorded := 0
 		for _, event := range events {
 			result, err := recordSuperviseReportEvent(ctx, tx, repositoryID, event)
 			if err != nil {
 				return nil, err
 			}
-			results = append(results, result)
+			results = append(results, result.Data)
+			eventsRecorded += result.DurableEventCount
 		}
 		if batch {
 			state := any(nil)
@@ -91,7 +98,7 @@ func HandleSuperviseReport(ctx context.Context, runner db.Runner, envelope rpc.E
 				state = results[len(results)-1]["state"]
 			}
 			return map[string]any{
-				"events_recorded": len(results),
+				"events_recorded": eventsRecorded,
 				"results":         results,
 				"state":           state,
 			}, nil
@@ -267,46 +274,47 @@ func normalizeSuperviseReportEvent(raw map[string]any, defaultSessionID string, 
 	}, nil
 }
 
-func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, repositoryID string, event superviseReportEvent) (map[string]any, error) {
+func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, repositoryID string, event superviseReportEvent) (superviseReportRecordResult, error) {
 	supervisor, err := findReportSupervisor(ctx, runner, repositoryID, event.SupervisorID, event.SessionID)
 	if err != nil {
-		return nil, err
+		return superviseReportRecordResult{}, err
 	}
 	if event.SessionID != "" && supervisor.SessionID != event.SessionID {
-		return nil, rpc.NewError("invalid_transition", "session_id does not match supervisor_id", nil)
+		return superviseReportRecordResult{}, rpc.NewError("invalid_transition", "session_id does not match supervisor_id", nil)
 	}
 	if !supervisorActiveStates[supervisor.State] {
-		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("supervise report requires an active supervisor (state=%s)", supervisor.State), nil)
+		return superviseReportRecordResult{}, rpc.NewError("invalid_transition", fmt.Sprintf("supervise report requires an active supervisor (state=%s)", supervisor.State), nil)
 	}
 
 	now := nowString()
 	state := supervisor.State
+	durableEventCount := 0
 	if event.EventType == gosupervisor.HelperEventAgentExited {
 		stopReason := "agent exited"
 		if exitCode, ok := event.Payload["exit_code"]; ok && exitCode != nil {
 			stopReason = fmt.Sprintf("agent exited with code %v", exitCode)
 		}
 		if err := updateReportSupervisorStopped(ctx, runner, repositoryID, supervisor, now, stopReason); err != nil {
-			return nil, err
+			return superviseReportRecordResult{}, err
 		}
 		state = "stopped"
 	} else if event.EventType == gosupervisor.HelperEventAttachExited {
 		event = attachExitWithDaemonObservedLiveness(ctx, supervisor, event)
 		if attachExitPaneStillLive(supervisor, event) {
 			if err := refreshReportSupervisorHeartbeat(ctx, runner, repositoryID, supervisor, now); err != nil {
-				return nil, err
+				return superviseReportRecordResult{}, err
 			}
 			if err := updateReportSupervisorAttachExitMetadata(ctx, runner, repositoryID, supervisor, event, now); err != nil {
-				return nil, err
+				return superviseReportRecordResult{}, err
 			}
 		} else {
 			if err := updateReportSupervisorDetached(ctx, runner, repositoryID, supervisor, now); err != nil {
-				return nil, err
+				return superviseReportRecordResult{}, err
 			}
 			state = "detached"
 		}
 	} else if err := refreshReportSupervisorHeartbeat(ctx, runner, repositoryID, supervisor, now); err != nil {
-		return nil, err
+		return superviseReportRecordResult{}, err
 	}
 
 	// RFC 0101 Phase 1 (Layer 1): a progress event the helper flagged as
@@ -323,16 +331,18 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 		// producing output" signal the classifier reads to report working_local
 		// and to keep an honestly-working local lane out of protocol_idle.
 		if err := sessionliveness.Record(ctx, runner, repositoryID, supervisor.SessionID, sessionliveness.LastPTYActivityAt); err != nil {
-			return nil, err
+			return superviseReportRecordResult{}, err
 		}
 		// Lease-gated: refresh the active lease work-heartbeat (no-op without one).
-		if err := refreshActiveLeaseWorkHeartbeat(ctx, runner, repositoryID, supervisor.RunID, supervisor.SessionID, now); err != nil {
-			return nil, err
+		leaseEventsRecorded, err := refreshActiveLeaseWorkHeartbeat(ctx, runner, repositoryID, supervisor.RunID, supervisor.SessionID, now)
+		if err != nil {
+			return superviseReportRecordResult{}, err
 		}
+		durableEventCount += leaseEventsRecorded
 	}
 	if event.EventType == gosupervisor.HelperEventProcessTerminated {
 		if err := updateReportSupervisorTerminationMetadata(ctx, runner, repositoryID, supervisor, event, now); err != nil {
-			return nil, err
+			return superviseReportRecordResult{}, err
 		}
 	}
 
@@ -351,16 +361,25 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	if nested := curatedSuperviseReportPayload(event, now); len(nested) > 0 {
 		payload["payload"] = nested
 	}
-	if _, err := appendEvent(ctx, runner, repositoryID, supervisor.RunID, "supervisor."+event.EventType, supervisor.SessionID, nil, nil, nil, nil, payload); err != nil {
-		return nil, err
+	// #378: progress reports are liveness samples, not durable provenance. When
+	// meaningful progress changes lease state, the derived lease.heartbeat event
+	// above remains chained; the raw supervisor.progress sample does not.
+	if event.EventType != gosupervisor.HelperEventProgress {
+		if _, err := appendEvent(ctx, runner, repositoryID, supervisor.RunID, "supervisor."+event.EventType, supervisor.SessionID, nil, nil, nil, nil, payload); err != nil {
+			return superviseReportRecordResult{}, err
+		}
+		durableEventCount++
 	}
 
-	return map[string]any{
-		"supervisor_id": supervisor.SupervisorID,
-		"session_id":    supervisor.SessionID,
-		"event_type":    event.EventType,
-		"recorded_at":   now,
-		"state":         state,
+	return superviseReportRecordResult{
+		Data: map[string]any{
+			"supervisor_id": supervisor.SupervisorID,
+			"session_id":    supervisor.SessionID,
+			"event_type":    event.EventType,
+			"recorded_at":   now,
+			"state":         state,
+		},
+		DurableEventCount: durableEventCount,
 	}, nil
 }
 
@@ -747,7 +766,7 @@ func progressIsMeaningful(payload map[string]any) bool {
 // reaped while it is demonstrably producing output. It is a no-op when the
 // session holds no active lease — a lease-less lane has no lease-heartbeat
 // deadline to miss, so there is nothing to refresh.
-func refreshActiveLeaseWorkHeartbeat(ctx context.Context, runner db.TxRunner, repositoryID string, runID string, sessionID string, now string) error {
+func refreshActiveLeaseWorkHeartbeat(ctx context.Context, runner db.TxRunner, repositoryID string, runID string, sessionID string, now string) (int, error) {
 	var leaseID string
 	var resourceID *string
 	err := runner.QueryRow(ctx, `
@@ -758,28 +777,28 @@ func refreshActiveLeaseWorkHeartbeat(ctx context.Context, runner db.TxRunner, re
 		 LIMIT 1`, repositoryID, sessionID).Scan(&leaseID, &resourceID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+			return 0, nil
 		}
-		return err
+		return 0, err
 	}
 	if strings.TrimSpace(leaseID) == "" {
-		return nil
+		return 0, nil
 	}
 	expiresAt := expiresAfter(1800)
 	if err := runner.Exec(ctx, `
 		UPDATE striatumd.leases
 		   SET last_heartbeat_at = $1, expires_at = $2
 		 WHERE repository_id = $3 AND lease_id = $4`, now, expiresAt, repositoryID, leaseID); err != nil {
-		return err
+		return 0, err
 	}
 	if err := runner.Exec(ctx, `
 		UPDATE striatumd.sessions
 		   SET last_heartbeat_at = $1
 		 WHERE repository_id = $2 AND session_id = $3`, now, repositoryID, sessionID); err != nil {
-		return err
+		return 0, err
 	}
 	if err := sessionliveness.Record(ctx, runner, repositoryID, sessionID, sessionliveness.LastWorkHeartbeatAt); err != nil {
-		return err
+		return 0, err
 	}
 	resource := ""
 	if resourceID != nil {
@@ -789,7 +808,10 @@ func refreshActiveLeaseWorkHeartbeat(ctx context.Context, runner db.TxRunner, re
 		"expires_at": expiresAt,
 		"source":     "supervisor_pty_progress",
 	})
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return 1, nil
 }
 
 func optionalStringParam(params map[string]any, key string) (string, error) {
