@@ -64,7 +64,18 @@ func HandlePublishArtifact(ctx context.Context, runner db.Runner, envelope rpc.E
 	// session (override). Closes the cross-session publish spoof — a bound caller
 	// presenting another session's (observable) lease_id is now refused on receipt
 	// before the lease-ownership check.
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	//
+	// #325 (RFC 0104): artifact.publish takes a run-scoped FOR UPDATE on the job
+	// row and appends to the per-repo event chain, but historically opened its tx
+	// with a plain withTx and never took lockRun — inverting the lock order against
+	// the claim path and deadlocking (40P01) concurrent lane completes/publishes.
+	// Take lockRunForJob as the FIRST statement (mirroring work.complete) so every
+	// per-run tx shares one serialization point, and wrap in withTxRetryOnDeadlock
+	// as a defense-in-depth backstop so a deadlock loser retries instead of dying.
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if err := lockRunForJob(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "artifact.publish"); err != nil {
 			return nil, err
 		}

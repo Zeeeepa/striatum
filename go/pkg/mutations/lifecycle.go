@@ -1111,7 +1111,11 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if sessionID == "" || jobID == "" || leaseID == "" {
 		return nil, rpc.NewError("schema_invalid", "work.complete requires session_id, job_id, and lease_id", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	// #325 (RFC 0104): work.complete already takes lockRunForJob first (below), but
+	// was not wrapped in the deadlock-retry backstop. Wrap it for symmetry with
+	// artifact.publish so a 40P01 loser retries serially instead of killing the
+	// lane; the body fully rolls back on abort, so re-running from scratch is safe.
+	return withTxRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		// RFC 0096 V2 / #135: a bound token may only complete its own session's work.
 		if _, err := enforceSessionBindingForSession(ctx, tx, repositoryID, sessionID, "work.complete"); err != nil {
 			return nil, err

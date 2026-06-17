@@ -208,6 +208,25 @@ func TestPerRunHandlersTakeLockRunFirst(t *testing.T) {
 				t.Fatalf("review.verdict: %v", err)
 			}
 		}},
+		// #325: artifact.publish and work.complete both take a run-scoped FOR UPDATE
+		// on the job row (and publish appends to the per-repo event chain), so both
+		// must take lockRunForJob FIRST. We only assert the lock-ordering invariant
+		// here, not handler success, so the input refusing partway (e.g. the review
+		// job rejecting work.complete, or the missing artifact file) is fine — the
+		// recorder still captures whether lockRun preceded the FOR UPDATE. Driving a
+		// verdict-capable job is sufficient: lockRunForJob runs before any FOR UPDATE
+		// regardless of the later refusal.
+		{"artifact.publish", func(rec *lockRecorder) {
+			_, _ = HandlePublishArtifact(ctx, rec, intgEnv(repoID, map[string]any{
+				"session_id": fx.reviewerSession, "job_id": fx.reviewJob, "lease_id": fx.reviewLease,
+				"kind": "finding", "logical_name": "guard-finding", "path": "findings/guard.md",
+			}))
+		}},
+		{"work.complete", func(rec *lockRecorder) {
+			_, _ = HandleCompleteWork(ctx, rec, intgEnv(repoID, map[string]any{
+				"session_id": fx.reviewerSession, "job_id": fx.reviewJob, "lease_id": fx.reviewLease,
+			}))
+		}},
 		{"run.cancel", func(rec *lockRecorder) {
 			if _, err := HandleRunCancel(ctx, rec, intgEnv(repoID, map[string]any{"run_id": fx.runID})); err != nil {
 				t.Fatalf("run.cancel: %v", err)
