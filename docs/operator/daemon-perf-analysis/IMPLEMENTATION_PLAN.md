@@ -29,14 +29,17 @@ Source findings: `../../../STRIATUMD_CONCURRENCY_RESOLUTION_REVIEW_OPUS_4_8_2026
 
 | # | Item | Finding | Effort | Reversible? | New lock? | Issue |
 |---|---|---|---|---|---|---|
-| **P0.1** | `deadlock.retry_exhausted` in-process counter | R2 residual | XS | yes | no | net-new (ready-for-agent) |
-| **P0.2** | panic observability: `recover()`→log→**re-panic** on dispatch+sweep goroutines | R1 residual | XS | yes | no | net-new (ready-for-agent) |
-| **P0.3** | F7 read-side wedged/quiet latch in the sweep cursor + doctor predicate | F7 (legibility half) | S | yes | no | net-new (ready-for-agent) |
-| **P1.1** | `events.lock_wait_us` per-waiter wait gauge + **scoped** doctor check | F1 / blind-spot (a) | M | column additive | no | **#372** (refine) |
-| **P1.2** | route `supervisor.progress` off the hash chain | F1 amplifier | M | mostly | no | net-new (ready-for-human / decision) |
-| **P1.3** | instrument the **global** `audit_chain_head` wait | D1 | S–M | yes | no | net-new (ready-for-agent) |
-| **P2.1** | git-hoist the remaining lock-holding holders — **GATED** | F2 / F3 | L | partial | no (removes one) | net-new (ready-for-human) |
-| **P2.2** | in-txn `max_active_jobs` cap guard in `claimChosenJob` — **PARKED** | F7 (cap half) | M | yes | no (reuses held lock) | net-new (ready-for-human) |
+| **P0.1** | `deadlock.retry_exhausted` in-process counter | R2 residual | XS | yes | no | **#375** (ready-for-agent) |
+| **P0.2** | panic observability: `recover()`→log→**re-panic** on dispatch+sweep goroutines | R1 residual | XS | yes | no | **#376** (ready-for-agent) |
+| **P0.3** | F7 read-side wedged/quiet latch in the sweep cursor + doctor predicate | F7 (legibility half) | S | yes | no | **#377** (ready-for-agent) |
+| **P1.1** | `events.lock_wait_us` per-waiter wait gauge + **scoped** doctor check | F1 / blind-spot (a) | M | column additive | no | **#372** (refined — see comment) |
+| **P1.2** | route `supervisor.progress` off the hash chain | F1 amplifier | M | mostly | no | **#378** (ready-for-human / decision) |
+| **P1.3** | instrument the **global** `audit_chain_head` wait | D1 | S–M | yes | no | **#379** (ready-for-agent) |
+| **P2.1** | git-hoist the remaining lock-holding holders — **GATED** | F2 / F3 | L | partial | no (removes one) | **#380** (ready-for-human) |
+| **P2.2** | in-txn `max_active_jobs` cap guard in `claimChosenJob` — **PARKED** | F7 (cap half) | M | yes | no (reuses held lock) | **#381** (ready-for-human) |
+
+> Tracked: P0 = #375/#376/#377 · P1 = #372 (refined)/#378/#379 · P2 = #380/#381.
+> Critical path to the structural fix: **Repro B (new test) + #372 → #380**.
 
 ---
 
