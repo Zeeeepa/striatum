@@ -1735,8 +1735,8 @@ func TestOneShotPipeStdinSeesEOFAfterHoldReleased(t *testing.T) {
 		}{body: body, err: err}
 	}()
 
-	if n, err := writeToPipe(context.Background(), pipePath, []byte("packet\n")); err != nil || n != len("packet\n") {
-		t.Fatalf("writeToPipe n=%d err=%v", n, err)
+	if n, buffered, err := writeToPipe(context.Background(), pipePath, []byte("packet\n")); err != nil || n != len("packet\n") || buffered {
+		t.Fatalf("writeToPipe n=%d buffered=%v err=%v", n, buffered, err)
 	}
 	select {
 	case got := <-readDone:

@@ -47,6 +47,12 @@ type supervisorDeliveryResult struct {
 	BytesWritten          int
 	StdinDelivery         string
 	StdinClosedAfterWrite bool
+	// Buffered is true when the payload could not be written to the FIFO because
+	// no reader was attached, so it was queued in the process-global in-memory
+	// pipeBuffers instead. A buffered write is NOT durably delivered: a daemon
+	// restart drops the queue. The caller must record a buffered/degraded event,
+	// not supervisor.packet_delivered (#358).
+	Buffered bool
 }
 
 func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryID, supervisorID, pipePath string, payload []byte) (supervisorDeliveryResult, error) {
@@ -58,7 +64,7 @@ func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryI
 	if stdinDelivery == stdinDeliveryOneShotEOF && metadata["stdin_delivery_consumed"] == true {
 		return supervisorDeliveryResult{}, rpc.NewError("invalid_transition", "one-shot supervisor stdin has already been consumed", nil)
 	}
-	bytesWritten, err := writeToPipe(ctx, pipePath, payload)
+	bytesWritten, buffered, err := writeToPipe(ctx, pipePath, payload)
 	if err != nil {
 		if errors.Is(err, errSupervisorPipeNoReader) {
 			return supervisorDeliveryResult{}, &supervisorPipeNoReaderDeliveryError{
@@ -70,14 +76,22 @@ func writeSupervisorPayload(ctx context.Context, runner db.TxRunner, repositoryI
 		return supervisorDeliveryResult{}, err
 	}
 	closed := stdinDelivery == stdinDeliveryOneShotEOF
-	if closed {
+	// A buffered (no-reader) write was not flushed to the FIFO; do not consume a
+	// one-shot stdin or remove the FIFO on a buffer-only write — the payload still
+	// needs a reader to attach and drain it.
+	if closed && !buffered {
 		releaseOneShotFIFOHold(pipePath)
 		_ = os.Remove(pipePath)
 		if err := mergePointerMetadata(ctx, runner, repositoryID, supervisorID, map[string]any{"stdin_delivery_consumed": true}); err != nil {
 			return supervisorDeliveryResult{}, err
 		}
 	}
-	return supervisorDeliveryResult{BytesWritten: bytesWritten, StdinDelivery: stdinDelivery, StdinClosedAfterWrite: closed}, nil
+	return supervisorDeliveryResult{
+		BytesWritten:          bytesWritten,
+		StdinDelivery:         stdinDelivery,
+		StdinClosedAfterWrite: closed && !buffered,
+		Buffered:              buffered,
+	}, nil
 }
 
 type NamedPipeBuffer struct {
@@ -156,21 +170,26 @@ func releaseOneShotFIFOHold(pipePath string) {
 	}
 }
 
-func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, error) {
+// writeToPipe writes payload to the supervisor FIFO. The returned bool reports
+// whether the payload was BUFFERED (no reader attached, queued in the in-memory
+// pipeBuffers) rather than flushed to the FIFO; a buffered write is not durably
+// delivered (a daemon restart drops the queue), so the caller must not record it
+// as a delivered packet (#358).
+func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, bool, error) {
 	buf := getPipeBuffer(pipePath)
 	if buf.IsDegraded() {
-		return 0, errSupervisorPipeNoReader
+		return 0, false, errSupervisorPipeNoReader
 	}
 
 	fd, err := syscall.Open(pipePath, syscall.O_WRONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, syscall.ENXIO) {
 			if pushErr := buf.Push(payload); pushErr != nil {
-				return 0, errSupervisorPipeNoReader
+				return 0, false, errSupervisorPipeNoReader
 			}
-			return len(payload), nil
+			return len(payload), true, nil
 		}
-		return 0, err
+		return 0, false, err
 	}
 	file := os.NewFile(uintptr(fd), pipePath)
 	defer func() { _ = file.Close() }()
@@ -178,11 +197,12 @@ func writeToPipe(ctx context.Context, pipePath string, payload []byte) (int, err
 	buffered := buf.PopAll()
 	for _, pkt := range buffered {
 		if _, err := writeAll(ctx, file, pkt); err != nil {
-			return 0, err
+			return 0, false, err
 		}
 	}
 
-	return writeAll(ctx, file, payload)
+	n, err := writeAll(ctx, file, payload)
+	return n, false, err
 }
 
 func writeAll(ctx context.Context, file *os.File, payload []byte) (int, error) {

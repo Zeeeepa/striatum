@@ -181,8 +181,17 @@ func isTokenAuthFailure(err error) bool {
 }
 
 func send(ctx context.Context, conn net.Conn, reader *bufio.Reader, envelope rpc.Envelope) (rpc.Response, error) {
+	// Apply a read/write deadline so a daemon that accepts the connection then
+	// wedges before responding cannot hang reader.ReadBytes forever. The 5s
+	// DialTimeout only covers connect; the CLI invokes with context.Background()
+	// (cmd/striatum/main.go), so without this every verb would block indefinitely
+	// on a wedged-after-accept daemon. A context deadline (when present) wins;
+	// otherwise fall back to the envelope's deadline_ms — the same budget the
+	// daemon is told to honour — so the client and daemon share one timeout (#358).
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
+	} else if envelope.DeadlineMS > 0 {
+		_ = conn.SetDeadline(time.Now().Add(time.Duration(envelope.DeadlineMS) * time.Millisecond))
 	}
 	encoded, err := envelope.Encode()
 	if err != nil {
@@ -206,9 +215,14 @@ func send(ctx context.Context, conn net.Conn, reader *bufio.Reader, envelope rpc
 }
 
 type Error struct {
-	Code     string
-	Message  string
-	ExitCode int
+	Code    string
+	Message string
+	// Suggestion is the in-band remediation the RFC 0111 error catalog fills on
+	// the daemon side (rpc.Error.Suggestion). Threading it through to the client
+	// is the whole point of the catalog: the agent-driven consumer sees the exact
+	// remedy, not just the failure message (#358).
+	Suggestion string
+	ExitCode   int
 }
 
 func (e *Error) Error() string {
@@ -218,13 +232,14 @@ func (e *Error) Error() string {
 func rpcError(response rpc.Response) error {
 	code, _ := response.Data["code"].(string)
 	message, _ := response.Data["message"].(string)
+	suggestion, _ := response.Data["suggestion"].(string)
 	if code == "" {
 		code = "daemon_error"
 	}
 	if message == "" {
 		message = code
 	}
-	return &Error{Code: code, Message: message, ExitCode: exitCode(code)}
+	return &Error{Code: code, Message: message, Suggestion: suggestion, ExitCode: exitCode(code)}
 }
 
 func ExitCode(err error) int {

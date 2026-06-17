@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 )
 
 type fakeInvoker struct {
@@ -35,6 +37,44 @@ func (f *fakeInvoker) Invoke(_ context.Context, method string, params map[string
 		}, nil
 	}
 	return map[string]any{"method": method}, nil
+}
+
+// TestDispatchPrintsRemediationSuggestion is the #358 item-4 regression: the RFC
+// 0111 error catalog fills rpc.Error.Suggestion on the daemon side and rpcError
+// threads it onto rpcclient.Error; writeError must surface it so the agent-driven
+// CLI consumer sees the exact remedy, not just the failure message.
+func TestDispatchPrintsRemediationSuggestion(t *testing.T) {
+	invoker := &fakeInvoker{err: &rpcclient.Error{
+		Code:       "blob_apply_required",
+		Message:    "bucket does not exist",
+		Suggestion: "Re-run with apply enabled to create the bucket.",
+		ExitCode:   1,
+	}}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"--repository-id", "repo_1", "run", "start", "run_1"},
+		&stdout, &stderr, Options{Invoker: invoker, ExitCode: rpcclient.ExitCode})
+	if exit == 0 {
+		t.Fatalf("exit = %d, want non-zero on a daemon error", exit)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "bucket does not exist") {
+		t.Fatalf("stderr missing failure message: %q", out)
+	}
+	if !strings.Contains(out, "suggestion: Re-run with apply enabled to create the bucket.") {
+		t.Fatalf("stderr missing RFC 0111 remediation suggestion: %q", out)
+	}
+}
+
+// TestDispatchNoSuggestionLineWhenAbsent guards against a stray "suggestion:"
+// line when the daemon error carries no remediation.
+func TestDispatchNoSuggestionLineWhenAbsent(t *testing.T) {
+	invoker := &fakeInvoker{err: &rpcclient.Error{Code: "internal_error", Message: "boom", ExitCode: 1}}
+	var stdout, stderr bytes.Buffer
+	_ = Run(context.Background(), []string{"--repository-id", "repo_1", "run", "start", "run_1"},
+		&stdout, &stderr, Options{Invoker: invoker, ExitCode: rpcclient.ExitCode})
+	if strings.Contains(stderr.String(), "suggestion:") {
+		t.Fatalf("stderr printed a suggestion line for a suggestion-less error: %q", stderr.String())
+	}
 }
 
 func TestDispatchRoutesReadThroughRPC(t *testing.T) {

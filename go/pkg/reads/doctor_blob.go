@@ -62,8 +62,9 @@ func blobDoctorBlock(ctx context.Context, runner db.Runner, repositoryID string)
 	if bucket == "" {
 		// Reachable daemon, configured backend, but the repo itself
 		// has no blob_bucket. Not an error — operator may not have
-		// run `striatum adopt --apply-blob-creation` for this repo
-		// yet — but worth surfacing.
+		// run `striatum repo add <path> --apply-blob-creation` for this
+		// repo yet (re-running it backfills the bucket on an
+		// already-registered repo) — but worth surfacing.
 		report["bucket"] = nil
 		report["bucket_status"] = "not_provisioned"
 		return report

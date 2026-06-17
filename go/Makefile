@@ -87,10 +87,15 @@ cover-floor:
 # jobs (vet+lint, and verify+check-tests) for wall-clock — see .github/workflows/ci.yml.
 check: verify vet lint check-tests
 
+# installed-cli-check runs every SUPPORTED seat's RFC 0109 P3 fixture, not just
+# agy. CIExecutedInstalledCLISeats (pkg/adapterconformance/seat_tier.go) must stay
+# in lockstep with this -run filter: the seat-tier guard fails if a supported seat
+# is not actually executed here (#358). Each fixture skips cleanly when its CLI is
+# absent, so a host missing codex still runs the agy gates.
 installed-cli-check:
 	@test -n "$$STRIATUM_PG_TEST_URL" || { echo "STRIATUM_PG_TEST_URL is required for installed-cli-check" >&2; exit 1; }
 	@command -v agy >/dev/null || { echo "agy is required on PATH for installed-cli-check" >&2; exit 1; }
-	STRIATUM_P3_INSTALLED_CLI=1 go test ./pkg/adapterconformance -run '^TestInstalledCLISeatAgyTwoTurn$$' -count=1 -v
+	STRIATUM_P3_INSTALLED_CLI=1 go test ./pkg/adapterconformance -run '^TestInstalledCLISeat(AgyTwoTurn|AgyRestartWhileLeased|CodexTwoTurn)$$' -count=1 -v
 
 clean:
 	rm -rf bin coverage.out

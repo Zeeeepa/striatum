@@ -10,10 +10,10 @@ permissions:
   contents: read
 
 jobs:
-  agy-installed-cli:
-    name: Agy two-turn seat
+  installed-cli:
+    name: Installed-CLI seat gate (agy + codex)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -52,5 +52,16 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           "$HOME/.local/bin/agy" --version
 
+      - name: Install codex CLI
+        # The codex seat fixture (TestInstalledCLISeatCodexTwoTurn) drives the real
+        # codex binary against a hermetic httptest MCP harness, so it needs codex on
+        # PATH but no LLM auth. CIExecutedInstalledCLISeats lists codex, so the
+        # seat-tier guard requires this fixture to actually run here (#358).
+        run: |
+          npm install -g @openai/codex
+          codex --version
+
       - name: Run installed-CLI conformance gate
+        # make installed-cli-check runs the agy two-turn + agy restart-while-leased
+        # (#151) + codex two-turn fixtures. Each skips cleanly if its CLI is missing.
         run: make installed-cli-check
