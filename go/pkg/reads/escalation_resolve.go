@@ -12,6 +12,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // RunCompletionRedriveHook re-drives the RFC 0118 P0-3 run-completion
@@ -21,6 +22,20 @@ import (
 // run sits running-but-inert forever. Wired by mutations.Register (the reads
 // package cannot import mutations — mutations imports reads).
 var RunCompletionRedriveHook func(ctx context.Context, tx db.TxRunner, repositoryID, runID string) error
+
+// RunLockHook takes the RFC 0104 per-run advisory lock (mutations.LockRun) on
+// escalation.resolve's transaction. escalation.resolve is a per-run write verb
+// (it FOR UPDATEs blockers, then maybeCompleteRun FOR UPDATEs runs) but lives in
+// pkg/reads, which cannot import pkg/mutations (mutations imports reads), so the
+// lock primitive is injected as a hook by mutations.Register rather than called
+// directly — sharing the EXACT advisory-lock key with every in-package per-run
+// mutation instead of re-deriving it. Like every other per-run mutation, the
+// lock MUST be taken as the first statement of the transaction, before any
+// blocking FOR UPDATE on a run-scoped row, or the {blockers/runs} pair re-opens
+// the inverted lock-order cycle the advisory lock exists to retire. nil only in
+// a unit test that drives HandleEscalationResolve without mutations.Register
+// (where there is no concurrent run mutation to serialize against anyway).
+var RunLockHook func(ctx context.Context, tx db.TxRunner, repositoryID, runID string) error
 
 func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
@@ -43,7 +58,34 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 		return nil, err
 	}
 
-	_, err = withResolveTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	_, err = withResolveRetryOnDeadlock(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// RFC 0104 (#356): escalation.resolve is a per-run write — it FOR UPDATEs
+		// the blocker below and then maybeCompleteRun FOR UPDATEs the run — so it
+		// must take the per-run advisory lock as the transaction's FIRST statement,
+		// before the blocking FOR UPDATE. Resolve the blocker's (immutable) run_id
+		// with a NON-locking read, then take the lock; a missing/non-escalation
+		// blocker takes no lock and lets the FOR UPDATE below surface the canonical
+		// not-found error, preserving prior behavior. The lock primitive is injected
+		// by mutations.Register (reads cannot import mutations) so the advisory-lock
+		// key matches every in-package per-run mutation exactly.
+		if RunLockHook != nil {
+			lockRows, err := queryAnyRows(ctx, tx, `
+				SELECT run_id
+				  FROM striatumd.blockers b
+				 WHERE b.repository_id = $1
+				   AND b.blocker_id = $2
+				   AND `+escalationPredicate(), repositoryID, escalationID)
+			if err != nil {
+				return nil, err
+			}
+			if len(lockRows) > 0 {
+				if runID := fmt.Sprint(lockRows[0]["run_id"]); runID != "" && runID != "<nil>" {
+					if err := RunLockHook(ctx, tx, repositoryID, runID); err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
 		blockers, err := queryAnyRows(ctx, tx, `
 			SELECT *
 			  FROM striatumd.blockers b
@@ -214,6 +256,51 @@ func loadEscalationProjection(ctx context.Context, runner any, repositoryID stri
 		return nil, rpc.NewError("not_found", "escalation not found: "+escalationID, nil)
 	}
 	return shapeEscalations(rows)[0], nil
+}
+
+// resolveDeadlockSQLState is the Postgres SQLSTATE for a detected deadlock,
+// mirroring mutations.deadlockSQLState. escalation.resolve cannot reuse the
+// mutations helper directly (reads cannot import mutations), so the tight,
+// deadlock-only retry is reproduced here.
+const resolveDeadlockSQLState = "40P01"
+
+func isResolveDeadlock(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == resolveDeadlockSQLState
+}
+
+// withResolveRetryOnDeadlock wraps withResolveTx in the same tight,
+// deadlock-only retry as mutations.withTxRetryOnDeadlock (#356). escalation.
+// resolve takes the per-run advisory lock first (RunLockHook), so a 40P01 here
+// is a backstop, not the common case; only SQLSTATE 40P01 is retried, with a
+// short bounded backoff, so any other error (not_found, invalid_transition,
+// daemon_auth_lost, etc.) is returned immediately and a genuine livelock
+// surfaces a clear error rather than spinning.
+func withResolveRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
+	const maxAttempts = 3
+	const baseBackoff = 5 * time.Millisecond
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		result, err := withResolveTx(ctx, runner, fn)
+		if err == nil {
+			return result, nil
+		}
+		if !isResolveDeadlock(err) {
+			return nil, err
+		}
+		if attempt == maxAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(baseBackoff * time.Duration(attempt+1)):
+		}
+	}
+	return nil, rpc.NewError(
+		"invalid_transition",
+		"transaction aborted by a database deadlock after retrying; retry serially",
+		map[string]any{"sqlstate": resolveDeadlockSQLState, "attempts": maxAttempts},
+	)
 }
 
 // withResolveTx runs escalation.resolve's body inside an authorized mutation

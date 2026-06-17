@@ -77,6 +77,9 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	reads.RunCompletionRedriveHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, runID string) error {
 		return maybeCompleteRun(ctx, tx, repositoryID, runID)
 	}
+	reads.RunLockHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, runID string) error {
+		return LockRun(ctx, tx, repositoryID, runID)
+	}
 	var o Options
 	if len(opts) > 0 {
 		o = opts[0]
@@ -556,6 +559,19 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 func lockRun(ctx context.Context, runner db.TxRunner, repositoryID, runID string) error {
 	key := "striatum:run:" + repositoryID + ":" + runID
 	return runner.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, key)
+}
+
+// LockRun is the exported entry to the per-run advisory lock for the one
+// per-run write verb that lives outside this package — escalation.resolve,
+// registered in pkg/reads (which cannot import pkg/mutations: mutations imports
+// reads). It delegates to the unexported lockRun so the advisory-lock KEY is
+// computed in exactly one place and always matches every in-package per-run
+// mutation; callers must NOT re-derive the key by hand. Wired into reads via
+// reads.RunLockHook in Register, mirroring the RunCompletionRedriveHook
+// indirection. Like lockRun, it MUST be the first statement of the per-run
+// transaction, before any blocking FOR UPDATE on a run-scoped row (RFC 0104).
+func LockRun(ctx context.Context, runner db.TxRunner, repositoryID, runID string) error {
+	return lockRun(ctx, runner, repositoryID, runID)
 }
 
 // lockRepo serializes a mutation that must reason about ALL runs on a repository
