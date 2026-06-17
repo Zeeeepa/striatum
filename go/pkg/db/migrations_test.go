@@ -539,6 +539,53 @@ func TestMigrationThirtyBarrierStateIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationThirtyOneBarrierStatusViewIsOwnershipSafe is RFC 0135 P3 (D215/D216):
+// the barrier_status read/audit view migration (#347) creates a NEW view over the
+// runtime barrier tables. CREATE VIEW is runtime-safe — it does NOT ALTER/DROP any
+// owner-held table (so the future-runtime-DDL guard, which forbids ALTER/DROP of
+// striatumd.* for versions >= 27, never fires), needs no owner bundle, and carries
+// no FOREIGN KEY (a view has no referential keys). It must carry an explicit GRANT
+// guarded by an IF EXISTS striatumd_rw probe (pgtest masks an omitted grant).
+func TestMigrationThirtyOneBarrierStatusViewIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 31 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 31 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE OR REPLACE VIEW striatumd.barrier_status",
+		"BARRIER_BLOCKED",
+		// Read-only GRANT guarded by an IF EXISTS striatumd_rw probe.
+		"GRANT SELECT ON striatumd.barrier_status TO striatumd_rw",
+		"rolname = 'striatumd_rw'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 31 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER/DROP of any table, and no foreign key (a view has
+	// no referential keys; integrity is the live-seal JOIN in the view body).
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 31 must not contain %q (owner-table dependency / future-runtime-DDL guard)", forbidden)
+		}
+	}
+}
+
 func TestFutureRuntimeMigrationsDoNotCarryOwnerDDL(t *testing.T) {
 	migrations, err := Migrations()
 	if err != nil {

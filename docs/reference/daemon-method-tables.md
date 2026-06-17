@@ -24,6 +24,7 @@
 | `status` | `read` | `single_repo` | 1 | 1 | no |
 | `why` | `read` | `single_repo` | 1 | 1 | no |
 | `doctor` | `read` | `single_repo` | 1 | 1 | no |
+| `join.verify` | `read` | `single_repo` | 1 | 1 | no |
 | `doctor.blob_block` | `read` | `daemon_global` | 1 | 1 | no |
 | `dashboard` | `read` | `single_repo` | 1 | 1 | no |
 | `evidence.export` | `read` | `single_repo` | 1 | 1 | no |
@@ -260,3 +261,4 @@
 | `conversation close` | `conversation.close` | `write` | `single_repo` |
 | `conversation list` | `conversation.list` | `read` | `single_repo` |
 | `conversation show` | `conversation.show` | `read` | `single_repo` |
+| `join verify` | `join.verify` | `read` | `single_repo` |

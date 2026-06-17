@@ -52,6 +52,16 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Regenerate the commit_request against the current HEAD, then re-run git.commit_apply.",
 	},
 	{
+		Code:       "barrier_blocked",
+		Meaning:    "A sealed expectation barrier (RFC 0135) cannot fire because a live in-edge is a blocking contribution or an unresolvable seat (BARRIER_BLOCKED), not a clean terminal gap.",
+		Suggestion: "Resolve the blocked seat(s) listed in blocked_manifest (clear the blocker, complete or recover the seat), or recover the run; then re-run `striatum join verify <barrier-id>`.",
+	},
+	{
+		Code:       "barrier_integrity_failed",
+		Meaning:    "A sealed expectation barrier (RFC 0135) failed integrity verification: its manifest does not match the staged refs at the live seal, or its assembly journal is inconsistent (unreachable target, committed-manifest mismatch, or terminal failure).",
+		Suggestion: "Inspect the problems and manifest in the verify result; recover the assembly through the daemon (do not hand-finish), then re-run `striatum join verify <barrier-id>`.",
+	},
+	{
 		Code:       "blob_apply_required",
 		Meaning:    "The blob bucket does not exist and creation was not authorized.",
 		Suggestion: "Re-run `striatum repo add <path> --apply-blob-creation` to create the bucket.",

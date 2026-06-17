@@ -75,7 +75,8 @@ state changes must route through daemon RPC.
 | `daemon.describe` | n/a | read | daemon_global | direct | real | no | no | stable |
 | `status` | `status` | read | single_repo | pg | real | no | no | stable |
 | `why` | `why` | read | single_repo | pg | real | no | no | stable |
-| `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor`; explicit `--lane-provider-auth codex` is the only doctor mode that runs a provider CLI |
+| `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor`; `--verbose` also adds the RFC 0135 P3 `barrier_integrity` block (`barrier_blocked` / `barrier_assembling_target_unreachable` / `barrier_committed_manifest_mismatch` / `barrier_orphaned_staging_ref`); explicit `--lane-provider-auth codex` is the only doctor mode that runs a provider CLI |
+| `join.verify` | `join verify` | read | single_repo | n/a (RFC 0135 P3, Go-only) | real | no | no | RFC 0135 P3 (#347) read-only barrier integrity verification over the `barrier_status` view (migration 0031); returns `barrier_integrity_failed` / `barrier_blocked` (with `blocked_manifest`) on a corrupted or blocked barrier so it is usable as a CI/operator gate; no state mutation |
 | `doctor.blob_block` | web/MCP blob-block doctor DTO; no CLI route | read | daemon_global | pg + blob store | real | no | no | read-only durable-blob integrity projection over the configured blob client; on-contract per #363 (formerly a runtime `rpc.MethodRegistry` hand-registration the machine contract was blind to) |
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
@@ -351,6 +352,8 @@ remediation is sensible for that code.
 | `bad_host` | The MCP endpoint rejected a request whose Host header is not loopback. | Call the daemon MCP endpoint via its loopback address exactly as provided in STRIATUM_MCP_URL. |
 | `bad_origin` | The MCP endpoint rejected a browser-style request whose Origin header is not loopback. | Send requests from a loopback origin or drop the Origin header. |
 | `base_head_mismatch` | The current git HEAD does not match the commit_request base_head. | Regenerate the commit_request against the current HEAD, then re-run git.commit_apply. |
+| `barrier_blocked` | A sealed expectation barrier (RFC 0135) cannot fire because a live in-edge is a blocking contribution or an unresolvable seat (BARRIER_BLOCKED), not a clean terminal gap. | Resolve the blocked seat(s) listed in blocked_manifest (clear the blocker, complete or recover the seat), or recover the run; then re-run `striatum join verify <barrier-id>`. |
+| `barrier_integrity_failed` | A sealed expectation barrier (RFC 0135) failed integrity verification: its manifest does not match the staged refs at the live seal, or its assembly journal is inconsistent (unreachable target, committed-manifest mismatch, or terminal failure). | Inspect the problems and manifest in the verify result; recover the assembly through the daemon (do not hand-finish), then re-run `striatum join verify <barrier-id>`. |
 | `blob_apply_required` | The blob bucket does not exist and creation was not authorized. | Re-run `striatum repo add <path> --apply-blob-creation` to create the bucket. |
 | `blob_disabled` | The daemon is not configured for blob storage. | — |
 | `blob_head_failed` | The blob backend failed to stat an object. | — |

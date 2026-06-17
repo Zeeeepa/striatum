@@ -100,7 +100,8 @@
     {"command": "conversation", "subcommand": "say", "method": "conversation.say", "params": "conversation_say"},
     {"command": "conversation", "subcommand": "close", "method": "conversation.close", "params": "conversation_close"},
     {"command": "conversation", "subcommand": "list", "method": "conversation.list", "params": "conversation_list"},
-    {"command": "conversation", "subcommand": "show", "method": "conversation.show", "params": "conversation_show"}
+    {"command": "conversation", "subcommand": "show", "method": "conversation.show", "params": "conversation_show"},
+    {"command": "join", "subcommand": "verify", "method": "join.verify", "params": "join_verify"}
   ],
   "methods": [
     {
@@ -258,6 +259,15 @@
     },
     {
       "method": "doctor",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "join.verify",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
