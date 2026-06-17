@@ -157,3 +157,28 @@ func TestInstalledCLISeatCodexTwoTurn(t *testing.T) {
 		t.Fatalf("codex installed-CLI seat gate (RFC 0109 P3 / #95) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
 	}
 }
+
+// TestInstalledCLISeatClaudeTwoTurn is the #358 conformance-honesty fixture for the
+// claude seat — the flagship adapter that previously had NO installed-CLI coverage
+// at all. It drives the real claude CLI through the same two-turn
+// claim → publish → claim cycle under one attested session.
+//
+// claude's seat is still classified `experimental`, not `supported`: it is NOT in
+// CIExecutedInstalledCLISeats and the scheduled `make installed-cli-check` does not
+// run it yet (an authenticated-claude-on-CI gate that has not landed). The fixture
+// exists so the day claude is wired into the CI gate, graduating its seat is a
+// one-line registry change with an already-written, runnable conformance check —
+// closing the "flagship adapter has no real-binary coverage" gap on the test side
+// while the seat tier keeps telling the honest truth (experimental until CI-run).
+//
+// Like the other fixtures it is gated behind STRIATUM_P3_INSTALLED_CLI and skips
+// cleanly when claude is absent, so it is a no-op in the default unit suite.
+func TestInstalledCLISeatClaudeTwoTurn(t *testing.T) {
+	requireInstalledCLIGate(t)
+	h := NewHarness(t, "repo_conf_claude_seat")
+	report := RunInstalledCLI(t, h, "claude", InstalledCLIOptions{RunTimeout: installedCLITimeout(t)})
+	logInstalledCLIReport(t, report)
+	if !report.Passed() {
+		t.Fatalf("claude installed-CLI seat gate (RFC 0109 P3 / #95 / #358) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
+	}
+}

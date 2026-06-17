@@ -22,3 +22,20 @@ var InstalledCLISeatFixtures = map[string]bool{
 	"agy":   true,
 	"codex": true,
 }
+
+// CIExecutedInstalledCLISeats names the seats whose installed-CLI fixture is
+// ACTUALLY RUN by the scheduled CI gate (make installed-cli-check ->
+// .github/workflows/ci-installed-cli.yml), not merely declared green by a bool in
+// InstalledCLISeatFixtures. The original guard reconciled registry<->registry, so a
+// seat could be marked supported with a fixture that no CI job ever executed —
+// exactly the codex gap #358 found (TestInstalledCLISeatCodexTwoTurn existed but
+// only the agy fixture was -run in the Makefile). The graduation guard now requires
+// every supported seat to be in BOTH InstalledCLISeatFixtures AND this set, so a
+// "supported" tier cannot rest on a never-CI-run fixture.
+//
+// When you wire a seat's fixture into make installed-cli-check (and the scheduled
+// workflow), add it here. Keep this in lockstep with the Makefile's -run filter.
+var CIExecutedInstalledCLISeats = map[string]bool{
+	"agy":   true,
+	"codex": true,
+}

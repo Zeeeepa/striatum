@@ -24,6 +24,13 @@ func TestSupportedSeatsHaveInstalledCLIFixture(t *testing.T) {
 		if !InstalledCLISeatFixtures[adapter] {
 			t.Errorf("adapter seat %q is marked support_tier=supported but has NO green installed-CLI conformance fixture (InstalledCLISeatFixtures) — the seat tier cannot lie; land the RFC 0109 P3 fixture (#149) or mark it degraded/experimental", adapter)
 		}
+		// #358: a declared-green bool is not enough — the fixture must be ACTUALLY
+		// EXECUTED by the scheduled CI gate. Otherwise a "supported" tier could rest
+		// on a fixture no job ever runs (the codex gap: its fixture existed but only
+		// agy was -run in make installed-cli-check). Require CI execution too.
+		if !CIExecutedInstalledCLISeats[adapter] {
+			t.Errorf("adapter seat %q is marked support_tier=supported and has a fixture bool, but that fixture is NOT executed by the scheduled CI gate (CIExecutedInstalledCLISeats / make installed-cli-check) — a supported tier may not rest on a never-run fixture; wire it into the workflow's -run filter or mark the seat experimental", adapter)
+		}
 	}
 
 	supported := map[string]bool{}
@@ -36,6 +43,17 @@ func TestSupportedSeatsHaveInstalledCLIFixture(t *testing.T) {
 		}
 		if !supported[adapter] {
 			t.Errorf("adapter seat %q has a green installed-CLI fixture but is NOT marked support_tier=supported — graduate it (workflowtemplates.supportedSeats) or remove the fixture entry", adapter)
+		}
+	}
+
+	// Every CI-executed seat must have a fixture bool and be supported, so the two
+	// registries cannot drift from the workflow's actual -run set.
+	for adapter := range CIExecutedInstalledCLISeats {
+		if !InstalledCLISeatFixtures[adapter] {
+			t.Errorf("seat %q is in CIExecutedInstalledCLISeats but has no InstalledCLISeatFixtures entry — a CI-run fixture must be registered green", adapter)
+		}
+		if !supported[adapter] {
+			t.Errorf("seat %q is CI-executed but not marked supported — graduate it or drop it from CIExecutedInstalledCLISeats", adapter)
 		}
 	}
 }
