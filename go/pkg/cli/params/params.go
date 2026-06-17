@@ -176,6 +176,11 @@ func boolFlags(group string) map[string]bool {
 		// reachable refs/striatum pins for the run. Both are presence flags so a
 		// value-less flag never swallows the run-id positional (#312).
 		return set("dry_run", "sweep_pins")
+	case "recovery_quarantine_lane":
+		// #298: --dry-run previews the changed paths + would-be quarantine ref and
+		// writes nothing. A presence flag so a value-less flag never swallows the
+		// run-id/job-id positionals (#312).
+		return set("dry_run")
 	case "repo_add":
 		return set("init", "no_migrate", "apply_blob_creation")
 	case "register_session":
@@ -295,6 +300,12 @@ func positionalNames(group string) []string {
 		// `striatum recovery prune-debris <run-id>` tombstones a terminal-debris
 		// run's unrecoverable artifact debris so doctor can report ok again.
 		return []string{"run_id"}
+	case "recovery_quarantine_lane":
+		// #298: recovery.quarantine_lane keys on (run_id, job_id) so
+		// `striatum recovery quarantine-lane <run-id> <job-id>` snapshots a
+		// terminal run's dirty lane worktree to a durable quarantine ref, then
+		// cleans the worktree.
+		return []string{"run_id", "job_id"}
 	case "evidence_export", "corpus_export", "archive_create":
 		return []string{"run_id", "out"}
 	case "recall_search":

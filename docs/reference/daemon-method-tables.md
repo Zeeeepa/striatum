@@ -129,6 +129,7 @@
 | `recovery.accept_quarantined` | `recovery` | `single_repo` | 1 | 1 | no |
 | `recovery.resolve_blocker` | `recovery` | `single_repo` | 1 | 1 | no |
 | `recovery.prune_debris` | `recovery` | `single_repo` | 1 | 1 | no |
+| `recovery.quarantine_lane` | `recovery` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.show` | `read` | `single_repo` | 1 | 1 | no |
 | `apply.receipt.verify` | `read` | `single_repo` | 1 | 1 | no |
 | `repo.add` | `admin` | `daemon_global` | 1 | 1 | no |
@@ -216,6 +217,7 @@
 | `recovery accept-quarantined` | `recovery.accept_quarantined` | `recovery` | `single_repo` |
 | `recovery resolve-blocker` | `recovery.resolve_blocker` | `recovery` | `single_repo` |
 | `recovery prune-debris` | `recovery.prune_debris` | `recovery` | `single_repo` |
+| `recovery quarantine-lane` | `recovery.quarantine_lane` | `recovery` | `single_repo` |
 | `evidence export` | `evidence.export` | `read` | `single_repo` |
 | `corpus export` | `corpus.export` | `read` | `single_repo` |
 | `recall search` | `recall.search` | `read` | `single_repo` |

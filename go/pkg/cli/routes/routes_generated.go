@@ -62,6 +62,7 @@ var generatedRoutes = []Route{
 	{Command: "recovery", Subcommand: "accept-quarantined", Method: "recovery.accept_quarantined", ParamsGroup: "recovery_accept_quarantined", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "resolve-blocker", Method: "recovery.resolve_blocker", ParamsGroup: "recovery_resolve_blocker", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recovery", Subcommand: "prune-debris", Method: "recovery.prune_debris", ParamsGroup: "recovery_prune_debris", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "recovery", Subcommand: "quarantine-lane", Method: "recovery.quarantine_lane", ParamsGroup: "recovery_quarantine_lane", RequiredCapability: "recovery", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "evidence", Subcommand: "export", Method: "evidence.export", ParamsGroup: "evidence_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "corpus", Subcommand: "export", Method: "corpus.export", ParamsGroup: "corpus_export", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "recall", Subcommand: "search", Method: "recall.search", ParamsGroup: "recall_search", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},

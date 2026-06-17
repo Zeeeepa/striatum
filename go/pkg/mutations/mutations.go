@@ -139,6 +139,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.accept_quarantined", makeHandler(runner, HandleRecoveryAcceptQuarantined))
 	server.Register("recovery.resolve_blocker", makeHandler(runner, HandleRecoveryResolveBlocker))
 	server.Register("recovery.prune_debris", makeHandler(runner, HandleRecoveryPruneDebris))
+	server.Register("recovery.quarantine_lane", makeHandler(runner, HandleRecoveryQuarantineLane))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
 	server.Register("interrogation.open", makeHandler(runner, HandleInterrogationOpen))
 	server.Register("interrogation.ask", makeHandler(runner, HandleInterrogationAsk))

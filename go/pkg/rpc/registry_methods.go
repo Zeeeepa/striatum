@@ -126,6 +126,7 @@ var methodEntries = []MethodEntry{
 	{Method: "recovery.accept_quarantined", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "recovery.resolve_blocker", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "recovery.prune_debris", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "recovery.quarantine_lane", RequiredCapability: CapPtr(CapabilityRecovery), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "apply.receipt.show", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "apply.receipt.verify", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "repo.add", RequiredCapability: CapPtr(CapabilityAdmin), RepositoryScope: false, RepositoryScopeMode: ScopeDaemonGlobal, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

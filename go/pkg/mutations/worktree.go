@@ -528,6 +528,9 @@ type worktreeGCCheck struct {
 	Target        string
 	MissingOnDisk bool
 	Reachability  worktreeReachability
+	// DirtyPaths is the set of uncommitted change paths when a worktree is
+	// skipped with reason dirty_uncommitted_work (#298); empty otherwise.
+	DirtyPaths []string
 }
 
 func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
@@ -598,6 +601,13 @@ func HandleWorktreeGC(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 				base["head"] = nullableString(check.Reachability.Head)
 				base["reachable"] = check.Reachability.Reachable
 				base["checked_refs"] = check.Reachability.CheckedRefs
+				// #298: surface the uncommitted paths and the deferred recovery verb
+				// so the operator knows the worktree was preserved (not discarded) and
+				// how to dispose of its dirt without manual capture.
+				if check.Reason == "dirty_uncommitted_work" {
+					base["dirty_paths"] = check.DirtyPaths
+					base["next_action"] = "recovery quarantine-lane <run-id> <job-id>"
+				}
 				skipped = append(skipped, base)
 				continue
 			}
@@ -796,6 +806,20 @@ func worktreeGCDecision(ctx context.Context, repoRoot string, row map[string]any
 	}
 	if !reachability.Reachable {
 		return worktreeGCCheck{Reason: "head_unreachable", Target: target, Reachability: reachability}, nil
+	}
+	// #298: a present-on-disk worktree with uncommitted work is NOT safe to
+	// `worktree remove --force` — that silently DISCARDS the dirt (the
+	// silent-data-loss this guard closes). Skip it with a distinct reason and
+	// defer disposition to `recovery quarantine-lane`, which snapshots the
+	// uncommitted work to a durable quarantine ref BEFORE removing the worktree.
+	// Probed only after the cheaper terminal/reachability gates so the common
+	// clean-worktree path pays nothing extra.
+	changedPaths, err := quarantineWorktreeChangedPaths(ctx, target)
+	if err != nil {
+		return worktreeGCCheck{Reason: "probe_failed", Target: target, Reachability: reachability}, err
+	}
+	if len(changedPaths) > 0 {
+		return worktreeGCCheck{Reason: "dirty_uncommitted_work", Target: target, Reachability: reachability, DirtyPaths: changedPaths}, nil
 	}
 	return worktreeGCCheck{Remove: true, Target: target, Reachability: reachability}, nil
 }
