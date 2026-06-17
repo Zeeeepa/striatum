@@ -1,6 +1,6 @@
 # RFC 0131: Transport-aware liveness confidence and escalation gating
 
-Status: proposed
+Status: accepted (D211)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:

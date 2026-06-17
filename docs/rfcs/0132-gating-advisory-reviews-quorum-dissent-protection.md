@@ -1,6 +1,6 @@
 # RFC 0132: Gating/advisory reviews and quorum with dissent protection
 
-Status: proposed
+Status: accepted (D212)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
