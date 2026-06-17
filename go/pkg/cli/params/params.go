@@ -171,6 +171,11 @@ func boolFlags(group string) map[string]bool {
 		return set("force")
 	case "worktree_gc":
 		return set("sweep_pins")
+	case "recovery_prune_debris":
+		// #303: --dry-run previews the partition; --sweep-pins also clears
+		// reachable refs/striatum pins for the run. Both are presence flags so a
+		// value-less flag never swallows the run-id positional (#312).
+		return set("dry_run", "sweep_pins")
 	case "repo_add":
 		return set("init", "no_migrate", "apply_blob_creation")
 	case "register_session":
@@ -280,6 +285,11 @@ func positionalNames(group string) []string {
 		// `striatum recovery resolve-blocker <blocker-id>` closes a dangling
 		// non-escalation, non-checkpoint blocker that no completion path cleared.
 		return []string{"blocker_id"}
+	case "recovery_prune_debris":
+		// #303: recovery.prune_debris keys on run_id so
+		// `striatum recovery prune-debris <run-id>` tombstones a terminal-debris
+		// run's unrecoverable artifact debris so doctor can report ok again.
+		return []string{"run_id"}
 	case "evidence_export", "corpus_export", "archive_create":
 		return []string{"run_id", "out"}
 	case "recall_search":

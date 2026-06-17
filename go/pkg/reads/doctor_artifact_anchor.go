@@ -105,6 +105,18 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 	block["skipped"] = nil
 	block["artifact_count"] = len(rows)
 	decorateArtifactPlacements(rows)
+	// #303: suppress artifacts an operator has tombstoned via `recovery
+	// prune-debris`. The prune verb never deletes the append-only artifact row
+	// (owner-owned, delete/update triggers); it records an append-only
+	// recovery.debris_pruned event keyed on the artifact_id. The doctor pass
+	// honors those tombstones so a pruned terminal-run debris artifact stops
+	// reddening/degrading the report — one set query, then a per-row skip.
+	tombstoned, err := debrisPrunedArtifactIDs(ctx, runner, repositoryID)
+	if err != nil {
+		block["error"] = err.Error()
+		return block, nil, nil, nil, nil
+	}
+	block["debris_pruned_count"] = len(tombstoned)
 	problems := []string{}
 	records := []map[string]any{}
 	warnings := []string{}
@@ -122,6 +134,11 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 	}
 	pass := newArtifactAnchorPass()
 	for _, row := range rows {
+		// #303: a tombstoned (operator-pruned) artifact is recorded debris; skip
+		// it entirely so it neither reds nor degrades the report.
+		if tombstoned[stringFrom(row, "artifact_id")] {
+			continue
+		}
 		placement := artifactcontracts.ResolvePlacement(stringFrom(row, "artifact_kind"), row["placement"])
 		row["placement"] = placement
 		defaultRef := resolveDefaultRefCached(ctx, strings.TrimSpace(stringFrom(row, "repo_root")), pass.defaultRefByRoot)
@@ -625,6 +642,39 @@ func acknowledgedLossWarning(row map[string]any, entry acknowledgedLossEntry) (s
 		}
 	}
 	return warning, record
+}
+
+// DebrisPrunedEventType is the append-only event the `recovery prune-debris`
+// verb records to tombstone a terminal-run debris artifact (#303). It is keyed
+// on the event's artifact_id column (FK to striatumd.artifacts) so the doctor
+// pass can suppress tombstoned artifacts with a single set query. The artifact
+// row itself is never deleted — striatumd.artifacts is owner-owned and
+// append-only — so the tombstone IS the prune.
+const DebrisPrunedEventType = "recovery.debris_pruned"
+
+// debrisPrunedArtifactIDs loads the set of artifact_ids the operator has
+// tombstoned via recovery.debris_pruned events for the repository. One query,
+// returned as a set the per-row loop checks. A missing/empty result yields an
+// empty set so nothing is suppressed.
+func debrisPrunedArtifactIDs(ctx context.Context, runner db.Runner, repositoryID string) (map[string]bool, error) {
+	rows, err := collectRows(ctx, runner, `
+		SELECT DISTINCT artifact_id
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND event_type = $2
+		   AND artifact_id IS NOT NULL`,
+		repositoryID, DebrisPrunedEventType,
+	)
+	if err != nil {
+		return nil, err
+	}
+	set := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if id := stringFrom(row, "artifact_id"); id != "" {
+			set[id] = true
+		}
+	}
+	return set, nil
 }
 
 func artifactAnchorKind(ref string) string {

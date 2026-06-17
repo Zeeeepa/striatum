@@ -19,10 +19,20 @@ type doctorArtifactAnchorRunner struct {
 	repoRoot        string
 	artifactRows    []map[string]any
 	artifactQueried bool
+	// tombstonedIDs are artifact_ids the fake reports as recovery.debris_pruned
+	// tombstones (#303), so a suppression test can drive the doctor pass to skip
+	// them without a live PostgreSQL.
+	tombstonedIDs []string
 }
 
 func (r *doctorArtifactAnchorRunner) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
 	switch {
+	case strings.Contains(sql, "FROM striatumd.events") && strings.Contains(sql, "artifact_id"):
+		rows := make([]map[string]any, 0, len(r.tombstonedIDs))
+		for _, id := range r.tombstonedIDs {
+			rows = append(rows, map[string]any{"artifact_id": id})
+		}
+		return dashboardAllRowsFromMaps(rows), nil
 	case strings.Contains(sql, "FROM striatumd.artifacts a"):
 		r.artifactQueried = true
 		return dashboardAllRowsFromMaps(r.artifactRows), nil
