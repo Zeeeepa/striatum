@@ -2,6 +2,7 @@ package reads
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -58,40 +59,76 @@ func TestReadSideHelperEventDrainsUseAuthorizedTx(t *testing.T) {
 	}
 	t.Cleanup(func() { DrainHelperEventsHook = prevHook })
 
-	drainStatusHelperEvents(ctx, pool.Runner, "repo_helper", "sup_helper", map[string]any{"session_id": "sess_helper"})
-	if _, err := HandleDashboard(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
-		"repository_id": "repo_helper",
-		"run_id":        "run_helper",
-	}}); err != nil {
-		t.Fatalf("dashboard helper drain: %v", err)
-	}
-	if _, err := HandleDashboardAll(ctx, pool.Runner, rpc.Envelope{}); err != nil {
-		t.Fatalf("dashboard.all helper drain: %v", err)
-	}
-	if _, err := HandleSuperviseStatus(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
-		"repository_id": "repo_helper",
-		"session_id":    "sess_helper",
-	}}); err != nil {
-		t.Fatalf("supervise.status helper drain: %v", err)
-	}
-	if _, err := HandleSuperviseReattachStatus(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
-		"repository_id": "repo_helper",
-		"run_id":        "run_helper",
-	}}); err != nil {
-		t.Fatalf("supervise.reattach_status helper drain: %v", err)
+	countEvents := func() int {
+		t.Helper()
+		eventCount, err := pool.Runner.QueryScalar(ctx, `
+			SELECT COUNT(*)::text
+			  FROM striatumd.events
+			 WHERE repository_id = 'repo_helper'
+			   AND event_type = 'supervisor.progress'
+			   AND payload_json->>'source' = 'helper_drain_pgtest'`)
+		if err != nil {
+			t.Fatalf("count helper drain events: %v", err)
+		}
+		count, err := strconv.Atoi(eventCount)
+		if err != nil {
+			t.Fatalf("parse helper drain event count %q: %v", eventCount, err)
+		}
+		return count
 	}
 
-	eventCount, err := pool.Runner.QueryScalar(ctx, `
-		SELECT COUNT(*)::text
-		  FROM striatumd.events
-		 WHERE repository_id = 'repo_helper'
-		   AND event_type = 'supervisor.progress'
-		   AND payload_json->>'source' = 'helper_drain_pgtest'`)
-	if err != nil {
-		t.Fatalf("count helper drain events: %v", err)
+	assertDrainAppends := func(label string, call func() error) {
+		t.Helper()
+		beforeCalls := hookCalls
+		beforeEvents := countEvents()
+		if err := call(); err != nil {
+			t.Fatalf("%s helper drain: %v", label, err)
+		}
+		callDelta := hookCalls - beforeCalls
+		eventDelta := countEvents() - beforeEvents
+		if callDelta <= 0 {
+			t.Fatalf("%s helper drain hook calls did not increase", label)
+		}
+		if eventDelta != callDelta {
+			t.Fatalf("%s helper drain appended %d events, want %d", label, eventDelta, callDelta)
+		}
 	}
-	if eventCount != "5" {
-		t.Fatalf("helper drain event count = %s, want 5", eventCount)
+
+	assertDrainAppends("status", func() error {
+		drainStatusHelperEvents(ctx, pool.Runner, "repo_helper", "sup_helper", map[string]any{"session_id": "sess_helper"})
+		return nil
+	})
+	assertDrainAppends("dashboard", func() error {
+		_, err := HandleDashboard(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
+			"repository_id": "repo_helper",
+			"run_id":        "run_helper",
+		}})
+		return err
+	})
+	assertDrainAppends("dashboard.all", func() error {
+		_, err := HandleDashboardAll(ctx, pool.Runner, rpc.Envelope{})
+		return err
+	})
+	assertDrainAppends("supervise.status", func() error {
+		_, err := HandleSuperviseStatus(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
+			"repository_id": "repo_helper",
+			"session_id":    "sess_helper",
+		}})
+		return err
+	})
+	assertDrainAppends("supervise.reattach_status", func() error {
+		_, err := HandleSuperviseReattachStatus(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
+			"repository_id": "repo_helper",
+			"run_id":        "run_helper",
+		}})
+		return err
+	})
+
+	if hookCalls < 5 {
+		t.Fatalf("helper drain hook calls = %d, want at least 5", hookCalls)
+	}
+	if eventCount := countEvents(); eventCount != hookCalls {
+		t.Fatalf("helper drain event count = %d, want hook call count %d", eventCount, hookCalls)
 	}
 }
 
