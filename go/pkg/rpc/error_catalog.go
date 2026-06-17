@@ -152,6 +152,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Check daemon PostgreSQL health with `striatum doctor` and restore the database before retrying.",
 	},
 	{
+		Code:       "daemon_under_load",
+		Meaning:    "The operation timed out behind transient daemon back-pressure (a statement_timeout/57014 event-append convoy under multi-run supervise load) rather than a real refusal, after the daemon already retried it (#198/#355).",
+		Suggestion: "Retry the operation shortly; if it persists, check daemon PostgreSQL load with `striatum doctor` and look for a long-held lock on repo_event_chain_heads.",
+	},
+	{
 		Code:       "daemon_unreachable",
 		Meaning:    "The CLI could not reach the daemon RPC socket.",
 		Suggestion: "Ensure striatumd is running (`striatum doctor` reports daemon health), then retry.",

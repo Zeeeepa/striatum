@@ -70,9 +70,40 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 	if runID == "" {
 		return nil, rpc.NewError("schema_invalid", "recovery.process_reconcile requires run_id", nil)
 	}
+	// #355: pre-probe every running process row's liveness OUTSIDE the
+	// transaction, exactly as HandleRecoveryAuto was hoisted for #198. The in-tx
+	// probe in the loop below shells out to `tmux list-panes` (wrapped as
+	// `sudo -n -u <user> -- env -i tmux …` under STRIATUM_LANE_OS_USER). Doing
+	// that inside this lock-holding, event-appending transaction holds the per-repo
+	// `repo_event_chain_heads FOR UPDATE` (the global append serialization point)
+	// across slow subprocess IO; under a multi-run supervise storm every other
+	// append on the repo — including HandleRunPrepare's `run.created` — queued
+	// behind it and died at statement_timeout as `append_event_row (sd): 57014`.
+	// This was the one in-tx subprocess path the #198 fix missed; #355 mirrors that
+	// fix here. The probe is a pure read whose result only gates the in-tx writes,
+	// so snapshotting it first and injecting the oracle preserves the decision
+	// logic exactly. The oracle is built from the SAME JOINed row shape / probePID
+	// selection the loop uses (#355 Caveat B), or the cache key would miss and the
+	// loop would silently fall back to the in-tx probe, re-creating the convoy.
+	ctx = withLivenessOracle(ctx, buildReconcileLivenessOracle(ctx, runner, repositoryID, runID))
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		// #355: mark every call below as executing inside the reconcile transaction
+		// (the #198 observability seam, shared with the sweep). Liveness probes must
+		// NOT run while this is set — they were pre-probed above and read from the
+		// injected oracle. The regression asserts no probe runs with inSweepTx=true.
+		ctx := withinSweepTx(ctx)
 		// RFC 0104: per-run advisory lock first.
 		if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
+		// #355 defense-in-depth: cap how long this lock-holding, event-appending
+		// transaction can run. The daemon role baseline is statement_timeout=600s
+		// with no lock_timeout, so before the pre-tx hoist above a wedged probe held
+		// the chain-head lock for the full window. A short SET LOCAL means any
+		// residual slow statement here fails its OWN transaction fast rather than
+		// starving every other append on the repo. SET LOCAL is scoped to this tx and
+		// reverts on commit/rollback; it never leaks to the pooled connection.
+		if err := tx.Exec(ctx, `SET LOCAL statement_timeout = '15s'`); err != nil {
 			return nil, err
 		}
 		run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
@@ -110,13 +141,15 @@ func HandleRecoveryProcessReconcile(ctx context.Context, runner db.Runner, envel
 		now := nowString()
 		for _, row := range rows {
 			pid := intValue(row["pid"])
-			metadata := asMap(row["supervisor_metadata_json"])
-			probePID := pid
-			if supervisorPID := intValue(row["supervisor_pid"]); supervisorPID > 0 {
-				probePID = supervisorPID
-			}
-			expectedStart, _ := row["supervisor_pid_start_time"].(string)
-			live := gosupervisor.ProbeLaneLiveness(ctx, tmuxRunnerForSupervisorMetadata(metadata), metadata, probePID, expectedStart)
+			// #355 Caveat A + B: select (metadata, probePID, expectedStart) with the
+			// SAME helper the pre-tx oracle uses, then resolve liveness through
+			// probeLaneLivenessCached. With the oracle injected above this reads the
+			// pre-tx snapshot (no subprocess IO inside the lock window); without an
+			// oracle (operator-direct RPC / unit tests) it falls back to a live probe,
+			// preserving prior behavior. Calling ProbeLaneLiveness directly here would
+			// make the oracle a silent no-op and re-create the convoy.
+			metadata, probePID, expectedStart := reconcileProbeSelection(row)
+			live := probeLaneLivenessCached(ctx, metadata, probePID, expectedStart)
 			alive := live.Alive
 			if live.Backed != "tmux" && pid > 0 {
 				alive = pidAlive(pid)
