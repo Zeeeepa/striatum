@@ -192,7 +192,7 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		sessionliveness.RemoveProjectionSourceFields(session)
 		supervisorID := stringFrom(session, "supervisor_id")
 		if supervisorID != "" && DrainHelperEventsHook != nil {
-			if tx, err := runner.BeginTx(ctx); err == nil {
+			if tx, err := beginHelperEventDrainTx(ctx, runner); err == nil {
 				_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
 				_ = tx.Commit(ctx)
 				metaRows, err := collectRows(ctx, runner,

@@ -29,6 +29,10 @@ const supervisorTrajectoryLogFilename = "pty.log"
 // introducing package circular dependencies.
 var DrainHelperEventsHook func(ctx context.Context, runner db.TxRunner, repositoryID string, supervisorID string) error
 
+func beginHelperEventDrainTx(ctx context.Context, runner db.Runner) (db.TxRunner, error) {
+	return db.BeginAuthorizedMutation(ctx, runner, db.AuthorityFromContext(ctx))
+}
+
 var supervisorTerminalStates = map[string]bool{
 	"lost":    true,
 	"stopped": true,
@@ -98,7 +102,7 @@ func HandleSuperviseStatus(ctx context.Context, runner db.Runner, envelope rpc.E
 
 	supervisorID := stringFrom(rows[0], "supervisor_id")
 	if supervisorID != "" && DrainHelperEventsHook != nil {
-		if tx, err := runner.BeginTx(ctx); err == nil {
+		if tx, err := beginHelperEventDrainTx(ctx, runner); err == nil {
 			_ = DrainHelperEventsHook(ctx, tx, repositoryID, supervisorID)
 			_ = tx.Commit(ctx)
 			// Re-fetch rows so that rows[0]["pointer_metadata_json"] reflects the
@@ -614,7 +618,7 @@ func reattachStatusRowsWithOptions(ctx context.Context, runner db.Runner, reposi
 		for _, row := range rows {
 			supID := superviseString(row["supervisor_id"])
 			if supID != "" {
-				if tx, err := runner.BeginTx(ctx); err == nil {
+				if tx, err := beginHelperEventDrainTx(ctx, runner); err == nil {
 					_ = DrainHelperEventsHook(ctx, tx, repositoryID, supID)
 					_ = tx.Commit(ctx)
 					metaRows, err := collectRows(ctx, runner,

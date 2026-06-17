@@ -466,7 +466,7 @@ const statusHelperDrainLockTimeout = "500ms"
 // stale-by-one-cycle helper metadata is fine, a 30s+ stall is not — so degrading
 // gracefully here is strictly better than blocking.
 func drainStatusHelperEvents(ctx context.Context, runner db.Runner, repositoryID, supervisorID string, row map[string]any) {
-	tx, err := runner.BeginTx(ctx)
+	tx, err := beginHelperEventDrainTx(ctx, runner)
 	if err != nil {
 		return
 	}

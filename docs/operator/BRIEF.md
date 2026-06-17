@@ -33,8 +33,9 @@ review gate. The useful outputs are durable run artifacts:
   `DECISION-striatum-reliability-reset-final-review-requeue-2026-06-16`, and
   `escalation resolve`.
 
-Live GitHub open issues were rechecked on 2026-06-16T21:47Z. The current issue
-frontier is the 19 open GitHub issues listed in [Blockers / Open Issues](#blockers--open-issues-19);
+Live GitHub open issues were rechecked on 2026-06-17T00:29Z and #329 was fixed
+in the read-side helper-event drain authority slice. The current issue frontier
+is the 18 open GitHub issues listed in [Blockers / Open Issues](#blockers--open-issues-18);
 older #212/#263-#267 text is historical only.
 
 ## 2026-06-16 delta — #300 P1 LANDED + DEPLOYED (doctor artifact problems → 0, D205)
@@ -116,7 +117,7 @@ and the issues CLOSED. `doctor` stayed green throughout.
   prerequisite **#309** (finalize liveness test → session-liveness not lease-time).
 - **Historical live open set at that point:** #298/#299/#300/#301/#302/#303/
   #304/#305/#306/#307/#308/#309/#310/#311 + follow-ups #316/#319. This list is
-  superseded by the 2026-06-16T21:47Z tracker snapshot below.
+  superseded by the current tracker snapshot below.
 
 ## State
 
@@ -219,15 +220,18 @@ asks:
 2. **Keep current-state docs truthful:** after every issue-closeout or release,
    refresh this brief, README status, docs index summaries, and any roadmap/todo
    surface that claims to list current open work.
-3. **Triage the 2026-06-16 issue wave:** #322-#327 and #329 are newer than the
-   v2.33.0 brief and should be classified before release planning resumes.
+3. **Triage the 2026-06-16 issue wave:** #322-#327 are newer than the v2.33.0
+   brief and should be classified before release planning resumes. #329 is fixed
+   but should stay in the regression set for the read-side helper-event drain
+   authority path.
 4. **Bound doctor warnings:** keep `problem_count=0`, but turn the 219-warning
    channel into named classes with allowed baselines/deltas.
 
-## Blockers / Open Issues (19)
+## Blockers / Open Issues (18)
 
-Open GitHub tracker state as of 2026-06-16T21:47Z. #302/#308/#309 were checked
-separately and are closed; keep them as regression references, not open work.
+Open GitHub tracker state as of 2026-06-17T00:29Z. #302/#308/#309/#329 were
+checked separately and are closed or fixed in this slice; keep them as
+regression references, not open work.
 
 - **Ready-for-human / operator decisions:** #298 dirty lane worktree recovery,
   #299 run-branch base drift, #303 terminal-run debris prune, #305 terminal-run
@@ -240,8 +244,7 @@ separately and are closed; keep them as regression references, not open work.
 - **Fresh 2026-06-16 triage wave:** #312 `repo add --init` flag mismatch, #313
   operator-by-hand path non-functional, #323 daemon restart orphans claude lane,
   #324 stale endpoint lane spins forever, #325 daemon DB deadlock under parallel
-  completion, #326 artifact publication drops undeclared in-scope files, #329
-  missing daemon authority secret drops control events.
+  completion, #326 artifact publication drops undeclared in-scope files.
 
 ## Hazards / Do Not
 

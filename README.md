@@ -309,7 +309,7 @@ owner-only socket.
 | Daemon substrate | Daemon-owned PostgreSQL is the live state substrate; repository files are durable provenance, not the message bus |
 | Schema | Managed by Go owner-bundle migrations; see `go/pkg/db/migrations.go` and `docs/reference/spec.md` for the current contract |
 | Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
-| Active work | Reliability reset gate is active: keep closed #302/#308/#309 regressions covered, triage #322-#327/#329, bound doctor warnings, and keep current-state docs truthful before feature growth resumes |
+| Active work | Reliability reset gate is active: keep closed #302/#308/#309/#329 regressions covered, triage #322-#327, bound doctor warnings, and keep current-state docs truthful before feature growth resumes |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---

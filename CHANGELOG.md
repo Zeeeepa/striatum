@@ -4,6 +4,21 @@
 
 ### Fixed
 
+- **#329 read-side helper-event drains now present daemon authority before
+  appending supervisor events.** Dashboard/status/supervise read projections
+  opportunistically drain PTY helper events, and those helper events append
+  through the same SECURITY DEFINER `append_event_row` path as mutations under
+  `pg_write_boundary=full`. The drain paths now open their sub-transaction via
+  `db.BeginAuthorizedMutation`, preserving the existing short status
+  `lock_timeout` and stale-metadata fallback while installing
+  `striatum.daemon_auth` before `DrainHelperEventsHook` can write
+  `supervisor.progress` events. This closes the long-running production
+  `daemon authority secret missing` log storm without weakening the database
+  write boundary. Tests: `TestDrainStatusHelperEventsInstallsAuthorityPrelude`
+  plus the PostgreSQL regression
+  `TestReadSideHelperEventDrainsUseAuthorizedTx` for environments with
+  `STRIATUM_PG_TEST_URL`. Closes #329.
+
 - **#302 residual — a clean lane exit now records a durable dead-signal so the
   recovery sweep can reclaim a falsely-active session even when no live probe is
   possible.** PR #318 established that the sweep already recovers a dead-pane /
