@@ -17,7 +17,7 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 12
+const LatestOwnerBundleVersion = 13
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
@@ -35,6 +35,7 @@ var ownerBundleLabels = map[int]string{
 	10: "wedged_no_tool_progress liveness stall class on sessions CHECK (GH #324)",
 	11: "hot event-read covering index on events (GH #330)",
 	12: "quarantined job state on jobs CHECK (per-job quarantine + finalize-the-majority, GH #311)",
+	13: "barrier_assembly job_type on jobs CHECK (recoverable fan-in assembly job, RFC 0135 P2 / GH #346)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.

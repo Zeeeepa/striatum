@@ -481,6 +481,64 @@ func TestMigrationTwentyNineFaninBarrierIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationThirtyBarrierStateIsOwnershipSafe is RFC 0135 P2 (D215/D216): the
+// barrier-assembly state migration creates ONE NEW runtime-owned table
+// (striatumd.barrier_state) carrying the two-phase journal columns
+// (target_commit_sha + tree_sha) and grants the runtime role full DML. Like
+// migration 29 it must NOT ALTER/DROP any owner table (the future-runtime-DDL guard
+// forbids ALTER/DROP of striatumd.* for versions >= 27 outright), must declare NO
+// foreign key to striatumd.jobs (the FK-to-owner-table trap, D215 — the
+// barrier_assembly job_type CHECK widening is OWNER BUNDLE 0013, not this runtime
+// migration), and must carry an explicit GRANT guarded by an IF EXISTS striatumd_rw
+// probe (pgtest masks an omitted grant).
+func TestMigrationThirtyBarrierStateIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 30 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 30 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.barrier_state",
+		"PRIMARY KEY (repository_id, barrier_id)",
+		// The two-phase journal columns (RFC 0133 / RFC 0135 Risks).
+		"target_commit_sha",
+		"tree_sha",
+		// state walks sealed -> assembling -> committed|failed.
+		"CHECK (state IN ('sealed','assembling','committed','failed'))",
+		// Explicit GRANT guarded by an IF EXISTS striatumd_rw probe.
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.barrier_state TO striatumd_rw",
+		"rolname = 'striatumd_rw'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 30 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER/DROP of any table, no foreign key to any owner
+	// table, and (per the task guardrail) no owner-table-FK text even in comments.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.runs",
+		"REFERENCES striatumd.jobs",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 30 must not contain %q (owner-table dependency / future-runtime-DDL guard); integrity is enforced in Go", forbidden)
+		}
+	}
+}
+
 func TestFutureRuntimeMigrationsDoNotCarryOwnerDDL(t *testing.T) {
 	migrations, err := Migrations()
 	if err != nil {

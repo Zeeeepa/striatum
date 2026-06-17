@@ -4,6 +4,40 @@
 
 ### Added
 
+- **#346 RFC 0135 P2 — recoverable `barrier_assembly` job + owner bundle 0013 +
+  N=1 unification.** The P1 opt-in fan-in assembly graduates into a first-class,
+  CRASH-RECOVERABLE operation. **Owner bundle 0013**
+  (`go/pkg/db/sql/owner/0013_barrier_assembly_job_type.sql`) widens the owner-held
+  `striatumd.jobs` `jobs_job_type_check` to include `barrier_assembly`, mirroring
+  bundle 0012 exactly (idempotent DROP+re-ADD guarded by a `pg_get_constraintdef`
+  probe; `LatestOwnerBundleVersion` 12→13); per D215 RFC 0132's reserved
+  `dissent_quarantine` bundle becomes 0014. **Runtime migration `0030`**
+  (`go/pkg/db/sql/0030_barrier_state.sql`) adds the `barrier_state` journal table
+  (`sealed → assembling → committed | failed`) with two-phase-journal columns
+  (`target_commit_sha` + `tree_sha`) and the barrier/seat identity as BARE COLUMNS
+  with NO SQL foreign key to the owner-held `jobs` table (integrity in Go) and its
+  own explicit `IF EXISTS striatumd_rw`-guarded GRANT (D215). The recoverable
+  assembly journals its target intent (state=`assembling`) to PG BEFORE the git
+  CAS, advances the run branch idempotently, then flips to `committed`; a crash
+  mid-assembly recognizes its OWN journaled intent (or its already-applied commit)
+  and resumes — never wedging, never double-committing. **N=1 is NOT special-cased:**
+  a single-sibling barrier routes through the same `assembleFaninBarrier` fold,
+  producing the same final tree as the D206 single-completion path.
+  **Deployment-tolerance (mirrors D209 guard d):** a daemon BEHIND on owner bundle
+  0013 detects the unwidened CHECK via the `jobBarrierAssemblyTypePermitted` probe
+  and falls back to D206 rather than persisting a `barrier_assembly` job and
+  CHECK-failing. **NON-BREAKING:** D206 per-completion remains the DEFAULT (the
+  barrier_assembly path is opt-in/shadow; nothing flips here). Owner bundle 0013
+  must be applied with `striatum daemon owner-ddl apply` before the new daemon
+  image at go-live (deferred — not deployed by this change). Tests:
+  `TestOwnerBundleThirteenAddsBarrierAssemblyJobType`,
+  `TestMigrationThirtyBarrierStateIsOwnershipSafe`,
+  `TestBarrierAssemblyJobTypePermittedTracksOwnerBundle`,
+  `TestBarrierAssemblyTwoPhaseJournalAndN1`,
+  `TestBarrierAssemblyCrashMidAssemblyResumes`,
+  `TestBarrierAssemblyAlreadyAppliedCommitIsIdempotent`;
+  `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL` stays green (the CHECK widening is
+  in `owner/`, not the runtime migration).
 - **#345 RFC 0135 P1 — fan-in sealed barrier (entity=job, seal=attempt), opt-in
   + equivalence fixture.** The FIRST LIVE instance of the RFC 0135 sealed
   expectation barrier (D216), consuming P0's entity/seal-generic
