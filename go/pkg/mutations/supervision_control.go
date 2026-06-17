@@ -448,12 +448,25 @@ func deliverClaimedPacketToSupervisorInTx(ctx context.Context, tx db.TxRunner, r
 	if err := drainHelperEvents(ctx, tx, repositoryID, supervisor.SupervisorID, 250*time.Millisecond); err != nil {
 		return nil, err
 	}
-	_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, "supervisor.packet_delivered", sessionID, nil, nil, nil, nil, map[string]any{
+	// A buffered (no-reader) write is NOT durably delivered: the payload sits in
+	// the process-global in-memory pipeBuffers and a daemon restart drops it. Do
+	// not record supervisor.packet_delivered for it — that would land a "delivered"
+	// event for a packet that may never reach the lane, corrupting the provenance
+	// the runner depends on. Record a distinct supervisor.packet_buffered event and
+	// return a degraded delivery_state so the caller/operator sees the truth (#358).
+	eventName := "supervisor.packet_delivered"
+	deliveryState := "delivered_unacknowledged"
+	if delivery.Buffered {
+		eventName = "supervisor.packet_buffered"
+		deliveryState = "buffered_no_reader"
+	}
+	_, err = appendEvent(ctx, tx, repositoryID, supervisor.RunID, eventName, sessionID, nil, nil, nil, nil, map[string]any{
 		"supervisor_id":            supervisor.SupervisorID,
 		"packet_id":                packetID,
 		"bytes_written":            delivery.BytesWritten,
 		"stdin_delivery":           delivery.StdinDelivery,
 		"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
+		"buffered":                 delivery.Buffered,
 	})
 	if err != nil {
 		return nil, err
@@ -465,7 +478,9 @@ func deliverClaimedPacketToSupervisorInTx(ctx context.Context, tx db.TxRunner, r
 		"bytes":                    delivery.BytesWritten,
 		"stdin_delivery":           delivery.StdinDelivery,
 		"stdin_closed_after_write": delivery.StdinClosedAfterWrite,
-		"delivery_state":           "delivered_unacknowledged",
+		"delivery_state":           deliveryState,
+		"buffered":                 delivery.Buffered,
+		"durable":                  !delivery.Buffered,
 		"control_ack_expected":     true,
 	}, nil
 }
