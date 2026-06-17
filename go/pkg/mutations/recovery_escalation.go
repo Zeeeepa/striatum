@@ -36,7 +36,7 @@ const recoveryExhaustedBlockerKind = "recovery_exhausted"
 //
 // It is idempotent + convergent: a budget row whose run_escalated_at is already
 // set is skipped, so re-running raises no duplicate blocker/escalation rows.
-func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID string) ([]map[string]any, error) {
+func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID string, policy recoveryPolicy) ([]map[string]any, error) {
 	// The job's lane is read straight off jobs.lane_selector_json->>'lane_id'
 	// (the canonical lane-name source — same projection runreconcile,
 	// dashboard_all, and the recovery decision tree use). NULLIF coerces an
@@ -60,6 +60,25 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 		return nil, err
 	}
 
+	// #311 P0: count jobs already quarantined in this run so the
+	// max_quarantinable_jobs cap holds across sweeps (a prior sweep may have
+	// quarantined a different job). This is the running total the per-job
+	// eligibility check increments as it quarantines within this pass.
+	quarantinedSoFar, err := countQuarantinedJobs(ctx, tx, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	// #311 P0 deployment-safety: probe ONCE whether the 'quarantined' job state is
+	// permitted by the live jobs_state_check (owner bundle 0012 applied). On a
+	// deployment behind on owner bundles this is false and quarantine is disabled
+	// for the whole pass — every exhaustion falls back to the unchanged whole-run
+	// needs_operator escalation rather than crashing the sweep on a CHECK
+	// violation.
+	quarantinePermitted, err := jobQuarantineStatePermitted(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+
 	raised := []map[string]any{}
 	for _, row := range rows {
 		jobID := fmt.Sprint(row["job_id"])
@@ -76,6 +95,28 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 		transferCount := intFromAny(row["transfer_count"], 0)
 		respawnCount := intFromAny(row["respawn_count"], 0)
 		recoveryAttempts := requeueCount + transferCount + respawnCount
+
+		// #311 P0: BEFORE flipping the whole run, decide quarantine-eligibility for
+		// THIS exhausted job. It is eligible to quarantine (finalize-the-majority)
+		// only when ALL of: (a) no unfinished job transitively depends on it,
+		// (b) it is not a provenance-required reviewer the RFC 0118 run-completion
+		// gate would refuse, and (c) the per-run quarantine cap is not exceeded.
+		// When eligible we quarantine ONLY this job (never seal/complete it),
+		// record the blocker + escalation on it, and let the run finalize on its
+		// completed deliverables — instead of flipping the entire run to
+		// needs_operator and discarding the durable work of every sibling.
+		eligible, ineligibleReason, qerr := quarantineEligible(ctx, tx, repositoryID, runID, jobID, policy, quarantinedSoFar, quarantinePermitted)
+		if qerr != nil {
+			return nil, qerr
+		}
+		if eligible {
+			if err := quarantineExhaustedJob(ctx, tx, repositoryID, runID, row, lane, stallClass, lastAction, requeueCount, transferCount, respawnCount); err != nil {
+				return nil, err
+			}
+			quarantinedSoFar++
+			continue
+		}
+		_ = ineligibleReason // recorded on the run.needs_operator event below via the raised set
 
 		blockerID, err := newID("blk")
 		if err != nil {
@@ -181,6 +222,14 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 	}
 
 	if len(raised) == 0 {
+		// #311 P0: no job needed a whole-run escalation — either nothing was
+		// exhausted, or every exhausted job was quarantine-eligible and set aside.
+		// In the quarantine case the run can now finalize-the-majority on its
+		// completed deliverables, so re-check completion (maybeCompleteRun excludes
+		// 'quarantined' from the non-terminal set and records the manifest).
+		if err := maybeCompleteRun(ctx, tx, repositoryID, runID); err != nil {
+			return nil, err
+		}
 		return raised, nil
 	}
 
@@ -188,6 +237,10 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 	// concurrent transition cannot clobber a terminal/already-escalated run).
 	// striatumd.runs has no updated_at column (see 0005_repo_local_workflow_state),
 	// so the state flip is the only mutation here — matching HandleRunCancel.
+	// A job that was quarantined this pass is NOT in `raised`, so a run with one
+	// quarantined job and one genuinely-needed escalation still escalates (the
+	// needed job keeps the run frozen) while the manifest still records the
+	// quarantined one at the eventual completion.
 	if err := tx.Exec(ctx, `
 		UPDATE striatumd.runs
 		   SET state = 'needs_operator'
@@ -207,6 +260,299 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 		return nil, err
 	}
 	return raised, nil
+}
+
+// jobQuarantineStatePermitted reports whether the live striatumd.jobs
+// jobs_state_check CHECK constraint permits the 'quarantined' state — i.e. owner
+// bundle 0012 has been applied (#311 P0). It probes pg_get_constraintdef rather
+// than attempting the UPDATE, so a behind-deployment is detected without raising
+// a CHECK violation that would abort the sweep transaction. A missing constraint
+// (renamed/dropped out of band) is treated as NOT permitted (fail-safe: prefer
+// the proven escalation path over an unguarded write).
+func jobQuarantineStatePermitted(ctx context.Context, tx db.TxRunner) (bool, error) {
+	row, err := oneRow(ctx, tx, `
+		SELECT COALESCE(bool_or(pg_get_constraintdef(oid) LIKE '%quarantined%'), false) AS ok
+		  FROM pg_constraint
+		 WHERE conname = 'jobs_state_check'
+		   AND conrelid = 'striatumd.jobs'::regclass`)
+	if err != nil {
+		return false, err
+	}
+	return row["ok"] == true, nil
+}
+
+// countQuarantinedJobs returns the number of jobs currently in the 'quarantined'
+// state for a run — the running total the max_quarantinable_jobs cap is checked
+// against (a prior sweep may have quarantined a different job, #311 P0).
+func countQuarantinedJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID string) (int, error) {
+	row, err := oneRow(ctx, tx, `
+		SELECT COUNT(*)::int AS n FROM striatumd.jobs
+		 WHERE repository_id = $1 AND run_id = $2 AND state = 'quarantined'`,
+		repositoryID, runID)
+	if err != nil {
+		return 0, err
+	}
+	return intFromAny(row["n"], 0), nil
+}
+
+// quarantineEligible decides whether a single recovery-exhausted job may be
+// quarantined so the run finalizes-the-majority (#311 P0), instead of flipping
+// the whole run to needs_operator. ALL three load-bearing guards must hold:
+//
+//	(a) NO unfinished job transitively (multi-hop) depends on the exhausted job —
+//	    a non-terminal reachable dependent is a hard dependency the deliverables
+//	    cannot finalize without.
+//	(b) The exhausted job is NOT a provenance-required reviewer whose absence
+//	    RFC 0118's verifyRunCompletionProvenance would refuse — i.e. completing
+//	    the run would not be blocked by this job's verdict gate.
+//	(c) Quarantining this job would not exceed the per-run cap
+//	    (policy.maxQuarantinableJobs, default 1).
+//
+// If any guard fails the job is NOT eligible and the caller falls through to the
+// unchanged whole-run needs_operator escalation. The returned reason names the
+// first failing guard for legibility.
+func quarantineEligible(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID string, policy recoveryPolicy, quarantinedSoFar int, quarantinePermitted bool) (bool, string, error) {
+	// (d) deployment-safety: the 'quarantined' job state must be permitted by the
+	// live jobs_state_check (owner bundle 0012 applied). On a deployment behind on
+	// owner bundles the state cannot persist — the UPDATE would raise a CHECK
+	// violation and crash the whole sweep transaction — so quarantine is DISABLED
+	// and we fall back to the unchanged whole-run needs_operator escalation. This
+	// mirrors the artifact-placement / review-generation adaptive column pattern
+	// (a feature gated on its owner-bundle DDL having landed). Checked first so a
+	// behind-deployment never even evaluates the other guards.
+	if !quarantinePermitted {
+		return false, "quarantine_state_unavailable", nil
+	}
+	// (c) cap. A run already at the cap escalates the rest rather than silently
+	// swallowing large-scale failure.
+	if quarantinedSoFar >= policy.maxQuarantinableJobs {
+		return false, "quarantine_cap_exceeded", nil
+	}
+	// (a) transitive downstream dependency: walk job_dependencies downstream from
+	// the exhausted job; if ANY reachable job is non-terminal it is a hard
+	// dependent and the job is not quarantine-eligible.
+	blocking, err := unfinishedTransitiveDependent(ctx, tx, repositoryID, jobID)
+	if err != nil {
+		return false, "", err
+	}
+	if blocking {
+		return false, "unfinished_downstream_dependent", nil
+	}
+	// (b) RFC 0118 provenance gate: a provenance-required reviewer the
+	// run-completion gate would refuse must NOT be quarantine-finalized.
+	required, err := jobIsProvenanceRequiredReviewer(ctx, tx, repositoryID, jobID)
+	if err != nil {
+		return false, "", err
+	}
+	if required {
+		return false, "provenance_required_reviewer", nil
+	}
+	return true, "", nil
+}
+
+// unfinishedTransitiveDependent reports whether any job that transitively
+// (multi-hop) depends on jobID is still non-terminal. It walks the
+// job_dependencies downstream edges (depends_on_job_id -> job_id) breadth-first.
+// A reachable job in any non-terminal state (blocked / queued / claimed /
+// running / stale_lease / waiting_human / quarantined) means the deliverables
+// cannot finalize without this job, so it must NOT be quarantined (#311 P0
+// guard a). Terminal dependents (completed / failed / canceled / skipped) do
+// not block. A `blocked` dependent counts as unfinished: it is waiting on this
+// exact job and would never become runnable if the job is set aside.
+func unfinishedTransitiveDependent(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (bool, error) {
+	visited := map[string]bool{jobID: true}
+	frontier := []string{jobID}
+	for len(frontier) > 0 {
+		next := []string{}
+		for _, current := range frontier {
+			rows, err := queryRows(ctx, tx, `
+				SELECT j.job_id, j.state
+				  FROM striatumd.job_dependencies dep
+				  JOIN striatumd.jobs j
+				    ON j.repository_id = dep.repository_id AND j.job_id = dep.job_id
+				 WHERE dep.repository_id = $1 AND dep.depends_on_job_id = $2`,
+				repositoryID, current)
+			if err != nil {
+				return false, err
+			}
+			for _, row := range rows {
+				depID := fmt.Sprint(row["job_id"])
+				if !terminalJobStates[fmt.Sprint(row["state"])] {
+					// A non-terminal downstream dependent (at any depth) is a hard
+					// dependency — short-circuit.
+					return true, nil
+				}
+				if !visited[depID] {
+					visited[depID] = true
+					next = append(next, depID)
+				}
+			}
+		}
+		frontier = next
+	}
+	return false, nil
+}
+
+// jobIsProvenanceRequiredReviewer reports whether the job is a verdict-capable
+// (review / phase_synthesis) job the RFC 0118 run-completion provenance gate
+// would treat as provenance-required — i.e. one whose absence/missing-verdict
+// would refuse a clean completion. Reuses workflowJobDefinitionForRow +
+// reviewRequiresIndependentProvenance so the quarantine guard and the completion
+// gate agree on which reviewers are load-bearing (#311 P0 guard b). A
+// non-verdict-capable job is never a provenance gate, so it returns false fast.
+func jobIsProvenanceRequiredReviewer(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (bool, error) {
+	job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, false)
+	if err != nil {
+		return false, err
+	}
+	if !isVerdictCapableJobType(fmt.Sprint(job["job_type"])) {
+		return false, nil
+	}
+	def, err := workflowJobDefinitionForRow(ctx, tx, repositoryID, job)
+	if err != nil {
+		return false, err
+	}
+	return def["require_attested_lane"] == true || reviewRequiresIndependentProvenance(job, def), nil
+}
+
+// quarantineExhaustedJob moves a single recovery-exhausted, downstream-clear job
+// to the 'quarantined' state (#311 P0). It NEVER marks the job completed and
+// NEVER seals an artifact — the quarantined job is the one narrow thing surfaced
+// to the operator. It writes the recovery_exhausted blocker + escalation_inbox
+// row on THIS job (so the operator has a resolvable handle and
+// recovery.accept-quarantined can find it), stamps run_escalated_at (idempotency
+// guard), appends a recovery.job_quarantined event naming
+// {workflow_job_id, job_id, lane, stall_class}, and releases any residual active
+// lease so the dead lane cannot wake. The caller then re-checks run completion.
+func quarantineExhaustedJob(ctx context.Context, tx db.TxRunner, repositoryID, runID string, row map[string]any, lane, stallClass, lastAction string, requeueCount, transferCount, respawnCount int) error {
+	jobID := fmt.Sprint(row["job_id"])
+	workflowJobID := fmt.Sprint(nullable(row["workflow_job_id"]))
+	recoveryAttempts := requeueCount + transferCount + respawnCount
+	now := nowString()
+
+	blockerID, err := newID("blk")
+	if err != nil {
+		return err
+	}
+	laneClause := ""
+	if lane != "" {
+		laneClause = fmt.Sprintf(" lane=%s", lane)
+	}
+	description := fmt.Sprintf(
+		"job quarantined: autonomous recovery exhausted for job %s (%s):%s stall_class=%s, last_recovery_action=%s, recovery_attempts=%d. The run finalized on its completed deliverables; this single job is set aside. Resolve with `recovery accept-quarantined <run-id> <job-id>` (marks it canceled-by-operator).",
+		workflowJobID, jobID, laneClause, stallClass, lastAction, recoveryAttempts,
+	)
+
+	payload := map[string]any{
+		"schema_version":             "striatum.recovery_escalation.v1",
+		"source":                     "recovery.job_quarantined",
+		"is_escalation":              true,
+		"blocker_kind":               recoveryExhaustedBlockerKind,
+		"severity":                   "blocked",
+		"disposition":                "quarantined",
+		"stuck_job":                  workflowJobID,
+		"job_id":                     jobID,
+		"stall_class":                stallClass,
+		"last_recovery_action":       lastAction,
+		"requeue_count":              requeueCount,
+		"transfer_count":             transferCount,
+		"respawn_count":              respawnCount,
+		"recovery_attempts":          recoveryAttempts,
+		"suggested_operator_actions": suggestedQuarantineOperatorActions(),
+	}
+	if lane != "" {
+		payload["lane"] = lane
+	}
+	payloadArg, err := db.JSONBArg(tx, payload)
+	if err != nil {
+		return err
+	}
+
+	if err := tx.Exec(ctx, `
+		INSERT INTO striatumd.blockers (
+		  repository_id, blocker_id, run_id, job_id, session_id, severity,
+		  blocker_kind, description, state, created_at, payload_json
+		)
+		VALUES ($1,$2,$3,$4,NULL,'blocked',$5,$6,'open',$7,$8::jsonb)`,
+		repositoryID, blockerID, runID, jobID,
+		recoveryExhaustedBlockerKind, description, now, payloadArg,
+	); err != nil {
+		return err
+	}
+	if err := tx.Exec(ctx, `
+		INSERT INTO striatumd.escalation_inbox (
+		  repository_id, escalation_id, run_id, job_id, session_id,
+		  blocker_id, blocker_kind, severity, state, created_at, payload_json
+		)
+		VALUES ($1,$2,$3,$4,NULL,$5,$6,'blocked','pending',$7,$8::jsonb)`,
+		repositoryID, blockerID, runID, jobID,
+		blockerID, recoveryExhaustedBlockerKind, now, payloadArg,
+	); err != nil {
+		return err
+	}
+
+	// Release any residual active lease so the dead lane cannot wake to
+	// double-work the now-quarantined job. Belt-and-suspenders: a budget-exhausted
+	// job's lane is already dead, but the quarantine state is terminal-for-finalize
+	// so leave nothing live pointed at it.
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.leases
+		   SET state = 'released', released_at = COALESCE(released_at, $1),
+		       release_reason = COALESCE(release_reason, 'recovery_quarantine')
+		 WHERE repository_id = $2 AND resource_id = $3 AND state = 'active'`,
+		now, repositoryID, jobID); err != nil {
+		return err
+	}
+
+	// Move ONLY this job to 'quarantined'. NEVER 'completed' — no false
+	// completion, no sealed artifact. current_lease_id is cleared so nothing
+	// points a live lease at it.
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET state = 'quarantined', current_lease_id = NULL
+		 WHERE repository_id = $1 AND job_id = $2`,
+		repositoryID, jobID); err != nil {
+		return err
+	}
+
+	// Idempotency guard: stamp run_escalated_at so a re-run does not re-process
+	// this budget row (it is no longer escalation-eligible once quarantined, but
+	// the stamp keeps the row out of the next pass's SELECT regardless).
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.job_recovery_state
+		   SET run_escalated_at = $1, updated_at = $1
+		 WHERE repository_id = $2 AND job_id = $3`,
+		now, repositoryID, jobID); err != nil {
+		return err
+	}
+
+	quarantinedEvent := map[string]any{
+		"workflow_job_id":   workflowJobID,
+		"job_id":            jobID,
+		"blocker_id":        blockerID,
+		"blocker_kind":      recoveryExhaustedBlockerKind,
+		"stall_class":       stallClass,
+		"recovery_attempts": recoveryAttempts,
+		"disposition":       "quarantined",
+	}
+	if lane != "" {
+		quarantinedEvent["lane"] = lane
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.job_quarantined", nil, jobID, nil, nil, nil, quarantinedEvent); err != nil {
+		return err
+	}
+	return nil
+}
+
+// suggestedQuarantineOperatorActions returns the operator-actionable next steps
+// for a quarantined job: the run already finalized on its deliverables, so the
+// only action is to dispose of the single set-aside job.
+func suggestedQuarantineOperatorActions() []any {
+	return []any{
+		"inspect the quarantined job's recovery history and any partial output",
+		"accept the quarantine to mark the job canceled-by-operator: recovery accept-quarantined <run-id> <job-id>",
+		"if the work is still needed, re-prepare it as a fresh run/job",
+	}
 }
 
 // stuckJobs projects the raised escalations into the run.needs_operator event's

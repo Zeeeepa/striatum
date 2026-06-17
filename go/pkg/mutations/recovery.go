@@ -816,7 +816,7 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			// needs_operator so it never sits silently 'running'. Idempotent via the
 			// job_recovery_state.run_escalated_at guard; the sweep's running/paused
 			// active-run filter then excludes the escalated run from re-sweeping.
-			raised, eerr := escalateExhaustedJobs(ctx, tx, repositoryID, runID)
+			raised, eerr := escalateExhaustedJobs(ctx, tx, repositoryID, runID, policy)
 			if eerr != nil {
 				return nil, eerr
 			}

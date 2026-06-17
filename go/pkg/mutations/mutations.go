@@ -136,6 +136,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("recovery.invalidate_job", makeHandler(runner, HandleRecoveryInvalidateJob))
 	server.Register("recovery.reseal", makeHandler(runner, HandleRecoveryReseal))
 	server.Register("recovery.complete_stalled", makeHandler(runner, HandleRecoveryCompleteStalled))
+	server.Register("recovery.accept_quarantined", makeHandler(runner, HandleRecoveryAcceptQuarantined))
 	server.Register("recovery.resolve_blocker", makeHandler(runner, HandleRecoveryResolveBlocker))
 	server.Register("recovery.prune_debris", makeHandler(runner, HandleRecoveryPruneDebris))
 	server.Register("supervise.report", makeHandler(runner, HandleSuperviseReport))
@@ -972,10 +973,17 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 	if err != nil {
 		return err
 	}
+	// #311 P0: 'quarantined' is excluded from the non-terminal `remaining` set so
+	// the run can finalize-the-majority on its completed deliverables while a
+	// single recovery-exhausted, downstream-clear job sits quarantined (NEVER
+	// completed — no false completion). The quarantined job is the one narrow
+	// thing surfaced to the operator (recovery accept-quarantined terminalizes
+	// it). It is intentionally NOT in 'completed'/'skipped'/'canceled' so the run
+	// records a quarantine manifest and stop_reason='quarantined_jobs'.
 	remaining, err := existsRow(ctx, runner, `
 		SELECT 1 FROM striatumd.jobs
 		 WHERE repository_id = $1 AND run_id = $2
-		   AND state NOT IN ('completed','skipped','canceled')
+		   AND state NOT IN ('completed','skipped','canceled','quarantined')
 		 LIMIT 1`, repositoryID, runID)
 	if err != nil {
 		return err
@@ -1014,17 +1022,26 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 	if err != nil {
 		return err
 	}
+	// #311 P0: collect the quarantine manifest (the single offending job(s) +
+	// lane + stall_class + blocker) so the terminal run.completed/run.canceled
+	// event and the durable run_completion_record name exactly what flaked.
+	quarantineManifest, err := buildQuarantineManifest(ctx, runner, repositoryID, runID)
+	if err != nil {
+		return err
+	}
 	state := "canceled"
 	eventType := "run.canceled"
 	source := "run_canceled"
 	reason := "run_canceled"
-	payload := map[string]any{"reason": "all_jobs_canceled"}
+	// payload is assigned in both branches below (completionPayload or
+	// canceledPayload) before its single use at appendEvent, so it has no
+	// meaningful initial value here.
+	var payload map[string]any
 	if hasCompleted {
 		state = "completed"
 		eventType = "run.completed"
 		source = "run_completed"
 		reason = "run_completed"
-		payload = nil
 	}
 	if state == "completed" {
 		// RFC 0118 P0-3: re-verify every provenance-required review gate
@@ -1045,34 +1062,61 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 				break
 			}
 		}
-		payload = map[string]any{
+		completionPayload := map[string]any{
 			"completion_mode": completionMode,
 			"provenance_gate": ledger,
 		}
+		recordExtra := map[string]any{"completion_mode": completionMode, "provenance_gate": ledger}
+		// #311 P0: a clean completion that left a single recovery-exhausted,
+		// downstream-clear job quarantined finalizes-the-majority — carry the
+		// manifest and set stop_reason='quarantined_jobs' (instead of NULL) so the
+		// run records exactly what was set aside. The state stays 'completed' (no
+		// new run state); the manifest is the legibility surface.
+		stopReasonClause := "stop_reason = NULL"
+		if len(quarantineManifest) > 0 {
+			completionPayload["quarantine_manifest"] = quarantineManifest
+			recordExtra["quarantine_manifest"] = quarantineManifest
+			recordExtra["stop_reason"] = "quarantined_jobs"
+			stopReasonClause = "stop_reason = 'quarantined_jobs'"
+		}
+		payload = completionPayload
 		payload, err = freezeRunCompletionRecord(ctx, runner, repositoryID, runID, "completed", "run_completed",
-			map[string]any{"completion_mode": completionMode, "provenance_gate": ledger}, payload)
+			recordExtra, payload)
 		if err != nil {
 			return err
 		}
 		// stop_reason may carry 'provenance_gate_failed' from an earlier
-		// escalation of this run; a clean (re-driven) completion clears it.
+		// escalation of this run; a clean (re-driven) completion clears it unless
+		// a quarantine manifest replaces it (#311).
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.runs
-			   SET state = $1, completed_at = $2, stop_reason = NULL,
+			   SET state = $1, completed_at = $2, `+stopReasonClause+`,
 			       completion_mode = $3
 			 WHERE repository_id = $4 AND run_id = $5`, state, now, completionMode, repositoryID, runID); err != nil {
 			return err
 		}
 	} else {
+		canceledStopReason := "all_jobs_canceled"
+		canceledPayload := map[string]any{"reason": "all_jobs_canceled"}
+		canceledExtra := map[string]any{"stop_reason": "all_jobs_canceled"}
+		// #311 P0: if there are quarantined jobs but no completed deliverables, the
+		// run still cancels (nothing to finalize-the-majority on) but the manifest
+		// + quarantined_jobs stop_reason name what flaked.
+		if len(quarantineManifest) > 0 {
+			canceledStopReason = "quarantined_jobs"
+			canceledPayload["quarantine_manifest"] = quarantineManifest
+			canceledExtra["stop_reason"] = "quarantined_jobs"
+		}
+		payload = canceledPayload
 		payload, err = freezeRunCompletionRecord(ctx, runner, repositoryID, runID, state, reason,
-			map[string]any{"stop_reason": "all_jobs_canceled"}, payload)
+			canceledExtra, payload)
 		if err != nil {
 			return err
 		}
 		if err := exec.Exec(ctx, `
 			UPDATE striatumd.runs
-			   SET state = $1, completed_at = $2, stop_reason = 'all_jobs_canceled'
-			 WHERE repository_id = $3 AND run_id = $4`, state, now, repositoryID, runID); err != nil {
+			   SET state = $1, completed_at = $2, stop_reason = $3
+			 WHERE repository_id = $4 AND run_id = $5`, state, now, canceledStopReason, repositoryID, runID); err != nil {
 			return err
 		}
 	}
@@ -1080,6 +1124,63 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 		return err
 	}
 	return closeRemainingSessions(ctx, runner, repositoryID, runID, source, reason)
+}
+
+// buildQuarantineManifest assembles the #311 P0 quarantine manifest: one entry
+// per job left in the 'quarantined' state for the run, naming the single
+// offending job + lane + stall_class + recovery counters + its open
+// recovery_exhausted blocker. It is folded into the terminal
+// run.completed/run.canceled event payload and the durable run_completion_record
+// so a finalize-the-majority run records exactly which job(s) were set aside and
+// why. Returns an empty slice when no job is quarantined (the common case),
+// which the caller treats as "no manifest".
+func buildQuarantineManifest(ctx context.Context, runner any, repositoryID, runID string) ([]map[string]any, error) {
+	rows, err := queryRows(ctx, runner, `
+		SELECT j.job_id, j.workflow_job_id,
+		       NULLIF(j.lane_selector_json->>'lane_id','') AS lane,
+		       jrs.last_stall_class, jrs.requeue_count, jrs.transfer_count,
+		       jrs.respawn_count,
+		       b.blocker_id, b.blocker_kind
+		  FROM striatumd.jobs j
+		  LEFT JOIN striatumd.job_recovery_state jrs
+		    ON jrs.repository_id = j.repository_id AND jrs.job_id = j.job_id
+		  LEFT JOIN LATERAL (
+		    SELECT bz.blocker_id, bz.blocker_kind
+		      FROM striatumd.blockers bz
+		     WHERE bz.repository_id = j.repository_id AND bz.job_id = j.job_id
+		       AND bz.state = 'open'
+		     ORDER BY (bz.blocker_kind = 'recovery_exhausted') DESC, bz.created_at
+		     LIMIT 1
+		  ) b ON true
+		 WHERE j.repository_id = $1 AND j.run_id = $2 AND j.state = 'quarantined'
+		 ORDER BY j.workflow_job_id`, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+	manifest := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		entry := map[string]any{
+			"job_id":          fmt.Sprint(row["job_id"]),
+			"workflow_job_id": fmt.Sprint(row["workflow_job_id"]),
+			"state":           "quarantined",
+		}
+		if v := nullable(row["lane"]); v != nil {
+			entry["lane"] = fmt.Sprint(v)
+		}
+		if v := nullable(row["last_stall_class"]); v != nil {
+			entry["stall_class"] = fmt.Sprint(v)
+		}
+		entry["recovery_attempts"] = intFromAny(row["requeue_count"], 0) +
+			intFromAny(row["transfer_count"], 0) + intFromAny(row["respawn_count"], 0)
+		if v := nullable(row["blocker_id"]); v != nil {
+			entry["blocker_id"] = fmt.Sprint(v)
+		}
+		if v := nullable(row["blocker_kind"]); v != nil {
+			entry["blocker_kind"] = fmt.Sprint(v)
+		}
+		manifest = append(manifest, entry)
+	}
+	return manifest, nil
 }
 
 func existsRow(ctx context.Context, runner any, sql string, args ...any) (bool, error) {

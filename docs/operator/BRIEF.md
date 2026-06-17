@@ -12,6 +12,22 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-17 delta — #311 P0 per-job quarantine (D209)
+
+#311 P0 (per-job quarantine + run finalize-the-majority) is IMPLEMENTED on a
+feature branch (not yet deployed). When a single job exhausts its recovery
+budget but its downstream is clear, the decision tree now quarantines ONLY that
+job and finalizes the run on its completed deliverables, instead of wedging the
+whole run at `needs_operator` (the #311 incident). New non-terminal job state
+`quarantined` (owner bundle `0012` — apply `striatum daemon owner-ddl apply`
+before the new daemon image; bundle 0011 reserved for #330). New verb
+`recovery accept-quarantined <run-id> <job-id>` is the operator's narrow action
+(resolves the blocker, marks the job canceled-by-operator). Eligibility is
+gated on a transitive-downstream check, the RFC 0118 provenance gate, a per-run
+cap (`recovery_policy.max_quarantinable_jobs`, default 1), and the owner-bundle
+having landed — any guard failing falls back to the unchanged whole-run
+escalation. See D209, CHANGELOG, and `spec.md` (completion section).
+
 ## 2026-06-16 delta — reliability reset closeout
 
 `striatum-reliability-reset-2026-06-16` completed on `proximal` as

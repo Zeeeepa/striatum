@@ -747,6 +747,27 @@ gate cleared on a frozen attested stamp, `operator_override` when any
 gate cleared by an override basis. `completion_mode` is advisory
 metadata: downstream consumers that care must read it explicitly.
 
+When a SINGLE job exhausts its autonomous-recovery budget but its
+downstream is clear, the recovery decision tree moves ONLY that job to
+the non-terminal `quarantined` state and lets the run
+finalize-the-majority on its already-completed deliverables, instead of
+flipping the whole run to `needs_operator` and discarding every
+completed sibling's work. A job is quarantine-eligible only when ALL
+hold: no unfinished job transitively (multi-hop) depends on it; it is
+not a provenance-required reviewer the run-completion gate would refuse;
+the per-run cap `recovery_policy.max_quarantinable_jobs` (default 1) is
+not exceeded; and the `quarantined` job state is permitted by the live
+schema (owner bundle 0012 applied). If any guard fails the job falls
+through to the unchanged whole-run `needs_operator` escalation. The
+quarantined job is NEVER completed and NEVER has an artifact sealed on
+its behalf — it is the one narrow thing surfaced to the operator, who
+terminalizes it with `recovery accept-quarantined` (resolves the blocker
+and marks the job canceled-by-operator; idempotent). A finalize-the-
+majority run reaches `completed` (no new run state) carrying a
+quarantine manifest on the terminal event and the completion record,
+with `stop_reason='quarantined_jobs'`; a `recovery.job_quarantined`
+event names the offending job + lane + stall_class.
+
 Every terminal transition — including the operator `run cancel` path —
 freezes a write-once `runs.completion_record_json` INSIDE the terminal
 transaction, before session teardown: per-job state and attempt, the

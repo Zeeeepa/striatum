@@ -73,6 +73,32 @@
   the packet (no artifact), so an auto-driven `local` run with
   `expected_artifacts` parks. The `local` lane-set description and the
   how-to-agent workflow loop now say so. Closes #313.
+- **#311 P0 a single flaky job no longer wedges a whole run at
+  `needs_operator`.** When one job exhausted its autonomous-recovery budget, the
+  recovery decision tree flipped the ENTIRE run to `needs_operator`, discarding
+  the durable, attested work of every already-completed sibling (the incident:
+  one flaky agy/Gemini reviewer wedged a run whose other 8 jobs had completed).
+  Now, when a single exhausted job's downstream is clear, only THAT job moves to
+  a new non-terminal `quarantined` state and the run finalizes-the-majority on
+  its completed deliverables, recording a quarantine manifest (which job + lane +
+  stall_class) on the terminal `run.completed` event and the
+  run_completion_record, with `stop_reason='quarantined_jobs'`. A
+  `recovery.job_quarantined` event names the single offending job. The job is
+  quarantined ONLY when ALL hold: (a) no unfinished job transitively depends on
+  it, (b) it is not a provenance-required reviewer the RFC 0118 run-completion
+  gate would refuse, (c) the per-run cap `recovery_policy.max_quarantinable_jobs`
+  (default 1) is not exceeded, and (d) the `quarantined` job state is permitted
+  by the live schema (owner bundle `0012`); if any guard fails the run still
+  escalates exactly as before, so a deployment behind on owner bundles or a run
+  with multiple simultaneous flaky jobs is never silently swallowed. The
+  quarantined job is NEVER completed and NEVER has an artifact sealed on its
+  behalf — it is the one narrow thing surfaced to the operator, who terminalizes
+  it with the new `recovery accept-quarantined <run-id> <job-id>` verb (resolves
+  the blocker + marks the job canceled-by-operator; idempotent). The new
+  `quarantined` job state is added to the owner-held `jobs_state_check` CHECK via
+  owner bundle `0012` (idempotent DROP+re-ADD; apply with `striatum daemon
+  owner-ddl apply` before the new daemon image).
+  New RPC `recovery.accept_quarantined`. See D209. Closes #311 (P0).
 
 - **#312 `repo add --init <path>` no longer fails with "repo.add requires
   path".** The CLI flag parser greedily consumed the positional after a

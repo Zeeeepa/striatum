@@ -150,3 +150,43 @@ func TestOwnerBundleTenWedgeClassMatchesClassifier(t *testing.T) {
 		t.Fatalf("bundle 10 CHECK must permit the classifier stall class %q", sessionliveness.StallToolProgress)
 	}
 }
+
+// TestOwnerBundleTwelveAddsQuarantineState is GH #311 P0: the 'quarantined' job
+// state is added to the jobs_state_check CHECK. striatumd.jobs is an owner-held
+// table, so widening the CHECK (DROP + re-ADD, which a CHECK cannot do in place)
+// is owner-table DDL and MUST live in an owner bundle, never a runtime migration
+// (RFC 0079 §5 / RFC 0081 owner-held ALTER crash-loop). The bundle must be
+// idempotent so a re-run is a safe no-op. Bundle 0011 is reserved for a
+// concurrent change (GH #330), so this lands as 0012.
+func TestOwnerBundleTwelveAddsQuarantineState(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 12 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 12 is missing")
+	}
+	for _, needle := range []string{
+		"jobs_state_check",
+		"DROP CONSTRAINT jobs_state_check",
+		"ADD CONSTRAINT jobs_state_check",
+		"'quarantined'",
+		"NOT LIKE '%quarantined%'",
+	} {
+		if !strings.Contains(bundle.SQL, needle) {
+			t.Fatalf("bundle 12 missing %q", needle)
+		}
+	}
+	// Ownership-safety: it ALTERs the owner-held jobs table (that is the whole
+	// point of the bundle), and it must NOT touch any other owner table.
+	if !strings.Contains(bundle.SQL, "ALTER TABLE striatumd.jobs") {
+		t.Fatal("bundle 12 must ALTER striatumd.jobs")
+	}
+}

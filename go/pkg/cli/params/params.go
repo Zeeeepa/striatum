@@ -280,6 +280,11 @@ func positionalNames(group string) []string {
 		// `striatum recovery complete-stalled <run-id> <job-id>` finalizes a
 		// recovery-exhausted job from its already-durable published artifacts.
 		return []string{"run_id", "job_id"}
+	case "recovery_accept_quarantined":
+		// #311 P0: recovery.accept_quarantined keys on (run_id, job_id) so
+		// `striatum recovery accept-quarantined <run-id> <job-id>` resolves a
+		// quarantined job's blocker and marks it canceled-by-operator.
+		return []string{"run_id", "job_id"}
 	case "recovery_resolve_blocker":
 		// #304: recovery.resolve_blocker keys on blocker_id so
 		// `striatum recovery resolve-blocker <blocker-id>` closes a dangling

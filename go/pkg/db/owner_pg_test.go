@@ -24,9 +24,17 @@ func TestOwnerBundleAppliesAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("apply owner bundles: %v", err)
 	}
-	// A fresh database applies every shipped bundle (1..LatestOwnerBundleVersion).
-	if version != db.LatestOwnerBundleVersion || len(applied) != db.LatestOwnerBundleVersion {
-		t.Fatalf("apply result applied=%v version=%d; want all %d bundles applied", applied, version, db.LatestOwnerBundleVersion)
+	// A fresh database applies every shipped bundle. The version reaches
+	// LatestOwnerBundleVersion, but the count is the number of files actually
+	// shipped — the version sequence may carry a reserved gap (e.g. 0011 reserved
+	// for a concurrent change), so len(applied) tracks OwnerBundles(), not the
+	// latest version number.
+	shipped, err := db.OwnerBundles()
+	if err != nil {
+		t.Fatalf("enumerate owner bundles: %v", err)
+	}
+	if version != db.LatestOwnerBundleVersion || len(applied) != len(shipped) {
+		t.Fatalf("apply result applied=%v version=%d; want %d bundles applied to version %d", applied, version, len(shipped), db.LatestOwnerBundleVersion)
 	}
 
 	// Re-apply is idempotent: nothing applied, version unchanged.

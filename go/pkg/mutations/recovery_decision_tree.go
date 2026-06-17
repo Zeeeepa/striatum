@@ -31,12 +31,22 @@ type recoveryPolicy struct {
 	// burning less of the requeue budget than the symptom the issue reported.
 	maxUnsealedRequeues int
 	maxTransfers        int
+	// maxQuarantinableJobs bounds how many jobs a single run may move to the
+	// 'quarantined' state and still finalize-the-majority (#311 P0). The default
+	// is 1: a run with a SINGLE recovery-exhausted, downstream-clear job
+	// quarantines it and finalizes on the completed deliverables, but a run with
+	// multiple simultaneous flaky jobs escalates to needs_operator rather than
+	// silently swallowing large-scale failure. An operator can raise the cap via
+	// recovery_policy.max_quarantinable_jobs; 0 disables quarantine entirely
+	// (every exhaustion escalates the whole run, the pre-#311 behavior).
+	maxQuarantinableJobs int
 }
 
 const (
-	defaultMaxRequeues         = 2
-	defaultMaxUnsealedRequeues = 1
-	defaultMaxTransfers        = 3
+	defaultMaxRequeues          = 2
+	defaultMaxUnsealedRequeues  = 1
+	defaultMaxTransfers         = 3
+	defaultMaxQuarantinableJobs = 1
 )
 
 // Recovery-specific stall classifications for a confirmed-dead supervised agent.
@@ -61,9 +71,10 @@ const (
 // existing recovery_policy block keeps meaning what it says.
 func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
 	policy := recoveryPolicy{
-		maxRequeues:         defaultMaxRequeues,
-		maxUnsealedRequeues: defaultMaxUnsealedRequeues,
-		maxTransfers:        defaultMaxTransfers,
+		maxRequeues:          defaultMaxRequeues,
+		maxUnsealedRequeues:  defaultMaxUnsealedRequeues,
+		maxTransfers:         defaultMaxTransfers,
+		maxQuarantinableJobs: defaultMaxQuarantinableJobs,
 	}
 	block := asMap(workflow["recovery_policy"])
 	if len(block) == 0 {
@@ -82,6 +93,9 @@ func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
 	if v, ok := block["max_transfers"]; ok {
 		policy.maxTransfers = intFromAny(v, policy.maxTransfers)
 	}
+	if v, ok := block["max_quarantinable_jobs"]; ok {
+		policy.maxQuarantinableJobs = intFromAny(v, policy.maxQuarantinableJobs)
+	}
 	if policy.maxRequeues < 0 {
 		policy.maxRequeues = 0
 	}
@@ -96,6 +110,9 @@ func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
 	}
 	if policy.maxTransfers < 0 {
 		policy.maxTransfers = 0
+	}
+	if policy.maxQuarantinableJobs < 0 {
+		policy.maxQuarantinableJobs = 0
 	}
 	return policy
 }
