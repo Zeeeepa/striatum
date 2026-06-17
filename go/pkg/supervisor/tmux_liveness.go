@@ -162,6 +162,22 @@ func tmuxProbeTimeout() time.Duration {
 	return 2 * time.Second
 }
 
+// TmuxUnavailableLostThreshold is the number of consecutive tmux_unavailable
+// probes the daemon tolerates before marking a supervised lane lost. Tunable
+// via STRIATUM_TMUX_UNAVAILABLE_LOST_THRESHOLD (default 3). Read by the live
+// supervise-delivery path in pkg/mutations.
+func TmuxUnavailableLostThreshold() int {
+	raw := strings.TrimSpace(os.Getenv("STRIATUM_TMUX_UNAVAILABLE_LOST_THRESHOLD"))
+	if raw == "" {
+		return 3
+	}
+	threshold, err := strconv.Atoi(raw)
+	if err != nil || threshold < 1 {
+		return 3
+	}
+	return threshold
+}
+
 func CaptureTmuxIdentity(ctx context.Context, r TmuxRunner, sessionName string) (TmuxIdentity, error) {
 	out, err := r.Run(ctx, "display-message", "-p", "-t", sessionName, "#{window_id}|#{pane_id}|#{pane_pid}|#{pane_start_time}")
 	if err != nil {

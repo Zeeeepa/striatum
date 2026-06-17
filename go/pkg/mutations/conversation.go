@@ -282,6 +282,23 @@ func conversationTurnRecord(ctx context.Context, tx db.TxRunner, repositoryID, r
 // errors or restarts before calling conversation.say simply sees its turn again,
 // rather than the turn being lost and the round-robin stalling. Read-only.
 func deliverPendingConversationTurn(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (map[string]any, error) {
+	// Hot-path gate: this runs on every await-claim poll, but an open
+	// conversation is rare. A single EXISTS probe (index-only on
+	// idx_conversations_state, short-circuits at the first row) lets the
+	// overwhelmingly common "no open conversation" case skip the row scan +
+	// participant-slice work below.
+	var hasOpen bool
+	if err := runner.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM striatumd.conversations
+		   WHERE repository_id = $1 AND state = 'open'
+		)`, repositoryID).Scan(&hasOpen); err != nil {
+		return nil, err
+	}
+	if !hasOpen {
+		return nil, nil
+	}
+
 	rows, err := queryRows(ctx, runner, `
 		SELECT conversation_id, topic, participants_json, floor_index, turn_count
 		  FROM striatumd.conversations

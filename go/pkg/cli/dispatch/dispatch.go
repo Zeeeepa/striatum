@@ -10,8 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/halbritt/striatum/go/pkg/cli/mutationparams"
-	"github.com/halbritt/striatum/go/pkg/cli/readparams"
+	"github.com/halbritt/striatum/go/pkg/cli/params"
 	"github.com/halbritt/striatum/go/pkg/cli/routes"
 )
 
@@ -328,11 +327,10 @@ func readGlobalValue(args []string, i int, value string, hasValue bool) (string,
 }
 
 func buildParams(route routes.Route, args []string, repositoryID string) (map[string]any, error) {
-	options := readparams.Options{RepositoryID: repositoryID}
-	if route.RequiredCapability == "read" || route.RequiredCapability == "" {
-		return readparams.Build(route.ParamsGroup, args, options)
-	}
-	return mutationparams.Build(route.ParamsGroup, args, mutationparams.Options{RepositoryID: repositoryID})
+	// Both the read and mutation param groups resolve through the same
+	// params.Build; the former mutationparams/readparams forwarders were
+	// identical aliases (removed in #357).
+	return params.Build(route.ParamsGroup, args, params.Options{RepositoryID: repositoryID})
 }
 
 func resolveRepository(ctx context.Context, invoker Invoker, repoPath string, options Options) (string, error) {
