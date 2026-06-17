@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/reads"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -244,6 +246,25 @@ func TestPerRunHandlersTakeLockRunFirst(t *testing.T) {
 				t.Fatalf("recovery.sweep: %v", err)
 			}
 		}},
+		// #356 (RFC 0104): escalation.resolve lives in pkg/reads but is a per-run
+		// write — it FOR UPDATEs blockers, then maybeCompleteRun FOR UPDATEs runs —
+		// so it must take the per-run advisory lock first via reads.RunLockHook (wired
+		// by mutations.Register; we wire it directly here since the guard test does not
+		// call Register). We seed an open escalation-class blocker on the run so the
+		// resolve reaches its blocking FOR UPDATE; the recorder captures whether the
+		// advisory lock preceded it.
+		{"escalation.resolve", func(rec *lockRecorder) {
+			prevHook := reads.RunLockHook
+			reads.RunLockHook = func(ctx context.Context, tx db.TxRunner, repositoryID, runID string) error {
+				return LockRun(ctx, tx, repositoryID, runID)
+			}
+			defer func() { reads.RunLockHook = prevHook }()
+			seedRunLockEscalation(t, ctx, runner, fx)
+			_, _ = reads.HandleEscalationResolve(ctx, rec, intgEnv(repoID, map[string]any{
+				"escalation_id":   "blk_guard_" + fx.runID,
+				"resolution_note": "guard-test resolve",
+			}))
+		}},
 	}
 
 	for _, tc := range cases {
@@ -254,4 +275,36 @@ func TestPerRunHandlersTakeLockRunFirst(t *testing.T) {
 			t.Fatalf("%s violates the RFC 0104 per-run lock invariant: %v", tc.name, err)
 		}
 	}
+}
+
+// seedRunLockEscalation seeds (idempotently) an open escalation-class blocker
+// and its escalation_inbox row on the fixture's run so escalation.resolve
+// reaches its blocking FOR UPDATE on striatumd.blockers — letting the lock
+// recorder verify the per-run advisory lock is taken first.
+func seedRunLockEscalation(t *testing.T, ctx context.Context, runner db.Runner, fx *runLockRaceFixture) {
+	t.Helper()
+	now := time.Now().UTC()
+	blockerID := "blk_guard_" + fx.runID
+	exec := func(what, sql string, args ...any) {
+		if err := runner.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("seed escalation %s: %v", what, err)
+		}
+	}
+	exec("blocker", `
+		INSERT INTO striatumd.blockers (
+		  repository_id, blocker_id, run_id, job_id, session_id, severity,
+		  blocker_kind, description, state, created_at, payload_json
+		) VALUES ($1,$2,$3,NULL,NULL,'blocked',
+		          'missing_authority','guard-test escalation','open',$4,'{}'::jsonb)
+		ON CONFLICT (repository_id, blocker_id) DO UPDATE
+		  SET state='open', resolved_at=NULL, payload_json='{}'::jsonb`,
+		fx.repoID, blockerID, fx.runID, now)
+	exec("escalation inbox", `
+		INSERT INTO striatumd.escalation_inbox (
+		  repository_id, escalation_id, run_id, job_id, session_id,
+		  blocker_id, blocker_kind, severity, state, created_at, payload_json
+		) VALUES ($1,$2,$3,NULL,NULL,$2,'missing_authority','blocked','pending',$4,'{}'::jsonb)
+		ON CONFLICT (repository_id, escalation_id) DO UPDATE
+		  SET state='pending', resolved_at=NULL, payload_json='{}'::jsonb`,
+		fx.repoID, blockerID, fx.runID, now)
 }
