@@ -929,7 +929,19 @@ func worktreeRequirementForJob(ctx context.Context, runner any, repositoryID str
 	if err != nil {
 		return false, nil, err
 	}
-	laneID := jobLaneID(job)
+	// #310: the claim packet resolves the lane via a session fallback when the job
+	// row's lane_selector_json carries no lane_id (claim.go: laneID = session
+	// lane_id), so the lane believes it is per-job isolated and supervises as
+	// `striatum-lane`. The publish-time gate historically read ONLY the job
+	// selector here, so an empty selector made the per-job worktree NOT required —
+	// and artifactSourcePath then resolved the write target to repoRoot, letting a
+	// repo-write lane write straight into the operator's shared, tracked checkout
+	// (bypassing the RFC 0125 porter, which only writes INSIDE the worktree). Mirror
+	// the claim-time fallback so the per-job worktree is correctly required.
+	laneID, err := jobLaneIDWithSessionFallback(ctx, runner, repositoryID, job)
+	if err != nil {
+		return false, nil, err
+	}
 	if strings.TrimSpace(laneID) == "" {
 		return false, worktree, nil
 	}
@@ -1407,6 +1419,37 @@ func worktreeRow(ctx context.Context, runner any, repositoryID, worktreeID strin
 func jobLaneID(job map[string]any) string {
 	lane, _ := asMap(job["lane_selector_json"])["lane_id"].(string)
 	return lane
+}
+
+// jobLaneIDWithSessionFallback resolves the effective lane id for a job the same
+// way the claim packet does (#310): prefer the job's lane_selector_json lane_id,
+// and when that is absent fall back to the lane_id of the session that owns the
+// job's active lease — the lane the daemon actually supervised the work under.
+// This keeps the publish-time worktree-isolation decision consistent with the
+// claim-time packet, so a lane that believes it is per-job isolated is held to
+// the per-job worktree boundary at publish time too. A job with no active lease
+// (none in flight) keeps the empty selector value, preserving prior behavior.
+func jobLaneIDWithSessionFallback(ctx context.Context, runner any, repositoryID string, job map[string]any) (string, error) {
+	if lane := strings.TrimSpace(jobLaneID(job)); lane != "" {
+		return lane, nil
+	}
+	row, err := oneRow(ctx, runner, `
+		SELECT s.lane_id
+		  FROM striatumd.leases l
+		  JOIN striatumd.sessions s
+		    ON s.repository_id = l.repository_id AND s.session_id = l.owner_session_id
+		 WHERE l.repository_id = $1 AND l.resource_type = 'job' AND l.resource_id = $2
+		   AND l.state = 'active'
+		 ORDER BY l.acquired_at DESC
+		 LIMIT 1`, repositoryID, fmt.Sprint(job["job_id"]))
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	lane, _ := nullable(row["lane_id"]).(string)
+	return strings.TrimSpace(lane), nil
 }
 
 func worktreeTarget(repoRoot string, pathText string) (string, error) {
