@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 )
 
 // compileDivergentIdeation compiles the RFC 0087 divergent_ideation shape: a
@@ -120,6 +122,16 @@ func compileDivergentIdeation(spec Spec) ([]map[string]any, []map[string]any, []
 		)
 		deepen["parallel_group"] = "deepen"
 		deepen["fresh_session_required"] = true
+		// #306: each DEEPENED pick is a GATED INPUT to final_synthesis (the
+		// deepen_N -> final_synthesis edges; the synthesis derives entirely from
+		// the deepened picks), so retain it in git for auditability rather than
+		// blob-routing it as ordinary build exhaust. The diverge-branch IDEAS are
+		// already git-retained via their handoff kind; this gives the deepen picks
+		// the same committed audit trail so a git-only auditor can verify the
+		// synthesis faithfully represented its gated inputs.
+		if arts, ok := deepen["expected_artifacts"].([]map[string]any); ok && len(arts) > 0 {
+			arts[0]["placement"] = artifactcontracts.PlacementGitPublication
+		}
 		jobs = append(jobs, deepen)
 	}
 

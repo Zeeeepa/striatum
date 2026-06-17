@@ -3,7 +3,49 @@ package workflowgenerate
 import (
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 )
+
+// TestDivergentIdeationGatedInputsAreGitRetained is the #306 guard: the gated
+// inputs to convergence/synthesis — the diverge-branch IDEAS and the DEEPENED
+// picks (deepen_N -> final_synthesis) — must be git-retained
+// (placement=git_publication), not blob-routed, so a git-only auditor can verify
+// the synthesis faithfully represented its gated inputs.
+func TestDivergentIdeationGatedInputsAreGitRetained(t *testing.T) {
+	spec, err := SpecFromMap(divergentRaw("local", nil, nil, nil))
+	if err != nil {
+		t.Fatalf("spec: %v", err)
+	}
+	gen, err := Generate(spec)
+	if err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	jobs := jobsOf(t, gen)
+	diverge, deepen := 0, 0
+	for _, j := range jobs {
+		grp, _ := j["parallel_group"].(string)
+		if grp != "diverge" && grp != "deepen" {
+			continue
+		}
+		arts, ok := j["expected_artifacts"].([]map[string]any)
+		if !ok || len(arts) == 0 {
+			t.Fatalf("gated-input job %v has no expected_artifacts", j["id"])
+		}
+		if got := arts[0]["placement"]; got != artifactcontracts.PlacementGitPublication {
+			t.Fatalf("job %v (group %s) artifact placement = %v, want %q (gated input must be git-retained for audit)",
+				j["id"], grp, got, artifactcontracts.PlacementGitPublication)
+		}
+		if grp == "diverge" {
+			diverge++
+		} else {
+			deepen++
+		}
+	}
+	if diverge < 2 || deepen < 1 {
+		t.Fatalf("expected >=2 diverge and >=1 deepen gated-input jobs checked, got diverge=%d deepen=%d", diverge, deepen)
+	}
+}
 
 func divergentRaw(laneSet string, lanes map[string]any, modifiers []any, options map[string]any) map[string]any {
 	if options == nil {
