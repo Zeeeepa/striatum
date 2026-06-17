@@ -458,6 +458,40 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				})
 				continue
 			}
+			// #317: #308 finalize did not fire. If a required artifact ROW was
+			// already published THIS attempt but its body is NOT durable, a
+			// same-attempt requeue would wedge: the (logical_name, attempt) row is
+			// immutable, so the re-run can neither republish nor complete (sealing a
+			// stale, non-durable artifact) and blocks on
+			// artifact_immutable_byline_mismatch with no automated recovery. Reopen
+			// on a FRESH attempt instead, so the re-run publishes into a clean
+			// namespace; the prior attempt's append-only row is retained.
+			reopened, fromAttempt, toAttempt, rerr := tryReopenFreshAttemptForStaleArtifact(ctx, tx, repositoryID, row)
+			if rerr != nil {
+				return nil, rerr
+			}
+			if reopened {
+				ownerClosed := false
+				if !sessionAbsent {
+					closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClassAgentExitedUnsealed)
+					if cerr != nil {
+						return nil, cerr
+					}
+					ownerClosed = closed
+				}
+				actions = append(actions, map[string]any{
+					"workflow_job_id":       workflowJobID,
+					"job_id":                jobID,
+					"action":                "reopen_fresh_attempt_stale_artifact",
+					"stall_class":           stallClassAgentExitedUnsealed,
+					"from_attempt":          fromAttempt,
+					"to_attempt":            toAttempt,
+					"acted":                 true,
+					"stalled_owner_closed":  ownerClosed,
+					"stalled_owner_session": nullable(sessionID),
+				})
+				continue
+			}
 		}
 
 		// Decide the operational recovery action.
@@ -810,6 +844,91 @@ func tryFinalizeUnsealedFromDurableArtifact(ctx context.Context, tx db.TxRunner,
 		return false, err
 	}
 	return true, nil
+}
+
+// tryReopenFreshAttemptForStaleArtifact handles the #317 trap: a dead-lane job
+// whose required artifact ROW was already published this attempt but whose body
+// is NOT durable (so the #308 finalize above could not fire). A same-attempt
+// requeue would trap the re-run — the (logical_name, attempt) row is immutable
+// (0018_artifact_attempt_scope.sql) and the artifacts table is append-only
+// (0005 triggers), so the re-run can neither republish (immutable, and a
+// per-session byline guarantees a mismatch) nor complete (that would seal a
+// stale, non-durable artifact); it blocks on artifact_immutable_byline_mismatch
+// with no automated recovery. Reopen on a FRESH attempt instead: the re-run
+// publishes into a clean (logical_name, attempt) namespace, leaving the prior
+// attempt's append-only row intact for provenance. max_attempts is bumped in
+// lockstep because this is recovery clearing its own prior partial work, not a
+// content revision consuming the author's retry budget. Returns whether it acted
+// and the (from, to) attempt numbers. Verdict-capable jobs are never reopened
+// here (they route through attested verdict / review override, RFC 0118).
+func tryReopenFreshAttemptForStaleArtifact(ctx context.Context, tx db.TxRunner, repositoryID string, row map[string]any) (bool, int, int, error) {
+	jobID := fmt.Sprint(row["job_id"])
+	runID := row["run_id"]
+	if isVerdictCapableJobType(fmt.Sprint(row["job_type"])) {
+		return false, 0, 0, nil
+	}
+	attempt := jobAttemptValue(row["attempt"])
+	expected := resolveExpectedArtifactCycles(asList(row["expected_artifacts_json"]), attempt)
+	hasRequired := false
+	for _, item := range expected {
+		if asMap(item)["required"] == true {
+			hasRequired = true
+			break
+		}
+	}
+	if !hasRequired {
+		return false, 0, 0, nil
+	}
+	// Required artifact ROWS must already exist (publish happened this attempt) —
+	// otherwise a same-attempt requeue can simply republish and there is no trap.
+	// A missing row surfaces as an rpc invalid_transition error; treat it as
+	// "no trap" (fall through to the normal requeue), not a sweep failure.
+	if err := verifyRequiredArtifacts(ctx, tx, repositoryID, jobID); err != nil {
+		if _, ok := err.(*rpc.Error); ok {
+			return false, 0, 0, nil
+		}
+		return false, 0, 0, err
+	}
+	// The body must be NON-durable. If it is reconstructable the #308 path above
+	// finalizes it; reopening would needlessly re-run a complete deliverable.
+	recon, err := verifyRequiredArtifactReconstructable(ctx, tx, repositoryID, row)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	if len(failedReconstructions(recon)) == 0 {
+		return false, 0, 0, nil
+	}
+	next := attempt + 1
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET attempt = $3, max_attempts = GREATEST(max_attempts, $3)
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID, next); err != nil {
+		return false, 0, 0, err
+	}
+	updated, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+	if err != nil {
+		return false, 0, 0, err
+	}
+	opts := requeueSameAttemptOptions{
+		author: recoveryDecisionAuthor,
+		justification: fmt.Sprintf(
+			"autonomous recovery (#317): prior attempt %d published a required artifact whose body is not durable; reopened on fresh attempt %d so the re-run can republish into a clean namespace",
+			attempt, next),
+	}
+	if isRepoWrite(updated) {
+		opts.operatorOverride = true
+	}
+	if _, err := requeueJobSameAttempt(ctx, tx, repositoryID, updated, opts); err != nil {
+		return false, 0, 0, err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.reopened_fresh_attempt", nil, jobID, nil, nil, nil, map[string]any{
+		"reason":       "stale_published_artifact_not_durable",
+		"from_attempt": attempt,
+		"to_attempt":   next,
+	}); err != nil {
+		return false, 0, 0, err
+	}
+	return true, attempt, next, nil
 }
 
 // deadAgentExitedUnsealed reports whether a confirmed-dead supervised agent had
