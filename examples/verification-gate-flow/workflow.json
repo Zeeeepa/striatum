@@ -1,0 +1,251 @@
+{
+  "allow_same_model_review_pairing": true,
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/verification-gate-flow"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "builder"
+  },
+  "cycles": [
+    {
+      "allow_same_model": true,
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 2,
+      "on_verdict": "needs_revision",
+      "to": "builder"
+    }
+  ],
+  "edges": [
+    {
+      "from": "builder",
+      "on": "completed",
+      "to": "verifier"
+    },
+    {
+      "from": "verifier",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_verified"
+    },
+    {
+      "from": "commit_verified",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "claim_ledger",
+          "path": "examples/verification-gate-flow/artifacts/build/CLAIM_LEDGER.md",
+          "required": true
+        }
+      ],
+      "id": "builder",
+      "lane_id": "local",
+      "objective": "Build the slice and publish a claim ledger. Every capability claim carries a status (VERIFIED|ASSERTED|DESIGNED) and, for anything above DESIGNED, a runnable witness (a test id, a grep, a CLI command + expected output, or a mypy invocation). Deferral is allowed but must appear as a DESIGNED row, never hidden in prose.",
+      "phase_id": "verify",
+      "role_id": "builder",
+      "task_prompt": {
+        "path": "prompts/claim_build.md"
+      },
+      "title": "Build slice and publish claim ledger",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/verification-gate-flow/artifacts/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "test_report",
+          "logical_name": "verification_report",
+          "path": "examples/verification-gate-flow/artifacts/verify/VERIFICATION_REPORT.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "verifier",
+      "lane_id": "local",
+      "objective": "Falsify the completion claims. For each VERIFIED/ASSERTED row, RUN its witness yourself — execute the command, capture the exit code and output; do not trust the builder's prose. Default to FAIL when a witness is missing, fails, or does not actually exercise the claim. Publish a verification report: per claim, the command run, exit code, PASS/FAIL, and whether the witness genuinely tests the claim.",
+      "phase_id": "verify",
+      "role_id": "verifier",
+      "task_prompt": {
+        "path": "prompts/verify_run.md"
+      },
+      "title": "Run witnesses and report ground truth",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/verification-gate-flow/artifacts/verify/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "examples/verification-gate-flow/artifacts/adjudicate/COLLABORATION_LEDGER_${cycle}.md",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "local",
+      "objective": "Read the claim ledger and the verification report and publish the collaboration ledger verdict. Rule: if ANY claim is stated above the status its witness earns — VERIFIED with a failed or absent witness, or completion language over an ASSERTED/DESIGNED row — record verdict needs_revision and name the offending claims. Otherwise accept.",
+      "phase_id": "verify",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate.md"
+      },
+      "title": "Adjudicate claims against ground truth",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/verification-gate-flow/artifacts/adjudicate/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "verified_release",
+          "path": "examples/verification-gate-flow/artifacts/commit/release/VERIFIED_RELEASE.md",
+          "required": true
+        }
+      ],
+      "id": "commit_verified",
+      "lane_id": "local",
+      "objective": "Publish the cleared release only after the collaboration ledger records an accepting verdict. Stamp every claim with its EARNED status and its witness; no completion language survives above the witnessed status.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/commit_verified.md"
+      },
+      "title": "Commit witness-cleared release",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/verification-gate-flow/artifacts/commit/release/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "examples/verification-gate-flow/artifacts/commit/final/FINAL_SUMMARY.md",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "local",
+      "objective": "Summarize the cleared verification gate: which claims shipped VERIFIED, which stayed DESIGNED, and the witnesses of record.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/final_summary.md"
+      },
+      "title": "Finalize verification run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/verification-gate-flow/artifacts/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat >/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "verification-gate-flow",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Build with a claim ledger, falsify the claims against ground truth, adjudicate",
+      "id": "verify",
+      "name": "Verify",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Publish only the witness-cleared release, every claim stamped with its earned status",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "builder": {
+      "definition_path": "roles/builder.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "verifier": {
+      "definition_path": "roles/verifier.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "verification-gate-flow",
+  "workflow_version": "2026-06-17"
+}
