@@ -17,21 +17,22 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 9
+const LatestOwnerBundleVersion = 10
 
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
 
 var ownerBundleLabels = map[int]string{
-	1: "authority schema + v3 hash + phase 0 audit_only (RFC 0110 N+1)",
-	2: "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
-	3: "phase 1 audit_artifacts: append_artifact_row SD fn + artifacts INSERT revoke (RFC 0110 §7)",
-	4: "phase 2 full: append_event_row SD fn (in-DB v3 hash + transcript exclusion) + events INSERT revoke (RFC 0110 §7)",
-	5: "runtime read scope R1: token-secret projections + clients secret-column SELECT revoke (RFC 0113)",
-	6: "runtime read scope R1 step 2: principal/session identity projections + SELECT revokes + ownership transfer (RFC 0114)",
-	7: "artifact placement column + append_artifact_row placement overload (RFC 0123)",
-	8: "artifact metadata full-text search column and GIN index (RFC 0119 / D179)",
-	9: "build-owned review_generation columns on jobs + verdicts (RFC 0126 P0 / D194 / GH #282)",
+	1:  "authority schema + v3 hash + phase 0 audit_only (RFC 0110 N+1)",
+	2:  "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
+	3:  "phase 1 audit_artifacts: append_artifact_row SD fn + artifacts INSERT revoke (RFC 0110 §7)",
+	4:  "phase 2 full: append_event_row SD fn (in-DB v3 hash + transcript exclusion) + events INSERT revoke (RFC 0110 §7)",
+	5:  "runtime read scope R1: token-secret projections + clients secret-column SELECT revoke (RFC 0113)",
+	6:  "runtime read scope R1 step 2: principal/session identity projections + SELECT revokes + ownership transfer (RFC 0114)",
+	7:  "artifact placement column + append_artifact_row placement overload (RFC 0123)",
+	8:  "artifact metadata full-text search column and GIN index (RFC 0119 / D179)",
+	9:  "build-owned review_generation columns on jobs + verdicts (RFC 0126 P0 / D194 / GH #282)",
+	10: "wedged_no_tool_progress liveness stall class on sessions CHECK (GH #324)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.

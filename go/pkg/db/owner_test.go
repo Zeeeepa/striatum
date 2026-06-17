@@ -3,6 +3,8 @@ package db
 import (
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 )
 
 func TestOwnerBundleSevenAddsArtifactPlacement(t *testing.T) {
@@ -84,5 +86,67 @@ func TestOwnerBundleNineAddsReviewGeneration(t *testing.T) {
 		if !strings.Contains(bundle.SQL, needle) {
 			t.Fatalf("bundle 9 missing %q", needle)
 		}
+	}
+}
+
+// TestOwnerBundleTenAddsWedgeStallClass is GH #324: the wedged_no_tool_progress
+// liveness stall class is added to the sessions_liveness_stall_class_check CHECK.
+// striatumd.sessions is an owner-held table, so widening the CHECK (DROP + re-ADD,
+// which a CHECK cannot do in place) is owner-table DDL and MUST live in an owner
+// bundle, never a runtime migration (RFC 0079 §5 / RFC 0081 owner-held ALTER
+// crash-loop). The bundle must be idempotent so a re-run is a safe no-op.
+func TestOwnerBundleTenAddsWedgeStallClass(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 10 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 10 is missing")
+	}
+	for _, needle := range []string{
+		"sessions_liveness_stall_class_check",
+		"DROP CONSTRAINT sessions_liveness_stall_class_check",
+		"ADD CONSTRAINT sessions_liveness_stall_class_check",
+		"'wedged_no_tool_progress'",
+		"NOT LIKE '%wedged_no_tool_progress%'",
+	} {
+		if !strings.Contains(bundle.SQL, needle) {
+			t.Fatalf("bundle 10 missing %q", needle)
+		}
+	}
+	// Ownership-safety: it ALTERs the owner-held sessions table (that is the whole
+	// point of the bundle), and it must NOT touch any other owner table.
+	if !strings.Contains(bundle.SQL, "ALTER TABLE striatumd.sessions") {
+		t.Fatal("bundle 10 must ALTER striatumd.sessions")
+	}
+}
+
+// TestOwnerBundleTenWedgeClassMatchesClassifier keeps the persisted CHECK list in
+// lockstep with the classifier constant — if sessionliveness renames the class,
+// this fails until the bundle (and a new bundle version) follows.
+func TestOwnerBundleTenWedgeClassMatchesClassifier(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 10 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 10 is missing")
+	}
+	if !strings.Contains(bundle.SQL, "'"+sessionliveness.StallToolProgress+"'") {
+		t.Fatalf("bundle 10 CHECK must permit the classifier stall class %q", sessionliveness.StallToolProgress)
 	}
 }
