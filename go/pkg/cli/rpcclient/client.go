@@ -181,8 +181,17 @@ func isTokenAuthFailure(err error) bool {
 }
 
 func send(ctx context.Context, conn net.Conn, reader *bufio.Reader, envelope rpc.Envelope) (rpc.Response, error) {
+	// Apply a read/write deadline so a daemon that accepts the connection then
+	// wedges before responding cannot hang reader.ReadBytes forever. The 5s
+	// DialTimeout only covers connect; the CLI invokes with context.Background()
+	// (cmd/striatum/main.go), so without this every verb would block indefinitely
+	// on a wedged-after-accept daemon. A context deadline (when present) wins;
+	// otherwise fall back to the envelope's deadline_ms — the same budget the
+	// daemon is told to honour — so the client and daemon share one timeout (#358).
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
+	} else if envelope.DeadlineMS > 0 {
+		_ = conn.SetDeadline(time.Now().Add(time.Duration(envelope.DeadlineMS) * time.Millisecond))
 	}
 	encoded, err := envelope.Encode()
 	if err != nil {
