@@ -63,6 +63,16 @@ func parseFlags(args []string, result map[string]any, bools map[string]bool) ([]
 			// without swallowing the next positional. Otherwise `--init <path>`
 			// would greedily bind init="<path>" and lose the positional (#312).
 			if bools[key] {
+				// A presence flag immediately followed by an integer token
+				// consumes it as an optional numeric value (e.g. `--tail 120`,
+				// which Build maps to its value form, tail->tail_lines). A
+				// non-integer following token is left as a positional so
+				// `--init <path>` does not swallow it (#312).
+				if i+1 < len(args) && isIntegerToken(args[i+1]) {
+					i++
+					setValue(result, key, coerceValue(key, args[i]))
+					continue
+				}
 				setValue(result, key, true)
 				continue
 			}
@@ -81,6 +91,17 @@ func parseFlags(args []string, result map[string]any, bools map[string]bool) ([]
 
 func normalizeKey(key string) string {
 	return strings.ReplaceAll(strings.TrimSpace(key), "-", "_")
+}
+
+// isIntegerToken reports whether s is a plain integer literal. A presence flag
+// followed by such a token consumes it as an optional numeric value (e.g.
+// `--tail 120`), while a non-integer token is left as a positional (#312).
+func isIntegerToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	_, err := strconv.Atoi(s)
+	return err == nil
 }
 
 func coerceValue(key string, value string) any {

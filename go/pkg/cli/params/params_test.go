@@ -114,3 +114,40 @@ func TestBuildBoolFlagOrderingAndExplicitPath(t *testing.T) {
 		t.Fatalf("explicit --path = %#v", explicit)
 	}
 }
+
+// A Bool:true flag immediately followed by an integer token consumes it as an
+// optional numeric value (the #312 fix must not break this `--tail 120` numeric
+// alias, which Build maps tail->tail_lines for supervise_trajectory).
+func TestBuildBoolFlagConsumesIntegerAlias(t *testing.T) {
+	got, err := Build("supervise_trajectory", []string{"sess_1", "--tail", "120"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, present := got["tail"]; present {
+		t.Fatalf("tail should be converted to tail_lines, still present: %#v", got["tail"])
+	}
+	if got["tail_lines"] != 120 {
+		t.Fatalf("tail_lines = %#v, want 120", got["tail_lines"])
+	}
+	if got["session_id"] != "sess_1" {
+		t.Fatalf("session_id = %#v, want \"sess_1\"", got["session_id"])
+	}
+	if _, leaked := got["args"]; leaked {
+		t.Fatalf("integer alias leaked into args: %#v", got["args"])
+	}
+}
+
+// A bare Bool:true flag (no following integer) still sets true and does not
+// invent a numeric value.
+func TestBuildBoolFlagBareStaysTrue(t *testing.T) {
+	got, err := Build("supervise_trajectory", []string{"sess_1", "--tail"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["tail"] != true {
+		t.Fatalf("bare --tail = %#v, want true", got["tail"])
+	}
+	if _, present := got["tail_lines"]; present {
+		t.Fatalf("tail_lines unexpectedly set on bare --tail: %#v", got["tail_lines"])
+	}
+}
