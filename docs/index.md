@@ -1,8 +1,10 @@
 # Documentation Index
 
 Every Markdown document under `docs/`, with a one-line summary.
-Per-run dogfood artifacts under `docs/dogfood/<id>/` are listed
-collectively, not individually.
+Large multi-file directories — per-run dogfood artifacts under
+`docs/dogfood/<id>/`, per-campaign scaffolds under
+`docs/campaigns/<name>/`, and the `docs/research/` corpus — are
+listed collectively via an aggregate directory row, not file by file.
 
 ## Onboarding and how-tos
 
@@ -49,6 +51,31 @@ collectively, not individually.
 | [mcp.md](explanation/mcp.md) | MCP integrator | Native Go daemon HTTP/SSE MCP endpoint discovery, authentication, tool discovery, tool calls, and agent-loop boundaries. |
 | [harness-friction-patterns.md](explanation/harness-friction-patterns.md) | Maintainer / RFC author | Long-form record of recurring dogfood friction shapes (036-039) and the V1 fixes that landed; companion to RFC 0040. |
 | [readme.md](readme.md) | Doc tree reader | Pointer file for `docs/`. |
+
+## Agent guidance
+
+> These are cited directly by the repo's `CLAUDE.md`; they tell coding
+> agents how to consume this repo's domain docs, issue tracker, and triage
+> vocabulary.
+
+| File | Audience | Summary |
+|---|---|---|
+| [agents/domain.md](agents/domain.md) | Coding agent | Which domain/decision docs to read before exploring the codebase, and the repo's single-context documentation layout. |
+| [agents/issue-tracker.md](agents/issue-tracker.md) | Coding agent | Issues and PRDs live as GitHub issues; the `gh` CLI conventions for create/read/list/comment/label/close. |
+| [agents/triage-labels.md](agents/triage-labels.md) | Coding agent | Maps the five canonical triage roles to the GitHub label strings used in this repo. |
+| [agents/roles/adjudicator.md](agents/roles/adjudicator.md) | Coding agent | The RFC 0093 adjudicator role: read only curated workflow state, publish a `collaboration_ledger` artifact at the packet-provided path. |
+
+## Campaign scaffolds
+
+| Path | Summary |
+|---|---|
+| [campaigns/](campaigns/) | Per-campaign workflow scaffolds (`<name>/workflow.json` plus `prompts/`, `roles/`, `artifacts/`) for multi-stage design and remediation runs (e.g. doctor-integrity-legibility, issue-290 fan-in design, RFC 0126–0128). |
+
+## Research and comparison material
+
+| Path | Summary |
+|---|---|
+| [research/](research/) | Background research and project comparisons: provenance/containment analyses (`PROVENANCE.md`, `TRUE_PROVENANCE_AND_CONTAINMENT.md`, `OPERATOR_BYPASS_DEFENSE_IN_DEPTH.md`), prior-art comparisons (`GASTOWN_COMPARISON.md`, `PROJECT_COMPARISON.md`), tool-harness profiles (`0010-tool-harness-profiles/`), and incubation requests. Frozen provenance — excluded from the doc-link check. |
 
 ## Historical (incubation provenance — not current product material)
 
