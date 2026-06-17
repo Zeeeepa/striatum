@@ -48,6 +48,23 @@ func TestClientMapsDaemonRPCError(t *testing.T) {
 	}
 }
 
+// TestRPCErrorThreadsSuggestion confirms rpcError reads the RFC 0111 suggestion
+// off the daemon response into the client Error so writeError can surface it (#358).
+func TestRPCErrorThreadsSuggestion(t *testing.T) {
+	err := rpcError(rpc.Response{OK: false, Data: map[string]any{
+		"code":       "blob_apply_required",
+		"message":    "bucket does not exist",
+		"suggestion": "Re-run repo init with apply enabled.",
+	}})
+	var clientErr *Error
+	if !errors.As(err, &clientErr) {
+		t.Fatalf("error is not *rpcclient.Error: %T", err)
+	}
+	if clientErr.Suggestion != "Re-run repo init with apply enabled." {
+		t.Fatalf("suggestion = %q, want the daemon-supplied remediation", clientErr.Suggestion)
+	}
+}
+
 func TestClientInvokeReadsTokenAndUsesEnvelope(t *testing.T) {
 	socket := filepath.Join(t.TempDir(), "daemon.sock")
 	tokenFile := filepath.Join(t.TempDir(), "client-token")

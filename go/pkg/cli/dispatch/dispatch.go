@@ -3,6 +3,7 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/mutationparams"
 	"github.com/halbritt/striatum/go/pkg/cli/readparams"
 	"github.com/halbritt/striatum/go/pkg/cli/routes"
+	"github.com/halbritt/striatum/go/pkg/cli/rpcclient"
 )
 
 type Invoker interface {
@@ -360,6 +362,13 @@ func resolveRepository(ctx context.Context, invoker Invoker, repoPath string, op
 
 func writeError(stderr io.Writer, err error, options Options) int {
 	_, _ = fmt.Fprintln(stderr, err.Error())
+	// RFC 0111 P2: surface the daemon-supplied remediation so the 72-code error
+	// catalog's entire point — naming the exact remedy — reaches the CLI consumer
+	// (#358). The suggestion rides on the rpcclient.Error the daemon path returns.
+	var clientErr *rpcclient.Error
+	if errors.As(err, &clientErr) && strings.TrimSpace(clientErr.Suggestion) != "" {
+		_, _ = fmt.Fprintf(stderr, "suggestion: %s\n", clientErr.Suggestion)
+	}
 	if options.ExitCode != nil {
 		return options.ExitCode(err)
 	}

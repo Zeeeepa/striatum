@@ -215,9 +215,14 @@ func send(ctx context.Context, conn net.Conn, reader *bufio.Reader, envelope rpc
 }
 
 type Error struct {
-	Code     string
-	Message  string
-	ExitCode int
+	Code    string
+	Message string
+	// Suggestion is the in-band remediation the RFC 0111 error catalog fills on
+	// the daemon side (rpc.Error.Suggestion). Threading it through to the client
+	// is the whole point of the catalog: the agent-driven consumer sees the exact
+	// remedy, not just the failure message (#358).
+	Suggestion string
+	ExitCode   int
 }
 
 func (e *Error) Error() string {
@@ -227,13 +232,14 @@ func (e *Error) Error() string {
 func rpcError(response rpc.Response) error {
 	code, _ := response.Data["code"].(string)
 	message, _ := response.Data["message"].(string)
+	suggestion, _ := response.Data["suggestion"].(string)
 	if code == "" {
 		code = "daemon_error"
 	}
 	if message == "" {
 		message = code
 	}
-	return &Error{Code: code, Message: message, ExitCode: exitCode(code)}
+	return &Error{Code: code, Message: message, Suggestion: suggestion, ExitCode: exitCode(code)}
 }
 
 func ExitCode(err error) int {
