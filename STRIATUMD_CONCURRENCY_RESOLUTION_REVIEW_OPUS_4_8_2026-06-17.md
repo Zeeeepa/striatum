@@ -137,10 +137,16 @@ server default 0/disabled) — the report's §0 self-correction is VERIFIED.
   running PG-gated tests against it. The convoy firing stays **PREDICTED-FROM-SOURCE /
   UNDECIDABLE-until-reproduced** for F1/F2/F3/F4/F5.
 
-**Citation-drift note (does not falsify; will mislead a literal reader):** every
+**Citation-drift notes (do not falsify; will mislead a literal reader):** (1) every
 `recovery.go:NNN` in REPORT.md means `go/pkg/mutations/recovery.go`, **not**
 `go/pkg/recovery/recovery.go` (the latter does not exist; `pkg/recovery` holds only
 `scheduler.go` + `sweep.go`). Line numbers resolve once the `mutations/` prefix is supplied.
+(2) **`mutations.go` line numbers in this review are anchored to `d88518a5`**; the mid-review
+`f2d35c4e` merge inserted `withTxRetryOnTransientLoad` (~37 lines) around line 550, so cites
+below it shift on current main (e.g. the RFC 0104 `lockRun`-first invariant comment moved
+`:556 → :587`; the `withTxRetryOnDeadlock` body `:503-523 → ~:540-560`). Same for `run.go`
+(the non-CAS branch-create exec is at `:848`, not the `:841` cited in places). The constructs
+are unchanged; only the offsets drifted.
 
 ---
 
@@ -384,7 +390,11 @@ recommendations reach the add-sync rung.**
   chain single-writer is load-bearing for events that must be chained; rung 3 (shard the head)
   fails — a hash chain is inherently single-writer per repo, sharding breaks contiguity. Rung 2
   *succeeds specifically for `supervisor.progress`* because it is **never read as provenance**
-  (VERIFIED: emit-only at supervision.go:23/320/371, no consumer) and `assertEventChainLinear`
+  (VERIFIED: emitted as `"supervisor."+event.EventType` at supervision.go:354, gated by
+  `progressIsMeaningful` at :320; **independently re-confirmed on the final pass that no reader
+  consumes it** — the dashboard's `enrichSupervisorProgress` reads the `process_supervisors`
+  liveness/pointer tables, not the event chain, and no read query in `go/pkg/reads` filters
+  `event_type='supervisor.progress'`) and `assertEventChainLinear`
   ignores `event_type` (0004:22-23). **New failure mode:** liveness chatter loses
   tamper-evidence + contiguity. **Absence-of-harm proof:** D028 already classes it as
   volume/timing evidence, not durable provenance; the verifier checks linkage, not which
