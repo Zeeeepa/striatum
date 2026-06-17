@@ -4,6 +4,57 @@
 
 ### Fixed
 
+- **#312 `repo add --init <path>` no longer fails with "repo.add requires
+  path".** The CLI flag parser greedily consumed the positional after a
+  value-less flag, so `--init <path>` bound `init="<path>"` and left the `path`
+  positional unset. `parseFlags` now threads each command group's known boolean
+  flags (the route metadata `Bool: true` set, surfaced via `params.BoolFlags`)
+  so a presence flag sets `true` without swallowing the next positional. A drift
+  guard (`TestBoolFlagsMatchUsageMetadata`) keeps the bool table in sync with the
+  route usage metadata. Closes #312.
+
+- **#324 a lane that lost its daemon endpoint and spins with no tool-call
+  progress is now classified `wedged_no_tool_progress` and reclaimed.** The
+  liveness classifier never consumed `last_tool_call_finished_at`, so a wedged
+  agent emitting spinner PTY frames kept `last_pty_activity_at` fresh and read as
+  `working_local` forever (the lease-heartbeat rung never fired); the driver only
+  relaunches sessions the daemon reports inactive, so an endpoint-orphaned lane
+  was never forgotten. A new stall rung flags a lane that holds an active
+  lease/job but has made no tool-call progress for `ToolProgressSeconds` (600s),
+  explicitly NOT counting spinner PTY activity, mapping to Protocol `stalled` →
+  the recovery decision tree's transfer/requeue so the wedged owner is closed and
+  the slot relaunched. The new class is added to the owner-held
+  `sessions_liveness_stall_class_check` CHECK via owner bundle `0010` (idempotent
+  DROP+re-ADD; apply with `striatum daemon owner-ddl apply` before the new daemon
+  image runs). Closes #324.
+
+- **#325 concurrent lane completes/publishes no longer deadlock (SQLSTATE 40P01)
+  and lose a lane's work.** `artifact.publish` took a run-scoped `FOR UPDATE` on
+  the job row and appended to the per-repo event chain but opened its transaction
+  with a plain `withTx` and never took `lockRun` first — inverting the RFC 0104
+  lock order against the claim/complete paths, so a publish racing a sibling's
+  complete/publish deadlocked and Postgres aborted, killing the lane. Both
+  `artifact.publish` and `work.complete` now take `lockRunForJob` as the first
+  statement and run under `withTxRetryOnDeadlock`, giving every per-run
+  transaction one serialization point plus a retry backstop. The
+  `TestPerRunHandlersTakeLockRunFirst` guardrail now covers both handlers.
+  Closes #325.
+
+- **#310 a per-job-isolated repo-write lane can no longer publish into the
+  operator's shared, tracked `repo_root`.** The claim packet resolves a job's
+  lane via a session fallback (so a lane with an empty job selector still
+  supervises as `striatum-lane` under a per-job worktree), but the publish-time
+  worktree gate read only the job selector — so an empty selector made the
+  per-job worktree NOT required and the publish target fell back to `repoRoot`,
+  letting the lane write the operator's tracked checkout (owned by
+  `striatum-lane`, blocking operator `git pull`/`reset`) and bypassing the RFC
+  0125 porter. `worktreeRequirementForJob` now resolves the lane with the same
+  session fallback, so an isolated repo-write job without an active worktree is
+  refused with the actionable `worktree_required` error instead of a silent
+  `repoRoot` write. Scoped to `worktree_isolation: per_job` lanes — the explicit
+  shared-checkout path (`allow_shared_checkout_repo_write`) is unchanged. See
+  D207. Closes #310.
+
 - **#329 read-side helper-event drains now present daemon authority before
   appending supervisor events.** Dashboard/status/supervise read projections
   opportunistically drain PTY helper events, and those helper events append
