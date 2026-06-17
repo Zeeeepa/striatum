@@ -16,7 +16,7 @@ func Build(group string, args []string, options Options) (map[string]any, error)
 	if options.RepositoryID != "" {
 		result["repository_id"] = options.RepositoryID
 	}
-	positionals, err := parseFlags(args, result)
+	positionals, err := parseFlags(args, result, boolFlags(group))
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func Build(group string, args []string, options Options) (map[string]any, error)
 	return result, nil
 }
 
-func parseFlags(args []string, result map[string]any) ([]string, error) {
+func parseFlags(args []string, result map[string]any, bools map[string]bool) ([]string, error) {
 	positionals := []string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -59,6 +59,13 @@ func parseFlags(args []string, result map[string]any) ([]string, error) {
 			return nil, fmt.Errorf("empty flag name")
 		}
 		if !hasValue {
+			// A known presence flag (route metadata Bool: true) sets true
+			// without swallowing the next positional. Otherwise `--init <path>`
+			// would greedily bind init="<path>" and lose the positional (#312).
+			if bools[key] {
+				setValue(result, key, true)
+				continue
+			}
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				i++
 				value = args[i]
@@ -109,6 +116,62 @@ func setValue(result map[string]any, key string, value any) {
 		return
 	}
 	result[key] = value
+}
+
+// BoolFlags returns the snake_case names of a ParamsGroup's presence flags —
+// flags that take no value (route metadata Bool: true). The parser consults
+// this set so a bare presence flag sets true without greedily swallowing the
+// following positional, e.g. `repo add --init <path>` binds init=true AND
+// path=<path> instead of init="<path>" (issue #312). It mirrors the Bool: true
+// markers in routes/usage.go; a guard test keeps the two tables in sync. It
+// returns nil for groups with no presence flags. The `--no-<flag>` form is not
+// listed here — the parser handles negation before reaching the bool set.
+func BoolFlags(group string) map[string]bool {
+	return boolFlags(group)
+}
+
+func boolFlags(group string) map[string]bool {
+	switch group {
+	case "status":
+		return set("all_runs")
+	case "doctor":
+		return set("verbose")
+	case "corpus_export":
+		return set("include_lane_trajectory")
+	case "work_packet_show":
+		return set("raw")
+	case "release":
+		return set("requeue", "transfer")
+	case "session_close":
+		return set("requeue_job")
+	case "publish_artifact":
+		return set("allow_no_process_execution")
+	case "worktree_release":
+		return set("force")
+	case "worktree_gc":
+		return set("sweep_pins")
+	case "repo_add":
+		return set("init", "no_migrate", "apply_blob_creation")
+	case "register_session":
+		return set("fresh", "replace", "force", "force_non_fresh", "force_live")
+	case "decision_record":
+		return set("mark_run_compromised")
+	case "supervise_start":
+		return set("replace")
+	case "supervise_trajectory":
+		return set("tail")
+	default:
+		return nil
+	}
+}
+
+// set builds a presence-flag lookup from snake_case flag names.
+func set(names ...string) map[string]bool {
+	flags := make(map[string]bool, len(names))
+	for _, name := range names {
+		flags[name] = true
+	}
+	return flags
 }
 
 // PositionalNames returns the ordered positional argument names (snake_case)
