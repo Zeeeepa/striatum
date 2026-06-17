@@ -38,15 +38,37 @@ func TestRegistryMatchesDaemonMethodsContract(t *testing.T) {
 	}
 
 	expected := methodsByName(t, decodeContractMethods(t, payload))
-	actual := methodsByName(t, registryContractView())
 
-	if missing, extra := mapKeyDiff(expected, actual); len(missing) > 0 || len(extra) > 0 {
-		t.Fatalf("Go registry method set drifts from contract; missing=%v extra=%v", missing, extra)
-	}
-	for method, want := range expected {
-		got := actual[method]
-		if !reflect.DeepEqual(got, want) {
-			t.Errorf("%s metadata drifts from contract:\n got: %#v\nwant: %#v", method, got, want)
+	// Reconcile BOTH views of the registry against the contract:
+	//
+	//   1. The static-slice view (SortedMethods over methodEntries) is the
+	//      generated/on-contract surface.
+	//   2. The live-map view (the rpc.MethodRegistry map actually consulted by
+	//      the authority guard at request time, rpc/server.go) can diverge from
+	//      the static slice when a method is hand-registered into the map at
+	//      runtime (`rpc.MethodRegistry[...] = rpc.NewMethod(...)`). Such a method
+	//      is invisible to SortedMethods()/methodEntries, so a guard that only
+	//      checked the static slice would PASS while the method was genuinely
+	//      off-contract. supervise.rebridge was exactly that blind spot (#363).
+	//
+	// Within the rpc package the map is just buildRegistry(methodEntries), so
+	// these two views are identical here. The cross-package case — a map-only
+	// registration performed by the reads/mutations packages after they call
+	// reads.Register/mutations.Register — is caught by the companion guard
+	// TestLiveMethodRegistryMatchesDaemonMethodsContract in cmd/striatumd, which
+	// reconciles the fully-populated live map against this same contract.
+	for name, actual := range map[string]map[string]contractMethod{
+		"static methodEntries slice (SortedMethods)": methodsByName(t, registryContractView()),
+		"live rpc.MethodRegistry map":                methodsByName(t, registryMapContractView()),
+	} {
+		if missing, extra := mapKeyDiff(expected, actual); len(missing) > 0 || len(extra) > 0 {
+			t.Fatalf("Go registry %s drifts from contract; missing=%v extra=%v", name, missing, extra)
+		}
+		for method, want := range expected {
+			got := actual[method]
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("%s: %s metadata drifts from contract:\n got: %#v\nwant: %#v", name, method, got, want)
+			}
 		}
 	}
 }
@@ -113,7 +135,23 @@ func normalizeContractMethods(methods []contractMethod) []contractMethod {
 }
 
 func registryContractView() []contractMethod {
-	entries := SortedMethods()
+	return contractViewOf(SortedMethods())
+}
+
+// registryMapContractView projects the LIVE rpc.MethodRegistry map (the one the
+// authority guard consults at request time), not the static methodEntries slice.
+// A method hand-registered into the map at runtime is absent from SortedMethods()
+// but present here, so reconciling this view against the contract catches
+// map-only registrations that would otherwise be invisible to the guard (#363).
+func registryMapContractView() []contractMethod {
+	entries := make([]MethodEntry, 0, len(MethodRegistry))
+	for _, entry := range MethodRegistry {
+		entries = append(entries, entry)
+	}
+	return contractViewOf(entries)
+}
+
+func contractViewOf(entries []MethodEntry) []contractMethod {
 	methods := make([]contractMethod, 0, len(entries))
 	for _, entry := range entries {
 		var capability *string

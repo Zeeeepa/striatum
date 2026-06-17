@@ -79,6 +79,7 @@
     {"command": "worktree", "subcommand": "list", "method": "worktree.list", "params": "worktree_list"},
     {"command": "supervise", "subcommand": "start", "method": "supervise.start", "params": "supervise_start"},
     {"command": "supervise", "subcommand": "send", "method": "supervise.send", "params": "supervise_send"},
+    {"command": "supervise", "subcommand": "rebridge", "method": "supervise.rebridge", "params": "supervise_rebridge"},
     {"command": "supervise", "subcommand": "stop", "method": "supervise.stop", "params": "supervise_stop"},
     {"command": "supervise", "subcommand": "status", "method": "supervise.status", "params": "supervise_status"},
     {"command": "supervise", "subcommand": "list", "method": "supervise.list", "params": "supervise_list"},
@@ -259,6 +260,15 @@
       "method": "doctor",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "doctor.blob_block",
+      "required_capability": "read",
+      "repository_scope_mode": "daemon_global",
       "params_schema_version": 1,
       "audit_class": "metadata",
       "min_envelope": 1,
@@ -743,6 +753,15 @@
     },
     {
       "method": "supervise.send",
+      "required_capability": "claim",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "supervise.rebridge",
       "required_capability": "claim",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

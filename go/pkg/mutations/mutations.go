@@ -118,7 +118,6 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("worktree.release", makeHandler(runner, HandleWorktreeRelease))
 	server.Register("worktree.anchor", makeHandler(runner, HandleWorktreeAnchor))
 	server.Register("worktree.gc", makeHandler(runner, HandleWorktreeGC))
-	rpc.MethodRegistry["supervise.rebridge"] = rpc.NewMethod("supervise.rebridge", rpc.CapPtr(rpc.CapabilityClaim), true, rpc.ScopeSingleRepo)
 	server.Register("supervise.start", makeHandler(runner, HandleSuperviseStart))
 	server.Register("supervise.send", makeHandler(runner, HandleSuperviseSend))
 	server.Register("supervise.rebridge", makeHandler(runner, HandleSuperviseRebridge))
