@@ -74,3 +74,43 @@ func TestBuildKeepsRepoWriteContentAsString(t *testing.T) {
 		t.Fatalf("content = %#v", got["content"])
 	}
 }
+
+// TestBuildBoolFlagDoesNotSwallowPositional is the #312 regression: `repo add
+// --init <path>` must set init=true (a presence flag) AND bind the following
+// positional to path. Before the fix the value-less flag greedily consumed the
+// next non-`--` arg, parsing init="<path>" and losing the path positional.
+func TestBuildBoolFlagDoesNotSwallowPositional(t *testing.T) {
+	got, err := Build("repo_add", []string{"--init", "/tmp/target"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["init"] != true {
+		t.Fatalf("init = %#v, want true", got["init"])
+	}
+	if got["path"] != "/tmp/target" {
+		t.Fatalf("path = %#v, want \"/tmp/target\"", got["path"])
+	}
+	if _, leaked := got["args"]; leaked {
+		t.Fatalf("positional leaked into args: %#v", got["args"])
+	}
+}
+
+// The order-independent form (`repo add <path> --init`) and the explicit
+// `--path <path>` form must both still bind path and set init=true.
+func TestBuildBoolFlagOrderingAndExplicitPath(t *testing.T) {
+	trailing, err := Build("repo_add", []string{"/tmp/target", "--init"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if trailing["init"] != true || trailing["path"] != "/tmp/target" {
+		t.Fatalf("trailing --init = %#v", trailing)
+	}
+
+	explicit, err := Build("repo_add", []string{"--init", "--path", "/tmp/target"}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit["init"] != true || explicit["path"] != "/tmp/target" {
+		t.Fatalf("explicit --path = %#v", explicit)
+	}
+}

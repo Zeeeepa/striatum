@@ -3,6 +3,8 @@ package routes
 import (
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/cli/params"
 )
 
 func TestLookupIncludesRuntimeSuperviseRebridgeRoute(t *testing.T) {
@@ -260,6 +262,25 @@ func TestUsageCoversIssue63Verbs(t *testing.T) {
 	} {
 		if _, ok := UsageFor(group); !ok {
 			t.Fatalf("missing usage descriptor for %q", group)
+		}
+	}
+}
+
+// Every Bool: true flag in the curated usage metadata must be reflected in the
+// params parser's presence-flag set, so a value-less flag never greedily
+// swallows the following positional (#312). This guards the two tables —
+// routes/usage.go (Bool: true) and params.BoolFlags — from drifting apart.
+func TestBoolFlagsMatchUsageMetadata(t *testing.T) {
+	for group, usage := range usageByGroup {
+		bools := params.BoolFlags(group)
+		for _, p := range usage.Params {
+			if !p.Bool {
+				continue
+			}
+			key := strings.ReplaceAll(p.Name, "-", "_")
+			if !bools[key] {
+				t.Errorf("group %q flag --%s is Bool: true in usage metadata but missing from params.BoolFlags", group, p.Name)
+			}
 		}
 	}
 }
