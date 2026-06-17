@@ -80,6 +80,17 @@ func TestCompleteWarnsOnStrandedInScopePaths(t *testing.T) {
 	repoRoot := t.TempDir()
 	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "stranded_warn", true)
 
+	// #326: in-scope source publish is now the DEFAULT, so undeclared in-scope
+	// files are normally PUBLISHED, not stranded. The stranded-warning therefore
+	// only applies to a job that explicitly OPTED OUT — set that here so the
+	// #297 warning behavior is exercised in the case where it still fires.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET write_scope_json = jsonb_set(write_scope_json, '{publish_source_changes}', 'false')
+		 WHERE repository_id = $1 AND job_id = $2`, ids.repoID, ids.jobID); err != nil {
+		t.Fatalf("opt-out publish_source_changes: %v", err)
+	}
+
 	// Declare docs/out.txt as a required expected artifact and publish it, so the
 	// completion passes verifyRequiredArtifacts and that declared (also-authored)
 	// path is NOT reported stranded.

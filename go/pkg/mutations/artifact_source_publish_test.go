@@ -109,17 +109,79 @@ func TestPublishWorktreeSourceChangesLandsOnRunBranch(t *testing.T) {
 	}
 }
 
-// #287 integration: without the opt-in, the lane's source edits are NOT committed
-// (preserving the legacy behavior — only declared artifacts land).
-func TestSourceChangesNotPublishedWithoutOptIn(t *testing.T) {
+// #326 integration: in-scope source publish is the DEFAULT for a bounded
+// repo-write scope (no opt-in flag). A multi-file slice's undeclared in-scope
+// edits — including a MODIFICATION to a pre-existing tracked file — land on the
+// run branch; expected_artifacts are presence assertions, not an allowlist.
+// (Regression of #297: previously these stranded in the per-job worktree.)
+func TestSourceChangesPublishedByDefault(t *testing.T) {
 	if !haveGit(t) {
 		return
 	}
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner
 	repoRoot := t.TempDir()
-	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "src_no_optin", true)
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "src_default", true)
 
+	// A pre-existing tracked in-scope file: commit it on the worktree HEAD, then
+	// MODIFY it — the new content must reach the run branch (not present-but-stale).
+	preExisting := "docs/preexisting.txt"
+	writeWorktreeFile(t, ids.worktreeRoot, preExisting, "old content\n")
+	gitRun(t, ids.worktreeRoot, "add", preExisting)
+	gitRun(t, ids.worktreeRoot, "commit", "-q", "-m", "seed pre-existing tracked file")
+	writeWorktreeFile(t, ids.worktreeRoot, preExisting, "new content\n")
+	// An undeclared in-scope NEW file (a test/migration the slice wrote).
+	undeclared := "docs/new_impl.txt"
+	writeWorktreeFile(t, ids.worktreeRoot, undeclared, "undeclared but in-scope\n")
+	// Out-of-scope file must NOT be published.
+	writeWorktreeFile(t, ids.worktreeRoot, "elsewhere/stray.txt", "out of scope")
+
+	job, err := rowByID(ctx, runner, ids.repoID, "jobs", "job_id", ids.jobID, false)
+	if err != nil {
+		t.Fatalf("load job: %v", err)
+	}
+	paths, err := publishWorktreeSourceChanges(ctx, runner, ids.repoID, job)
+	if err != nil {
+		t.Fatalf("publishWorktreeSourceChanges: %v", err)
+	}
+	got := map[string]bool{}
+	for _, p := range paths {
+		got[p] = true
+	}
+	if !got[undeclared] || !got[preExisting] {
+		t.Fatalf("published %v; want both the undeclared new file and the modified pre-existing file (default-on)", paths)
+	}
+	if got["elsewhere/stray.txt"] {
+		t.Fatalf("out-of-scope file was published: %v", paths)
+	}
+	if _, err := anchorActiveWorktreeForJob(ctx, runner, ids.repoID, job); err != nil {
+		t.Fatalf("anchor: %v", err)
+	}
+	if body := gitRun(t, repoRoot, "show", ids.runBranch+":"+preExisting); strings.TrimSpace(body) != "new content" {
+		t.Fatalf("run branch %s = %q, want \"new content\" (pre-existing-file edit must not be dropped/stale)", preExisting, body)
+	}
+	if body := gitRun(t, repoRoot, "show", ids.runBranch+":"+undeclared); strings.TrimSpace(body) != "undeclared but in-scope" {
+		t.Fatalf("undeclared in-scope file did not reach the run branch: %q", body)
+	}
+}
+
+// #326: a job may still explicitly opt OUT (publish_source_changes:false) for
+// deliberately artifact-only publication.
+func TestSourceChangesNotPublishedWhenOptedOut(t *testing.T) {
+	if !haveGit(t) {
+		return
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "src_optout", true)
+
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET write_scope_json = jsonb_set(write_scope_json, '{publish_source_changes}', 'false')
+		 WHERE repository_id = $1 AND job_id = $2`, ids.repoID, ids.jobID); err != nil {
+		t.Fatalf("opt-out publish_source_changes: %v", err)
+	}
 	writeWorktreeFile(t, ids.worktreeRoot, "docs/impl.txt", "uncommitted source edit")
 
 	job, err := rowByID(ctx, runner, ids.repoID, "jobs", "job_id", ids.jobID, false)
@@ -131,10 +193,10 @@ func TestSourceChangesNotPublishedWithoutOptIn(t *testing.T) {
 		t.Fatalf("publishWorktreeSourceChanges: %v", err)
 	}
 	if len(paths) != 0 {
-		t.Fatalf("published %v without opt-in; want nothing", paths)
+		t.Fatalf("published %v despite explicit opt-out; want nothing", paths)
 	}
 	if gitRunAllowFail(t, ids.worktreeRoot, "cat-file", "-e", "HEAD:docs/impl.txt") {
-		t.Fatalf("source edit committed without opt-in; legacy behavior must be preserved")
+		t.Fatalf("source edit committed despite publish_source_changes:false")
 	}
 }
 

@@ -8,15 +8,19 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-// publishWorktreeSourceChanges implements the opt-in #287 source-change publish.
-// When a repo-write job sets write_scope.publish_source_changes=true, the daemon
-// (operator) commits the lane's IN-SCOPE source edits in the per-job worktree to
-// the run branch alongside its declared artifacts, so a code_change dogfood's
-// actual edits land on the run branch instead of being stranded in the per-job
-// worktree (and lost to worktree gc once the run finalizes). It runs at
-// work.complete AFTER the declared-artifact porter and BEFORE
-// anchorActiveWorktreeForJob advances the run ref, so the anchor captures both
-// commits. enforceWriteScopeClean has already proven every changed path is
+// publishWorktreeSourceChanges commits the lane's IN-SCOPE source edits in the
+// per-job worktree to the run branch alongside its declared artifacts (the #287
+// source-change publish). Since #326 this is the DEFAULT for any bounded
+// repo-write scope — the write_scope IS the contract, expected_artifacts are
+// required-presence assertions (not an allowlist) — so a multi-file code slice's
+// undeclared in-scope files (tests, migrations, __init__.py) and its edits to
+// pre-existing tracked files (e.g. a pyproject.toml dependency add) land on the
+// run branch instead of being stranded in the per-job worktree (and lost to
+// worktree gc once the run finalizes). A job may explicitly opt OUT
+// (publish_source_changes:false) when it deliberately wants artifact-only
+// publication. It runs at work.complete AFTER the declared-artifact porter and
+// BEFORE anchorActiveWorktreeForJob advances the run ref, so the anchor captures
+// both commits. enforceWriteScopeClean has already proven every changed path is
 // in-scope, so this only commits paths the attempt was authorized to write.
 //
 // This is the git-worktree form of RFC 0127 P1's daemon-owned change-set commit:
@@ -28,13 +32,20 @@ import (
 // paths (for the provenance event), or nil when there is nothing to publish.
 func publishWorktreeSourceChanges(ctx context.Context, runner any, repositoryID string, job map[string]any) ([]string, error) {
 	scope := asMap(job["write_scope_json"])
-	if !isRepoWriteScope(scope) || scope["publish_source_changes"] != true {
+	if !isRepoWriteScope(scope) {
+		return nil, nil
+	}
+	// #326: in-scope source publish is the DEFAULT for a bounded repo-write
+	// scope. A job opts OUT only by explicitly setting publish_source_changes
+	// to false (deliberately artifact-only). Absent/true both publish.
+	if optOut, ok := scope["publish_source_changes"].(bool); ok && !optOut {
 		return nil, nil
 	}
 	allowed := stringListFromAny(scope["allowed_paths"])
 	if len(allowed) == 0 {
 		// An unbounded write scope would publish an arbitrary diff; require an
 		// explicit allowed_paths before committing source changes to the run branch.
+		// This is the load-bearing safety floor (#326): the scope must be bounded.
 		return nil, nil
 	}
 	forbidden := stringListFromAny(scope["forbidden_paths"])
