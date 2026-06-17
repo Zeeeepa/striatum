@@ -43,6 +43,7 @@ var allowedKinds = map[string]bool{
 	"pr_request":                   true,
 	"auto_finalize_gate_evidence":  true,
 	"collaboration_ledger":         true,
+	"join_manifest":                true,
 }
 
 var Schemas = map[string]Schema{
@@ -254,6 +255,37 @@ var Schemas = map[string]Schema{
 			"findings":       {false, isMapListValue},
 		},
 	},
+	// join_manifest (RFC 0133 Slice 1 / RFC 0135 P0 — D213/D216): the provenance
+	// artifact emitted as the sole output of a sealed-barrier fire. It is
+	// provenance only (an explicit non-goal of semantic netting): WHAT was
+	// joined, never an understanding of it. No DDL — it is an artifactcontracts
+	// registration with the publisher's exit-6 schema guard, not a table (D215).
+	//
+	// Fields:
+	//   - barrier_id / entity_kind: which sealed barrier fired, over which
+	//     entity kind (job | review_seat | review_obligation | run).
+	//   - base_oid: the frozen run-branch tip the assembly folded onto.
+	//   - tree_sha / commit_sha: the deterministic assembled tree and the
+	//     resulting commit the barrier produced (the run-branch advance).
+	//   - in_edges: one row per declared in-edge with its SEALED contribution —
+	//     each row carries entity_id, seal, staging_ref, commit_sha, status, and
+	//     (when terminal-gapped) damage_code. The seal column is the load-bearing
+	//     field: the manifest records the LIVE seal each contribution joined at,
+	//     so a superseded-seal contribution is provably absent from the join.
+	"join_manifest": {
+		Fields: map[string]Field{
+			"schema_version": {true, equalsValue("striatum.join_manifest.v1")},
+			"artifact_kind":  {true, equalsValue("join_manifest")},
+			"barrier_id":     {true, isNonEmptyStringValue},
+			"entity_kind":    {true, oneOfValue("job", "review_seat", "review_obligation", "run")},
+			"run_id":         {true, isNonEmptyStringValue},
+			"base_oid":       {true, isNonEmptyStringValue},
+			"tree_sha":       {true, isNonEmptyStringValue},
+			"commit_sha":     {true, isNonEmptyStringValue},
+			"in_edges":       {true, isMapListValue},
+			"created_at":     {true, isNonEmptyStringValue},
+		},
+	},
 }
 
 // StandardOptionalMetadata are byline/workflow metadata keys that any markdown
@@ -352,6 +384,7 @@ var enumFieldValues = map[string]map[string][]string{
 	"progress_note":               {"retrieval_priority": {"high", "medium", "low"}},
 	"operator_report":             {"retrieval_priority": {"high", "medium", "low"}},
 	"auto_finalize_gate_evidence": {"gate_status": {"pending", "satisfied"}},
+	"join_manifest":               {"entity_kind": {"job", "review_seat", "review_obligation", "run"}},
 }
 
 // invalidFieldMessage produces an actionable error when a front-matter field
@@ -736,6 +769,8 @@ func validateKindSpecific(kind string, path string, parsed map[string]any, paylo
 		}
 	case "auto_finalize_gate_evidence":
 		return validateAutoFinalizeGateEvidence(parsed)
+	case "join_manifest":
+		return validateJoinManifest(parsed)
 	case "collaboration_ledger":
 		return validateCollaborationLedger(parsed)
 	case "finding", "findings_ledger":
@@ -771,6 +806,55 @@ func validateOperatorBrief(parsed map[string]any, payload []byte) error {
 	}
 	if bodyLines > budget {
 		return fmt.Errorf("operator_brief artifact front matter field 'context_budget_lines' budget exceeded: body has %d lines, limit is %d", bodyLines, budget)
+	}
+	return nil
+}
+
+// validateJoinManifest enforces the join_manifest.v1 provenance contract
+// (RFC 0133 Slice 1 / RFC 0135 P0): the manifest must declare at least one
+// in-edge, and every in-edge row must carry its SEALED contribution — the stable
+// entity_id, the seal it joined at, its status, and (for a non-gap status) the
+// staged commit_sha and staging_ref. The seal field is load-bearing: recording
+// the live seal each contribution joined at is what makes a superseded-seal
+// contribution provably absent from the join (the trap-killer property,
+// RFC 0135). A terminally-gapped in-edge (quarantine / provably-dead seat) need
+// not carry a commit, but must record a damage_code explaining the gap.
+func validateJoinManifest(parsed map[string]any) error {
+	rows, ok := mapList(parsed["in_edges"])
+	if !ok {
+		return fmt.Errorf("join_manifest artifact front matter field 'in_edges' must be a list of objects")
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("join_manifest artifact front matter field 'in_edges' must declare at least one in-edge")
+	}
+	validStatus := map[string]bool{
+		"staged_live": true, // a live-seal staged contribution joined the barrier
+		"quarantined": true, // a terminal-acceptable gap (RFC 0133 quarantine-as-terminal-in-edge)
+		"dead_seat":   true, // a provably-dead review seat skipped within budget (D214b)
+	}
+	for i, row := range rows {
+		entityID, ok := nonEmptyString(row["entity_id"])
+		if !ok {
+			return fmt.Errorf("join_manifest in_edges[%d] requires a non-empty 'entity_id'", i)
+		}
+		if _, ok := intValue(row["seal"]); !ok {
+			return fmt.Errorf("join_manifest in_edges[%d] (entity_id %q) requires an integer 'seal' (the live seal this contribution joined at)", i, entityID)
+		}
+		status, ok := nonEmptyString(row["status"])
+		if !ok || !validStatus[status] {
+			return fmt.Errorf("join_manifest in_edges[%d] (entity_id %q) requires 'status' one of staged_live, quarantined, dead_seat", i, entityID)
+		}
+		if status == "staged_live" {
+			if _, ok := nonEmptyString(row["commit_sha"]); !ok {
+				return fmt.Errorf("join_manifest in_edges[%d] (entity_id %q) with status staged_live requires a non-empty 'commit_sha'", i, entityID)
+			}
+			if _, ok := nonEmptyString(row["staging_ref"]); !ok {
+				return fmt.Errorf("join_manifest in_edges[%d] (entity_id %q) with status staged_live requires a non-empty 'staging_ref'", i, entityID)
+			}
+		} else if _, ok := nonEmptyString(row["damage_code"]); !ok {
+			// A terminal gap (quarantined / dead_seat) must explain itself.
+			return fmt.Errorf("join_manifest in_edges[%d] (entity_id %q) with status %q is a terminal gap and requires a non-empty 'damage_code'", i, entityID, status)
+		}
 	}
 	return nil
 }

@@ -1183,6 +1183,27 @@ V1 schemas:
   did not itself make live auto-finalize the global default. D133 is the
   separate decision that flips default-live allowance after the gate is
   satisfied.
+- `striatum.join_manifest.v1` (kind `join_manifest`, RFC 0133 Slice 1 /
+  RFC 0135 P0, D213 / D216): required `schema_version`,
+  `artifact_kind: join_manifest`, `barrier_id`, `entity_kind` (one of `job`,
+  `review_seat`, `review_obligation`, `run`), `run_id`, `base_oid`,
+  `tree_sha`, `commit_sha`, `created_at`, and `in_edges` (non-empty list of
+  objects). It is the provenance artifact emitted as the sole output of a
+  sealed-barrier fire — what was joined, never an understanding of it
+  (semantic netting is an explicit non-goal). Each `in_edges` row records its
+  SEALED contribution: required `entity_id` (the stable entity id), `seal`
+  (integer — the LIVE seal this contribution joined at, so a superseded-seal
+  contribution is provably absent from the join), and `status` (one of
+  `staged_live`, `quarantined`, `dead_seat`). A `staged_live` row additionally
+  requires `commit_sha` and `staging_ref`; a terminal-gap row (`quarantined`
+  or `dead_seat`) requires a `damage_code` explaining the gap. This artifact
+  registers as an `artifactcontracts` contract with the publisher's
+  exit-code-6 schema guard and creates no live-state table (no DDL). The
+  sealed barrier predicate itself — `staged.seal = live.seal`, never a
+  per-entity `COUNT(*)` of staged refs — is minted once in `pkg/db`
+  (`BarrierReadySQL`) and protected by a static build guard; P0 ships the
+  manifest contract and the predicate shape with no live caller yet (fan-in is
+  the first live caller in P1).
 - `striatum.collaboration_ledger.v1` / `striatum.collaboration_ledger.v1.1`
   (kind `collaboration_ledger`, RFC 0093 / RFC 0098): required
   `schema_version`, `artifact_kind: collaboration_ledger`, `shape` (one of
