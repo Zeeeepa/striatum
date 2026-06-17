@@ -420,6 +420,67 @@ func TestMigrationNineteenAddsPTYAndToolLivenessColumns(t *testing.T) {
 	}
 }
 
+// TestMigrationTwentyNineFaninBarrierIsOwnershipSafe is RFC 0135 P1 (D215/D216):
+// the fan-in sealed-barrier migration creates the two NEW runtime-owned tables the
+// live-seal JOIN barrier reads (the append-only freeze record + the
+// attempt-addressed staging table) and grants the runtime role, with the
+// freeze table granted SELECT, INSERT ONLY (append-only) backed by a refuse-trigger.
+// Like migrations 16/23/28 it must NOT ALTER/DROP any owner table (the
+// future-runtime-DDL guard forbids ALTER/DROP of striatumd.* for versions >= 27
+// outright) and must declare NO foreign key to striatumd.jobs (the FK-to-owner-
+// table trap, D215): the seat identity is carried as bare columns and referential
+// integrity is enforced in Go (the live-seal JOIN at evaluation time).
+func TestMigrationTwentyNineFaninBarrierIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 29 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 29 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.fanin_freeze_points",
+		"CREATE TABLE IF NOT EXISTS striatumd.barrier_staged_contributions",
+		"PRIMARY KEY (repository_id, barrier_id)",
+		"PRIMARY KEY (repository_id, barrier_id, workflow_job_id, attempt)",
+		// The freeze record is append-only: SELECT, INSERT only + a refuse-trigger.
+		"GRANT SELECT, INSERT ON striatumd.fanin_freeze_points TO striatumd_rw",
+		"refuse_repo_append_only_change",
+		"BEFORE UPDATE ON striatumd.fanin_freeze_points",
+		"BEFORE DELETE ON striatumd.fanin_freeze_points",
+		// The staging table carries full DML (a requeue tombstones a stale row).
+		"GRANT SELECT, INSERT, UPDATE, DELETE ON striatumd.barrier_staged_contributions TO striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 29 missing %q", needle)
+		}
+	}
+	// Ownership-safety: no ALTER/DROP of any table, and no foreign key to any
+	// table. striatumd_rw must be able to apply this migration; the seat identity
+	// (repository_id, run_id, workflow_job_id, attempt) is bare columns and the
+	// referential integrity is enforced in Go.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.runs",
+		"REFERENCES striatumd.jobs",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 29 must not contain %q (owner-table dependency / future-runtime-DDL guard); integrity is enforced in Go", forbidden)
+		}
+	}
+}
+
 func TestFutureRuntimeMigrationsDoNotCarryOwnerDDL(t *testing.T) {
 	migrations, err := Migrations()
 	if err != nil {

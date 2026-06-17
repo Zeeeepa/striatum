@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 28
+	LatestDaemonDBVersion = 29
 	MigrationLockKey      = 332933
 )
 
@@ -58,6 +58,7 @@ func Migrations() ([]Migration, error) {
 		26: "run completion record (RFC 0118 P1-5 / GH #240)",
 		27: "spawn-authorization grants for daemon auto_spawn scheduler (RFC 0122 / #212)",
 		28: "plain-dir job workspaces (RFC 0127 P0 / D195)",
+		29: "fan-in sealed barrier freeze + staging tables (RFC 0135 P1 / #345)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {
