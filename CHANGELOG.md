@@ -16,6 +16,27 @@
   tombstoned artifacts so a pruned run reports clean. `--dry-run` previews;
   idempotent; REFUSES non-terminal runs and still-present/anchored artifacts;
   `--sweep-pins` clears dead `refs/striatum` pins. Closes #303.
+- **#298 `recovery quarantine-lane <run-id> <job-id>` preserves a terminal run's
+  dirty lane worktree.** A canceled/terminal run could strand uncommitted
+  repo-write work with no daemon-owned recovery (complete-stalled refuses canceled
+  runs; `worktree gc` would silently `--force`-discard it). The new verb
+  (capability `recovery`) snapshots the dirty worktree — daemon-owned, never
+  disturbing the lane (scratch-index `write-tree` → `commit-tree`) — to an
+  auditable `refs/striatum/quarantine/<run>/<job>/<attempt>` ref and an append-only
+  `recovery.lane_quarantined` event BEFORE removing the worktree. `--dry-run`,
+  idempotent, terminal-only. `worktree gc` is also hardened to SKIP (reason
+  `dirty_uncommitted_work`) rather than discard a dirty terminal-run worktree.
+  Closes #298.
+- **#316 boot-epoch identity check rejects a stale lane reaching a recycled daemon
+  port (defense-in-depth, #296 follow-up).** The daemon mints a per-process
+  boot-epoch at startup (distinct from the restart-stable instance id), injects it
+  into the lane (`STRIATUM_MCP_BOOT_EPOCH` → alias-agnostic
+  `X-Striatum-Boot-Epoch` header), and rejects any MCP request whose epoch differs
+  from the live daemon's — BEFORE bearer validation/dispatch — with the distinct
+  `stale_daemon_identity` code, so a lane that dials a recycled port now bound by a
+  different daemon run cannot touch another run's state. Backward-compatible: a
+  request presenting no epoch is allowed; protection activates for lanes launched
+  after this ships. Closes #316.
 
 ### Changed
 
@@ -99,6 +120,26 @@
   owner bundle `0012` (idempotent DROP+re-ADD; apply with `striatum daemon
   owner-ddl apply` before the new daemon image).
   New RPC `recovery.accept_quarantined`. See D209. Closes #311 (P0).
+- **#306 the gated DEEPENED picks are git-retained for git-only auditability.**
+  divergent_ideation's diverge-branch IDEAS the issue named were already
+  git-retained (`handoff` kind), but the DEEPENED picks (the gated inputs to
+  `final_synthesis`) were blob-routed. They now carry `git_publication` placement,
+  so a git-only auditor can verify the synthesis faithfully represented its gated
+  inputs. Per-shape override; RFC 0123 default blob-routing for other shapes is
+  untouched. Closes #306.
+- **#299 regression guard: `run integrate` preserves intervening main work.**
+  Already fixed by the merge-based integrate (3-way merge against the real
+  merge-base, landed 2026-06-04 before the report); this adds the missing
+  regression test that a run branch integrates to a 2-parent merge whose tree
+  carries BOTH the run's change AND main's intervening post-fork work (never
+  reverted). Closes #299.
+- **#305 closed wontfix-by-design (terminal run-state legibility).** Committed git
+  is durable artifact provenance, not authoritative run-state (RFC 0033/0043);
+  the terminal disposition lives in the `run_completion_record` and is exposed via
+  `striatum status`, the dashboard, `run.summary`, and `archive export` (the
+  sanctioned offline-audit path). Committing run-state markers to the run branch
+  would create a second, drift-prone source of truth against the boundary. See
+  D210. Closes #305.
 
 - **#312 `repo add --init <path>` no longer fails with "repo.add requires
   path".** The CLI flag parser greedily consumed the positional after a
