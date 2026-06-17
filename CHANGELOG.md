@@ -2,7 +2,77 @@
 
 ## Unreleased
 
+### Added
+
+- **#303 `recovery prune-debris <run-id>` prunes terminal-run artifact debris.**
+  `doctor` reported `degraded` almost entirely on historical artifact debris from
+  terminal/abandoned runs whose files are gone from the default branch
+  (unrecoverable), with no supported verb to clear it. The new verb (capability
+  `recovery`) reuses the exact doctor classifiers so eligibility is byte-identical
+  to what doctor reports — only TERMINAL runs, debris-classified, file absent and
+  no recoverable anchor. It honors the append-only/owner-owned `artifacts`
+  boundary: no hard delete, no migration — it prunes via append-only
+  `recovery.debris_pruned` tombstone events and the doctor pass suppresses
+  tombstoned artifacts so a pruned run reports clean. `--dry-run` previews;
+  idempotent; REFUSES non-terminal runs and still-present/anchored artifacts;
+  `--sweep-pins` clears dead `refs/striatum` pins. Closes #303.
+
+### Changed
+
+- **#326 publication now commits ALL in-scope `write_scope` changes by default
+  (regression of #297).** Publishing only the declared `expected_artifacts`
+  stranded other in-scope files (tests, migrations, `__init__.py`) and dropped
+  edits to pre-existing tracked files (e.g. a `pyproject.toml` dependency add),
+  leaving the run branch incomplete. In-scope source publish was opt-IN and
+  off-by-default (enabled only for the generated `code_change` shape). It is now
+  the DEFAULT for any bounded repo-write scope — the `write_scope` is the
+  contract and `expected_artifacts` are required-presence assertions, not an
+  allowlist — with an explicit `publish_source_changes:false` opt-out and the
+  unbounded-scope safety floor preserved. Closes #326.
+- **#322 `run drive` and the auto-spawn scheduler now honor
+  `parallelism.max_active_jobs`.** The cap was dead config no path read, so every
+  unblocked job launched in one tick (including two on the same lane),
+  re-triggering the #290/#302 wedges. The shared launch predicate
+  `runreconcile.PlanLaunch` now enforces the global cap plus an implicit per-lane
+  in-flight cap of 1 (so two jobs never share a lane concurrently); both homes
+  inherit it. Closes #322.
+
 ### Fixed
+
+- **#330 hot event-read covering index.** The #1 daemon query by total exec time
+  (~31.9k calls, ~1,190s cumulative) seq-scanned/under-indexed
+  `striatumd.events`; owner bundle `0011` adds a composite covering index
+  `(repository_id, run_id, actor_session_id, event_type, created_at DESC,
+  event_id DESC)` (built `CONCURRENTLY` out of band on a live box; idempotent
+  `IF NOT EXISTS` in the bundle). Measured generic-plan cost ~35,118 → ~8.7.
+  Closes #330.
+- **#327 fan-in no longer mislabels a 0-conflict merge-tree failure as a
+  write-scope violation.** A parallel-group job could be wedged into
+  `waiting_human` with `fan_in_conflict` reporting "conflicts in 0 path(s)":
+  `integrateGit` collapsed stdout/stderr so the conflict parser saw the wrong
+  stream. Fan-in now reads merge-tree stdout separately, filters paths
+  byte-identical between the run tip and head (already-integrated sibling
+  output), and only raises the disjoint-scope error when real conflicts remain;
+  a non-zero exit with no real conflict surfaces an honest error (the same guard
+  applied to `run integrate`). Closes #327.
+- **#317 a same-attempt requeue of a published-but-non-durable job is reopened on
+  a fresh attempt** instead of trapping the re-run on
+  `artifact_immutable_byline_mismatch`. As a sibling to the #308 finalize
+  short-circuit, the recovery decision tree reopens the job on a fresh attempt
+  (bumping `max_attempts` in lockstep) so it can republish into a clean
+  `(logical_name, attempt)` namespace; the prior attempt's append-only artifact
+  row is retained. Closes #317.
+- **#323 a mid-run daemon restart no longer strands a lane on the rotated MCP
+  endpoint.** The endpoint was launch-time-pinned; a surviving lane lost its
+  `repo_write` path when the port rotated. The agent loop now re-resolves the
+  runtime endpoint+token on rotation, rewrites the ephemeral claude `--mcp-config`
+  (0600), and prompts a reconnect (no-op fallback for other adapters). Closes
+  #323.
+- **#313 the non-functional operator-by-hand path is no longer advertised.** Under
+  RFC 0088 a claim requires an attached supervisor and the `local` lane set sinks
+  the packet (no artifact), so an auto-driven `local` run with
+  `expected_artifacts` parks. The `local` lane-set description and the
+  how-to-agent workflow loop now say so. Closes #313.
 
 - **#312 `repo add --init <path>` no longer fails with "repo.add requires
   path".** The CLI flag parser greedily consumed the positional after a
