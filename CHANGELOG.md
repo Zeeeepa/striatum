@@ -4,6 +4,32 @@
 
 ### Added
 
+- **#345 RFC 0135 P1 — fan-in sealed barrier (entity=job, seal=attempt), opt-in
+  + equivalence fixture.** The FIRST LIVE instance of the RFC 0135 sealed
+  expectation barrier (D216), consuming P0's entity/seal-generic
+  `db.BarrierReadySQL`. Runtime migration `0029` creates two runtime-owned tables —
+  the append-only `fanin_freeze_points` freeze record (SELECT/INSERT-only grant + a
+  `BEFORE UPDATE OR DELETE` refuse-trigger, mirroring the events/artifacts
+  append-only triggers) and the attempt-addressed `barrier_staged_contributions`
+  staging table — both carrying the `(repository_id, run_id, workflow_job_id,
+  attempt)` seat identity as BARE COLUMNS with NO SQL foreign key to the owner-held
+  `jobs` table (referential integrity is enforced in Go), each with its own explicit
+  GRANT (D215). The barrier readiness predicate JOINs each declared in-edge's staged
+  contribution against the seat's LIVE attempt (`staged.attempt = live.attempt`) via
+  the minted predicate, so a requeued/resumed attempt's stale ref is structurally
+  invisible (RFC 0133 trap #1 kill) — never a COUNT(\*) of staged refs. Includes the
+  requeue tombstone, `recovery/`-prefix exclusion, merge-base contamination check
+  (ancestry), quarantine-as-terminal-in-edge, and the per-run advisory-lock fire
+  serialization (RFC 0104). The barrier emits the `join_manifest.v1` provenance
+  (P0's contract) recording each seat's seal. **NON-BREAKING / cutover discipline:**
+  the shipped D206 per-completion run-branch merge stays the DEFAULT; the barrier
+  assembly is an opt-in/shadow mechanism, and a same-final-tree equivalence fixture
+  proves the barrier produces a byte-identical integrated tree to D206 before any
+  workflow flips. P2 (the `barrier_assembly` job type / owner bundle 0013) and the
+  default-flip come later. Tests: `TestSealedBarrierJoinsOnLiveSeal`,
+  `TestSealedBarrierFreezePointIsImmutable`, `TestSealedBarrierRequeueTombstone`,
+  `TestFaninBarrierSameFinalTreeAsPerCompletion`,
+  `TestMigrationTwentyNineFaninBarrierIsOwnershipSafe`.
 - **#303 `recovery prune-debris <run-id>` prunes terminal-run artifact debris.**
   `doctor` reported `degraded` almost entirely on historical artifact debris from
   terminal/abandoned runs whose files are gone from the default branch
