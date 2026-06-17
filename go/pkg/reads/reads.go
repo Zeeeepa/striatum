@@ -117,7 +117,6 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	if o.StriatumVersion != "" {
 		packageStriatumVersion = o.StriatumVersion
 	}
-	rpc.MethodRegistry["doctor.blob_block"] = rpc.NewMethod("doctor.blob_block", rpc.CapPtr(rpc.CapabilityRead), false, rpc.ScopeDaemonGlobal)
 	server.Register("status", makeHandler(runner, HandleStatus))
 	server.Register("dashboard", makeHandler(runner, HandleDashboard))
 	server.Register("dashboard.all", makeHandler(runner, HandleDashboardAll))

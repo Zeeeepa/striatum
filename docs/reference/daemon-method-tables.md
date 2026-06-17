@@ -24,6 +24,7 @@
 | `status` | `read` | `single_repo` | 1 | 1 | no |
 | `why` | `read` | `single_repo` | 1 | 1 | no |
 | `doctor` | `read` | `single_repo` | 1 | 1 | no |
+| `doctor.blob_block` | `read` | `daemon_global` | 1 | 1 | no |
 | `dashboard` | `read` | `single_repo` | 1 | 1 | no |
 | `evidence.export` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.export` | `read` | `single_repo` | 1 | 1 | no |
@@ -78,6 +79,7 @@
 | `work.release` | `claim` | `single_repo` | 1 | 1 | no |
 | `supervise.start` | `claim` | `single_repo` | 1 | 1 | no |
 | `supervise.send` | `claim` | `single_repo` | 1 | 1 | no |
+| `supervise.rebridge` | `claim` | `single_repo` | 1 | 1 | no |
 | `supervise.report` | `claim` | `single_repo` | 1 | 1 | no |
 | `supervise.stop` | `claim` | `single_repo` | 1 | 1 | no |
 | `supervise.status` | `read` | `single_repo` | 1 | 1 | no |
@@ -236,6 +238,7 @@
 | `worktree list` | `worktree.list` | `read` | `single_repo` |
 | `supervise start` | `supervise.start` | `claim` | `single_repo` |
 | `supervise send` | `supervise.send` | `claim` | `single_repo` |
+| `supervise rebridge` | `supervise.rebridge` | `claim` | `single_repo` |
 | `supervise stop` | `supervise.stop` | `claim` | `single_repo` |
 | `supervise status` | `supervise.status` | `read` | `single_repo` |
 | `supervise list` | `supervise.list` | `read` | `single_repo` |

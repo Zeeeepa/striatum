@@ -18,7 +18,6 @@ func All() []Route {
 }
 
 var runtimeRoutes = []Route{
-	{Command: "supervise", Subcommand: "rebridge", Method: "supervise.rebridge", ParamsGroup: "supervise_rebridge", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	// `session register` alias for the top-level `register-session` verb so the
 	// session noun is consistent with `session close` (issue #63 F9). The
 	// original top-level verb stays registered for backward compatibility.

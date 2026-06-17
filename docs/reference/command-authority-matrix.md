@@ -76,6 +76,7 @@ state changes must route through daemon RPC.
 | `status` | `status` | read | single_repo | pg | real | no | no | stable |
 | `why` | `why` | read | single_repo | pg | real | no | no | stable |
 | `doctor` | `doctor` | read | single_repo | pg + git refs | real | no | no | includes read-only worktree ref-safety projection; `--verbose` adds structured records for `worktree_head_unreachable` / `job_completed_without_anchor`; explicit `--lane-provider-auth codex` is the only doctor mode that runs a provider CLI |
+| `doctor.blob_block` | web/MCP blob-block doctor DTO; no CLI route | read | daemon_global | pg + blob store | real | no | no | read-only durable-blob integrity projection over the configured blob client; on-contract per #363 (formerly a runtime `rpc.MethodRegistry` hand-registration the machine contract was blind to) |
 | `dashboard` | `dashboard` | read | single_repo | pg | real | no | no | stable |
 | `evidence.export` | `evidence export` | read | single_repo | pg | real | no | no | stable |
 | `corpus.export` | `corpus export` | read | single_repo | pg | real | no | no | stable |

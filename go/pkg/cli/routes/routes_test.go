@@ -7,7 +7,11 @@ import (
 	"github.com/halbritt/striatum/go/pkg/cli/params"
 )
 
-func TestLookupIncludesRuntimeSuperviseRebridgeRoute(t *testing.T) {
+// #363: supervise.rebridge is now a first-class on-contract route generated into
+// routes_generated.go (it used to be a hand-wired runtimeRoutes entry that the
+// machine contract and registry guard were blind to). Confirm Lookup still
+// resolves it and that it is served from the generated routes, not runtimeRoutes.
+func TestLookupIncludesGeneratedSuperviseRebridgeRoute(t *testing.T) {
 	route, consumed, ok := Lookup([]string{"supervise", "rebridge", "sess_1"})
 	if !ok {
 		t.Fatalf("supervise rebridge route was not found")
@@ -17,6 +21,22 @@ func TestLookupIncludesRuntimeSuperviseRebridgeRoute(t *testing.T) {
 	}
 	if route.Method != "supervise.rebridge" || route.ParamsGroup != "supervise_rebridge" || route.RequiredCapability != "claim" {
 		t.Fatalf("route = %#v", route)
+	}
+
+	inGenerated := false
+	for _, r := range generatedRoutes {
+		if r.Method == "supervise.rebridge" {
+			inGenerated = true
+			break
+		}
+	}
+	if !inGenerated {
+		t.Fatalf("supervise.rebridge must be an on-contract generated route (#363)")
+	}
+	for _, r := range runtimeRoutes {
+		if r.Method == "supervise.rebridge" {
+			t.Fatalf("supervise.rebridge must not remain a hand-wired runtimeRoutes entry (#363)")
+		}
 	}
 }
 

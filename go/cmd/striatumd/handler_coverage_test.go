@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"testing"
@@ -66,6 +69,120 @@ func TestGoDaemonMethodCoverageIsExplicit(t *testing.T) {
 
 	assertSameStrings(t, "missing Go daemon handlers", missingHandlers, nil)
 	assertSameStrings(t, "Go daemon not_implemented handlers", notImplementedHandlers, nil)
+}
+
+// TestLiveMethodRegistryMatchesDaemonMethodsContract closes the registry-guard
+// blind spot from #363.
+//
+// The in-package guard rpc.TestRegistryMatchesDaemonMethodsContract reconciles
+// the contract against rpc.SortedMethods() — a COPY of the static methodEntries
+// slice. Methods that the reads/mutations packages hand-register straight into
+// the live map at runtime (`rpc.MethodRegistry[...] = rpc.NewMethod(...)`, e.g.
+// the old supervise.rebridge / doctor.blob_block registrations) never appear in
+// methodEntries, so SortedMethods() cannot see them and the in-package guard
+// PASSES while the method is genuinely off-contract.
+//
+// This guard runs AFTER registerHandlers wires the full reads+mutations handler
+// set, so rpc.MethodRegistry is fully populated — exactly the map the request-
+// time authority check consults (rpc/server.go, webservice/service.go). Any
+// method present in that live map but absent from contracts/daemon_methods.json
+// (or whose capability/scope drifts) FAILS here. A future hand-registration that
+// skips the contract is therefore caught immediately, not silently tolerated.
+func TestLiveMethodRegistryMatchesDaemonMethodsContract(t *testing.T) {
+	contractPath := filepath.Join(repositoryRootForTest(t), "contracts", "daemon_methods.json")
+	payload, err := os.ReadFile(contractPath)
+	if errors.Is(err, os.ErrNotExist) {
+		t.Skip("contracts/daemon_methods.json is not present in this checkout")
+	}
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+
+	var document struct {
+		Methods []struct {
+			Method              string  `json:"method"`
+			RequiredCapability  *string `json:"required_capability"`
+			RepositoryScopeMode string  `json:"repository_scope_mode"`
+		} `json:"methods"`
+	}
+	if err := json.Unmarshal(payload, &document); err != nil {
+		t.Fatalf("decode contract: %v", err)
+	}
+	contractMethods := map[string]struct {
+		capability *string
+		scopeMode  string
+	}{}
+	for _, m := range document.Methods {
+		scopeMode := m.RepositoryScopeMode
+		if scopeMode == "" {
+			scopeMode = string(rpc.ScopeDaemonGlobal)
+		}
+		contractMethods[m.Method] = struct {
+			capability *string
+			scopeMode  string
+		}{capability: m.RequiredCapability, scopeMode: scopeMode}
+	}
+
+	// Populate the live registry exactly as the daemon does, including any
+	// runtime map registrations performed inside reads.Register/mutations.Register.
+	server := rpc.NewServer()
+	registerHandlers(server, coverageRunner{})
+
+	// daemon.hello / daemon.describe are intrinsic handshake methods that are
+	// intentionally not enumerated as contract rows.
+	intrinsic := map[string]bool{"daemon.hello": true, "daemon.describe": true}
+
+	var offContract []string
+	for method, entry := range rpc.MethodRegistry {
+		if intrinsic[method] {
+			continue
+		}
+		want, ok := contractMethods[method]
+		if !ok {
+			offContract = append(offContract, method)
+			continue
+		}
+		var gotCap *string
+		if entry.RequiredCapability != nil {
+			value := string(*entry.RequiredCapability)
+			gotCap = &value
+		}
+		if !reflect.DeepEqual(gotCap, want.capability) {
+			t.Errorf("%s required_capability drifts: live=%v contract=%v", method, deref(gotCap), deref(want.capability))
+		}
+		if string(entry.RepositoryScopeMode) != want.scopeMode {
+			t.Errorf("%s repository_scope_mode drifts: live=%q contract=%q", method, entry.RepositoryScopeMode, want.scopeMode)
+		}
+	}
+	if len(offContract) > 0 {
+		sort.Strings(offContract)
+		t.Fatalf("methods are in the live rpc.MethodRegistry but absent from contracts/daemon_methods.json (off-contract hand-registrations): %v", offContract)
+	}
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+	return *s
+}
+
+func repositoryRootForTest(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get cwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go", "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("could not locate repository root from %s", dir)
+		}
+		dir = parent
+	}
 }
 
 func TestRegisterHandlersWiresShutdownHook(t *testing.T) {

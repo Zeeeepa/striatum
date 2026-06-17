@@ -81,6 +81,7 @@ var generatedRoutes = []Route{
 	{Command: "worktree", Subcommand: "list", Method: "worktree.list", ParamsGroup: "worktree_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "start", Method: "supervise.start", ParamsGroup: "supervise_start", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "send", Method: "supervise.send", ParamsGroup: "supervise_send", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "supervise", Subcommand: "rebridge", Method: "supervise.rebridge", ParamsGroup: "supervise_rebridge", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "stop", Method: "supervise.stop", ParamsGroup: "supervise_stop", RequiredCapability: "claim", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "status", Method: "supervise.status", ParamsGroup: "supervise_status", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "supervise", Subcommand: "list", Method: "supervise.list", ParamsGroup: "supervise_list", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
