@@ -44,6 +44,33 @@ func TestRunDriveReconcileIsIdempotent(t *testing.T) {
 	}
 }
 
+// TestRunDriveHonorsMaxActiveJobs (#322): with max_active_jobs:1 and five queued
+// jobs on distinct lanes, ReconcileOnce issues exactly ONE supervise.start — the
+// driver inherits the cap from the shared PlanLaunch predicate.
+func TestRunDriveHonorsMaxActiveJobs(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.workflow = map[string]any{
+		"jobs":        []any{},
+		"parallelism": map[string]any{"max_active_jobs": 1},
+	}
+	fake.jobs = []map[string]any{
+		job("j1", "w1", "author", "codex", "queued", 1),
+		job("j2", "w2", "reviewer", "agy", "queued", 1),
+		job("j3", "w3", "author2", "claude", "queued", 1),
+		job("j4", "w4", "author3", "gemini", "queued", 1),
+		job("j5", "w5", "author4", "cursor", "queued", 1),
+	}
+	driver := testDriver(fake)
+
+	if _, _, _, err := driver.ReconcileOnce(ctx); err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if got := fake.count("supervise.start"); got != 1 {
+		t.Fatalf("supervise.start calls = %d, want 1 under max_active_jobs:1; calls=%#v", got, fake.calls)
+	}
+}
+
 // C5 (RFC 0124): a paused run must hold — the driver does cleanup but launches
 // no new lanes, stays non-terminal, announces once, and resumes on unpause.
 func TestRunDriveHoldsPausedRun(t *testing.T) {
@@ -483,6 +510,7 @@ type fakeDrive struct {
 	pausedAt        string
 	jobs            []map[string]any
 	sessions        []map[string]any
+	workflow        map[string]any
 	calls           []fakeCall
 	nextID          int
 	freshRefusals   int
@@ -508,10 +536,14 @@ func (f *fakeDrive) Invoke(_ context.Context, method string, params map[string]a
 		if f.pausedAt != "" {
 			run["paused_at"] = f.pausedAt
 		}
+		workflow := f.workflow
+		if workflow == nil {
+			workflow = map[string]any{"jobs": []any{}}
+		}
 		return map[string]any{
 			"run":      run,
 			"jobs":     cloneRows(f.jobs),
-			"workflow": map[string]any{"jobs": []any{}},
+			"workflow": workflow,
 		}, nil
 	case "list.sessions":
 		return map[string]any{"items": cloneRows(f.sessions)}, nil

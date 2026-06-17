@@ -109,11 +109,13 @@ func TestReconcilePredicateParityAmbiguousLane(t *testing.T) {
 	}
 }
 
-// TestReconcilePredicateParitySharedRoleLaneSplitsAdoptAndRegister: two queued
+// TestReconcilePredicateParitySharedRoleLaneAdoptsOnceThenHoldsLane: two queued
 // jobs sharing a role+lane with a single active session — the first adopts it,
-// the second registers fresh. This pins the in-pass used-session bookkeeping that
-// keeps two slots from adopting the same session.
-func TestReconcilePredicateParitySharedRoleLaneSplitsAdoptAndRegister(t *testing.T) {
+// and the second is HELD (no decision) because the per-lane cap of 1 (#322)
+// forbids two jobs on one lane concurrently. The held job becomes eligible again
+// on a later pass once the lane frees, which keeps the #290/#302 same-lane wedge
+// from re-opening. This also still pins the in-pass used-session bookkeeping.
+func TestReconcilePredicateParitySharedRoleLaneAdoptsOnceThenHoldsLane(t *testing.T) {
 	jobs := []map[string]any{
 		job("a1", "author", "codex", "queued", 1),
 		job("a2", "author", "codex", "queued", 1),
@@ -122,7 +124,6 @@ func TestReconcilePredicateParitySharedRoleLaneSplitsAdoptAndRegister(t *testing
 	got := shapes(PlanLaunch(jobs, nil, sessions, nil))
 	want := []decisionShape{
 		{WorkflowJobID: "a1", Attempt: 1, Kind: LaunchAdoptExisting, Role: "author", Lane: "codex", SessionID: "sess_one"},
-		{WorkflowJobID: "a2", Attempt: 1, Kind: LaunchRegisterFresh, Role: "author", Lane: "codex"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("decisions = %#v, want %#v", got, want)
@@ -173,6 +174,112 @@ func TestReconcilePredicateParityOnlyQueuedJobsDecide(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("decisions = %#v, want %#v", got, want)
+	}
+}
+
+// countLaunches counts the real launch decisions (adopt + register fresh),
+// excluding AmbiguousLane skips, which never consume cap budget.
+func countLaunches(decisions []LaunchDecision) int {
+	n := 0
+	for _, d := range decisions {
+		if d.Kind == LaunchAdoptExisting || d.Kind == LaunchRegisterFresh {
+			n++
+		}
+	}
+	return n
+}
+
+// TestPlanLaunchHonorsMaxActiveJobs: with max_active_jobs:1 and several queued
+// jobs on distinct lanes (none in-flight), exactly ONE launch decision is emitted.
+func TestPlanLaunchHonorsMaxActiveJobs(t *testing.T) {
+	jobs := []map[string]any{
+		job("a", "author", "codex", "queued", 1),
+		job("b", "reviewer", "agy", "queued", 1),
+		job("c", "author2", "claude", "queued", 1),
+	}
+	workflow := map[string]any{"parallelism": map[string]any{"max_active_jobs": 1}}
+	got := PlanLaunch(jobs, workflow, nil, nil)
+	if n := countLaunches(got); n != 1 {
+		t.Fatalf("launches = %d, want 1; decisions=%#v", n, shapes(got))
+	}
+}
+
+// TestPlanLaunchCountsRunningTowardCap: a running (or claimed) job already
+// occupies the only active-lane slot, so a cap of 1 emits ZERO launches.
+func TestPlanLaunchCountsRunningTowardCap(t *testing.T) {
+	for _, inFlight := range []string{"running", "claimed", "stale_lease"} {
+		jobs := []map[string]any{
+			job("hot", "author", "codex", inFlight, 1),
+			job("q1", "reviewer", "agy", "queued", 1),
+			job("q2", "author2", "claude", "queued", 1),
+		}
+		workflow := map[string]any{"parallelism": map[string]any{"max_active_jobs": 1}}
+		got := PlanLaunch(jobs, workflow, nil, nil)
+		if n := countLaunches(got); n != 0 {
+			t.Fatalf("in-flight=%s: launches = %d, want 0; decisions=%#v", inFlight, n, shapes(got))
+		}
+	}
+}
+
+// TestPlanLaunchPerLaneCapOfOne: cap 2 leaves global budget for both, but two
+// queued jobs on the SAME role+lane may only put ONE job on that lane at a time.
+func TestPlanLaunchPerLaneCapOfOne(t *testing.T) {
+	jobs := []map[string]any{
+		job("a1", "author", "codex", "queued", 1),
+		job("a2", "author", "codex", "queued", 1),
+	}
+	workflow := map[string]any{"parallelism": map[string]any{"max_active_jobs": 2}}
+	got := PlanLaunch(jobs, workflow, nil, nil)
+	launches := 0
+	for _, d := range got {
+		if (d.Kind == LaunchAdoptExisting || d.Kind == LaunchRegisterFresh) && d.Lane == "codex" {
+			launches++
+		}
+	}
+	if launches > 1 {
+		t.Fatalf("codex-lane launches = %d, want at most 1; decisions=%#v", launches, shapes(got))
+	}
+}
+
+// TestPlanLaunchUnlimitedWhenCapAbsentOrZero: no parallelism, or
+// max_active_jobs:0, means unlimited — every distinct-lane queued job launches
+// (backward-compat for the existing field-less workflows).
+func TestPlanLaunchUnlimitedWhenCapAbsentOrZero(t *testing.T) {
+	jobs := []map[string]any{
+		job("a", "author", "codex", "queued", 1),
+		job("b", "reviewer", "agy", "queued", 1),
+		job("c", "author2", "claude", "queued", 1),
+	}
+	for name, workflow := range map[string]map[string]any{
+		"nil-workflow":      nil,
+		"no-parallelism":    {"jobs": []any{}},
+		"max_active_jobs:0": {"parallelism": map[string]any{"max_active_jobs": 0}},
+	} {
+		got := PlanLaunch(jobs, workflow, nil, nil)
+		if n := countLaunches(got); n != 3 {
+			t.Fatalf("%s: launches = %d, want 3; decisions=%#v", name, n, shapes(got))
+		}
+	}
+}
+
+func TestMaxActiveJobs(t *testing.T) {
+	cases := []struct {
+		name     string
+		workflow map[string]any
+		want     int
+	}{
+		{"nil", nil, 0},
+		{"absent", map[string]any{"jobs": []any{}}, 0},
+		{"zero", map[string]any{"parallelism": map[string]any{"max_active_jobs": 0}}, 0},
+		{"negative", map[string]any{"parallelism": map[string]any{"max_active_jobs": -3}}, 0},
+		{"positive", map[string]any{"parallelism": map[string]any{"max_active_jobs": 4}}, 4},
+		{"string", map[string]any{"parallelism": map[string]any{"max_active_jobs": "2"}}, 2},
+		{"float", map[string]any{"parallelism": map[string]any{"max_active_jobs": float64(3)}}, 3},
+	}
+	for _, tc := range cases {
+		if got := MaxActiveJobs(tc.workflow); got != tc.want {
+			t.Fatalf("%s: MaxActiveJobs = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }
 

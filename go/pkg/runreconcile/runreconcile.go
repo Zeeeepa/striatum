@@ -75,12 +75,54 @@ type LaunchDecision struct {
 // by another). PlanLaunch tracks adoptions it makes within the pass so two
 // queued jobs sharing a role+lane never adopt the same session. It mutates
 // neither launched nor any input row.
+//
+// Concurrency caps (#322): the workflow's top-level parallelism.max_active_jobs
+// caps the total number of concurrently active lanes, and an implicit per-lane
+// cap of 1 keeps two jobs from ever sharing a lane concurrently (which
+// re-triggers the #290/#302 same-lane wedges). Both caps count the in-flight job
+// rows (claimed/running/stale_lease) ∪ already-launched slots ∪ launch decisions
+// emitted earlier in this pass, deduped by slot. AmbiguousLane decisions are
+// skips, not launches: they are still emitted but consume no cap budget. Capping
+// mid-loop is deterministic because SortedJobs orders the jobs deterministically.
 func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[string]any, launched map[SlotKey]string) []LaunchDecision {
 	activeBySlot := ActiveSessionsBySlot(sessions)
 	used := map[string]bool{}
 	for _, sessionID := range launched {
 		used[sessionID] = true
 	}
+
+	maxActive := MaxActiveJobs(workflow)
+	// inFlightSlots seeds the active-lane accounting with the in-flight job rows
+	// and any slots already launched this drive; occupiedLanes seeds the per-lane
+	// cap with the lanes those slots already hold. Both grow as this pass emits
+	// real launch decisions.
+	inFlightSlots := map[SlotKey]bool{}
+	occupiedLanes := map[string]bool{}
+	for _, job := range jobs {
+		if !inFlightJobStates[StringValue(job["state"])] {
+			continue
+		}
+		slot := JobSlot(job)
+		inFlightSlots[slot] = true
+		if lane, ok := ResolveLane(job, workflow); ok {
+			occupiedLanes[lane] = true
+		}
+	}
+	jobBySlot := map[SlotKey]map[string]any{}
+	for _, job := range jobs {
+		jobBySlot[JobSlot(job)] = job
+	}
+	for slot := range launched {
+		if !inFlightSlots[slot] {
+			inFlightSlots[slot] = true
+			if job := jobBySlot[slot]; job != nil {
+				if lane, ok := ResolveLane(job, workflow); ok {
+					occupiedLanes[lane] = true
+				}
+			}
+		}
+	}
+
 	decisions := []LaunchDecision{}
 	for _, job := range SortedJobs(jobs) {
 		if StringValue(job["state"]) != "queued" {
@@ -89,6 +131,12 @@ func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[s
 		slot := JobSlot(job)
 		if launched[slot] != "" {
 			continue
+		}
+		// GLOBAL CAP: stop emitting launches once the active-lane budget is full.
+		// AmbiguousLane skips below do not consume budget, so this check guards
+		// only the real launch decisions, which all sit past it.
+		if maxActive > 0 && len(inFlightSlots) >= maxActive {
+			break
 		}
 		role := StringValue(job["role_id"])
 		lane, ok := ResolveLane(job, workflow)
@@ -101,9 +149,15 @@ func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[s
 			})
 			continue
 		}
+		// PER-LANE CAP of 1: never put two jobs on one lane concurrently.
+		if occupiedLanes[lane] {
+			continue
+		}
 		roleLane := RoleLane{Role: role, Lane: lane}
 		if sessionID := NextUnusedSession(activeBySlot[roleLane], used); sessionID != "" {
 			used[sessionID] = true
+			inFlightSlots[slot] = true
+			occupiedLanes[lane] = true
 			decisions = append(decisions, LaunchDecision{
 				Job:       job,
 				Slot:      slot,
@@ -114,6 +168,8 @@ func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[s
 			})
 			continue
 		}
+		inFlightSlots[slot] = true
+		occupiedLanes[lane] = true
 		decisions = append(decisions, LaunchDecision{
 			Job:  job,
 			Slot: slot,
@@ -123,6 +179,27 @@ func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[s
 		})
 	}
 	return decisions
+}
+
+// inFlightJobStates is the set of job states that occupy a live lane — the
+// counterpart of terminalJobStates in the daemon's recovery code and the
+// running/claimed/stale_lease set complete-stalled finalizes. queued and blocked
+// jobs are NOT in-flight (counting them would deadlock a run that never starts).
+var inFlightJobStates = map[string]bool{
+	"claimed":     true,
+	"running":     true,
+	"stale_lease": true,
+}
+
+// MaxActiveJobs reads the workflow's top-level parallelism.max_active_jobs cap.
+// It returns 0 (meaning unlimited) when the field is absent, zero, or
+// non-positive, so workflows that never set it keep their pre-#322 behavior.
+func MaxActiveJobs(workflow map[string]any) int {
+	max := IntValue(AsMap(workflow["parallelism"])["max_active_jobs"])
+	if max < 0 {
+		return 0
+	}
+	return max
 }
 
 // IsTerminalRunState reports whether the driver/scheduler should stop driving a
