@@ -56,17 +56,22 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// completion INSERTs a row; a requeue UPDATEs it to 'voided') — live
 	// coordination state, not an SD-gated append surface.
 	"barrier_staged_contributions": ClassRuntimeDML,
-	"blockers":                     ClassRuntimeDML,
-	"client_capabilities":          ClassRuntimeDML,
-	"client_sessions":              ClassRuntimeDML,
-	"clients":                      ClassRuntimeDML,
-	"command_requests":             ClassRuntimeDML,
-	"conversations":                ClassRuntimeDML,
-	"cross_repo_cycle_counters":    ClassRuntimeDML,
-	"cross_repo_run_repositories":  ClassRuntimeDML,
-	"cross_repo_runs":              ClassRuntimeDML,
-	"daemon_supervisors":           ClassRuntimeDML,
-	"escalation_inbox":             ClassRuntimeDML,
+	// barrier_state (RFC 0135 P2, migration 0030): the recoverable barrier-assembly
+	// journal. Direct runtime DML — the assembler INSERTs the two-phase intent and
+	// UPDATEs the state through sealed -> assembling -> committed|failed; live
+	// coordination state, not an SD-gated append surface.
+	"barrier_state":               ClassRuntimeDML,
+	"blockers":                    ClassRuntimeDML,
+	"client_capabilities":         ClassRuntimeDML,
+	"client_sessions":             ClassRuntimeDML,
+	"clients":                     ClassRuntimeDML,
+	"command_requests":            ClassRuntimeDML,
+	"conversations":               ClassRuntimeDML,
+	"cross_repo_cycle_counters":   ClassRuntimeDML,
+	"cross_repo_run_repositories": ClassRuntimeDML,
+	"cross_repo_runs":             ClassRuntimeDML,
+	"daemon_supervisors":          ClassRuntimeDML,
+	"escalation_inbox":            ClassRuntimeDML,
 	// fanin_freeze_points (RFC 0135 P1, migration 0029): the immutable fan-in
 	// freeze record. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger
 	// + the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as

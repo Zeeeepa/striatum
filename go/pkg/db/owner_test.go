@@ -190,3 +190,60 @@ func TestOwnerBundleTwelveAddsQuarantineState(t *testing.T) {
 		t.Fatal("bundle 12 must ALTER striatumd.jobs")
 	}
 }
+
+// TestOwnerBundleThirteenAddsBarrierAssemblyJobType is RFC 0135 P2 (D215/D216): the
+// barrier_assembly job_type CHECK widening ships as OWNER BUNDLE 0013 (the
+// owner-held jobs CHECK cannot be widened by a runtime migration; D187/#244). It
+// mirrors bundle 0012 EXACTLY — an idempotent DROP+re-ADD of jobs_job_type_check
+// guarded by a pg_get_constraintdef probe — and reserves RFC 0132's
+// dissent_quarantine bundle as 0014.
+func TestOwnerBundleThirteenAddsBarrierAssemblyJobType(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 13 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 13 is missing")
+	}
+	for _, needle := range []string{
+		"jobs_job_type_check",
+		"DROP CONSTRAINT jobs_job_type_check",
+		"ADD CONSTRAINT jobs_job_type_check",
+		"'barrier_assembly'",
+		"NOT LIKE '%barrier_assembly%'",
+		// The 0014-coordination note (RFC 0132 dissent_quarantine).
+		"0014",
+	} {
+		if !strings.Contains(bundle.SQL, needle) {
+			t.Fatalf("bundle 13 missing %q", needle)
+		}
+	}
+	// Ownership-safety: it ALTERs the owner-held jobs table (the whole point), and
+	// it must NOT touch any other owner table.
+	if !strings.Contains(bundle.SQL, "ALTER TABLE striatumd.jobs") {
+		t.Fatal("bundle 13 must ALTER striatumd.jobs")
+	}
+	for _, forbidden := range []string{
+		"ALTER TABLE striatumd.runs",
+		"ALTER TABLE striatumd.sessions",
+		"ALTER TABLE striatumd.events",
+	} {
+		if strings.Contains(bundle.SQL, forbidden) {
+			t.Fatalf("bundle 13 must not contain %q", forbidden)
+		}
+	}
+	// LatestOwnerBundleVersion must include 13.
+	if LatestOwnerBundleVersion < 13 {
+		t.Fatalf("LatestOwnerBundleVersion = %d; want >= 13 (owner bundle 0013 shipped)", LatestOwnerBundleVersion)
+	}
+	if ownerBundleLabels[13] == "" {
+		t.Fatal("owner bundle 13 has no label in ownerBundleLabels")
+	}
+}
