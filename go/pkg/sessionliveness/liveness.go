@@ -9,35 +9,47 @@ import (
 )
 
 const (
-	LastMCPRequestAt        = "last_mcp_request_at"
-	LastToolsListAt         = "last_tools_list_at"
-	LastAwaitPacketAt       = "last_await_packet_at"
-	LastPacketDeliveredAt   = "last_packet_delivered_at"
-	LastAckAt               = "last_ack_at"
-	LastWorkBlockAt         = "last_work_block_at"
-	LastWorkReleaseAt       = "last_work_release_at"
-	LastWorkCompleteAt      = "last_work_complete_at"
-	LastWorkHeartbeatAt     = "last_work_heartbeat_at"
-	LastSessionReadyAt      = "last_session_ready_at"
-	LastSessionHeartbeatAt  = "last_session_heartbeat_at"
-	LastSessionQuestionAt   = "last_session_question_at"
-	LastSessionEscalateAt   = "last_session_escalate_at"
-	LastPTYActivityAt       = "last_pty_activity_at"
-	LastToolCallStartedAt   = "last_tool_call_started_at"
-	LastToolCallFinishedAt  = "last_tool_call_finished_at"
-	LivenessStallClass      = "liveness_stall_class"
-	LivenessStallSince      = "liveness_stall_since"
-	ActiveLeaseID           = "active_lease_id"
-	ActiveLeaseAcquiredAt   = "active_lease_acquired_at"
-	ActiveLeaseExpiresAt    = "active_lease_expires_at"
-	ActiveLeaseHeartbeatAt  = "active_lease_last_heartbeat_at"
-	StallDiscovery          = "agent_mcp_discovery_stall"
-	StallAwaitPacket        = "agent_await_packet_stall"
-	StallAck                = "agent_ack_stall"
-	StallLeaseHeartbeat     = "agent_lease_heartbeat_stall"
-	StallQuestionPending    = "agent_question_pending"
-	StallEscalationPending  = "agent_escalation_pending"
-	StallProtocolIdle       = "agent_protocol_idle_stall"
+	LastMCPRequestAt       = "last_mcp_request_at"
+	LastToolsListAt        = "last_tools_list_at"
+	LastAwaitPacketAt      = "last_await_packet_at"
+	LastPacketDeliveredAt  = "last_packet_delivered_at"
+	LastAckAt              = "last_ack_at"
+	LastWorkBlockAt        = "last_work_block_at"
+	LastWorkReleaseAt      = "last_work_release_at"
+	LastWorkCompleteAt     = "last_work_complete_at"
+	LastWorkHeartbeatAt    = "last_work_heartbeat_at"
+	LastSessionReadyAt     = "last_session_ready_at"
+	LastSessionHeartbeatAt = "last_session_heartbeat_at"
+	LastSessionQuestionAt  = "last_session_question_at"
+	LastSessionEscalateAt  = "last_session_escalate_at"
+	LastPTYActivityAt      = "last_pty_activity_at"
+	LastToolCallStartedAt  = "last_tool_call_started_at"
+	LastToolCallFinishedAt = "last_tool_call_finished_at"
+	LivenessStallClass     = "liveness_stall_class"
+	LivenessStallSince     = "liveness_stall_since"
+	ActiveLeaseID          = "active_lease_id"
+	ActiveLeaseAcquiredAt  = "active_lease_acquired_at"
+	ActiveLeaseExpiresAt   = "active_lease_expires_at"
+	ActiveLeaseHeartbeatAt = "active_lease_last_heartbeat_at"
+	StallDiscovery         = "agent_mcp_discovery_stall"
+	StallAwaitPacket       = "agent_await_packet_stall"
+	StallAck               = "agent_ack_stall"
+	StallLeaseHeartbeat    = "agent_lease_heartbeat_stall"
+	StallQuestionPending   = "agent_question_pending"
+	StallEscalationPending = "agent_escalation_pending"
+	StallProtocolIdle      = "agent_protocol_idle_stall"
+	// StallToolProgress (#324) marks a lane that is alive at the PTY layer —
+	// still emitting frames (a spinner, a redraw) — but has made NO tool-call
+	// progress for ToolProgressSeconds while holding an active lease/job. This is
+	// the "lost-its-daemon-endpoint" wedge: a claude lane whose MCP endpoint died
+	// keeps repainting its spinner, so last_pty_activity_at stays fresh and the
+	// PTY-only working_local rung (and, through it, the lease-heartbeat rung)
+	// reports progress forever, even though it has issued zero tool calls for
+	// hours. Spinner PTY output is deliberately NOT counted as progress for this
+	// rung; only the tool-call timeline is. It maps to Protocol "stalled" so the
+	// recovery decision tree's CASE-2 transfer path closes the wedged owner and a
+	// fresh lane reclaims the slot.
+	StallToolProgress       = "wedged_no_tool_progress"
 	DeadlineDiscovery       = "mcp_discovery"
 	DeadlineAwaitPacket     = "await_packet"
 	DeadlineAck             = "packet_ack"
@@ -46,6 +58,7 @@ const (
 	DeadlineEscalation      = "escalation_pending"
 	DeadlineProtocolIdle    = "protocol_idle"
 	DeadlineToolCall        = "tool_call"
+	DeadlineToolProgress    = "tool_progress"
 )
 
 // Protocol states (RFC 0101 Phase 1, Layer 1). These are precise, projection-
@@ -121,6 +134,16 @@ type Policy struct {
 	ProtocolFreshSeconds int
 	PTYFreshSeconds      int
 	ToolCallSeconds      int
+	// ToolProgressSeconds (#324) is the window a lease/job holder is allowed to
+	// make NO tool-call progress before it is classified wedged_no_tool_progress,
+	// once it is demonstrably an MCP-driven lane (it has a recorded tool-call
+	// history). It is intentionally LONGER than the lease-heartbeat deadline:
+	// tool-call cadence is far coarser than a heartbeat (a single edit-then-think
+	// turn can legitimately span minutes), so the rung must clear genuine slow
+	// turns and only trip on a true wedge — the #324 lane that lost its endpoint
+	// and has emitted zero tool calls for hours while a spinner keeps the PTY
+	// timeline fresh. A non-positive value disables the rung.
+	ToolProgressSeconds int
 }
 
 type Activity struct {
@@ -197,6 +220,7 @@ func DefaultPolicy() Policy {
 		ProtocolFreshSeconds:  60,
 		PTYFreshSeconds:       60,
 		ToolCallSeconds:       180,
+		ToolProgressSeconds:   600,
 	}
 }
 
@@ -389,9 +413,33 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 			// that goes quiet past the PTY-fresh window resolves to ProtocolQuiet and
 			// still trips the stall, preserving dead-lane detection.
 			if working := workingResult(activity, policy, now); working.Protocol != ProtocolQuiet {
+				// #324: working_local here is PTY-only progress (no fresh protocol,
+				// no in-flight tool call). A lane that lost its daemon endpoint keeps
+				// repainting its spinner, so this rung would otherwise mask it as
+				// progress forever. If the lane is a demonstrably MCP-driven one (it
+				// has a recorded tool-call history) whose tool-call timeline has gone
+				// stale past ToolProgressSeconds, the PTY freshness is a spinner, not
+				// progress: report wedged_no_tool_progress so the recovery decision
+				// tree transfers the slot. working_tool (a genuine in-flight call) and
+				// working_protocol (fresh MCP) are untouched — only the PTY-only case
+				// is reclassified, and only when tool-call history exists, so the #145
+				// long-foreground-command case (PTY fresh, no tool history) stays
+				// working_local.
+				if working.Protocol == ProtocolWorkingLocal && toolProgressWedged(activity, policy, now) {
+					return stallResult(activity, StallToolProgress, DeadlineToolProgress, policy.ToolProgressSeconds, toolProgressBase(activity))
+				}
 				return working
 			}
 			return stallResult(activity, StallLeaseHeartbeat, DeadlineLeaseHeartbeat, threshold, base)
+		}
+		if working := workingResult(activity, policy, now); working.Protocol == ProtocolWorkingLocal && toolProgressWedged(activity, policy, now) {
+			// Same #324 wedge check on the lease-fresh path: a lane whose lease
+			// heartbeat is still inside its window (an out-of-band heartbeat loop, or
+			// a heartbeat that happened to land) but which has made no tool-call
+			// progress for ToolProgressSeconds while only a spinner keeps the PTY
+			// fresh is still wedged. working_protocol / working_tool / quiet are
+			// untouched.
+			return stallResult(activity, StallToolProgress, DeadlineToolProgress, policy.ToolProgressSeconds, toolProgressBase(activity))
 		}
 		return workingResult(activity, policy, now)
 	}
@@ -522,6 +570,41 @@ func inToolCall(activity Activity) (bool, *time.Time) {
 // local lane out of the dead classification (#117) and to drive working_local.
 func ptyActive(activity Activity) bool {
 	return activity.LastPTYActivityAt != nil
+}
+
+// toolProgressBase returns the most recent tool-call timeline timestamp — the
+// later of the last tool-call start and the last tool-call finish. It is the
+// signal the #324 wedge rung ages against; nil when the lane has no recorded
+// tool-call history at all.
+func toolProgressBase(activity Activity) *time.Time {
+	return latestTime(activity.LastToolCallStartedAt, activity.LastToolCallFinishedAt)
+}
+
+// toolProgressWedged reports the #324 wedge: an MCP-driven lane (it has a
+// recorded tool-call history) whose tool-call timeline has not advanced for
+// ToolProgressSeconds AND which is not currently inside a tool call. This is the
+// only rung that consumes last_tool_call_finished_at. It deliberately consults
+// ONLY the tool-call timeline — never last_pty_activity_at — so a spinner that
+// keeps the PTY fresh cannot mask a lane that has stopped doing real work.
+//
+// The tool-call-history precondition is load-bearing: a lane with no tool-call
+// timestamps (a long foreground command that issues no MCP calls, the #145
+// case) is NOT wedged by this rung, so honest local work between tool calls is
+// preserved. A lane currently inside a tool call (start with no finish after
+// it) is making progress by definition and is handled by working_tool, so it is
+// excluded here. A non-positive ToolProgressSeconds disables the rung.
+func toolProgressWedged(activity Activity, policy Policy, now time.Time) bool {
+	if policy.ToolProgressSeconds <= 0 {
+		return false
+	}
+	base := toolProgressBase(activity)
+	if base == nil {
+		return false
+	}
+	if inTool, _ := inToolCall(activity); inTool {
+		return false
+	}
+	return missed(base, policy.ToolProgressSeconds, now)
 }
 
 // protocolActivityFresh reports whether any protocol/MCP signal is fresh within

@@ -1258,6 +1258,11 @@ func relevantActivityTimestamp(activity sessionliveness.Activity, deadline strin
 		value = activity.LastSessionQuestionAt
 	case sessionliveness.DeadlineEscalation:
 		value = activity.LastSessionEscalateAt
+	case sessionliveness.DeadlineToolProgress:
+		// #324: the wedge rung ages against the tool-call timeline only (never PTY
+		// spinner activity), so the operator-visible relevant timestamp is the most
+		// recent tool-call start/finish.
+		value = latestMutationTime(activity.LastToolCallStartedAt, activity.LastToolCallFinishedAt)
 	default:
 		value = latestMutationTime(
 			activity.LastMCPRequestAt,

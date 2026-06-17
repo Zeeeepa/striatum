@@ -625,6 +625,143 @@ func TestClassifyToolCallCrossesDeadlineToActionableStall(t *testing.T) {
 	}
 }
 
+// TestClassifyWedgedNoToolProgress guards #324: a lane that lost its daemon
+// endpoint keeps repainting its spinner, so last_pty_activity_at stays fresh and
+// the PTY-only working_local rung (through it, the lease-heartbeat rung) reports
+// progress forever — even though the lane has made NO tool call for hours. The
+// new rung consumes the tool-call timeline (the only rung that reads
+// last_tool_call_finished_at) and reclassifies such a lane as
+// wedged_no_tool_progress so the recovery decision tree's CASE-2 transfer path
+// reclaims the slot. The discriminator is the tool-call history: a genuinely
+// working lane (recent tool call), and a long foreground command with no
+// tool-call history at all (#145), are BOTH left as working_local.
+func TestClassifyWedgedNoToolProgress(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	staleTool := now.Add(-time.Duration(policy.ToolProgressSeconds+60) * time.Second)
+	freshTool := now.Add(-30 * time.Second)
+	freshSpinner := now.Add(-2 * time.Second) // a spinner frame keeps the PTY fresh
+
+	// A discovered, acked lease holder whose lease heartbeat is stale (the
+	// lease-heartbeat rung would otherwise fall to working_local on the fresh PTY).
+	// The protocol timestamps are staggered (toolsList < awaitPacket < delivered <
+	// ack) so the lane has cleared the await-packet and ack rungs and reaches the
+	// active-lease branch — exactly the #324 mid-work wedge.
+	base := func() Activity {
+		return Activity{
+			SessionState:           "active",
+			RegisteredAt:           at(now.Add(-4 * time.Hour)),
+			LastToolsListAt:        at(now.Add(-239 * time.Minute)),
+			LastAwaitPacketAt:      at(now.Add(-238 * time.Minute)),
+			LastPacketDeliveredAt:  at(now.Add(-237 * time.Minute)),
+			LastAckAt:              at(now.Add(-236 * time.Minute)),
+			ActiveLeaseID:          "lease_1",
+			ActiveLeaseAcquiredAt:  at(now.Add(-235 * time.Minute)),
+			ActiveLeaseHeartbeatAt: at(staleTool), // also stale: past lease-heartbeat deadline
+		}
+	}
+
+	tests := []struct {
+		name         string
+		mutate       func(Activity) Activity
+		wantProtocol string
+		wantStall    string
+	}{
+		{
+			// (a) fresh PTY spinner + stale tool-call timeline => wedged.
+			name: "fresh spinner but stale tool calls classifies wedged",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(freshSpinner)
+				a.LastToolCallStartedAt = at(staleTool)
+				a.LastToolCallFinishedAt = at(staleTool)
+				return a
+			},
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallToolProgress,
+		},
+		{
+			// (b) recent tool calls => genuinely working, NOT flagged.
+			name: "recent tool call is not wedged",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(freshSpinner)
+				a.LastToolCallStartedAt = at(freshTool)
+				a.LastToolCallFinishedAt = at(freshTool)
+				return a
+			},
+			wantProtocol: ProtocolWorkingLocal,
+			wantStall:    "",
+		},
+		{
+			// #145 guard: a long foreground command with NO tool-call history at all
+			// (fresh PTY only) stays working_local — the wedge rung must not fire
+			// without a recorded tool-call timeline to age against.
+			name: "no tool-call history stays working_local (long foreground command)",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(freshSpinner)
+				return a
+			},
+			wantProtocol: ProtocolWorkingLocal,
+			wantStall:    "",
+		},
+		{
+			// A lane currently INSIDE a tool call (start with no finish after it) is
+			// making progress by definition — working_tool, never wedged — even if
+			// the start is old (handled by the working_tool / tool-call-deadline rung,
+			// not this one).
+			name: "in-flight tool call is not wedged",
+			mutate: func(a Activity) Activity {
+				a.LastPTYActivityAt = at(freshSpinner)
+				a.LastToolCallStartedAt = at(freshTool)
+				// no finish recorded after the start => in-flight
+				return a
+			},
+			wantProtocol: ProtocolWorkingTool,
+			wantStall:    "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.mutate(base()), policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+			if tc.wantStall == StallToolProgress && got.DeadlineName != DeadlineToolProgress {
+				t.Fatalf("deadline = %q, want %q; result = %#v", got.DeadlineName, DeadlineToolProgress, got)
+			}
+		})
+	}
+}
+
+// TestClassifyWedgedNoToolProgressDisabledByZeroPolicy confirms a non-positive
+// ToolProgressSeconds disables the rung (the lane falls back to working_local on
+// its fresh PTY), so the feature is fully gated by policy.
+func TestClassifyWedgedNoToolProgressDisabledByZeroPolicy(t *testing.T) {
+	now := time.Date(2026, 6, 17, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	policy.ToolProgressSeconds = 0
+	staleTool := now.Add(-2 * time.Hour)
+	got := Classify(Activity{
+		SessionState:           "active",
+		RegisteredAt:           at(now.Add(-4 * time.Hour)),
+		LastToolsListAt:        at(now.Add(-239 * time.Minute)),
+		LastAwaitPacketAt:      at(now.Add(-238 * time.Minute)),
+		LastPacketDeliveredAt:  at(now.Add(-237 * time.Minute)),
+		LastAckAt:              at(now.Add(-236 * time.Minute)),
+		ActiveLeaseID:          "lease_1",
+		ActiveLeaseAcquiredAt:  at(now.Add(-235 * time.Minute)),
+		ActiveLeaseHeartbeatAt: at(staleTool),
+		LastPTYActivityAt:      at(now.Add(-2 * time.Second)),
+		LastToolCallStartedAt:  at(staleTool),
+		LastToolCallFinishedAt: at(staleTool),
+	}, policy, now)
+	if got.Protocol != ProtocolWorkingLocal || got.StallClass != "" {
+		t.Fatalf("zero ToolProgressSeconds should disable the wedge rung; got %#v", got)
+	}
+}
+
 // TestProjectionExposesNewLivenessColumns asserts the read-layer projection
 // surfaces the new PTY/tool-call timestamps and, for an in-tool lane, the
 // visible tool_call_since / tool_call_deadline (#83).

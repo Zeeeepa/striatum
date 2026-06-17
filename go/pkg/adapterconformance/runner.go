@@ -329,7 +329,12 @@ func evalC9(adapter string, snap SessionSnapshot, jobState string, deadline time
 func evalC10(adapter string, snap SessionSnapshot, agentRes testagent.Result, deadline time.Duration) ClauseResult {
 	c := Clause{ID: C10}
 	stall := snap.Classification.StallClass
-	if stall == sessionliveness.StallProtocolIdle || stall == sessionliveness.StallLeaseHeartbeat {
+	if stall == sessionliveness.StallProtocolIdle ||
+		stall == sessionliveness.StallLeaseHeartbeat ||
+		stall == sessionliveness.StallToolProgress {
+		// StallToolProgress (#324) is likewise a wedged receive loop: the lane is
+		// alive at the PTY layer (a spinner) but has made no tool-call progress, so
+		// it never cleanly returns to idle.
 		return c.contractFail(adapter, LoopWedged,
 			fmt.Sprintf("the receive loop wedged: liveness classified a %s stall instead of clean idle", stall),
 			liveFields(deadline, "loop_wedged", snap, ""))
