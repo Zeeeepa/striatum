@@ -347,9 +347,9 @@ Advanced lane topology with every binding declared.
 
 ### Local fixture lane (`local`)
 
-Fixture/operator-by-hand starter lane that validates without a real model command.
+Validation/scaffolding-only fixture lane set: its command sinks the packet (sh -c 'cat >/dev/null') and produces no artifact, so a run whose jobs declare expected_artifacts will park. Under RFC 0088 a claim requires an attached supervisor, so there is no human-types-the-artifact path -- use single_agent/author_reviewer/multi_review with real agent commands for runs that must produce artifacts.
 
-- Recommended for: tests; operator-by-hand runs; starter scaffolds
+- Recommended for: tests; validation; starter scaffolds
 
 ### Multiple reviewers (`multi_review`)
 

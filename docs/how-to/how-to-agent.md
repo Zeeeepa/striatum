@@ -96,6 +96,19 @@ When `work.await_packet` returns no work, inspect the run through daemon MCP,
 the local web UI, or CLI diagnostics such as `striatum status`. The run may be
 done, blocked on a human checkpoint, or waiting on a dependency.
 
+> **RFC 0088 — claiming requires an attached supervisor.** This loop runs
+> inside a supervised lane. Under RFC 0088 a bare `register-session` +
+> `claim-next` from an unsupervised session is rejected
+> (`session cannot claim work without an attached supervisor`); a session must
+> be driven by `supervise start`. There is **no human-types-the-artifact path**:
+> the CLI verbs (`claim-next`, `ack`, `publish-artifact`, `complete`) are
+> diagnostics / compatibility references and the exact argument shapes your
+> packet's `commands` block points at — not a manual authoring loop. The
+> `local` lane set is **validation/scaffolding-only**: its fixture command sinks
+> the packet and produces no artifact, so a run whose jobs declare
+> `expected_artifacts` will park. Use `single_agent` / `author_reviewer` /
+> `multi_review` (real agent commands) for a run that must produce artifacts.
+
 ### Operator Chat Tools (RFC 0040 V1)
 
 If you are the *operator session* (the AI session that supervises a
