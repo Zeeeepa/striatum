@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"expvar"
 	"fmt"
 	"os"
 	"regexp"
@@ -63,6 +64,8 @@ var packageDaemonSocketPath string
 // the value through every supervise call site, mirroring packageDaemonSocketPath.
 var packageMCPBootEpoch string
 var packageRecallDigestOptions RecallDigestOptions
+
+var deadlockRetryExhaustedCounter = expvar.NewInt("deadlock.retry_exhausted")
 
 // Register wires the mutation RPC handlers onto server. Optional opts
 // inject extra dependencies; today only Options.BlobClient is
@@ -522,6 +525,7 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 		case <-time.After(baseBackoff * time.Duration(attempt+1)):
 		}
 	}
+	deadlockRetryExhaustedCounter.Add(1)
 	return nil, rpc.NewError(
 		"invalid_transition",
 		"transaction aborted by a database deadlock after retrying; retry serially",

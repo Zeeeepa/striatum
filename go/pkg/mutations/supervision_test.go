@@ -188,12 +188,11 @@ func TestSuperviseReportRecordsAgentExit(t *testing.T) {
 }
 
 // TestSuperviseReportMeaningfulProgressRefreshesActiveLease guards RFC 0101
-// Phase 1: a progress event the helper flagged meaningful refreshes the
-// session's active lease (last_heartbeat_at + extended expiry) and stamps
-// last_work_heartbeat_at so honest local work between MCP calls does not trip
-// agent_lease_heartbeat_stall (#80 / #136). The lane is the sole authority over
-// lease state, so the helper observes PTY volume and the daemon performs the
-// transition.
+// Phase 1 and #378: a progress event the helper flagged meaningful refreshes
+// the session's active lease (last_heartbeat_at + extended expiry) and stamps
+// liveness fields so honest local work between MCP calls does not trip
+// agent_lease_heartbeat_stall (#80 / #136), but does not append
+// supervisor.progress to the durable event chain.
 func TestSuperviseReportMeaningfulProgressRefreshesActiveLease(t *testing.T) {
 	tx := &superviseReportFakeTx{
 		supervisor: supervisorReportRow{
@@ -228,20 +227,12 @@ func TestSuperviseReportMeaningfulProgressRefreshesActiveLease(t *testing.T) {
 	if !tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
 		t.Fatalf("last_work_heartbeat_at was not stamped: %#v", tx.execs)
 	}
-	// Both a lease.heartbeat event (from the refresh) and the supervisor.progress
-	// event (from the report) are appended.
 	events := tx.eventInserts()
-	if len(events) < 2 {
-		t.Fatalf("expected lease.heartbeat + supervisor.progress events, got %d: %#v", len(events), tx.execs)
+	if len(events) != 1 {
+		t.Fatalf("expected only the derived lease.heartbeat event, got %d: %#v", len(events), tx.execs)
 	}
-	sawLeaseHeartbeat := false
-	for _, ev := range events {
-		if ev.args[3] == "lease.heartbeat" {
-			sawLeaseHeartbeat = true
-		}
-	}
-	if !sawLeaseHeartbeat {
-		t.Fatalf("lease.heartbeat event was not appended: %#v", events)
+	if events[0].args[3] != "lease.heartbeat" {
+		t.Fatalf("event_type = %v, want lease.heartbeat", events[0].args[3])
 	}
 }
 
@@ -281,12 +272,18 @@ func TestSuperviseReportNonMeaningfulProgressLeavesLeaseAlone(t *testing.T) {
 	if tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
 		t.Fatalf("plain progress must not stamp last_work_heartbeat_at: %#v", tx.execs)
 	}
+	if tx.sawExec("UPDATE striatumd.sessions", "last_pty_activity_at") {
+		t.Fatalf("plain progress must not stamp last_pty_activity_at: %#v", tx.execs)
+	}
+	if events := tx.eventInserts(); len(events) != 0 {
+		t.Fatalf("plain progress must not append supervisor.progress: %#v", events)
+	}
 }
 
-// TestSuperviseReportMeaningfulProgressNoLeaseIsNoop guards that a meaningful
-// progress event for a session that holds no active lease is a safe no-op: the
-// lease query returns no rows and no lease/work-heartbeat update is issued.
-func TestSuperviseReportMeaningfulProgressNoLeaseIsNoop(t *testing.T) {
+// TestSuperviseReportMeaningfulProgressWithoutLeaseUpdatesLivenessOnly guards
+// that meaningful progress without an active lease updates session liveness but
+// does not issue a lease refresh or append supervisor.progress.
+func TestSuperviseReportMeaningfulProgressWithoutLeaseUpdatesLivenessOnly(t *testing.T) {
 	tx := &superviseReportFakeTx{
 		supervisor: supervisorReportRow{
 			SupervisorID: "sup_1",
@@ -318,6 +315,12 @@ func TestSuperviseReportMeaningfulProgressNoLeaseIsNoop(t *testing.T) {
 	}
 	if tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
 		t.Fatalf("no active lease => no work-heartbeat stamp expected: %#v", tx.execs)
+	}
+	if !tx.sawExec("UPDATE striatumd.sessions", "last_pty_activity_at") {
+		t.Fatalf("meaningful progress should still stamp last_pty_activity_at: %#v", tx.execs)
+	}
+	if events := tx.eventInserts(); len(events) != 0 {
+		t.Fatalf("meaningful progress without a lease must not append supervisor.progress: %#v", events)
 	}
 }
 
@@ -595,11 +598,15 @@ func TestSuperviseReportRecordsHelperBatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleSuperviseReport batch: %v", err)
 	}
-	if result["events_recorded"] != 2 {
-		t.Fatalf("events_recorded = %v, want 2", result["events_recorded"])
+	if result["events_recorded"] != 1 {
+		t.Fatalf("events_recorded = %v, want 1 durable lifecycle event", result["events_recorded"])
 	}
-	if len(tx.eventInserts()) != 2 {
-		t.Fatalf("event inserts = %d, want 2", len(tx.eventInserts()))
+	events := tx.eventInserts()
+	if len(events) != 1 {
+		t.Fatalf("event inserts = %d, want 1 chained lifecycle event", len(events))
+	}
+	if events[0].args[3] != "supervisor."+gosupervisor.HelperEventPacketAccepted {
+		t.Fatalf("event_type = %v, want supervisor.packet_accepted", events[0].args[3])
 	}
 	if result["state"] != "attached" {
 		t.Fatalf("batch state = %v, want attached", result["state"])

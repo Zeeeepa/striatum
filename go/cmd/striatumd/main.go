@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -757,6 +758,12 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 	}
 	interval := time.Duration(sweepIntervalSeconds * float64(time.Second))
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("recovery scheduler goroutine panic: panic=%v\n%s", r, debug.Stack())
+				panic(r)
+			}
+		}()
 		result, err := recoverypkg.RunScheduler(ctx, recoverypkg.SchedulerOptions{
 			Interval:  interval,
 			MaxSweeps: maxSweeps,

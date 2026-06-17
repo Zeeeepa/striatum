@@ -117,6 +117,29 @@
   `runreconcile.PlanLaunch` now enforces the global cap plus an implicit per-lane
   in-flight cap of 1 (so two jobs never share a lane concurrently); both homes
   inherit it. Closes #322.
+- **#378 `supervisor.progress` no longer enters the durable event hash chain.**
+  Helper progress reports remain valid liveness input: meaningful progress still
+  refreshes supervisor/session liveness and the active lease when present, and the
+  derived `lease.heartbeat` event remains chained as the durable lease-state
+  transition. The raw `supervisor.progress` sample is no longer appended to
+  `striatumd.events`, and no off-chain progress table was added. See D217.
+  Closes #378 P1.2.
+- **#377 recovery sweeps now latch the wedged/quiet discriminator for doctor.**
+  The recovery scheduler cursor records `claimable_job_count` and
+  `last_lane_advanced_at` after each sweep, outside the mutation lock. `striatum
+  doctor` now flags a running run when claimable work exists and no lane has
+  advanced past the five-minute threshold, while staying quiet when there is no
+  claimable work. Latch read failures are surfaced as doctor problems instead of
+  being hidden in the cursor JSON. Closes #377 P0.3.
+- **#376 daemon panic breadcrumbs now name the failing RPC or recovery scheduler.**
+  RPC connection dispatch and the recovery sweep goroutine log the panic and Go
+  stack, including RPC method/request IDs where available, then immediately
+  re-panic so systemd remains the restart boundary. Closes #376 P0.2.
+- **#375 deadlock retry exhaustion now increments `deadlock.retry_exhausted`.**
+  The bounded deadlock retry path remains non-durable and does not open a new
+  transaction after rollback; the in-process expvar counter makes a future
+  lock-order regression visible without touching the event or audit chains.
+  Closes #375 P0.1.
 
 ### Fixed
 

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
+	"runtime/debug"
 )
 
 type Handler func(context.Context, Envelope) (map[string]any, error)
@@ -189,6 +191,14 @@ func (s *Server) Serve(ctx context.Context, listener net.Listener) error {
 const MaxEnvelopeBytes = 8 * 1024 * 1024
 
 func (s *Server) ServeConn(ctx context.Context, rwc io.ReadWriteCloser, connectionID string) error {
+	currentMethod := ""
+	currentRequestID := ""
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("daemon RPC ServeConn panic: connection_id=%q method=%q request_id=%q panic=%v\n%s", connectionID, currentMethod, currentRequestID, r, debug.Stack())
+			panic(r)
+		}
+	}()
 	defer func() { _ = rwc.Close() }()
 	reader := bufio.NewScanner(rwc)
 	reader.Buffer(make([]byte, 64*1024), MaxEnvelopeBytes)
@@ -198,11 +208,15 @@ func (s *Server) ServeConn(ctx context.Context, rwc io.ReadWriteCloser, connecti
 		if len(stripSpace(line)) == 0 {
 			continue
 		}
+		currentMethod = ""
+		currentRequestID = ""
 		envelope, err := DecodeEnvelope(line)
 		var response Response
 		if err != nil {
 			response = ErrorResponse("", err, "")
 		} else {
+			currentMethod = envelope.Method
+			currentRequestID = envelope.RequestID
 			response = s.Handle(ctx, envelope, connectionID)
 		}
 		encoded, err := response.Encode()

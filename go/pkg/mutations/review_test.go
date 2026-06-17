@@ -1649,6 +1649,7 @@ func TestIsDeadlockError(t *testing.T) {
 // and succeeds on a later attempt; a non-deadlock error is returned at once.
 func TestWithTxRetryOnDeadlock(t *testing.T) {
 	ctx := context.Background()
+	initialRetryExhausted := deadlockRetryExhaustedCounter.Value()
 
 	// Deadlock on the first two attempts, then succeed.
 	runner := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"}, failTimes: 2}
@@ -1664,9 +1665,13 @@ func TestWithTxRetryOnDeadlock(t *testing.T) {
 	if runner.attempts != 3 {
 		t.Fatalf("attempts = %d, want 3 (two deadlocks then success)", runner.attempts)
 	}
+	if got := deadlockRetryExhaustedCounter.Value(); got != initialRetryExhausted {
+		t.Fatalf("deadlock.retry_exhausted = %d, want unchanged at %d after successful retry", got, initialRetryExhausted)
+	}
 
 	// Deadlock on every attempt -> bounded failure with a serial-retry hint.
 	always := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "40P01"}, failTimes: 99}
+	beforeExhausted := deadlockRetryExhaustedCounter.Value()
 	_, err = withTxRetryOnDeadlock(ctx, always, func(db.TxRunner) (map[string]any, error) {
 		return nil, nil
 	})
@@ -1680,9 +1685,13 @@ func TestWithTxRetryOnDeadlock(t *testing.T) {
 	if always.attempts != 3 {
 		t.Fatalf("attempts = %d, want 3 (bounded)", always.attempts)
 	}
+	if got := deadlockRetryExhaustedCounter.Value(); got != beforeExhausted+1 {
+		t.Fatalf("deadlock.retry_exhausted = %d, want %d after retry exhaustion", got, beforeExhausted+1)
+	}
 
 	// A non-deadlock error is returned immediately, no retry.
 	nonDeadlock := &deadlockRetryRunner{failWith: &pgconn.PgError{Code: "23505"}, failTimes: 99}
+	beforeNonDeadlock := deadlockRetryExhaustedCounter.Value()
 	_, err = withTxRetryOnDeadlock(ctx, nonDeadlock, func(db.TxRunner) (map[string]any, error) {
 		return nil, nil
 	})
@@ -1691,6 +1700,9 @@ func TestWithTxRetryOnDeadlock(t *testing.T) {
 	}
 	if nonDeadlock.attempts != 1 {
 		t.Fatalf("attempts = %d, want 1 (no retry on non-deadlock)", nonDeadlock.attempts)
+	}
+	if got := deadlockRetryExhaustedCounter.Value(); got != beforeNonDeadlock {
+		t.Fatalf("deadlock.retry_exhausted = %d, want unchanged at %d after non-deadlock", got, beforeNonDeadlock)
 	}
 }
 
