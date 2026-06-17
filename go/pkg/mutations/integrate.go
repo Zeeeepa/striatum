@@ -84,16 +84,27 @@ func HandleRunIntegrate(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			return nil, err
 		}
 
-		mergeTree, exit, err := integrateGit(ctx, repoRoot, "merge-tree", "--write-tree", into, runBranch)
+		mergeTree, mergeTreeErr, exit, err := mergeTreeWriteTree(ctx, repoRoot, into, runBranch)
 		if err != nil {
 			return nil, err
 		}
 		if exit != 0 {
 			conflicts := parseMergeTreeConflicts(mergeTree)
-			return nil, rpc.NewError("merge_conflict", fmt.Sprintf(
-				"integrating run branch %q into %q conflicts in %d path(s): %s — resolve the overlap on a branch a maintainer merges (RFC 0108 never auto-resolves); mainline %q is untouched.",
-				runBranch, into, len(conflicts), strings.Join(conflicts, ", "), into),
-				map[string]any{"conflicting_paths": conflicts, "into": into, "run_branch": runBranch})
+			if len(conflicts) > 0 {
+				return nil, rpc.NewError("merge_conflict", fmt.Sprintf(
+					"integrating run branch %q into %q conflicts in %d path(s): %s — resolve the overlap on a branch a maintainer merges (RFC 0108 never auto-resolves); mainline %q is untouched.",
+					runBranch, into, len(conflicts), strings.Join(conflicts, ", "), into),
+					map[string]any{"conflicting_paths": conflicts, "into": into, "run_branch": runBranch})
+			}
+			// Non-zero exit but no parseable conflict path: a merge-tree/plumbing
+			// failure, NOT a content overlap. Surface it honestly with the raw git
+			// output rather than reporting "conflicts in 0 path(s)" (the #327
+			// mislabel); mainline is untouched.
+			detail := strings.TrimSpace(mergeTree + "\n" + mergeTreeErr)
+			return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
+				"integrating run branch %q into %q: merge-tree exited %d with no parseable conflict path; mainline %q is untouched: %s",
+				runBranch, into, exit, into, detail),
+				map[string]any{"into": into, "run_branch": runBranch})
 		}
 		treeOID := firstLine(mergeTree)
 		if treeOID == "" {
@@ -198,6 +209,57 @@ func integrateGit(ctx context.Context, repoRoot string, args ...string) (string,
 		out = result.Stderr
 	}
 	return out, result.ExitCode, nil
+}
+
+// mergeTreeWriteTree runs `git merge-tree --write-tree <a> <b>` and returns its
+// stdout, stderr, and exit code SEPARATELY. The conflicted-file-info section the
+// conflict parser needs (`<mode> <oid> <stage>\t<path>` lines) is written to
+// stdout; diagnostics go to stderr. integrateGit collapses the two (returning
+// stderr only when stdout is empty), which can hand parseMergeTreeConflicts the
+// wrong stream and yield an empty conflict set on a non-zero exit — the #327
+// "rejected with 0 conflicting paths" mislabel. Callers parse stdout for paths
+// and use stderr only for diagnostics.
+func mergeTreeWriteTree(ctx context.Context, repoRoot, a, b string) (stdout, stderr string, exit int, err error) {
+	res, err := runGitWorktreeCommand(ctx, repoRoot, "merge-tree", "--write-tree", a, b)
+	if err != nil {
+		return "", "", 0, err
+	}
+	return res.Stdout, res.Stderr, res.ExitCode, nil
+}
+
+// gitBlobOIDAtPath returns the blob OID of repoPath at ref, and whether it
+// exists there. Used to compare a path's content across two commits.
+func gitBlobOIDAtPath(ctx context.Context, repoRoot, ref, repoPath string) (string, bool) {
+	out, exit, err := integrateGit(ctx, repoRoot, "rev-parse", "--verify", "--quiet", ref+":"+repoPath)
+	if err != nil || exit != 0 {
+		return "", false
+	}
+	sha := firstLine(out)
+	if !isFullGitSHA(sha) {
+		return "", false
+	}
+	return sha, true
+}
+
+// filterRealFanInConflicts drops any path whose blob is byte-identical between
+// the run tip and the sibling head. In a parallel job group a later sibling's
+// worktree is seeded from a run-branch tip that already contains an earlier
+// sibling's output (the RFC 0101 / #327 worktree-base race), so a uniform
+// diff-from-fan-out-base surfaces that already-integrated path as a phantom
+// add/add. Identical content is never a genuine two-writer overlap, so it is not
+// a real conflict; a path with differing content on the two sides is kept and
+// still rejected loudly.
+func filterRealFanInConflicts(ctx context.Context, repoRoot, tip, head string, conflicts []string) []string {
+	real := make([]string, 0, len(conflicts))
+	for _, p := range conflicts {
+		tipBlob, tipOK := gitBlobOIDAtPath(ctx, repoRoot, tip, p)
+		headBlob, headOK := gitBlobOIDAtPath(ctx, repoRoot, head, p)
+		if tipOK && headOK && tipBlob == headBlob {
+			continue // already-integrated sibling output, byte-identical
+		}
+		real = append(real, p)
+	}
+	return real
 }
 
 // parseMergeTreeConflicts extracts the conflicting paths from a

@@ -1081,18 +1081,37 @@ func fanInIntegrateRunBranch(ctx context.Context, repoRoot, runRef, runTip, head
 			newRef = head
 			mode = "fast_forward"
 		} else {
-			out, exit, err := integrateGit(ctx, repoRoot, "merge-tree", "--write-tree", tip, head)
+			stdout, stderr, exit, err := mergeTreeWriteTree(ctx, repoRoot, tip, head)
 			if err != nil {
 				return nil, err
 			}
 			if exit != 0 {
-				conflicts := parseMergeTreeConflicts(out)
+				// Parse the conflicted-file-info section from stdout, then drop any
+				// path that is byte-identical between the run tip and head — an
+				// already-integrated sibling's output reached via the #327
+				// parallel-group worktree-base race, not a genuine two-writer
+				// overlap. Only a real (differing-content) conflict is a
+				// disjoint-write-scope violation.
+				conflicts := parseMergeTreeConflicts(stdout)
+				real := filterRealFanInConflicts(ctx, repoRoot, tip, head, conflicts)
+				if len(real) > 0 {
+					return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
+						"fan-in integration of job %s (attempt %d) conflicts in %d path(s): %s. Two parallel siblings wrote overlapping paths; parallel fan-in lanes must use disjoint write scopes (RFC 0101). The conflict is surfaced rather than silently resolved to a last writer (which would re-strand one sibling's work).",
+						jobID, attempt, len(real), strings.Join(real, ", ")),
+						map[string]any{"conflicting_paths": real, "job_id": jobID, "attempt": attempt})
+				}
+				// Non-zero exit but no real content conflict: never mislabel this
+				// as a disjoint-scope violation (the #327 "rejected with 0
+				// conflicting paths" wedge). Surface the raw git output so a
+				// genuine merge-tree/plumbing failure stays loud and accurately
+				// diagnosed; an operator can re-drive via worktree.anchor.
+				detail := strings.TrimSpace(stdout + "\n" + stderr)
 				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
-					"fan-in integration of job %s (attempt %d) conflicts in %d path(s): %s. Two parallel siblings wrote overlapping paths; parallel fan-in lanes must use disjoint write scopes (RFC 0101). The conflict is surfaced rather than silently resolved to a last writer (which would re-strand one sibling's work).",
-					jobID, attempt, len(conflicts), strings.Join(conflicts, ", ")),
-					map[string]any{"conflicting_paths": conflicts, "job_id": jobID, "attempt": attempt})
+					"fan-in merge-tree for job %s (attempt %d) exited %d with no real content conflict (any flagged paths were byte-identical to the already-integrated run tip; not a write-scope violation): %s",
+					jobID, attempt, exit, detail),
+					map[string]any{"job_id": jobID, "attempt": attempt, "ignored_identical_paths": conflicts})
 			}
-			tree := firstLine(out)
+			tree := firstLine(stdout)
 			if !isFullGitSHA(tree) {
 				return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in merge-tree produced invalid tree oid %q for job %s", tree, jobID), nil)
 			}

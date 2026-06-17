@@ -416,6 +416,91 @@ func TestAnchorWorktreeCommitStackFanInOverlapErrorsLoudly(t *testing.T) {
 	}
 }
 
+// TestFilterRealFanInConflictsDropsByteIdentical proves the #327 fix: a path that
+// is byte-identical between the run tip and the sibling head (an already-integrated
+// sibling's output reached via the parallel-group worktree-base race) is dropped
+// from the conflict set, while a path with differing content, or present on only
+// one side, is kept as a genuine conflict.
+func TestFilterRealFanInConflictsDropsByteIdentical(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	base := gitInit(t, repoRoot)
+
+	gitRun(t, repoRoot, "checkout", "-q", "-b", "tipbr", base)
+	if err := os.WriteFile(filepath.Join(repoRoot, "shared.txt"), []byte("same\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "conflict.txt"), []byte("TIP\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "-A")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "tip")
+	tip := gitRevParse(t, repoRoot, "HEAD")
+
+	gitRun(t, repoRoot, "checkout", "-q", "-b", "headbr", base)
+	if err := os.WriteFile(filepath.Join(repoRoot, "shared.txt"), []byte("same\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "conflict.txt"), []byte("HEAD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "onlyhead.txt"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repoRoot, "add", "-A")
+	gitRun(t, repoRoot, "commit", "-q", "-m", "head")
+	head := gitRevParse(t, repoRoot, "HEAD")
+
+	got := filterRealFanInConflicts(ctx, repoRoot, tip, head, []string{"shared.txt", "conflict.txt", "onlyhead.txt"})
+	keep := map[string]bool{}
+	for _, p := range got {
+		keep[p] = true
+	}
+	if keep["shared.txt"] {
+		t.Fatalf("byte-identical shared.txt must be dropped, got real=%v", got)
+	}
+	if !keep["conflict.txt"] || !keep["onlyhead.txt"] {
+		t.Fatalf("differing/one-sided paths must be kept, got real=%v", got)
+	}
+	if len(got) != 2 {
+		t.Fatalf("filterRealFanInConflicts = %v, want exactly [conflict.txt onlyhead.txt]", got)
+	}
+}
+
+// TestFanInIntegrateNonzeroMergeTreeWithoutConflictIsHonest proves the #327
+// headline fix: when merge-tree exits non-zero but yields no parseable conflict
+// path (a plumbing failure, not a content overlap), the fan-in integration MUST
+// surface an honest error rather than mislabeling it as a disjoint-write-scope
+// violation ("rejected with 0 conflicting paths").
+func TestFanInIntegrateNonzeroMergeTreeWithoutConflictIsHonest(t *testing.T) {
+	prev := runGitWorktreeCommand
+	defer func() { runGitWorktreeCommand = prev }()
+	runGitWorktreeCommand = func(_ context.Context, _ string, args ...string) (gitWorktreeResult, error) {
+		switch {
+		case len(args) >= 2 && args[0] == "merge-base" && args[1] == "--is-ancestor":
+			return gitWorktreeResult{ExitCode: 1}, nil // neither ancestor → force the merge path
+		case len(args) >= 1 && args[0] == "merge-tree":
+			return gitWorktreeResult{Stdout: "", Stderr: "fatal: simulated merge-tree failure", ExitCode: 128}, nil
+		default:
+			return gitWorktreeResult{ExitCode: 0}, nil
+		}
+	}
+	_, err := fanInIntegrateRunBranch(context.Background(), "/repo", "refs/heads/run", "tipsha", "headsha", "job_x", 1)
+	if err == nil {
+		t.Fatal("expected an error when merge-tree fails without a parseable conflict")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "disjoint write scope") || strings.Contains(msg, "overlapping paths") {
+		t.Fatalf("a merge-tree plumbing failure must NOT be mislabeled as a write-scope violation; got: %v", err)
+	}
+	if !strings.Contains(msg, "no real content conflict") {
+		t.Fatalf("expected an honest merge-tree-failure error, got: %v", err)
+	}
+}
+
 // TestAnchorWorktreeCommitStackFanInAllSiblingsReachableAnyOrder is the core #290
 // invariant: with N parallel disjoint siblings, no sibling strands under any
 // completion order — every sibling's file is present at the run-branch tip and
