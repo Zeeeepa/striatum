@@ -32,6 +32,13 @@ and verification commands before running it.
   paste into outside LLMs to critique the proposed long-running daemon,
   multi-repository control plane, MCP server, storage, runtime, and migration
   direction from first principles.
+- [`STRIATUM_DAEMON_PERFORMANCE_ANALYSIS_PROMPT.md`](STRIATUM_DAEMON_PERFORMANCE_ANALYSIS_PROMPT.md):
+  drives an evidenced performance analysis of the `striatumd` daemon plus
+  instrumentation/observability recommendations, reframed for the local-first
+  product boundary (mine the existing `events`/`audit_log` plane; failure-mode
+  blast-radius over request p99). Hand to a coding agent or scaffold as a
+  Striatum investigation run. Re-verify the live `events` vocabulary and code
+  line numbers before trusting derived numbers.
 
 ## Historical Reference Prompts
 
