@@ -74,10 +74,11 @@ func TestReadSideHelperEventDrainsUseAuthorizedTx(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("supervise.status helper drain: %v", err)
 	}
-	if _, err := HandleSuperviseList(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
+	if _, err := HandleSuperviseReattachStatus(ctx, pool.Runner, rpc.Envelope{Params: map[string]any{
 		"repository_id": "repo_helper",
+		"run_id":        "run_helper",
 	}}); err != nil {
-		t.Fatalf("supervise.list helper drain: %v", err)
+		t.Fatalf("supervise.reattach_status helper drain: %v", err)
 	}
 
 	eventCount, err := pool.Runner.QueryScalar(ctx, `
