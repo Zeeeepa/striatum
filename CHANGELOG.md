@@ -4,6 +4,29 @@
 
 ### Added
 
+- **RFC 0135 P6 — `run.integrate` folds in as the run-entity sealed barrier
+  (equivalence-gated, non-breaking).** The highest-risk fold (RFC 0135 Risks):
+  `run.integrate`'s `run_id`-keyed gate is recast as the **run-entity** instance
+  of the sealed expectation barrier (`entity = run`), whose in-edges are the run's
+  job-level barriers and whose readiness composes (a) the run's terminal-acceptable
+  state (`completed`, matching `HandleRunIntegrate`) AND (b) every declared
+  job-level sealed barrier having fired — expressed through P0's
+  `db.BarrierReadySQL` shape (`entity_kind='run'`,
+  `go/pkg/mutations/barrier_run_entity.go`). The RFC 0108 merge-tree →
+  conflict-detection → commit-tree plumbing is factored into
+  **`assembleRunEntityIntegration`**, a pure, ref-free computation shared verbatim
+  by the live `HandleRunIntegrate` path and the run-entity barrier (the same way
+  RFC 0133's `barrier_assembly` is the job-entity's assembly) — so the live path's
+  per-repo serialization (`lockRepo`), integration idempotency (`runIntegratedInto`
+  no-op), conflict/plumbing error surfaces, and integrated tree are preserved
+  **byte-for-byte**. **NON-BREAKING / SHADOW PROOF:** nothing flips a default. The
+  run-entity barrier ships as the asserted-equivalent **shadow**
+  (`shadowRunEntityIntegrate`); `TestRunIntegrateIsTheRunEntityBarrier`
+  (the deliverable gate) proves it produces the **same integrated tree OID** and
+  the **same idempotency outcome** as today's `HandleRunIntegrate` BEFORE any
+  caller flips. No migration (uses existing run/integration state); the P0 static
+  anti-`COUNT(*)` guard (`TestBarrierPredicateHasNoRefCount`) now also covers
+  `barrier_run_entity.go`.
 - **#347 RFC 0135 P3 — barrier doctor invariant + `BARRIER_BLOCKED` +
   `striatum join verify`.** P3 closes the sealed expectation barrier primitive
   with its doctor/refusal/verify surface. **Runtime migration `0031`**
