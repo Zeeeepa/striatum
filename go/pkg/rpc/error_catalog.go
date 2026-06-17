@@ -392,6 +392,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Provision the lane OS user (with a home directory) or unset STRIATUM_LANE_OS_USER to run lanes as the daemon user, then restart the run.",
 	},
 	{
+		Code:       "stale_daemon_identity",
+		Meaning:    "The MCP request presented a boot epoch that does not match the live daemon's, so it dialed a recycled port now bound by a different daemon process run and was refused before touching run state (#316).",
+		Suggestion: "Relaunch the lane against the current daemon (re-run supervise.start, or recover the stalled lane) so it carries the live daemon's boot epoch; do not reuse a stale on-disk MCP endpoint/config pin.",
+	},
+	{
 		Code:       "symlink_refused",
 		Meaning:    "A symlinked path was refused (repository registration and scoped writes resolve real paths).",
 		Suggestion: "Use the real (non-symlinked) path and retry.",

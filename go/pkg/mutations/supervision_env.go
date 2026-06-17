@@ -341,6 +341,17 @@ func supervisedEnvEntries(adapter, repoRoot, repositoryID, runID, sessionID, sup
 	if strings.TrimSpace(boundToken) != "" {
 		entries = append(entries, "STRIATUM_MCP_TOKEN="+boundToken)
 	}
+	// #316: fold THIS daemon process run's MCP boot epoch into the lane env. The
+	// lane's MCP client (agentloop.injectLaneMCPConfig) reads it from the env and
+	// echoes it on every MCP request as the mcp.HeaderBootEpoch header; the
+	// daemon rejects a request whose presented epoch differs from its live epoch
+	// (a recycled-port hit — the MCP port is dynamic and the OS can rebind a
+	// freed port to a DIFFERENT live daemon). Set as an explicit entry so it wins
+	// over any inherited value. Empty (no epoch configured) injects nothing, and
+	// an epoch-less request stays backward-compatible (the daemon allows it).
+	if epoch := strings.TrimSpace(packageMCPBootEpoch); epoch != "" {
+		entries = append(entries, agentloop.EnvMCPBootEpoch+"="+epoch)
+	}
 	return append(entries, supervisedAdapterEnvEntries(adapter)...)
 }
 

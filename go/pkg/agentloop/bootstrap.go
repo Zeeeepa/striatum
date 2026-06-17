@@ -11,6 +11,12 @@ const (
 	EnvMCPTokenFile = "STRIATUM_MCP_TOKEN_FILE"
 	EnvRepositoryID = "STRIATUM_REPOSITORY_ID"
 	EnvDaemonSocket = "STRIATUM_DAEMON_SOCKET"
+	// EnvMCPBootEpoch carries the boot epoch of the daemon process run the lane
+	// was launched against (#316). The supervisor injects it; injectLaneMCPConfig
+	// folds it into each adapter's MCP client as the mcp.HeaderBootEpoch request
+	// header so every MCP request echoes it. The daemon rejects a request whose
+	// presented epoch differs from its own live epoch (a recycled-port hit).
+	EnvMCPBootEpoch = "STRIATUM_MCP_BOOT_EPOCH"
 )
 
 type BootstrapContext struct {

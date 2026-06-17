@@ -339,6 +339,7 @@ func main() {
 		KeyRotateHook:    daemonapply.RotateFallbackSigningKey,
 		BlobClient:       blobClient,
 		DaemonSocketPath: socketPath,
+		MCPBootEpoch:     daemonBootEpoch(),
 		RecallDigest: mutations.RecallDigestOptions{
 			Enabled: recallDigest,
 			Limit:   recallDigestLimit,
@@ -445,10 +446,23 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		_ = os.Remove(endpointPath)
 		return nil, err
 	}
+	// #316: publish this process run's boot epoch alongside the endpoint so a
+	// client can read the EXPECTED epoch of the daemon it dialed, and hold the
+	// same value in the live MCP handler so every request can be checked against
+	// it. The runtime file is best-effort: if it cannot be written the handler
+	// still enforces (lanes carry the epoch via injected env/headers, not this
+	// file), so a write failure must not abort daemon startup.
+	bootEpoch := daemonBootEpoch()
+	bootEpochPath, bootEpochErr := writeBootEpochFile(bootEpoch)
+	if bootEpochErr != nil {
+		log.Printf("striatumd-go MCP boot epoch file unavailable (continuing; enforcement still active): %v", bootEpochErr)
+		bootEpochPath = ""
+	}
 	mcpHandler := mcp.NewHTTPHandler(mcp.Service{
 		RPC:              rpcServer,
 		Authorizer:       authorizer,
 		ActivityRecorder: sessionliveness.DBRecorder{Runner: runner},
+		BootEpoch:        bootEpoch,
 	})
 	webHandler := newWebServiceHandler(rpcServer, webOpts)
 	httpServer := &http.Server{
@@ -458,6 +472,9 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 	log.Printf("striatumd-go MCP HTTP/SSE listening on %s (web service mounted at /v1)", endpoint)
 	log.Printf("striatumd-go MCP endpoint file %s", endpointPath)
 	log.Printf("striatumd-go discovery file %s", discoveryPath)
+	if bootEpochPath != "" {
+		log.Printf("striatumd-go MCP boot epoch file %s", bootEpochPath)
+	}
 	go func() {
 		err := httpServer.Serve(listener)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -481,6 +498,11 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		}
 		if err := os.Remove(discoveryPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			log.Printf("remove discovery file %s: %v", discoveryPath, err)
+		}
+		if bootEpochPath != "" {
+			if err := os.Remove(bootEpochPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				log.Printf("remove MCP boot epoch file %s: %v", bootEpochPath, err)
+			}
 		}
 	}, nil
 }
@@ -662,6 +684,64 @@ func daemonInstanceID() string {
 // across restarts.
 const instanceIDFileName = "instance-id"
 
+// bootEpochFileName is the runtime-dir sibling file that publishes THIS daemon
+// process run's boot epoch so a client can read the epoch of the daemon it
+// intends to talk to (#316, follow-up to #296).
+const bootEpochFileName = "mcp-boot-epoch"
+
+var daemonBootEpochOnce struct {
+	once  sync.Once
+	value string
+}
+
+// daemonBootEpoch returns this daemon PROCESS RUN's boot epoch (#316). Unlike
+// daemonInstanceID (deliberately stable across restarts so the auth registry
+// UPSERTs one row — GH #168), the boot epoch is fresh per process: it is
+// generated once in memory at startup and NEVER persisted in a form that
+// carries across a restart. That is exactly the property #316 needs — the MCP
+// HTTP listener binds a dynamic port that the OS can reuse, so a stale lane (or
+// a stale on-disk config.toml pin) can dial a port number now bound by a
+// DIFFERENT live daemon process run. The bearer authenticates and the request
+// would otherwise reach a real-but-wrong daemon, letting the lane touch another
+// active run's workflow state. A per-process boot epoch lets the daemon reject
+// such a request: a lane carries the epoch of the daemon it was launched
+// against, the daemon compares it to its own live epoch, and a mismatch is a
+// recycled-port hit even when the same installation merely restarted.
+func daemonBootEpoch() string {
+	daemonBootEpochOnce.once.Do(func() {
+		daemonBootEpochOnce.value = randomBootEpoch()
+	})
+	return daemonBootEpochOnce.value
+}
+
+// randomBootEpoch mints a fresh per-process boot epoch, or "epoch-unknown" when
+// the system CSPRNG is unavailable (still non-empty so the value is always
+// presentable; an unknown epoch fails closed against any concrete presented
+// epoch and matches only an equally-unknown one, which is acceptably rare).
+func randomBootEpoch() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "epoch-unknown"
+	}
+	return "epoch-" + hex.EncodeToString(buf)
+}
+
+// writeBootEpochFile publishes the live boot epoch to the runtime-dir sibling
+// file so a client can resolve the EXPECTED epoch of the daemon it intends to
+// talk to. Owner-only (0600), atomically replaced; the same shape as the
+// endpoint/instance-id runtime files.
+func writeBootEpochFile(epoch string) (string, error) {
+	runtimeDir, err := admin.RuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(runtimeDir, bootEpochFileName)
+	if err := writeOwnerOnlyTextFile(path, epoch+"\n"); err != nil {
+		return "", fmt.Errorf("write MCP boot epoch file %s: %w", path, err)
+	}
+	return path, nil
+}
+
 // stableInstanceID returns the instance id persisted in runtimeDir, generating
 // and persisting a fresh one (0600, owner-only) on first boot. A present but
 // empty/whitespace file is treated as absent and replaced.
@@ -813,6 +893,7 @@ type handlerOptions struct {
 	KeyRotateHook    admin.KeyRotateFunc
 	BlobClient       *blob.Client
 	DaemonSocketPath string
+	MCPBootEpoch     string
 	RecallDigest     mutations.RecallDigestOptions
 }
 
@@ -852,7 +933,7 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
 	// Python; same response shapes.
 	reads.Register(server, runner, reads.Options{BlobClient: options.BlobClient, StriatumVersion: daemonVersion})
-	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath, RecallDigest: options.RecallDigest})
+	mutations.Register(server, runner, mutations.Options{BlobClient: options.BlobClient, DaemonSocketPath: options.DaemonSocketPath, MCPBootEpoch: options.MCPBootEpoch, RecallDigest: options.RecallDigest})
 	repositories.Service{Runner: runner}.Register(server)
 	for _, method := range []string{
 		"status", "why", "doctor", "dashboard", "dashboard.all",

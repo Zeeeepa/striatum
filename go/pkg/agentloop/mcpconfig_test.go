@@ -2,11 +2,14 @@ package agentloop
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/mcp"
 )
 
 // gitInit creates a minimal git work tree in dir for the #70 provenance tests.
@@ -498,6 +501,76 @@ func TestInjectCodexMCPConfigArgsPrecedesExecSubcommand(t *testing.T) {
 	}
 	if cmd[len(cmd)-1] != "-" {
 		t.Fatalf("codex exec stdin marker moved: %#v", cmd)
+	}
+}
+
+// #316: when STRIATUM_MCP_BOOT_EPOCH is set, the claude ephemeral --mcp-config
+// carries the boot epoch as the mcp.HeaderBootEpoch request header alongside the
+// bearer; when unset, no epoch header is added (backward-compatible).
+func TestInjectLaneMCPConfigClaudeCarriesBootEpochHeader(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvMCPBootEpoch, "epoch-claude-test")
+	cmd, cleanup, err := injectLaneMCPConfig(
+		[]string{"claude"}, repo, "http://127.0.0.1:34135/mcp", TokenMaterial{Token: "dtok_secret"},
+	)
+	if err != nil {
+		t.Fatalf("inject: %v", err)
+	}
+	defer cleanup()
+	cfgPath := cmd[len(cmd)-2]
+	body, _ := os.ReadFile(cfgPath)
+	var parsed struct {
+		MCPServers map[string]struct {
+			Headers map[string]string `json:"headers"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("config json: %v", err)
+	}
+	if got := parsed.MCPServers["striatum"].Headers[mcp.HeaderBootEpoch]; got != "epoch-claude-test" {
+		t.Fatalf("%s header = %q, want epoch-claude-test; body=%s", mcp.HeaderBootEpoch, got, body)
+	}
+}
+
+func TestInjectLaneMCPConfigClaudeOmitsBootEpochHeaderWhenUnset(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(EnvMCPBootEpoch, "")
+	cmd, cleanup, err := injectLaneMCPConfig(
+		[]string{"claude"}, repo, "http://127.0.0.1:34135/mcp", TokenMaterial{Token: "dtok_secret"},
+	)
+	if err != nil {
+		t.Fatalf("inject: %v", err)
+	}
+	defer cleanup()
+	body, _ := os.ReadFile(cmd[len(cmd)-2])
+	if strings.Contains(string(body), mcp.HeaderBootEpoch) {
+		t.Fatalf("boot epoch header present though env unset: %s", body)
+	}
+}
+
+// #316: codex carries the boot epoch as a per-server http_headers override.
+func TestInjectCodexMCPConfigArgsCarriesBootEpochHeader(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv(EnvMCPBootEpoch, "epoch-codex-test")
+	cmd := InjectCodexMCPConfigArgs([]string{"codex"}, repo, "http://127.0.0.1:42727/mcp")
+	want := fmt.Sprintf(`mcp_servers.striatum.http_headers.%q="epoch-codex-test"`, mcp.HeaderBootEpoch)
+	if !strings.Contains(strings.Join(cmd, "\x00"), want) {
+		t.Fatalf("codex injection missing boot-epoch header override %q: %#v", want, cmd)
+	}
+}
+
+func TestInjectCodexMCPConfigArgsOmitsBootEpochHeaderWhenUnset(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv(EnvMCPBootEpoch, "")
+	cmd := InjectCodexMCPConfigArgs([]string{"codex"}, repo, "http://127.0.0.1:42727/mcp")
+	if strings.Contains(strings.Join(cmd, "\x00"), "http_headers") {
+		t.Fatalf("codex injection added http_headers though epoch unset: %#v", cmd)
 	}
 }
 

@@ -37,7 +37,15 @@ type handlerFn func(context.Context, db.Runner, rpc.Envelope) (map[string]any, e
 type Options struct {
 	BlobClient       *blob.Client
 	DaemonSocketPath string
-	RecallDigest     RecallDigestOptions
+	// MCPBootEpoch is THIS daemon process run's MCP boot epoch (#316). The
+	// supervisor folds it into the lane capability material (env + per-launch
+	// MCP client headers) so every MCP request a lane makes carries the epoch of
+	// the daemon it was launched against; the daemon rejects a request whose
+	// presented epoch differs from its live epoch (a recycled-port hit). Empty
+	// disables injection (the daemon then accepts requests with no epoch, the
+	// backward-compatible posture).
+	MCPBootEpoch string
+	RecallDigest RecallDigestOptions
 }
 
 // packageBlobClient is the daemon's blob client, set by Register and
@@ -48,6 +56,12 @@ type Options struct {
 // artifact body stays in the working tree.
 var packageBlobClient *blob.Client
 var packageDaemonSocketPath string
+
+// packageMCPBootEpoch is THIS daemon process run's MCP boot epoch (#316), set
+// by Register and read when building a supervised lane env. Package-level so
+// supervisedEnvEntries (and its run-as sibling) can inject it without threading
+// the value through every supervise call site, mirroring packageDaemonSocketPath.
+var packageMCPBootEpoch string
 var packageRecallDigestOptions RecallDigestOptions
 
 // Register wires the mutation RPC handlers onto server. Optional opts
@@ -69,6 +83,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	}
 	packageBlobClient = o.BlobClient
 	packageDaemonSocketPath = strings.TrimSpace(o.DaemonSocketPath)
+	packageMCPBootEpoch = strings.TrimSpace(o.MCPBootEpoch)
 	packageRecallDigestOptions = normalizeRecallDigestOptions(o.RecallDigest)
 	server.Register("session.register", makeHandler(runner, HandleRegisterSession))
 	server.Register("session.close", makeHandler(runner, HandleCloseSession))

@@ -3,6 +3,8 @@ package mutations
 import (
 	"strings"
 	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 )
 
 // TestSupervisedLaneEnvDropsBannedKeepsRequired asserts the exported
@@ -68,6 +70,42 @@ func TestSupervisedLaneEnvDropsBannedKeepsRequired(t *testing.T) {
 	for _, k := range []string{"DATABASE_URL", "POSTGRES_DB", "PGPASSWORD", "STRIATUM_POSTGRES_DSN", "STRIATUM_PG_TEST_URL"} {
 		if _, ok := got[k]; ok {
 			t.Errorf("banned key %q leaked into supervised env", k)
+		}
+	}
+}
+
+// #316: when a daemon boot epoch is configured (packageMCPBootEpoch), supervise
+// start folds it into the lane env as STRIATUM_MCP_BOOT_EPOCH so the lane's MCP
+// client echoes it on every request. When none is configured, the lane carries
+// no epoch (the backward-compatible posture).
+func TestSupervisedLaneEnvInjectsBootEpoch(t *testing.T) {
+	const epoch = "epoch-deadbeefcafef00d"
+	prev := packageMCPBootEpoch
+	packageMCPBootEpoch = epoch
+	defer func() { packageMCPBootEpoch = prev }()
+
+	base := []string{"PATH=/usr/bin"}
+	env := SupervisedLaneEnv("claude", base, "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", "stok_bound.secret")
+	got := map[string]string{}
+	for _, entry := range env {
+		if k, v, ok := strings.Cut(entry, "="); ok {
+			got[k] = v
+		}
+	}
+	if got[agentloop.EnvMCPBootEpoch] != epoch {
+		t.Fatalf("%s = %q, want injected boot epoch %q", agentloop.EnvMCPBootEpoch, got[agentloop.EnvMCPBootEpoch], epoch)
+	}
+}
+
+func TestSupervisedLaneEnvWithoutBootEpochInjectsNone(t *testing.T) {
+	prev := packageMCPBootEpoch
+	packageMCPBootEpoch = ""
+	defer func() { packageMCPBootEpoch = prev }()
+
+	env := SupervisedLaneEnv("claude", []string{"PATH=/usr/bin"}, "/repo", "repo_1", "run_1", "sess_1", "sup_1", "lane_1", "stok_bound.secret")
+	for _, entry := range env {
+		if k, _, ok := strings.Cut(entry, "="); ok && k == agentloop.EnvMCPBootEpoch {
+			t.Fatalf("no boot epoch configured but %s present in lane env: %q", agentloop.EnvMCPBootEpoch, entry)
 		}
 	}
 }

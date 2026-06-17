@@ -12,6 +12,12 @@ type Service struct {
 	RPC              *rpc.Server
 	Authorizer       rpc.Authorizer
 	ActivityRecorder sessionliveness.Recorder
+	// BootEpoch is THIS daemon process run's MCP boot epoch (#316). When
+	// non-empty the HTTP handler rejects a request whose presented
+	// HeaderBootEpoch differs from it (a recycled-port hit). Empty disables the
+	// check on the handler side; an empty presented epoch is always allowed
+	// (the backward-compatible posture for lanes launched before #316).
+	BootEpoch string
 }
 
 func (s Service) ToolsList(ctx context.Context, params map[string]any, token string) map[string]any {

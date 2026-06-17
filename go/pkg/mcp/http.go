@@ -27,6 +27,25 @@ const (
 	defaultAllowValue = "GET, POST, OPTIONS"
 
 	jsonrpcVersion = "2.0"
+
+	// HeaderBootEpoch is the request header a lane's MCP client presents to
+	// carry the boot epoch of the daemon it was launched against (#316,
+	// follow-up to #296). It is alias-agnostic on purpose: the literal alias
+	// "striatum" already appears in tool names, the bootstrap prompt, generated
+	// skills, and doctor/recovery name-matching, so the recycled-port defense
+	// rides a single opaque header the lane simply echoes — NOT a literal
+	// threaded across tool identities. The daemon compares the presented value
+	// to its own live boot epoch and rejects a mismatch (StaleDaemonIdentityCode)
+	// before the request can touch run state. The header value mirrors the
+	// STRIATUM_MCP_BOOT_EPOCH env var the supervisor injects into the lane.
+	HeaderBootEpoch = "X-Striatum-Boot-Epoch"
+
+	// StaleDaemonIdentityCode is the distinct, machine-readable rejection code a
+	// request gets when its presented boot epoch does not match the live
+	// daemon's (#316). It is distinct from a generic MCP outage so recovery
+	// requeues/relaunches the lane against the CURRENT daemon rather than
+	// reporting a transport failure.
+	StaleDaemonIdentityCode = "stale_daemon_identity"
 )
 
 const (
@@ -82,6 +101,17 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if localErr := validateLocalRequest(r); localErr != nil {
 		writeJSONResponseStatus(w, http.StatusForbidden, errorResponse(nil, jsonrpcForbidden, localErr.Message, errorData(localErr.Code, nil)))
+		return
+	}
+	// #316: reject a request that authenticated against a RECYCLED port now
+	// bound by a DIFFERENT live daemon process run. The check runs at this early
+	// layer — before bearer validation, before dispatch — so a stale lane can
+	// never touch another active run's workflow state. Backward-compatible: a
+	// request that presents NO epoch is allowed (lanes launched before #316
+	// carry none); enforcement only fires for a request that presents an epoch
+	// that disagrees with the live daemon's.
+	if epochErr := h.validateBootEpoch(r); epochErr != nil {
+		writeJSONResponseStatus(w, http.StatusForbidden, errorResponse(nil, jsonrpcForbidden, epochErr.Message, errorData(epochErr.Code, nil)))
 		return
 	}
 	setLocalCORSHeaders(w, r)
@@ -517,6 +547,39 @@ func isSupportedPath(path string) bool {
 
 func isEndpointPath(path string) bool {
 	return path == EndpointPath || path == SSEEndpointPath
+}
+
+// validateBootEpoch enforces the #316 recycled-port identity check. It returns
+// a localRequestError (rendered as the distinct StaleDaemonIdentityCode) when
+// the request presents a HeaderBootEpoch that disagrees with the live daemon's
+// boot epoch. It is deliberately permissive in two directions to stay additive:
+//
+//   - When the handler holds no live BootEpoch (e.g. a daemon build/path that
+//     did not mint one, or a unit-test handler), nothing is enforced.
+//   - When the request presents NO HeaderBootEpoch, it is allowed (logged at
+//     the call layer is unnecessary noise; the absence is the expected shape for
+//     any lane launched before #316). The protection therefore fires only for a
+//     lane that carries an epoch AND that epoch is wrong — exactly the recycled
+//     -port / stale-pin case, where the presented epoch is some OTHER daemon's.
+func (h *HTTPHandler) validateBootEpoch(r *http.Request) *localRequestError {
+	live := strings.TrimSpace(h.Service.BootEpoch)
+	if live == "" {
+		return nil
+	}
+	presented := strings.TrimSpace(r.Header.Get(HeaderBootEpoch))
+	if presented == "" {
+		return nil
+	}
+	if presented == live {
+		return nil
+	}
+	return &localRequestError{
+		// The literal here (not the StaleDaemonIdentityCode const) is what the
+		// rpc error-catalog reverse-reconciliation guard scans for; keep them in
+		// sync — staleDaemonIdentityCodeMatchesCatalog (http_test.go) pins it.
+		Code:    "stale_daemon_identity",
+		Message: "request presents a stale daemon boot epoch; the MCP port was recycled by a different daemon process run — relaunch the lane against the current daemon",
+	}
 }
 
 func validateLocalRequest(r *http.Request) *localRequestError {

@@ -7,7 +7,25 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/mcp"
 )
+
+// laneBootEpoch returns the boot epoch the lane carries in its environment
+// (#316), or "" when none is set. The supervisor injects STRIATUM_MCP_BOOT_EPOCH
+// into the supervised lane env; the agent-loop subprocess (which builds the MCP
+// client config) runs with that env, so reading it here is the natural source —
+// the same way codex reads its bearer from STRIATUM_MCP_TOKEN. When empty, no
+// epoch header is added and the daemon treats the request as epoch-less
+// (allowed; the backward-compatible posture).
+func laneBootEpoch() string {
+	return strings.TrimSpace(os.Getenv(mcpBootEpochEnv))
+}
+
+// mcpBootEpochEnv is the env var name the lane carries the boot epoch in. It is
+// a package-local copy of agentloop.EnvMCPBootEpoch (same file/package) kept as
+// a named const so the header-injection sites read intent-clearly.
+const mcpBootEpochEnv = EnvMCPBootEpoch
 
 // geminiSettingsRelPath is the legacy work-tree-relative agy MCP settings path.
 // New launches avoid this path; cleanup keeps supporting it for crash leftovers
@@ -102,6 +120,15 @@ func InjectCodexMCPConfigArgs(command []string, repoRoot, endpoint string) []str
 		"-c", codexMCPBearerTokenEnvOverrideArg(),
 		"-c", codexProjectTrustOverrideArg(repoRoot),
 	}
+	// #316: echo the daemon boot epoch as a per-server HTTP header so a codex
+	// MCP request that reaches a recycled port now bound by a DIFFERENT daemon
+	// is rejected. Best-effort per the additive posture: a codex build that
+	// ignores http_headers simply presents no epoch, which the daemon allows
+	// (epoch-less requests stay backward-compatible). The launch-time env's
+	// STRIATUM_MCP_BOOT_EPOCH is the source so this stays alias-agnostic.
+	if epoch := laneBootEpoch(); epoch != "" {
+		out = append(out, "-c", codexMCPBootEpochHeaderOverrideArg(epoch))
+	}
 	return append(out, command[1:]...)
 }
 
@@ -111,6 +138,14 @@ func codexProjectTrustOverrideArg(repoRoot string) string {
 
 func codexMCPBearerTokenEnvOverrideArg() string {
 	return fmt.Sprintf(`mcp_servers.striatum.bearer_token_env_var=%q`, EnvMCPToken)
+}
+
+// codexMCPBootEpochHeaderOverrideArg renders the codex `-c` override that adds
+// the #316 boot-epoch request header to the striatum MCP server. The TOML key is
+// quoted because mcp.HeaderBootEpoch contains '-' (codex parses dotted keys; a
+// quoted last segment is taken verbatim).
+func codexMCPBootEpochHeaderOverrideArg(epoch string) string {
+	return fmt.Sprintf(`mcp_servers.striatum.http_headers.%q=%q`, mcp.HeaderBootEpoch, epoch)
 }
 
 // LaneAdapterName maps a (possibly absolute) lane argv0 to its bare adapter
@@ -179,9 +214,15 @@ func writeGeminiSettingsAt(repoRoot, path, endpoint, bearer string, userScoped b
 	if servers == nil {
 		servers = map[string]any{}
 	}
+	agyHeaders := map[string]any{"Authorization": "Bearer " + bearer}
+	// #316: echo the daemon boot epoch on every agy MCP request (recycled-port
+	// identity check; see ephemeralMCPConfigBody).
+	if epoch := laneBootEpoch(); epoch != "" {
+		agyHeaders[mcp.HeaderBootEpoch] = epoch
+	}
 	servers["striatum"] = map[string]any{
 		"httpUrl": endpoint,
-		"headers": map[string]any{"Authorization": "Bearer " + bearer},
+		"headers": agyHeaders,
 	}
 	settings["mcpServers"] = servers
 	// #76: a supervised agy lane must not stall on the gemini-cli usage/feedback
@@ -447,12 +488,18 @@ func CleanupClaudeScheduledTasksLock(repoRoot string) {
 // ephemeral config shape so the launch-time writer and the #323 rotation-time
 // rewriter stay byte-identical.
 func ephemeralMCPConfigBody(endpoint, bearer string) ([]byte, error) {
+	headers := map[string]any{"Authorization": "Bearer " + bearer}
+	// #316: echo the daemon boot epoch on every claude MCP request so a request
+	// reaching a recycled port now bound by a DIFFERENT daemon is rejected.
+	if epoch := laneBootEpoch(); epoch != "" {
+		headers[mcp.HeaderBootEpoch] = epoch
+	}
 	cfg := map[string]any{
 		"mcpServers": map[string]any{
 			"striatum": map[string]any{
 				"type":    "http",
 				"url":     endpoint,
-				"headers": map[string]any{"Authorization": "Bearer " + bearer},
+				"headers": headers,
 			},
 		},
 	}

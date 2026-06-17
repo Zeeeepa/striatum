@@ -334,6 +334,97 @@ func TestHTTPHandlerRejectsBadHost(t *testing.T) {
 	assertErrorDataCode(t, response.Error, "bad_host")
 }
 
+// #316: a request that presents the LIVE daemon boot epoch is accepted (the
+// epoch check passes through and the call dispatches normally).
+func TestHTTPHandlerBootEpochLiveAccepted(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.BootEpoch = "epoch-live"
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"status","method":"tools/call","params":{"name":"status","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`, "read.secret")
+	request.Header.Set(HeaderBootEpoch, "epoch-live")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	structured := structuredContent(t, response)
+	if structured["ok"] != true {
+		t.Fatalf("live-epoch call not accepted: %#v", structured)
+	}
+}
+
+// #316: a request that presents a DIFFERENT (stale) boot epoch is rejected with
+// the distinct stale_daemon_identity code, BEFORE the request can touch run
+// state (the dispatch never runs).
+func TestHTTPHandlerBootEpochStaleRejected(t *testing.T) {
+	handler, mutationCalled, _, _ := newTestHTTPHandler(t)
+	handler.Service.BootEpoch = "epoch-live"
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"mut","method":"tools/call","params":{"name":"work.complete","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`, "write.secret")
+	request.Header.Set(HeaderBootEpoch, "epoch-stale-other-daemon")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	response := decodeTestResponse(t, recorder)
+	assertErrorDataCode(t, response.Error, StaleDaemonIdentityCode)
+	if response.Error.Code != jsonrpcForbidden {
+		t.Fatalf("rpc error code = %d, want forbidden %d", response.Error.Code, jsonrpcForbidden)
+	}
+	if *mutationCalled {
+		t.Fatal("stale-epoch request reached the mutation handler; the check must run before dispatch")
+	}
+}
+
+// #316 backward-compat: a request that presents NO boot epoch is accepted even
+// when the daemon holds a live epoch (lanes launched before #316 carry none).
+func TestHTTPHandlerBootEpochAbsentAccepted(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t)
+	handler.Service.BootEpoch = "epoch-live"
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"status","method":"tools/call","params":{"name":"status","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`, "read.secret")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	structured := structuredContent(t, decodeTestResponse(t, recorder))
+	if structured["ok"] != true {
+		t.Fatalf("epoch-less call not accepted (backward-compat broken): %#v", structured)
+	}
+}
+
+// #316: when the daemon holds NO live epoch (a build/path that did not mint
+// one), even a present epoch header is ignored — the check is disabled.
+func TestHTTPHandlerBootEpochDisabledWhenDaemonHasNone(t *testing.T) {
+	handler, _, _, _ := newTestHTTPHandler(t) // BootEpoch left empty
+	request := newJSONRequest(t, EndpointPath, `{"jsonrpc":"2.0","id":"status","method":"tools/call","params":{"name":"status","repository_id":"repo_1","arguments":{"repository_id":"repo_1"}}}`, "read.secret")
+	request.Header.Set(HeaderBootEpoch, "epoch-whatever")
+	recorder := httptest.NewRecorder()
+
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// staleDaemonIdentityCodeMatchesCatalog pins the exported StaleDaemonIdentityCode
+// const to the literal the handler emits and the rpc error catalog enumerates.
+func TestStaleDaemonIdentityCodeMatchesCatalog(t *testing.T) {
+	if StaleDaemonIdentityCode != "stale_daemon_identity" {
+		t.Fatalf("StaleDaemonIdentityCode = %q, want stale_daemon_identity", StaleDaemonIdentityCode)
+	}
+	if _, ok := rpc.LookupErrorCode(StaleDaemonIdentityCode); !ok {
+		t.Fatalf("StaleDaemonIdentityCode %q is not in the rpc error catalog", StaleDaemonIdentityCode)
+	}
+}
+
 func TestHTTPHandlerMalformedBodyReturnsStableError(t *testing.T) {
 	handler, _, _, _ := newTestHTTPHandler(t)
 	recorder := postJSON(t, handler, EndpointPath, `{`, "read.secret")
