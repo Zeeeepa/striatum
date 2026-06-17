@@ -35,12 +35,20 @@ Context:
   `cycles`, `edges`); `go/pkg/artifactcontracts/contracts.go` (the `test_report`
   artifact kind).
 
-> **Self-applied discipline (this RFC eats its own dog food).** The "current
-> behavior" claims below are `ASSERTED` from a structured read of the cited files,
-> not `VERIFIED` by an implementer. The single load-bearing claim — *no job type
-> executes a command and gates on its exit code* — should be `VERIFIED` (grep the
-> job-type switch in the mutation handlers) before V1 work begins. If it is false,
-> this RFC narrows to the status-provenance contract alone.
+> **Self-applied discipline (this RFC eats its own dog food).** The single
+> load-bearing claim was `ASSERTED`, then **`VERIFIED` against source — and
+> refined when the witness contradicted the first wording.** The engine *does*
+> shell out and gate on exit codes, but only for its own **git/worktree
+> plumbing**: `go/pkg/mutations/worktree.go:638` gates on `result.ExitCode` from
+> `runGitWorktreeCommand("worktree","remove",…)`, and `go/pkg/mutations/run.go:815`
+> runs `git rev-parse --verify`. What is genuinely absent is a
+> **workflow-declarable** job type that runs an *arbitrary check command* and
+> derives a *job verdict* from its exit code — confirmed by the job-type handling
+> in `go/pkg/workflowauthoring/lint.go` (`type` defaults to `generic`; the
+> verdict-bearing types are `review` / `phase_synthesis`, neither of which
+> executes a declared check). So the execution-and-gate primitive **already exists
+> internally and would be *exposed*, not built from nothing.** Remaining "current
+> behavior" claims are `ASSERTED` from a structured read of the cited files.
 
 ## Problem
 
@@ -49,9 +57,11 @@ producer and never checked against running code**. Striatum already has gates �
 but every gate adjudicates *prose*:
 
 - The job-type set (`build`, `draft`, `review`, `synthesis`, `phase_synthesis`,
-  `generic`) is **LLM-prose-in, artifact-out**. **No job type runs a shell
-  command and branches on its exit code.** A `test_report` artifact *kind* exists
-  (`artifactcontracts/contracts.go`), but the engine never *produces* it by
+  `generic`) is **LLM-prose-in, artifact-out**. The engine shells out and gates
+  on exit codes for its own git/worktree plumbing (`worktree.go:638`,
+  `run.go:815`), but **no *workflow-declarable* job type runs an arbitrary check
+  command and derives a job verdict from it.** A `test_report` artifact *kind*
+  exists (`artifactcontracts/contracts.go`), but the engine never *produces* it by
   executing a test — an agent must run the test and publish the report, and
   nothing forces the agent to actually run it.
 - Consequently the "verifier" in any gate (`adjudicate` in the falsification flow)
@@ -113,6 +123,9 @@ check is `{id, claim_ref, command, pass_when: "exit_zero" | "stdout_contains" |
 `{exit_code, stdout_sha256, passed}` per check into the `claim_ledger`, and sets
 the job verdict to `pass` iff all checks pass, else `needs_revision`. The verdict
 is **derived, not authored** — no model in the loop for the pass/fail decision.
+The command-execution-and-gate plumbing already exists for internal git
+operations (`runGitWorktreeCommand` → `result.ExitCode`, `worktree.go`); V1
+*exposes* it as a job-level primitive rather than inventing it.
 
 **3. Wiring (no new gate machinery).** Author flows as
 `builder → verify → adjudicate? → commit`:
