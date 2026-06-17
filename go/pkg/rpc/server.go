@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"sync"
 )
 
 type Handler func(context.Context, Envelope) (map[string]any, error)
@@ -30,9 +29,12 @@ type Server struct {
 	AuditRecorder   AuditRecorder
 	Handlers        map[string]Handler
 
-	mu            sync.RWMutex
-	seenRequests  map[string]struct{}
-	handshakeSeen map[string]struct{}
+	// seenRequests / handshakeSeen are bounded (size cap + TTL eviction) so a
+	// pre-auth caller cannot grow daemon memory without bound: markRequest runs
+	// in handle() BEFORE Authorizer.Authorize. boundedSeen is internally
+	// synchronized, so the server needs no separate mutex for them.
+	seenRequests  *boundedSeen
+	handshakeSeen *boundedSeen
 }
 
 func NewServer() *Server {
@@ -46,8 +48,8 @@ func NewServer() *Server {
 		},
 		Authorizer:    AllowAllAuthorizer{},
 		Handlers:      map[string]Handler{},
-		seenRequests:  map[string]struct{}{},
-		handshakeSeen: map[string]struct{}{},
+		seenRequests:  newBoundedSeen(defaultDedupeMaxEntries, defaultDedupeTTL),
+		handshakeSeen: newBoundedSeen(defaultDedupeMaxEntries, defaultDedupeTTL),
 	}
 }
 
@@ -283,28 +285,15 @@ func (s *Server) sealedApplyStatus() map[string]any {
 }
 
 func (s *Server) markRequest(requestID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.seenRequests[requestID]; ok {
-		return true
-	}
-	if requestID != "" {
-		s.seenRequests[requestID] = struct{}{}
-	}
-	return false
+	return s.seenRequests.Add(requestID)
 }
 
 func (s *Server) markHandshake(connectionID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.handshakeSeen[connectionID] = struct{}{}
+	s.handshakeSeen.Add(connectionID)
 }
 
 func (s *Server) hasHandshake(connectionID string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	_, ok := s.handshakeSeen[connectionID]
-	return ok
+	return s.handshakeSeen.Contains(connectionID)
 }
 
 func repositoryID(params map[string]any) string {
