@@ -14,9 +14,10 @@ import (
 	"github.com/halbritt/striatum/go/pkg/workflowgenerate"
 )
 
-// RFC 0112 / RFC 0105: ACE explicit interrogation consumers are fixture-backed
-// but not registered in ReliabilityFixtureShapes until a later graduation RFC
-// flips adjudicated_constraint_extraction to supported.
+// RFC 0112 / RFC 0105: ACE explicit interrogation consumers are fixture-backed.
+// adjudicated_constraint_extraction has graduated to supported — it is registered
+// in ReliabilityFixtureShapes and in workflowtemplates.supportedShapes, with
+// shape_tier_guard_test.go enforcing that the two stay in sync.
 
 type aceFixture struct {
 	RepositoryID string

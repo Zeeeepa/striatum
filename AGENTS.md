@@ -20,7 +20,8 @@ first, in order:
 4. `docs/reference/spec.md`
 5. `docs/decisions/decision-log.md`
 6. `docs/reference/ubiquitous-language.md`
-7. `docs/reference/todo.md`
+7. `docs/reference/todo.md` (archived pointer — current work lives in
+   `docs/operator/BRIEF.md` and the open GitHub issues)
 8. `docs/operator/BRIEF.md` for current operator state and the bounded
    plan links that supersede older handoffs.
 

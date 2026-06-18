@@ -1,3 +1,19 @@
+# Striatum Roadmap — ARCHIVED
+
+> **ARCHIVED (2026-06, D232).** This roadmap is no longer maintained. It is
+> **superseded by [`docs/operator/BRIEF.md`](../operator/BRIEF.md)** plus the
+> live operator cold-start: run **`striatum operator bootstrap --markdown`**
+> and follow its `next_actions` and bounded `reading_plan`. The RFC frontier
+> lives in the RFC index ([`docs/rfcs/README.md`](../rfcs/README.md)) and the
+> open GitHub issues. This file was last anchored at `v1.57.0` and never
+> refreshed through the v2.x line; the repository is now well past it. The full
+> historical roadmap is preserved verbatim below the divider for provenance —
+> treat every status claim in it as stale.
+
+---
+
+## Historical roadmap (archived, stale — kept for provenance)
+
 # Striatum Roadmap
 
 **Purpose:** This is the operator kickoff document. If you are picking up
