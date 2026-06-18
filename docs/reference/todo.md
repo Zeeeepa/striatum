@@ -1,6 +1,24 @@
+# striatum TODO — ARCHIVED
+
+Status: superseded
+
+> **ARCHIVED (2026-06, D232).** This product-improvement tracker is no longer
+> maintained. It is **superseded by [`docs/operator/BRIEF.md`](../operator/BRIEF.md)**
+> plus the live operator cold-start: run **`striatum operator bootstrap --markdown`**
+> and follow its `next_actions` and bounded `reading_plan`. Open and active work
+> lives in the open GitHub issues; the RFC frontier lives in the RFC index
+> ([`docs/rfcs/README.md`](../rfcs/README.md)). This snapshot was last dated
+> `2026-05-07`; the repository is now well past it. The full historical TODO is
+> preserved verbatim below the divider for provenance, and its stable numbered
+> IDs keep resolving for older references — treat every status entry as stale.
+
+---
+
+## Historical TODO (archived, stale — kept for provenance)
+
 # striatum TODO
 
-Status: active
+Status: superseded
 Date: 2026-05-07
 author: coordinator-codex-gpt-5.5-001
 
