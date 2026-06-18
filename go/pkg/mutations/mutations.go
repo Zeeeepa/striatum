@@ -1381,6 +1381,42 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 			return err
 		}
 	}
+	// #417 backstop: the loop above only reaps supervisors for sessions still in
+	// state='active' (and skips active-lease holders). A lane that dies abnormally
+	// has its session 'closed' before the run terminates, so its supervisor is
+	// never reached and lingers in a live state ('starting'/'attached'/'detached')
+	// — the dominant leak (511 of 562 stranded supervisors had an already-closed
+	// session in the #417 incident). The status/dashboard read path LEFT-JOINs
+	// process_supervisors ON state='attached' and sudo+tmux ProbeLaneLiveness each
+	// one, so the stranded rows storm a repo-wide read until it blows the CLI read
+	// deadline. Reap every supervisor still live for this now-terminal run,
+	// regardless of its session's state or any lingering lease.
+	orphanSessions, err := queryRows(ctx, runner, `
+		SELECT DISTINCT session_id
+		  FROM striatumd.process_supervisors
+		 WHERE repository_id = $1 AND run_id = $2
+		   AND state IN ('starting','attached','detached')
+		 ORDER BY session_id`, repositoryID, runID)
+	if err != nil {
+		return err
+	}
+	for _, row := range orphanSessions {
+		sessionID := fmt.Sprint(row["session_id"])
+		if sessionID == "" {
+			continue
+		}
+		if err := stopSupervisorsForTerminalSession(ctx, runner, terminalSessionSupervisorStop{
+			RepositoryID:     repositoryID,
+			RunID:            runID,
+			SessionID:        sessionID,
+			EndedAt:          now,
+			Reason:           reason,
+			StopReasonPrefix: "terminal run cleanup (orphan supervisor)",
+			EventSource:      "terminal_run_cleanup_orphan",
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

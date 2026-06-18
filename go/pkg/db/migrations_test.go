@@ -622,6 +622,43 @@ func TestRuntimeMigrationOwnerDDLGuardDetectsForbiddenDDL(t *testing.T) {
 	}
 }
 
+// TestMigration33ReapsTerminalRunSupervisors (#417): the backfill marks every
+// supervisor still in a live state on an already-terminal run stopped across all
+// three supervisor tables, and is pure DML (no owner-table DDL), so striatumd_rw
+// applies it cleanly on a two-role production daemon.
+func TestMigration33ReapsTerminalRunSupervisors(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 33 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 33 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"UPDATE striatumd.process_supervisors",
+		"UPDATE striatumd.daemon_supervisors",
+		"UPDATE striatumd.process_supervisor_pointers",
+		"r.state IN ('completed', 'failed', 'canceled')",
+		"state IN ('starting', 'attached', 'detached')",
+		"state = 'stopped'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 33 missing %q", needle)
+		}
+	}
+	if violations := runtimeMigrationOwnerDDLViolations(*migration); len(violations) > 0 {
+		t.Fatalf("migration 33 must be pure DML, found owner DDL: %v", violations)
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")
