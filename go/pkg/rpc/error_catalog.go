@@ -163,7 +163,7 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	},
 	{
 		Code:       "daemon_under_load",
-		Meaning:    "The operation timed out behind transient daemon back-pressure (a statement_timeout/57014 event-append convoy under multi-run supervise load) rather than a real refusal, after the daemon already retried it (#198/#355).",
+		Meaning:    "The operation timed out behind transient daemon back-pressure (a statement_timeout/57014 or lock_timeout/55P03 event-append/lifecycle convoy under multi-run supervise load) rather than a real refusal, after the daemon already retried it (#198/#355/#389/#383).",
 		Suggestion: "Retry the operation shortly; if it persists, check daemon PostgreSQL load with `striatum doctor` and look for a long-held lock on repo_event_chain_heads.",
 	},
 	{
