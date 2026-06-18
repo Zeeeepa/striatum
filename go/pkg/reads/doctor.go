@@ -237,6 +237,18 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings = append(warnings, barrierWarnings...)
 	warningRecords = append(warningRecords, barrierWarningRecords...)
 
+	// RFC 0132 P4b (#342): the panel-quorum / advisory-dissent integrity invariant.
+	// It detects a structurally unresolvable quorum seat (a declared seat with no job
+	// row — a permanent fail-closed deadlock), a frozen/live denominator mismatch, a
+	// completed gate that finalized while ignoring a live advisory dissent, and the
+	// #339 dissent-ledger completeness hole (a live blocking verdict with no
+	// forward-written dissent_ledger row).
+	quorumBlock, quorumProblems, quorumRecords, quorumWarnings, quorumWarningRecords := doctorQuorumIntegrity(ctx, runner, repositoryID)
+	problems = append(problems, quorumProblems...)
+	problemRecords = append(problemRecords, quorumRecords...)
+	warnings = append(warnings, quorumWarnings...)
+	warningRecords = append(warningRecords, quorumWarningRecords...)
+
 	recoveryCursorBlock, recoveryCursorProblems, recoveryCursorRecords := doctorRecoverySweepCursor(ctx, runner, repositoryID, time.Now().UTC())
 	problems = append(problems, recoveryCursorProblems...)
 	problemRecords = append(problemRecords, recoveryCursorRecords...)
@@ -271,6 +283,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"worktree_ref_safety":          worktreeRefSafetyBlock,
 		"artifact_anchor_integrity":    artifactAnchorBlock,
 		"barrier_integrity":            barrierBlock,
+		"quorum_integrity":             quorumBlock,
 		"recovery_sweep_cursor":        recoveryCursorBlock,
 		"job_stuck_no_live_session":    stuckJobBlock,
 		"skills":                       skillsBlock,

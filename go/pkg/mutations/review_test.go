@@ -1254,6 +1254,13 @@ func (tx *reviewOverrideFakeTx) Query(_ context.Context, sql string, args ...any
 			},
 		}}), nil
 	case strings.Contains(sql, "FROM striatumd.blockers"):
+		// RFC 0132 P4b (#341): the advisory-guard hold check on the downstream gate
+		// (dependenciesSatisfied -> gateHeldByOpenAdvisoryGuard) has no advisory blocker
+		// in these override fixtures, so it must return no rows; otherwise the gate would
+		// read as held and never enqueue.
+		if strings.Contains(sql, "blocker_kind = ANY($3)") {
+			return runPrepareRowsFromMaps(nil), nil
+		}
 		return runPrepareRowsFromMaps([]map[string]any{{"blocker_id": "blk_1"}}), nil
 	case strings.Contains(sql, "FROM striatumd.job_dependencies"):
 		return tx.queryDependencies(sql, args...), nil

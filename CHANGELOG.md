@@ -38,6 +38,37 @@
   that mints receipts, and the completion gate that merely reads them) is a
   later, separate slice. Docs: `docs/reference/spec.md`,
   `docs/reference/ubiquitous-language.md`, RFC 0134.
+- **RFC 0132 P4b: advisory-review guards (#341) + quorum/dissent doctor checks
+  and finalize legibility (#342).** The quorum/dissent core shipped in v2.34.0;
+  this lands the explicitly-deferred remainder.
+  - **Layer C advisory guards (#341).** Advisory seats — previously only
+    excluded from the gating denominator — are now non-blocking-but-never-silent.
+    Three guards evaluated co-transactionally with each panel verdict
+    (`pkg/mutations/barrier_advisory.go`, wired into `applyVerdict`):
+    `advisory_corroborated_abstention` (a gating abstention co-occurring with a
+    live advisory `needs_revision`/`reject`, reclassified to the `must_escalate`
+    outcome), `unanimous_advisory_reject` (every submitted advisory seat
+    rejecting blocks finalize even under full gating accept), and
+    `advisory_only_panel_ungrounded` (a panel with no gating seats). A fired
+    guard opens an operator-resolvable `blocked`-severity blocker on the
+    downstream gate (the `checkpoint resolve` shape) plus an `escalation_inbox`
+    row, and `dependenciesSatisfied` holds the gate from enqueuing until it is
+    resolved — advisory stops the line, never auto-flips a verdict, never
+    silently wedges. A mandatory `advisory_minority_report.v1` front-matter
+    artifact contract (`pkg/artifactcontracts`) records the per-seat advisory
+    tally + which guard fired, with exit-6 publish validation. Default behavior
+    is unchanged (no advisory seats ⇒ no advisory blocker).
+  - **Quorum/dissent doctor checks + dissent-ledger completeness (#342 / #339).**
+    A new doctor block (`pkg/reads/doctor_quorum.go`, wired via `doctor.go` as
+    `quorum_integrity`) detects `quorum_seat_unresolvable` (a declared seat with
+    no live job row — a permanent fail-closed deadlock),
+    `quorum_denominator_mismatch` (the live gating denominator drifted from the
+    frozen snapshot), `finalize_ignored_advisory_dissent` (a completed gate that
+    finalized while ignoring a live advisory dissent), and
+    `dissent_ledger_incomplete` (a live blocking verdict with no forward-written
+    `dissent_ledger` row, folded in from #339). `run.summary` gains a
+    `quorum_dissent` block surfacing live dissent rows and open advisory holds so
+    a quorum/advisory park is self-explaining before `checkpoint resolve`.
 
 ### Fixed
 

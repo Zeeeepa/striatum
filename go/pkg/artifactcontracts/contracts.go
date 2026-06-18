@@ -46,6 +46,7 @@ var allowedKinds = map[string]bool{
 	"join_manifest":                true,
 	"claim_ledger":                 true,
 	"receipt":                      true,
+	"advisory_minority_report":     true,
 }
 
 var Schemas = map[string]Schema{
@@ -334,6 +335,39 @@ var Schemas = map[string]Schema{
 			"created_at":     {false, isNonEmptyStringValue},
 		},
 	},
+	// advisory_minority_report (RFC 0132 Layer C / P4b — D214, #341): the
+	// MANDATORY front-matter artifact every panel finalize authors, recording the
+	// advisory tally that does not count toward the gating quorum but is never
+	// silent. It is pinned as a required expected_artifact on the synthesis/gate
+	// packet, so the publisher refuses with exit code 6 if it is omitted (the
+	// "loud reject, silent accept, mandatory minority report" rule). No DDL — it
+	// is an artifactcontracts registration, not a table.
+	//
+	// Fields:
+	//   - run_id / gate_workflow_job_id: which panel finalize this report covers.
+	//   - guard_fired: which Layer C guard fired, or `none` when no advisory guard
+	//     blocked (the silent-accept case still authors a report). One of:
+	//     advisory_corroborated_abstention | unanimous_advisory_reject |
+	//     advisory_only_panel_ungrounded | none.
+	//   - advisory_outcome: the resolved advisory disposition — must_escalate when a
+	//     guard fired, advisory_noted otherwise (advisory can stop the line, never
+	//     silently wedge it and never auto-needs_revision the implementer).
+	//   - seats[]: one row per advisory seat — its workflow_job_id, verdict
+	//     (accept|accept_with_findings|needs_revision|reject|abstain), and a
+	//     rationale_excerpt. The seats list is load-bearing: it makes the advisory
+	//     signal legible and attributable rather than a silently-dropped voice.
+	"advisory_minority_report": {
+		Fields: map[string]Field{
+			"schema_version":       {true, equalsValue("striatum.advisory_minority_report.v1")},
+			"artifact_kind":        {true, equalsValue("advisory_minority_report")},
+			"run_id":               {true, isNonEmptyStringValue},
+			"gate_workflow_job_id": {true, isNonEmptyStringValue},
+			"guard_fired":          {true, oneOfValue("advisory_corroborated_abstention", "unanimous_advisory_reject", "advisory_only_panel_ungrounded", "none")},
+			"advisory_outcome":     {true, oneOfValue("must_escalate", "advisory_noted")},
+			"seats":                {true, isMapListValue},
+			"created_at":           {true, isNonEmptyStringValue},
+		},
+	},
 }
 
 // StandardOptionalMetadata are byline/workflow metadata keys that any markdown
@@ -433,6 +467,10 @@ var enumFieldValues = map[string]map[string][]string{
 	"operator_report":             {"retrieval_priority": {"high", "medium", "low"}},
 	"auto_finalize_gate_evidence": {"gate_status": {"pending", "satisfied"}},
 	"join_manifest":               {"entity_kind": {"job", "review_seat", "review_obligation", "run"}},
+	"advisory_minority_report": {
+		"guard_fired":      {"advisory_corroborated_abstention", "unanimous_advisory_reject", "advisory_only_panel_ungrounded", "none"},
+		"advisory_outcome": {"must_escalate", "advisory_noted"},
+	},
 }
 
 // invalidFieldMessage produces an actionable error when a front-matter field
@@ -825,6 +863,8 @@ func validateKindSpecific(kind string, path string, parsed map[string]any, paylo
 		return validateJoinManifest(parsed)
 	case "claim_ledger":
 		return validateClaimLedger(parsed)
+	case "advisory_minority_report":
+		return validateAdvisoryMinorityReport(parsed)
 	case "collaboration_ledger":
 		return validateCollaborationLedger(parsed)
 	case "finding", "findings_ledger":
@@ -911,6 +951,78 @@ func validateJoinManifest(parsed map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// advisoryMinorityReportSeatVerdicts is the closed enum for an advisory seat's
+// verdict in the minority report: the four canonical verdict values plus
+// `abstain` (a held advisory seat that did not vote — recorded, not silently
+// dropped).
+var advisoryMinorityReportSeatVerdicts = []string{"accept", "accept_with_findings", "needs_revision", "reject", "abstain"}
+
+// validateAdvisoryMinorityReport enforces the advisory_minority_report.v1
+// contract (RFC 0132 Layer C / #341). The report must declare at least one
+// advisory seat, every seat row must carry a stable workflow_job_id and a valid
+// verdict, and the advisory_outcome must agree with guard_fired: a fired guard
+// (anything other than `none`) requires advisory_outcome must_escalate; no fired
+// guard requires advisory_noted. This couples the legible tally to the actual
+// guard decision so a report cannot claim a clean silent-accept while naming a
+// guard that blocked finalize (or vice versa).
+func validateAdvisoryMinorityReport(parsed map[string]any) error {
+	rows, ok := mapList(parsed["seats"])
+	if !ok {
+		return fmt.Errorf("advisory_minority_report artifact front matter field 'seats' must be a list of objects")
+	}
+	if len(rows) == 0 {
+		return fmt.Errorf("advisory_minority_report artifact front matter field 'seats' must declare at least one advisory seat")
+	}
+	seen := map[string]bool{}
+	for i, row := range rows {
+		if err := rejectAdvisorySeatKeys(i, row); err != nil {
+			return err
+		}
+		seat, ok := nonEmptyString(row["workflow_job_id"])
+		if !ok {
+			return fmt.Errorf("advisory_minority_report seats[%d] requires a non-empty 'workflow_job_id'", i)
+		}
+		if seen[seat] {
+			return fmt.Errorf("advisory_minority_report seats[%d] workflow_job_id %q is duplicated", i, seat)
+		}
+		seen[seat] = true
+		if !oneOfValue(advisoryMinorityReportSeatVerdicts...)(row["verdict"]) {
+			return fmt.Errorf("advisory_minority_report seats[%d] (workflow_job_id %q) requires 'verdict' one of %s", i, seat, strings.Join(advisoryMinorityReportSeatVerdicts, ", "))
+		}
+		if value, exists := row["rationale_excerpt"]; exists && !isStringValue(value) {
+			return fmt.Errorf("advisory_minority_report seats[%d] (workflow_job_id %q) 'rationale_excerpt' must be a string", i, seat)
+		}
+	}
+	guard := fmt.Sprint(parsed["guard_fired"])
+	outcome := fmt.Sprint(parsed["advisory_outcome"])
+	if guard == "none" && outcome != "advisory_noted" {
+		return fmt.Errorf("advisory_minority_report with guard_fired 'none' requires advisory_outcome 'advisory_noted' (no advisory guard blocked finalize)")
+	}
+	if guard != "none" && outcome != "must_escalate" {
+		return fmt.Errorf("advisory_minority_report with guard_fired %q requires advisory_outcome 'must_escalate' (an advisory guard blocked finalize)", guard)
+	}
+	return nil
+}
+
+func rejectAdvisorySeatKeys(idx int, row map[string]any) error {
+	allowed := map[string]bool{
+		"workflow_job_id":   true,
+		"verdict":           true,
+		"rationale_excerpt": true,
+	}
+	extra := []string{}
+	for key := range row {
+		if !allowed[key] {
+			extra = append(extra, key)
+		}
+	}
+	if len(extra) == 0 {
+		return nil
+	}
+	sort.Strings(extra)
+	return fmt.Errorf("advisory_minority_report seats[%d] has unknown fields: %s", idx, strings.Join(extra, ", "))
 }
 
 func validateAutoFinalizeGateEvidence(parsed map[string]any) error {
