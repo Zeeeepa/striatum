@@ -1289,21 +1289,21 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 			"provenance_gate": ledger,
 		}
 		recordExtra := map[string]any{"completion_mode": completionMode, "provenance_gate": ledger}
-			// RFC 0134 / D227: the executable-half gate READ. Load the run's
-			// claim_ledger + the receipts its VERIFIED claims name and record the
-			// EFFECTIVE claim status (two-signal sealed receipt → VERIFIED; missing /
-			// wedged / non-strict / single-signal → ASSERTED). This is a PURE READ:
-			// it executes nothing, adds NO failing gate, and never blocks completion
-			// on engine liveness — it only makes the verified-vs-asserted ledger
-			// durable on the completion event.
-			claimVerification, cverr := evaluateRunClaimVerification(ctx, runner, repositoryID, runID)
-			if cverr != nil {
-				return cverr
-			}
-			if len(claimVerification) > 0 {
-				completionPayload["claim_verification"] = claimVerification
-				recordExtra["claim_verification"] = claimVerification
-			}
+		// RFC 0134 / D227: the executable-half gate READ. Load the run's
+		// claim_ledger + the receipts its VERIFIED claims name and record the
+		// EFFECTIVE claim status (two-signal sealed receipt → VERIFIED; missing /
+		// wedged / non-strict / single-signal → ASSERTED). This is a PURE READ:
+		// it executes nothing, adds NO failing gate, and never blocks completion
+		// on engine liveness — it only makes the verified-vs-asserted ledger
+		// durable on the completion event.
+		claimVerification, cverr := evaluateRunClaimVerification(ctx, runner, repositoryID, runID)
+		if cverr != nil {
+			return cverr
+		}
+		if len(claimVerification) > 0 {
+			completionPayload["claim_verification"] = claimVerification
+			recordExtra["claim_verification"] = claimVerification
+		}
 		// #311 P0: a clean completion that left a single recovery-exhausted,
 		// downstream-clear job quarantined finalizes-the-majority — carry the
 		// manifest and set stop_reason='quarantined_jobs' (instead of NULL) so the
@@ -1515,6 +1515,66 @@ func closeRemainingSessions(ctx context.Context, runner any, repositoryID, runID
 			Reason:           reason,
 			StopReasonPrefix: "terminal run cleanup (orphan supervisor)",
 			EventSource:      "terminal_run_cleanup_orphan",
+		}); err != nil {
+			return err
+		}
+	}
+	// #420: resolve every still-open blocker for this now-terminal run. The work a
+	// blocker gated is over once the run is terminal, so leaving it 'open' makes a
+	// dead run read as pending operator work (the #419 read-side scoping hides it,
+	// but the row itself stayed 'open' forever).
+	if err := resolveTerminalRunOpenBlockers(ctx, runner, repositoryID, runID, now, reason); err != nil {
+		return err
+	}
+	return nil
+}
+
+// resolveTerminalRunOpenBlockers resolves every still-open blocker for a run that
+// has reached a terminal state (#420). Unlike `recovery resolve-blocker`, which
+// REFUSES human_checkpoint / escalation-class blockers because a LIVE run must
+// adjudicate them through checkpoint.resolve / escalation.resolve (those record an
+// adjudicating decision), the terminal transition resolves ALL kinds: once the run
+// is dead the adjudication obligation is moot, so the honest record is "resolved by
+// the terminal cause", NOT a forged decision. It only ever runs from the terminal
+// cleanup path, so it can never short-circuit a live run's adjudication. The
+// escalation_inbox mirror is kept in lock-step so the two surfaces never disagree
+// (the same invariant recovery.resolve_blocker maintains).
+func resolveTerminalRunOpenBlockers(ctx context.Context, runner any, repositoryID, runID, now, reason string) error {
+	rows, err := queryRows(ctx, runner, `
+		UPDATE striatumd.blockers
+		   SET state = 'resolved', resolved_at = $1
+		 WHERE repository_id = $2 AND run_id = $3 AND state = 'open'
+		 RETURNING blocker_id, severity, blocker_kind, job_id`,
+		now, repositoryID, runID)
+	if err != nil {
+		return err
+	}
+	exec, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return fmt.Errorf("runner does not support exec")
+	}
+	for _, row := range rows {
+		blockerID := fmt.Sprint(row["blocker_id"])
+		if blockerID == "" {
+			continue
+		}
+		// A plain autonomous blocker has no escalation_inbox row; an escalation-class
+		// one does. Resolve any matching row so the two surfaces stay consistent.
+		if err := exec.Exec(ctx, `
+			UPDATE striatumd.escalation_inbox
+			   SET state = 'resolved', resolved_at = $1
+			 WHERE repository_id = $2 AND escalation_id = $3 AND state <> 'resolved'`,
+			now, repositoryID, blockerID); err != nil {
+			return err
+		}
+		if _, err := appendEvent(ctx, runner, repositoryID, runID, "blocker.resolved", nil, nullable(row["job_id"]), nil, nil, nil, map[string]any{
+			"blocker_id":   blockerID,
+			"severity":     row["severity"],
+			"blocker_kind": row["blocker_kind"],
+			"reason":       reason,
+			"source":       "terminal_run_cleanup",
 		}); err != nil {
 			return err
 		}

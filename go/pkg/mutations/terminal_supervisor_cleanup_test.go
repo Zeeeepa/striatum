@@ -21,8 +21,9 @@ type terminalCleanupTx struct {
 	queries                []string
 	committed              bool
 	rolledBack             bool
-	suppressActiveSessions bool     // #417: model a run with no active sessions left
-	orphanSessionIDs       []string // #417: sessions still owning a live supervisor
+	suppressActiveSessions bool             // #417: model a run with no active sessions left
+	orphanSessionIDs       []string         // #417: sessions still owning a live supervisor
+	openBlockers           []map[string]any // #420: blockers still open on the terminal run
 }
 
 func (tx *terminalCleanupTx) Exec(ctx context.Context, sql string, args ...any) error {
@@ -52,6 +53,9 @@ func (tx *terminalCleanupTx) Query(ctx context.Context, sql string, args ...any)
 			rows = append(rows, map[string]any{"session_id": sid})
 		}
 		return runPrepareRowsFromMaps(rows), nil
+	case strings.Contains(sql, "UPDATE striatumd.blockers") && strings.Contains(sql, "RETURNING"):
+		// #420: the still-open blockers this terminal run resolves.
+		return runPrepareRowsFromMaps(tx.openBlockers), nil
 	case strings.Contains(sql, "FROM striatumd.process_supervisors ps") && strings.Contains(sql, "FOR UPDATE OF ps"):
 		return runPrepareRowsFromMaps([]map[string]any{{
 			"supervisor_id":         "sup_1",
@@ -180,6 +184,40 @@ func TestCloseRemainingSessionsReapsOrphanSupervisorOfClosedSession(t *testing.T
 	}
 	if !sawExecWithArg(tx.execs, "INSERT INTO striatumd.events", "supervisor.stopped") {
 		t.Fatalf("expected supervisor.stopped event for orphan, execs=%#v", tx.execs)
+	}
+}
+
+// TestCloseRemainingSessionsResolvesTerminalRunOpenBlockers is the #420 forward
+// fix: when a run reaches a terminal state its still-open blockers are resolved —
+// ALL kinds, including human_checkpoint / escalation-class (whose adjudication
+// obligation is moot once the run is dead, unlike the LIVE-run recovery.resolve_blocker
+// path that refuses them) — with the escalation_inbox mirror kept consistent.
+func TestCloseRemainingSessionsResolvesTerminalRunOpenBlockers(t *testing.T) {
+	tx := &terminalCleanupTx{
+		suppressActiveSessions: true, // no sessions/supervisors to reap; isolate the blocker path
+		openBlockers: []map[string]any{
+			{"blocker_id": "blk_chk", "severity": "human_checkpoint", "blocker_kind": "revision_routing", "job_id": nil},
+			{"blocker_id": "blk_plain", "severity": "blocked", "blocker_kind": "missing_input", "job_id": "job_1"},
+		},
+	}
+	if err := closeRemainingSessions(context.Background(), tx, "repo_1", "run_1", "run_canceled", "run_canceled"); err != nil {
+		t.Fatalf("closeRemainingSessions: %v", err)
+	}
+	if !sawExecWithArg(tx.execs, "UPDATE striatumd.escalation_inbox", "blk_chk") {
+		t.Fatalf("expected escalation_inbox mirror resolved for terminal-run blockers, execs=%#v", tx.execs)
+	}
+	if !sawExecWithArg(tx.execs, "INSERT INTO striatumd.events", "blocker.resolved") {
+		t.Fatalf("expected a blocker.resolved provenance event, execs=%#v", tx.execs)
+	}
+	// The blockers UPDATE ... RETURNING ran (it drives the loop above).
+	sawBlockerUpdate := false
+	for _, q := range tx.queries {
+		if strings.Contains(q, "UPDATE striatumd.blockers") && strings.Contains(q, "state = 'resolved'") {
+			sawBlockerUpdate = true
+		}
+	}
+	if !sawBlockerUpdate {
+		t.Fatalf("expected the run-scoped blockers resolve UPDATE, queries=%#v", tx.queries)
 	}
 }
 
