@@ -83,6 +83,9 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	reads.RunLockHook = func(ctx context.Context, tx db.TxRunner, repositoryID string, runID string) error {
 		return LockRun(ctx, tx, repositoryID, runID)
 	}
+	reads.RecoveryExhaustedRedispatchHook = func(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID string) (bool, error) {
+		return redispatchRecoveryExhaustedJob(ctx, tx, repositoryID, runID, jobID)
+	}
 	var o Options
 	if len(opts) > 0 {
 		o = opts[0]

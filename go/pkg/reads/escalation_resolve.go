@@ -23,6 +23,22 @@ import (
 // package cannot import mutations — mutations imports reads).
 var RunCompletionRedriveHook func(ctx context.Context, tx db.TxRunner, repositoryID, runID string) error
 
+// RecoveryExhaustedRedispatchHook re-dispatches a sessionless, budget-exhausted
+// job after its recovery_exhausted escalation is resolved (#388). The repro: an
+// agent_exited_unsealed job's requeue budget ran out, the daemon escalated
+// recovery_exhausted, and the driver exited; after `escalation resolve` the job
+// stayed `running` with a dead session and a spent budget, so retry-job rejected
+// it, complete-stalled had nothing durable, and the re-armed sweep re-escalated
+// (the budget was never reset) — a permanent wedge. The hook (registered by
+// mutations.Register, since reads cannot import mutations) resets a
+// running/claimed/stale_lease job WITH NO LIVE SESSION back to queued (releasing
+// the lease, re-pending the work message) AND clears its job_recovery_state
+// (escalation_pending=false, requeue_count=0) so the re-armed run/sweep
+// re-dispatches with a fresh budget. It is a no-op for a job that already
+// completed, was quarantined, or still has a live session. nil only in a unit
+// test that drives HandleEscalationResolve without mutations.Register.
+var RecoveryExhaustedRedispatchHook func(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID string) (bool, error)
+
 // RunLockHook takes the RFC 0104 per-run advisory lock (mutations.LockRun) on
 // escalation.resolve's transaction. escalation.resolve is a per-run write verb
 // (it FOR UPDATEs blockers, then maybeCompleteRun FOR UPDATEs runs) but lives in
@@ -178,6 +194,26 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 		// terminal/canceled run is never revived. UPDATE ... RETURNING reports
 		// whether the flip happened so run.resumed is emitted only when it did.
 		runID := fmt.Sprint(blocker["run_id"])
+		// #388: re-dispatch a budget-exhausted, sessionless job whose
+		// recovery_exhausted escalation is being resolved, BEFORE the
+		// needs_operator -> running flip and completion re-drive below. If the job
+		// is reset to queued here, the run is NOT actually complete, so the flip
+		// must happen (a fresh lane can claim the re-pended work) and the completion
+		// re-drive must NOT prematurely finalize it. Resetting first keeps that
+		// ordering honest. The hook is a no-op for any other escalation kind, an
+		// already-terminal/quarantined job, or a job that still has a live session.
+		redispatched := false
+		if RecoveryExhaustedRedispatchHook != nil &&
+			fmt.Sprint(blocker["blocker_kind"]) == "recovery_exhausted" {
+			jobID := fmt.Sprint(nullableResolve(blocker["job_id"]))
+			if jobID != "" {
+				done, err := RecoveryExhaustedRedispatchHook(ctx, tx, repositoryID, runID, jobID)
+				if err != nil {
+					return nil, err
+				}
+				redispatched = done
+			}
+		}
 		clearedRows, err := queryAnyRows(ctx, tx, `
 			UPDATE striatumd.runs
 			   SET state = 'running'
@@ -194,7 +230,13 @@ func HandleEscalationResolve(ctx context.Context, runner db.Runner, envelope rpc
 			}); err != nil {
 				return nil, err
 			}
-			if RunCompletionRedriveHook != nil {
+			// #388: when the job was re-dispatched, do NOT re-drive run completion —
+			// the run now has a live (queued, re-pended) job to finish, and the
+			// completion gate would otherwise see no claimable session and could
+			// prematurely settle/escalate. The re-pended work message wakes a fresh
+			// lane through the normal claim path. The completion re-drive stays for
+			// the unchanged case (every job already terminal).
+			if RunCompletionRedriveHook != nil && !redispatched {
 				if err := RunCompletionRedriveHook(ctx, tx, repositoryID, runID); err != nil {
 					return nil, err
 				}

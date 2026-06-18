@@ -18,6 +18,30 @@
   exhausted the verb surfaces the legible `daemon_under_load` error instead of
   the raw SQLSTATE. Deadlock (40P01) handling is unchanged. Addresses #389
   (gap 1) and #383 (item 3).
+- **recovery: dead/parked lane wedges no longer require manual `session close` /
+  re-dispatch dead-ends (#373, #388).** Three compounding recovery
+  state-machine gaps that wedged otherwise-successful runs:
+  - **#373A** — the autonomous-recovery requeue/transfer path now resolves the
+    job's open NON-escalation autonomous blockers (e.g. an agent-raised
+    `branch_contamination`) using the exact #304 completion-time selection, so a
+    requeued attempt no longer wedges behind its own dangling blocker. A genuine
+    human-attention blocker (`human_checkpoint` / any escalation-class kind,
+    including `recovery_exhausted`) is never auto-resolved.
+  - **#373B** — the recovery decision tree now reaps a still-active, no-lease
+    session in the `agent_escalation_pending` (ProtocolAttention) posture that
+    has NO genuine open human-attention blocker — closing it and transferring the
+    attempt to a fresh lane, exactly what a manual `session close` did. Guarded:
+    a session with an open `human_checkpoint`/escalation-class blocker is left for
+    the human (the same guard now also protects the protocol-idle CASE 2 reap).
+  - **#388** — `escalation resolve` of a `recovery_exhausted` escalation whose
+    sessionless job was left `running` with a spent budget now re-dispatches the
+    job: it resets the job to `queued` (releasing the lease, re-pending the work
+    message) and clears its recovery budget (`escalation_pending=false`,
+    `requeue_count`/`transfer_count`/`respawn_count`=0, `run_escalated_at`=NULL)
+    so the re-armed run/sweep re-dispatches with a fresh budget instead of
+    re-escalating. The `recovery_exhausted` escalation's
+    `suggested_operator_actions` now name `escalation resolve` (and
+    `recovery complete-stalled`) as the working paths.
 
 ### Changed
 
