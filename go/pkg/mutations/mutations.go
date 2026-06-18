@@ -945,6 +945,18 @@ func enqueueReadyBlockedJobs(ctx context.Context, runner any, repositoryID, runI
 }
 
 func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID string) (bool, error) {
+	// RFC 0132 Layer C / P4b (#341): an open advisory-guard blocker on this gate job
+	// HOLDS the line — the gate cannot enqueue (and so the run cannot finalize) until
+	// an operator resolves it (checkpoint resolve). This is how an advisory reviewer
+	// stops the line without ever auto-flipping a verdict. A gate with no advisory
+	// seats never carries such a blocker, so default behavior is unchanged.
+	heldByAdvisory, err := gateHeldByOpenAdvisoryGuard(ctx, runner, repositoryID, jobID)
+	if err != nil {
+		return false, err
+	}
+	if heldByAdvisory {
+		return false, nil
+	}
 	deps, err := queryRows(ctx, runner, `
 		SELECT * FROM striatumd.job_dependencies
 		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)

@@ -1237,6 +1237,24 @@ V1 schemas:
   slice the daemon does **not** execute checks to produce a receipt — a receipt
   is authored/sealed off the gate path by a sandboxed verifier lane (a later
   slice); the claim ledger merely names it.
+- `striatum.advisory_minority_report.v1` (kind `advisory_minority_report`,
+  RFC 0132 Layer C / P4b, D214): required `schema_version`,
+  `artifact_kind: advisory_minority_report`, `run_id`,
+  `gate_workflow_job_id`, `guard_fired` (one of
+  `advisory_corroborated_abstention`, `unanimous_advisory_reject`,
+  `advisory_only_panel_ungrounded`, `none`), `advisory_outcome` (one of
+  `must_escalate`, `advisory_noted`), `created_at`, and `seats` (non-empty
+  list of objects). Each `seats` row records one advisory seat's
+  `workflow_job_id`, `verdict` (one of `accept`, `accept_with_findings`,
+  `needs_revision`, `reject`, `abstain`), and an optional `rationale_excerpt`.
+  The `advisory_outcome` must agree with `guard_fired`: a fired guard
+  (anything but `none`) requires `must_escalate`; `none` requires
+  `advisory_noted` — so a report cannot claim a clean silent-accept while
+  naming a guard that blocked finalize. It is the mandatory minority report
+  every panel finalize authors (advisory: loud reject, silent accept, never
+  silent), pinned as a required `expected_artifact` so the publisher refuses
+  with exit code 6 if omitted. It registers as an `artifactcontracts` contract
+  and creates no live-state table (no DDL).
 - `striatum.collaboration_ledger.v1` / `striatum.collaboration_ledger.v1.1`
   (kind `collaboration_ledger`, RFC 0093 / RFC 0098): required
   `schema_version`, `artifact_kind: collaboration_ledger`, `shape` (one of

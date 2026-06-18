@@ -130,15 +130,22 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		return nil, err
 	}
 
+	// RFC 0132 P4b (#342): the finalize-decision legibility block — live (current-seal)
+	// dissent_ledger rows blocking finalize, and any open advisory-guard hold on a gate
+	// — so a quorum hold or an advisory park is self-explaining in run.summary before an
+	// operator runs checkpoint resolve.
+	quorumDissent := quorumDissentSummary(ctx, runner, repositoryID, runID)
+
 	result := map[string]any{
-		"run":           runs[0],
-		"jobs":          jobs,
-		"artifacts":     artifacts,
-		"verdicts":      verdicts,
-		"overrides":     overrides,
-		"sessions":      sessionsBlock,
-		"doctor":        doctor,
-		"operator_mode": workflowOperatorMode(workflow),
+		"run":            runs[0],
+		"jobs":           jobs,
+		"artifacts":      artifacts,
+		"verdicts":       verdicts,
+		"overrides":      overrides,
+		"sessions":       sessionsBlock,
+		"doctor":         doctor,
+		"operator_mode":  workflowOperatorMode(workflow),
+		"quorum_dissent": quorumDissent,
 	}
 	if len(completionRecord) > 0 {
 		result["completion_record"] = completionRecord

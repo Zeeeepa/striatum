@@ -726,6 +726,15 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 		if err := recordDissent(ctx, tx, repositoryID, job, sessionID, verdictID, verdict); err != nil {
 			return nil, err
 		}
+		// RFC 0132 Layer C / P4b (#341): evaluate the advisory guards over the panel's
+		// gating-abstention + advisory tally co-transactionally with this verdict. A
+		// fired guard (advisory_corroborated_abstention / unanimous_advisory_reject /
+		// advisory_only_panel_ungrounded) opens an operator-resolvable BLOCKED blocker on
+		// the downstream gate (it never auto-flips the implementer and never silently
+		// wedges). A no-op when no advisory guard fires (the silent-accept case).
+		if err := applyAdvisoryGuards(ctx, tx, repositoryID, jobID); err != nil {
+			return nil, err
+		}
 	}
 	switch verdict {
 	case "accept", "accept_with_findings":

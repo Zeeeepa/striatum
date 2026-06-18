@@ -502,6 +502,113 @@ func TestBindingConstraintsFromLedgerExtractsBindingRows(t *testing.T) {
 	}
 }
 
+// --- advisory_minority_report.v1 (RFC 0132 Layer C / #341) -------------------
+
+func validAdvisoryMinorityReport(guard, outcome, seats string) string {
+	return `---
+schema_version: "striatum.advisory_minority_report.v1"
+artifact_kind: "advisory_minority_report"
+run_id: "run_panel_1"
+gate_workflow_job_id: "adjudicate"
+guard_fired: "` + guard + `"
+advisory_outcome: "` + outcome + `"
+created_at: "2026-06-18T00:00:00Z"
+` + seats + `---
+
+# Advisory Minority Report
+`
+}
+
+func TestAdvisoryMinorityReportSilentAcceptValidates(t *testing.T) {
+	// The silent-accept case still authors a report: no guard fired, outcome
+	// advisory_noted, each advisory seat recorded (never silently dropped).
+	payload := validAdvisoryMinorityReport("none", "advisory_noted", `seats:
+  - workflow_job_id: rev_adv
+    verdict: accept
+    rationale_excerpt: "no concerns"
+`)
+	if err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload)); err != nil {
+		t.Fatalf("valid silent-accept advisory minority report refused: %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportFiredGuardRequiresMustEscalate(t *testing.T) {
+	// A fired guard with advisory_noted is incoherent (the report would claim a
+	// clean accept while naming a guard that blocked finalize).
+	payload := validAdvisoryMinorityReport("unanimous_advisory_reject", "advisory_noted", `seats:
+  - workflow_job_id: rev_adv
+    verdict: reject
+`)
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "requires advisory_outcome 'must_escalate'") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportNoGuardWithMustEscalateRejected(t *testing.T) {
+	payload := validAdvisoryMinorityReport("none", "must_escalate", `seats:
+  - workflow_job_id: rev_adv
+    verdict: accept
+`)
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "requires advisory_outcome 'advisory_noted'") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportRequiresAtLeastOneSeat(t *testing.T) {
+	payload := validAdvisoryMinorityReport("none", "advisory_noted", "seats: []\n")
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "must declare at least one advisory seat") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportRejectsInvalidSeatVerdict(t *testing.T) {
+	payload := validAdvisoryMinorityReport("none", "advisory_noted", `seats:
+  - workflow_job_id: rev_adv
+    verdict: maybe
+`)
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "requires 'verdict' one of") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportRejectsDuplicateSeat(t *testing.T) {
+	payload := validAdvisoryMinorityReport("none", "advisory_noted", `seats:
+  - workflow_job_id: rev_adv
+    verdict: accept
+  - workflow_job_id: rev_adv
+    verdict: abstain
+`)
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "is duplicated") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportRejectsUnknownSeatKey(t *testing.T) {
+	payload := validAdvisoryMinorityReport("none", "advisory_noted", `seats:
+  - workflow_job_id: rev_adv
+    verdict: accept
+    stdout: "raw provider stream"
+`)
+	err := ValidateFrontMatter("advisory_minority_report", "ADVISORY.md", []byte(payload))
+	if err == nil || !strings.Contains(err.Error(), "has unknown fields: stdout") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestAdvisoryMinorityReportIsAllowedAndSchemad(t *testing.T) {
+	if !IsAllowedKind("advisory_minority_report") {
+		t.Fatal("advisory_minority_report must be an allowed kind")
+	}
+	if !HasFrontMatterSchema("advisory_minority_report") {
+		t.Fatal("advisory_minority_report must have a front-matter schema")
+	}
+}
+
 func yamlFenceAfter(t *testing.T, text string, label string) string {
 	t.Helper()
 	start := strings.Index(text, label)
