@@ -25,6 +25,135 @@ import (
 //     receives it as a `conversation_message` envelope. Acked on delivery.
 // The daemon is the sole writer and appends events for each transition.
 
+// postDialogHook is the parsed RFC 0094 §1 conversation post_dialog_hook
+// declaration. On conversation close (explicit or auto-close at max_rounds) the
+// daemon emits exactly one work packet to DeliverTo carrying the participant
+// session ids + a transcript reference, BEFORE the participant lanes' preserved-
+// context window is released, so a coordinator can fan out follow-up work (e.g.
+// synaptic_prune nominations via interrogation.open) while the targets are still
+// live. RFC 0095 Phase 3 reuses this "keep participants live through a gate"
+// mechanism for review panels.
+//
+// DeliverTo is a participant/coordinator SESSION id (the unambiguous, generic
+// form of the RFC's "role | session selector" — role-based resolution is left to
+// the shape slice that consumes this mechanism). PacketType is an opaque label
+// echoed into the emitted packet so the coordinator's await loop can dispatch on
+// it (e.g. "prune"); it is NOT a daemon job type and creates no owner-held job.
+type postDialogHook struct {
+	DeliverTo  string `json:"deliver_to"`
+	PacketType string `json:"packet_type"`
+}
+
+// parsePostDialogHook extracts and validates an optional post_dialog_hook from a
+// conversation.open envelope. Returns (nil, nil) when absent. The DeliverTo
+// session must be one of the conversation participants (the hook keeps the
+// participant context window open for a coordinator that is itself in the
+// conversation — the generic single-conversation form; a non-participant
+// coordinator would need its own liveness window, which is the RFC 0095 Phase 3
+// panel-window generalization and is out of scope for this mechanism slice).
+func parsePostDialogHook(envelope rpc.Envelope, participants []string) (*postDialogHook, error) {
+	raw, ok := envelope.Params["post_dialog_hook"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	declaration, ok := raw.(map[string]any)
+	if !ok {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook must be an object", nil)
+	}
+	if declaration["deliver_to"] == nil {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook requires deliver_to (a coordinator session id)", nil)
+	}
+	if declaration["packet_type"] == nil {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook requires packet_type", nil)
+	}
+	deliverTo := strings.TrimSpace(fmt.Sprint(declaration["deliver_to"]))
+	packetType := strings.TrimSpace(fmt.Sprint(declaration["packet_type"]))
+	if deliverTo == "" {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook requires deliver_to (a coordinator session id)", nil)
+	}
+	if packetType == "" {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook requires packet_type", nil)
+	}
+	if !containsString(participants, deliverTo) {
+		return nil, rpc.NewError("schema_invalid", "conversation.open post_dialog_hook deliver_to must be one of the conversation participants", nil)
+	}
+	return &postDialogHook{DeliverTo: deliverTo, PacketType: packetType}, nil
+}
+
+// loadConversationPostDialogHook reads a stored post_dialog_hook declaration
+// from the sidecar table for a conversation (nil when none was declared).
+func loadConversationPostDialogHook(ctx context.Context, runner any, repositoryID, conversationID string) (*postDialogHook, error) {
+	row, err := oneRow(ctx, runner, `
+		SELECT deliver_to, packet_type
+		  FROM striatumd.conversation_post_dialog_hooks
+		 WHERE repository_id = $1 AND conversation_id = $2`,
+		repositoryID, conversationID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	deliverTo := strings.TrimSpace(fmt.Sprint(row["deliver_to"]))
+	packetType := strings.TrimSpace(fmt.Sprint(row["packet_type"]))
+	if deliverTo == "" || packetType == "" {
+		return nil, nil
+	}
+	return &postDialogHook{DeliverTo: deliverTo, PacketType: packetType}, nil
+}
+
+// emitPostDialogHook delivers exactly one post_dialog_hook work packet to the
+// coordinator session, in the SAME transaction as the conversation close so the
+// emit lands before any participant teardown (emit-before-teardown, RFC 0094 §1).
+// It reuses the existing queue_messages delivery path (kind='agent_message',
+// state='pending', target_session_id) — the same path interrogation questions
+// and conversation turns ride — so no new daemon authority and no owner-held job
+// is created. The payload carries the participant session ids + a transcript_ref
+// (the conversation_id; the coordinator reads the curated transcript via
+// conversation.show, never raw provider output, per D028).
+func emitPostDialogHook(ctx context.Context, tx db.TxRunner, repositoryID, runID, conversationID string, participants []string, hook *postDialogHook) (string, error) {
+	messageID, err := newID("msg")
+	if err != nil {
+		return "", err
+	}
+	payload := map[string]any{
+		"kind":                    "post_dialog_hook",
+		"role":                    "post_dialog_hook",
+		"conversation_id":         conversationID,
+		"packet_type":             hook.PacketType,
+		"participant_session_ids": participants,
+		"transcript_ref":          conversationID,
+	}
+	payloadArg, err := db.JSONBArg(tx, payload)
+	if err != nil {
+		return "", err
+	}
+	now := nowString()
+	if err := tx.Exec(ctx, `
+		INSERT INTO striatumd.queue_messages (
+		  repository_id, message_id, run_id, kind, state, target_session_id,
+		  payload_json, created_at, updated_at
+		)
+		VALUES ($1,$2,$3,'agent_message','pending',$4,$5::jsonb,$6,$6)`,
+		repositoryID, messageID, runID, hook.DeliverTo, payloadArg, now); err != nil {
+		return "", err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "conversation.post_dialog_hook_emitted", hook.DeliverTo, nil, messageID, nil, nil, map[string]any{
+		"conversation_id": conversationID,
+		"packet_type":     hook.PacketType,
+		"deliver_to":      hook.DeliverTo,
+	}); err != nil {
+		return "", err
+	}
+	recordWake(tx, WakeEvent{
+		RepositoryID: repositoryID,
+		RunID:        runID,
+		Kind:         "agent_message_available",
+		MessageID:    messageID,
+	})
+	return messageID, nil
+}
+
 // HandleConversationOpen opens an N-party conversation among active participant
 // sessions sharing a run. Round-robin floor starts at participants[0], which
 // receives the opening turn.
@@ -44,6 +173,10 @@ func HandleConversationOpen(ctx context.Context, runner db.Runner, envelope rpc.
 	}
 	if dup := firstDuplicate(participants); dup != "" {
 		return nil, rpc.NewError("invalid_transition", fmt.Sprintf("participant %s listed more than once", dup), nil)
+	}
+	hook, err := parsePostDialogHook(envelope, participants)
+	if err != nil {
+		return nil, err
 	}
 	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		var runID string
@@ -83,6 +216,18 @@ func HandleConversationOpen(ctx context.Context, runner db.Runner, envelope rpc.
 			repositoryID, runID, conversationID, nullable(topic), participantsArg,
 			maxRounds, now); err != nil {
 			return nil, err
+		}
+		// RFC 0094 §1: persist the post_dialog_hook declaration in its sidecar so
+		// it is available at close time on both close paths.
+		if hook != nil {
+			if err := tx.Exec(ctx, `
+				INSERT INTO striatumd.conversation_post_dialog_hooks (
+				  repository_id, conversation_id, run_id, deliver_to, packet_type, created_at
+				)
+				VALUES ($1,$2,$3,$4,$5,$6)`,
+				repositoryID, conversationID, runID, hook.DeliverTo, hook.PacketType, now); err != nil {
+				return nil, err
+			}
 		}
 		// No delivery message: participants[0] holds the floor, so its await
 		// loop derives its turn from floor_index (deliverPendingConversationTurn).
@@ -167,6 +312,18 @@ func HandleConversationSay(ctx context.Context, runner db.Runner, envelope rpc.E
 			}); err != nil {
 				return nil, err
 			}
+			// RFC 0094 §1: emit the post_dialog_hook before participant teardown,
+			// in this same close transaction, while the participant context window
+			// is still live.
+			hook, err := loadConversationPostDialogHook(ctx, tx, repositoryID, conversationID)
+			if err != nil {
+				return nil, err
+			}
+			if hook != nil {
+				if _, err := emitPostDialogHook(ctx, tx, repositoryID, runID, conversationID, participants, hook); err != nil {
+					return nil, err
+				}
+			}
 		} else {
 			// Advance the floor; the next participant's await loop derives its
 			// turn from floor_index (no delivery message needed).
@@ -239,7 +396,23 @@ func HandleConversationClose(ctx context.Context, runner db.Runner, envelope rpc
 		}); err != nil {
 			return nil, err
 		}
-		return map[string]any{"conversation_id": conversationID, "state": "closed"}, nil
+		result := map[string]any{"conversation_id": conversationID, "state": "closed"}
+		// RFC 0094 §1: emit the post_dialog_hook before participant teardown, in
+		// this same close transaction, while the participant context window is
+		// still live.
+		hook, err := loadConversationPostDialogHook(ctx, tx, repositoryID, conversationID)
+		if err != nil {
+			return nil, err
+		}
+		if hook != nil {
+			messageID, err := emitPostDialogHook(ctx, tx, repositoryID, fmt.Sprint(conv["run_id"]), conversationID, conversationParticipants(conv), hook)
+			if err != nil {
+				return nil, err
+			}
+			result["post_dialog_hook_emitted"] = true
+			result["post_dialog_hook_message_id"] = messageID
+		}
+		return result, nil
 	})
 }
 

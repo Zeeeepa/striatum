@@ -68,17 +68,18 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// fanin_freeze_points above, NOT an SD-gated surface (it uses a plain
 	// refuse-trigger, not the assert_daemon_authority gate). Written co-transactionally
 	// with the verdict insert under the per-run advisory lock.
-	"dissent_ledger":              ClassRuntimeDML,
-	"client_capabilities":         ClassRuntimeDML,
-	"client_sessions":             ClassRuntimeDML,
-	"clients":                     ClassRuntimeDML,
-	"command_requests":            ClassRuntimeDML,
-	"conversations":               ClassRuntimeDML,
-	"cross_repo_cycle_counters":   ClassRuntimeDML,
-	"cross_repo_run_repositories": ClassRuntimeDML,
-	"cross_repo_runs":             ClassRuntimeDML,
-	"daemon_supervisors":          ClassRuntimeDML,
-	"escalation_inbox":            ClassRuntimeDML,
+	"dissent_ledger":                 ClassRuntimeDML,
+	"client_capabilities":            ClassRuntimeDML,
+	"client_sessions":                ClassRuntimeDML,
+	"clients":                        ClassRuntimeDML,
+	"command_requests":               ClassRuntimeDML,
+	"conversations":                  ClassRuntimeDML,
+	"conversation_post_dialog_hooks": ClassRuntimeDML,
+	"cross_repo_cycle_counters":      ClassRuntimeDML,
+	"cross_repo_run_repositories":    ClassRuntimeDML,
+	"cross_repo_runs":                ClassRuntimeDML,
+	"daemon_supervisors":             ClassRuntimeDML,
+	"escalation_inbox":               ClassRuntimeDML,
 	// fanin_freeze_points (RFC 0135 P1, migration 0029): the immutable fan-in
 	// freeze record. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger
 	// + the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as

@@ -50,6 +50,7 @@ func Lint(workflow map[string]any) (map[string]any, error) {
 	lintExperimentalShape(workflow, &findings)
 	lintDegradedSeatLane(workflow, &findings)
 	lintInterrogationTargets(workflow, jobMap, &findings)
+	lintPhaseGateSequencing(workflow, jobMap, &findings)
 	for index := range findings {
 		findings[index]["fingerprint"] = FindingFingerprint(findings[index])
 	}
@@ -610,6 +611,46 @@ func lintInterrogationTargets(workflow map[string]any, jobMap map[string]map[str
 				})
 			}
 		}
+	}
+}
+
+// lintPhaseGateSequencing advises on RFC 0094 §2 work-packet type sequencing.
+// Hard reference errors (missing gate job, unknown withheld type, missing
+// dependency edge) already fail Validate (see validatePhaseGateSequencing).
+//
+// This advisory surfaces the sequencing for operator visibility: an info-level
+// finding naming the withheld types and the gate job per declaring phase, so a
+// reviewer of `workflow lint` output sees the type-sequencing constraint without
+// reading the phase block. The hard reference checks are Validate's job; this is
+// pure legibility.
+func lintPhaseGateSequencing(workflow map[string]any, jobMap map[string]map[string]any, findings *[]map[string]any) {
+	phases := anySlice(workflow["phases"])
+	if len(phases) == 0 {
+		return
+	}
+	for _, item := range phases {
+		phase, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		gate, ok := phase["gate"].(map[string]any)
+		if !ok {
+			continue
+		}
+		if _, declared := gate["withhold_packet_types"]; !declared {
+			continue
+		}
+		phaseID := stringValue(phase["id"])
+		gateJobID := stringValue(gate["until_verdict_clears"])
+		sortedWithheld := append([]string(nil), stringsFromSlice(gate["withhold_packet_types"])...)
+		sort.Strings(sortedWithheld)
+		*findings = append(*findings, map[string]any{
+			"rule":        "phase_gate_type_sequencing",
+			"severity":    "info",
+			"message":     fmt.Sprintf("phase %q withholds work-packet type(s) %s until gate job %q clears (RFC 0094 §2)", phaseID, strings.Join(sortedWithheld, ", "), gateJobID),
+			"phase_id":    phaseID,
+			"gate_job_id": gateJobID,
+		})
 	}
 }
 
