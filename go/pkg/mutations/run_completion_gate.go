@@ -17,6 +17,23 @@ import (
 // run at its completion boundary. This gate re-verifies every
 // provenance-required review gate against the FROZEN verdict stamp (P0-1)
 // before maybeCompleteRun may choose a clean completion.
+//
+// RFC 0135 P5 (D216) — the revision-coherence half of this gate IS the sealed
+// expectation barrier primitive (db.BarrierReadySQL) with seal :=
+// review_generation. RFC 0126's finalization rule ("for each build, every
+// required reviewer obligation has a non-superseded ACCEPTING verdict stamped
+// with the build's CURRENT review_generation") is the per-build set-difference
+// `required_obligations MINUS current-generation accepting verdicts` — exactly
+// the primitive's readiness predicate `bool_and(is_terminal_gap OR
+// staged.seal = live.seal)` projected onto entity=review_obligation,
+// seal=review_generation, where a verdict stamped below the build's live
+// generation is structurally absent from the satisfying set (never a COUNT, never
+// a recency read). On a build revision, bumpReviewGeneration advances the entity's
+// live seal and resetDownstreamForRevision returns the reviewer to `blocked` (no
+// current-seal verdict), so a stale prior-generation needs_revision can no longer
+// be named as a satisfying obligation. P5 RENAMES this already-shipped mechanism
+// as the canonical seal instance — it does NOT change behavior; the equivalence is
+// proven by TestRevisionCoherenceIsTheSealInstance.
 
 const provenanceGateFailedBlockerKind = "provenance_gate_failed"
 

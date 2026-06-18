@@ -249,6 +249,19 @@ This is the fold that justifies the whole "seal not attempt" framing.
   (Risks). RFC 0126 rejected attempt-keying for a reason; the primitive honors that
   by keying on the seal, and `review_generation` *is* the seal — so adopting the
   primitive cannot drag review coherence back onto a churning attempt.
+- **Landed at P5 (docs + tests only, NO behavior change, NO migration).** The
+  three operations above are named as seal operations directly in source comments
+  (`bumpReviewGeneration`, the `applyVerdict` verdict stamp, and the
+  `verifyRunCompletionProvenance` finalization gate), and the equivalence is
+  fenced by `TestRevisionCoherenceIsTheSealInstance`
+  (`go/pkg/mutations/revision_coherence_seal_test.go`): it re-expresses the
+  RFC 0126 #282 regression (a revised build at generation 2; reviewer A accepts at
+  gen 2; reviewer B's gen-1 `needs_revision` survives) and evaluates the primitive
+  readiness predicate `bool_and(is_terminal_gap OR staged.seal = live.seal)` with
+  `seal := review_generation` directly over the live verdict/obligation rows,
+  asserting it REFUSES naming reviewer B — byte-identical to RFC 0126's set-difference
+  outcome. The default finalization path is unchanged; the seal predicate is a pure,
+  un-wired equivalence witness, never a new production code path.
 
 ### Run.integrate (RFC 0108) — `entity = run`
 
@@ -353,7 +366,7 @@ earlier):
 | **P2 — assembly + N=1 unification (job-entity)** | #346 (133-C) | `barrier_assembly` job type backed by a `barrier_state` row (`sealed→assembling→committed\|failed`) with two-phase journaling; route N=1 through the one path. | `barrier_assembly` CHECK => **owner bundle 0013**; `barrier_state` => **runtime, no FK, explicit GRANT** |
 | **P3 — doctor + refusal + verify** *(IMPLEMENTED — `barrier_integrity` doctor invariant + `BARRIER_BLOCKED`/`blocked_manifest` (a DERIVED runtime/doctor condition, NOT a `barrier_state` CHECK value) + `striatum join verify` (`join.verify`) + runtime migration `0031` `barrier_status` view; D206 stays the default)* | #347 (133-D) | The generalized barrier doctor invariant (subsumes `fanin_sibling_unintegrated` and the per-integration checks), the `BARRIER_BLOCKED` named state + `blocked_manifest`, `barrier_status` view, `striatum join verify`. | none |
 | **P4 — quorum consumes the predicate** | #338–#343 (132-A…F) | `panelQuorumSatisfied` is **the primitive** with `entity=review_seat (workflow_job_id), seal=attempt`, declared-seat denominator, verdict-less abstention stub (D214a), skip-only-provably-dead (D214b), forward-written dissent. `k_of_n` desugars in lint (D214). #343's optional `dissent_quarantine` run-state now needs the next available owner bundle if it ships. | per RFC 0132 / D215 (no-DDL workflow_json + runtime `dissent_ledger`; optional run-state CHECK => owner bundle) |
-| **P5 — revision coherence is named as the seal instance** | RFC 0095/0126 follow-up | `review_generation` is documented and tested as `seal := review_generation`; the RFC 0126 finalization gate is asserted to be the primitive predicate. **No behavior change**, no migration — a renaming + a shared-doctor/shared-test fold. | none |
+| **P5 — revision coherence is named as the seal instance** *(IMPLEMENTED — docs + tests only, NO behavior change, NO migration; `bumpReviewGeneration` = "advance the entity's seal", the `applyVerdict` review_generation stamp = "embed the seal in the contribution", and the RFC 0126 finalization set-difference = the primitive predicate with `seal := review_generation`, all named in source comments; fenced by `TestRevisionCoherenceIsTheSealInstance`)* | RFC 0095/0126 follow-up | `review_generation` is documented and tested as `seal := review_generation`; the RFC 0126 finalization gate is asserted to be the primitive predicate. **No behavior change**, no migration — a renaming + a shared-doctor/shared-test fold. | none |
 | **P6 — run.integrate folds in (entity=run)** | RFC 0108 follow-up | The run-completion integration gate is recast as the run-entity barrier whose in-edges are job-level barriers; the merge-tree/CAS path is shared with `barrier_assembly`. The highest-risk fold (Risks). | none (uses existing run/integration state) |
 
 The four-caller span is **P1+P4 (attempt-sealed), P5 (generation-sealed),
@@ -433,9 +446,10 @@ before flipping any workflow).
   seat (bound to `supervisedAgentConfirmedDead`,
   `recovery_decision_tree.go:983`) is quorum-skippable within budget; a *live*
   gating seat blocks the barrier (silence-from-a-live-lane is not consent).
-- `TestRevisionCoherenceIsTheSealInstance` (P5) — the RFC 0126 #282 regression
-  fence re-expressed against the primitive: a revised build at generation 2,
-  reviewer A accepts at gen 2, reviewer B's gen-1 `needs_revision` remains ⇒ the
+- `TestRevisionCoherenceIsTheSealInstance` (P5) *(IMPLEMENTED —
+  `go/pkg/mutations/revision_coherence_seal_test.go`)* — the RFC 0126 #282
+  regression fence re-expressed against the primitive: a revised build at generation
+  2, reviewer A accepts at gen 2, reviewer B's gen-1 `needs_revision` remains ⇒ the
   barrier refuses naming B, proving `seal := review_generation` yields RFC 0126's
   exact behavior.
 - `TestRunIntegrateIsTheRunEntityBarrier` (P6) — the run-entity barrier produces

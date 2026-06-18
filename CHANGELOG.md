@@ -4,6 +4,28 @@
 
 ### Added
 
+- **RFC 0135 P5 — `review_generation` is named as the seal instance (docs +
+  tests only, NO behavior change, NO migration).** The revision-coherence fold
+  that justifies the primitive's "seal not attempt" framing: RFC 0126's
+  build-owned monotonic `review_generation` (D194) IS the sealed expectation
+  barrier primitive's seal (`db.BarrierReadySQL` with `seal :=
+  review_generation`). Source comments now name each operation as a seal
+  operation — `bumpReviewGeneration` ("advance the entity's seal",
+  `go/pkg/mutations/revision_routing.go`), the `applyVerdict` `review_generation`
+  stamp ("embed the seal in the contribution", `go/pkg/mutations/review.go`), and
+  the RFC 0126 per-build finalization set-difference (`required obligations MINUS
+  current-generation accepting verdicts`) as the primitive readiness predicate
+  (`go/pkg/mutations/run_completion_gate.go`). The default finalization path is
+  unchanged — the seal predicate is a pure equivalence witness, never a new
+  production code path. New regression fence `TestRevisionCoherenceIsTheSealInstance`
+  (`go/pkg/mutations/revision_coherence_seal_test.go`) re-expresses the RFC 0126
+  #282 shape (a revised build at generation 2; reviewer A accepts at gen 2;
+  reviewer B's gen-1 `needs_revision` survives) and evaluates BOTH the RFC 0126
+  set-difference AND the P0 primitive predicate (`seal := review_generation`) over
+  the same live rows, asserting they agree — both refuse naming reviewer B until B
+  records its own current-seal accepting verdict. The RFC's P5 slice row, the
+  "Revision coherence" reconciliation, and the `TestRevisionCoherenceIsTheSealInstance`
+  test-plan entry are marked IMPLEMENTED in `docs/rfcs/0135-sealed-barrier-primitive.md`.
 - **#347 RFC 0135 P3 — barrier doctor invariant + `BARRIER_BLOCKED` +
   `striatum join verify`.** P3 closes the sealed expectation barrier primitive
   with its doctor/refusal/verify surface. **Runtime migration `0031`**
