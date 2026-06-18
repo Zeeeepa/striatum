@@ -4,6 +4,48 @@
 
 ### Added
 
+- **#338/#339/#340 RFC 0135 P4 — panel quorum consumes the sealed barrier
+  (entity=review_seat, seal=attempt).** The panel-quorum caller (D214/D216) lands
+  as an instance of P0's entity/seal-generic `db.BarrierReadySQL`, NOT a fourth
+  ad-hoc predicate. **#338 — `panel_role` + frozen quorum.** A per-reviewer
+  `panel_role: gating|advisory` (default `gating`, lint-validated in
+  `workflowauthoring.Validate`) and a per-gate `max_gating_abstentions` budget
+  (default **0**) are workflow config — **NO DDL**. `panelQuorumSatisfied`
+  (`go/pkg/mutations/barrier_quorum.go`) evaluates the P0 predicate over the **frozen
+  declared-seat denominator** (the gate's review-seat dependencies), keyed on the
+  **stable `workflow_job_id`** (NEVER `job_id`, which recovery churns), seal=attempt.
+  A stale-seal accepting verdict is structurally invisible (`staged.attempt =
+  live.attempt`). **DEFAULT BEHAVIOR UNCHANGED:** at budget 0 every gating seat is
+  required — identical to the edge-by-edge `dependenciesSatisfied` path it branches
+  off. **#339 — forward-written `dissent_ledger`.** New RUNTIME migration **`0031`**
+  (`go/pkg/db/sql/0031_dissent_ledger.sql`, `LatestDaemonDBVersion` 30→31) adds an
+  append-only, seal-durable dissent witness keyed on the stable `workflow_job_id`,
+  written **co-transactionally with a blocking (needs_revision/reject) verdict** in
+  the review apply path under the existing per-run advisory lock. Per D215: RUNTIME,
+  **NO SQL FK to `striatumd.jobs`** (integrity in Go), explicit SELECT/INSERT-only
+  GRANT + a BEFORE UPDATE/DELETE refuse-trigger (mirrors P1's freeze table),
+  classified in BOTH read+write authority inventories. A LIVE dissent blocks the
+  quorum wherever recovery moved the seat's lineage; a superseded-seal dissent no
+  longer blocks. **#340 — verdict-less abstention stub + skip-only-provably-dead.**
+  D214(a): an abstention stub holds a seat / raises the frozen denominator but
+  carries **NO verdict value** — classified `abstain`, never accept/reject; it cannot
+  satisfy `staged.seal = live.seal`. D214(b): a gating seat may be treated as
+  terminally-absent (counted against the budget) **only** when
+  `structurally_unrecoverable`, bound to the forgery-resistant
+  `supervisedAgentConfirmedDead` oracle — a LIVE gating seat blocks (silence ≠
+  consent). `k_of_n` generalization is deferred to lint (D214). Tests:
+  `TestPanelQuorumOverFrozenDenominatorBudgetZero`,
+  `TestPanelQuorumStaleSealAcceptDoesNotSatisfy`,
+  `TestQuorumStubHoldsSeatWithoutVerdict` (D214a),
+  `TestQuorumSkipsOnlyProvablyDeadSeat` (D214b),
+  `TestQuorumDeadSeatBeyondBudgetStillBlocks`,
+  `TestQuorumLiveDissentBlocksAcrossRecovery`,
+  `TestQuorumAdvisorySeatExcludedFromDenominator`, `TestDissentLedgerIsAppendOnly`,
+  `TestValidatePanelQuorum`; `TestBarrierPredicateHasNoRefCount`,
+  `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL`, and the authority-inventory
+  completeness guards stay green. Deferred to **P4b**: #341 (advisory guards +
+  `advisory_minority_report.v1`), #342 (doctor checks), #343 (optional
+  `dissent_quarantine` owner bundle 0014).
 - **#346 RFC 0135 P2 — recoverable `barrier_assembly` job + owner bundle 0013 +
   N=1 unification.** The P1 opt-in fan-in assembly graduates into a first-class,
   CRASH-RECOVERABLE operation. **Owner bundle 0013**

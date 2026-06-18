@@ -707,6 +707,17 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	if _, err := appendEvent(ctx, runner, repositoryID, job["run_id"], "verdict.recorded", sessionID, jobID, nil, nil, leaseID, payload); err != nil {
 		return nil, err
 	}
+	// RFC 0135 P4 (#339, D214): forward-write the dissent ledger row CO-TRANSACTIONALLY
+	// with a blocking verdict (needs_revision / reject), under the per-run advisory
+	// lock this path already holds. The row is keyed on the STABLE workflow_job_id and
+	// sealed at the seat's live attempt, so a live dissent blocks the panel quorum
+	// wherever recovery later moves the seat's lineage (the seal-durable witness). It
+	// no-ops for accepting verdicts and when the table is absent (runtime-only test DB).
+	if tx, ok := runner.(db.TxRunner); ok {
+		if err := recordDissent(ctx, tx, repositoryID, job, sessionID, verdictID, verdict); err != nil {
+			return nil, err
+		}
+	}
 	switch verdict {
 	case "accept", "accept_with_findings":
 		if err := completeReviewJob(ctx, runner, repositoryID, job, sessionID, leaseID, verdict); err != nil {

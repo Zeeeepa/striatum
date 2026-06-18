@@ -60,8 +60,15 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// journal. Direct runtime DML — the assembler INSERTs the two-phase intent and
 	// UPDATEs the state through sealed -> assembling -> committed|failed; live
 	// coordination state, not an SD-gated append surface.
-	"barrier_state":               ClassRuntimeDML,
-	"blockers":                    ClassRuntimeDML,
+	"barrier_state": ClassRuntimeDML,
+	"blockers":      ClassRuntimeDML,
+	// dissent_ledger (RFC 0135 P4, migration 0031): the forward-written panel-quorum
+	// dissent witness. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger +
+	// the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as
+	// fanin_freeze_points above, NOT an SD-gated surface (it uses a plain
+	// refuse-trigger, not the assert_daemon_authority gate). Written co-transactionally
+	// with the verdict insert under the per-run advisory lock.
+	"dissent_ledger":              ClassRuntimeDML,
 	"client_capabilities":         ClassRuntimeDML,
 	"client_sessions":             ClassRuntimeDML,
 	"clients":                     ClassRuntimeDML,
