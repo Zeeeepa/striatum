@@ -445,6 +445,63 @@ func generatedUsageFor(group string) Usage {
 	return usage
 }
 
+// SubcommandsFor returns the sorted, non-deprecated subcommands registered for a
+// command group (e.g. "recovery" -> ["accept-quarantined", "auto", ...]). It
+// returns nil when the command has no subcommand-bearing routes, so callers can
+// distinguish a command group from a bare verb or an unknown command.
+func SubcommandsFor(command string) []string {
+	seen := map[string]bool{}
+	subs := []string{}
+	for _, route := range append(All(), runtimeRoutes...) {
+		if route.Command != command || route.Deprecated || route.Subcommand == "" {
+			continue
+		}
+		if seen[route.Subcommand] {
+			continue
+		}
+		seen[route.Subcommand] = true
+		subs = append(subs, route.Subcommand)
+	}
+	sort.Strings(subs)
+	return subs
+}
+
+// RenderCommandGroupHelp formats the help for a command group that carries only
+// subcommands (no bare verb) — e.g. `striatum recovery --help`. Before this,
+// `recovery` and `recovery --help` both fell through to the daemon route as
+// "unknown command: recovery" (#389 gap 3), leaving the recovery verb family
+// undiscoverable from the CLI. It lists each subcommand with its daemon method
+// and required capability, and points at per-subcommand `--help` for flags.
+// Returns "" when the command has no subcommands (caller falls back to the
+// unknown-command path).
+func RenderCommandGroupHelp(command string) string {
+	subs := SubcommandsFor(command)
+	if len(subs) == 0 {
+		return ""
+	}
+	methodBySub := map[string]Route{}
+	for _, route := range append(All(), runtimeRoutes...) {
+		if route.Command == command && route.Subcommand != "" && !route.Deprecated {
+			if _, ok := methodBySub[route.Subcommand]; !ok {
+				methodBySub[route.Subcommand] = route
+			}
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "usage: striatum %s <subcommand> [flags]\n\n", command)
+	fmt.Fprintf(&b, "Subcommands (run `striatum %s <subcommand> --help` for a subcommand's flags):\n", command)
+	for _, sub := range subs {
+		route := methodBySub[sub]
+		line := fmt.Sprintf("  %-22s %s", sub, route.Method)
+		if route.RequiredCapability != "" {
+			line += "  (capability: " + route.RequiredCapability + ")"
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
 // IsHelpArg reports whether arg requests help for the verb.
 func IsHelpArg(arg string) bool {
 	switch arg {

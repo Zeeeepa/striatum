@@ -251,6 +251,43 @@ func TestDispatchHelpListsRequiredAndOptionalFlags(t *testing.T) {
 	}
 }
 
+// TestDispatchCommandGroupHelpListsRecoverySubcommands (#389 gap 3): `recovery
+// --help` (and bare `recovery`) must list the recovery verb family without
+// contacting the daemon, instead of erroring "unknown command: recovery".
+func TestDispatchCommandGroupHelpListsRecoverySubcommands(t *testing.T) {
+	t.Run("help", func(t *testing.T) {
+		invoker := &fakeInvoker{}
+		var stdout, stderr bytes.Buffer
+		exit := Run(context.Background(), []string{"recovery", "--help"}, &stdout, &stderr, Options{Invoker: invoker})
+		if exit != 0 {
+			t.Fatalf("recovery --help exit = %d stderr=%s", exit, stderr.String())
+		}
+		if len(invoker.calls) != 0 {
+			t.Fatalf("recovery --help contacted the daemon: %#v", invoker.calls)
+		}
+		out := stdout.String()
+		for _, want := range []string{"reseal", "resolve-blocker", "complete-stalled", "requeue-stale"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("recovery --help output missing %q:\n%s", want, out)
+			}
+		}
+	})
+	t.Run("bare", func(t *testing.T) {
+		invoker := &fakeInvoker{}
+		var stdout, stderr bytes.Buffer
+		exit := Run(context.Background(), []string{"recovery"}, &stdout, &stderr, Options{Invoker: invoker})
+		if exit != 2 {
+			t.Fatalf("bare recovery exit = %d, want 2 (usage error); stdout=%s", exit, stdout.String())
+		}
+		if len(invoker.calls) != 0 {
+			t.Fatalf("bare recovery contacted the daemon: %#v", invoker.calls)
+		}
+		if !strings.Contains(stderr.String(), "reseal") {
+			t.Fatalf("bare recovery stderr missing subcommand list:\n%s", stderr.String())
+		}
+	})
+}
+
 func TestDispatchDoctorLaneProviderAuthParams(t *testing.T) {
 	invoker := &fakeInvoker{}
 	var stdout, stderr bytes.Buffer

@@ -2,6 +2,7 @@ package runreconcile
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -174,6 +175,75 @@ func TestReconcilePredicateParityOnlyQueuedJobsDecide(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("decisions = %#v, want %#v", got, want)
+	}
+}
+
+// TestPlanLaunchSurfacesBlockedJobAsUnadvanceable (#389 gap 2): a `blocked` job
+// is non-terminal but not queued and not in-flight, so the driver would
+// otherwise emit nothing and idle silently. PlanLaunch must surface it as a
+// LaunchUnadvanceable decision carrying the state and a remediation hint — a
+// visible "cannot advance" signal, never a silent skip.
+func TestPlanLaunchSurfacesBlockedJobAsUnadvanceable(t *testing.T) {
+	jobs := []map[string]any{job("design_codex", "designer", "codex", "blocked", 1)}
+	got := PlanLaunch(jobs, nil, nil, nil)
+	if len(got) != 1 {
+		t.Fatalf("decisions = %#v, want exactly one unadvanceable decision", shapes(got))
+	}
+	d := got[0]
+	if d.Kind != LaunchUnadvanceable {
+		t.Fatalf("kind = %v, want LaunchUnadvanceable; decision=%#v", d.Kind, d)
+	}
+	if d.State != "blocked" {
+		t.Fatalf("state = %q, want blocked", d.State)
+	}
+	if d.Slot.WorkflowJobID != "design_codex" || d.Role != "designer" {
+		t.Fatalf("slot/role = %#v / %q, want design_codex / designer", d.Slot, d.Role)
+	}
+	if !strings.Contains(d.Remediation, "recovery reseal") {
+		t.Fatalf("remediation = %q, want it to name `recovery reseal`", d.Remediation)
+	}
+}
+
+// TestPlanLaunchBlockedAndQueuedTogether: a run with one blocked job and one
+// queued job emits BOTH the unadvanceable signal and the launch — the stuck job
+// never masks the launchable one and vice versa.
+func TestPlanLaunchBlockedAndQueuedTogether(t *testing.T) {
+	jobs := []map[string]any{
+		job("blocked_job", "author", "codex", "blocked", 1),
+		job("ready_job", "reviewer", "agy", "queued", 1),
+	}
+	got := PlanLaunch(jobs, nil, nil, nil)
+	var sawUnadvanceable, sawLaunch bool
+	for _, d := range got {
+		switch d.Kind {
+		case LaunchUnadvanceable:
+			sawUnadvanceable = d.Slot.WorkflowJobID == "blocked_job"
+		case LaunchRegisterFresh:
+			sawLaunch = d.Slot.WorkflowJobID == "ready_job"
+		}
+	}
+	if !sawUnadvanceable || !sawLaunch {
+		t.Fatalf("decisions = %#v, want both the blocked-job signal and the queued-job launch", shapes(got))
+	}
+}
+
+// TestPlanLaunchNoUnadvanceableForTerminalOrInFlight: terminal and in-flight
+// states are never surfaced as unadvanceable — only `blocked` is. This guards
+// against false "cannot advance" noise on healthy completed / running jobs.
+func TestPlanLaunchNoUnadvanceableForTerminalOrInFlight(t *testing.T) {
+	for _, state := range []string{"completed", "failed", "canceled", "skipped", "claimed", "running", "stale_lease", "waiting_human"} {
+		jobs := []map[string]any{job("j", "author", "codex", state, 1)}
+		for _, d := range PlanLaunch(jobs, nil, nil, nil) {
+			if d.Kind == LaunchUnadvanceable {
+				t.Fatalf("state %q produced an unadvanceable decision; should be inert: %#v", state, d)
+			}
+		}
+		if UnadvanceableJobState(state) {
+			t.Fatalf("UnadvanceableJobState(%q) = true, want false", state)
+		}
+	}
+	if !UnadvanceableJobState("blocked") {
+		t.Fatal("UnadvanceableJobState(blocked) = false, want true")
 	}
 }
 
