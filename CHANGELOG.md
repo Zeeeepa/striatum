@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Changed
+
+- **barrier: RFC 0135 FULL cutover — quorum (P4) and run.integrate (P6) sealed
+  barriers are now the LIVE default (#354, D216/D233).** The panel-quorum and
+  run-entity sealed barriers, which shipped as shadow/opt-in behind D206, are
+  flipped to govern the live workflow-completion path, retiring their legacy
+  predicates for the cases they cover. **P4:** `dependenciesSatisfied`
+  (`go/pkg/mutations/mutations.go`) now routes a GATING review panel through
+  `panelQuorumSatisfied` (entity=`review_seat`, seal=`attempt`) over the frozen
+  declared-seat denominator, retiring the edge-by-edge `latestVerdict` recency
+  read for paneled review gates; at the default abstention budget 0 it is
+  byte-identical to the old gate, and STRICTER only where it kills the
+  stale-seal-accept trap (a requeued seat's prior-attempt accept no longer
+  satisfies). **P6:** `HandleRunIntegrate` (`go/pkg/mutations/integrate.go`) now
+  gates on the run-entity barrier `runEntityBarrierReady` (the run is terminal
+  AND every declared job-level barrier fired) instead of the bare
+  `state == 'completed'` check; because no run on the live completion path
+  declares a job-level barrier yet, the gate reduces EXACTLY to the terminal-state
+  check today while composing correctly for a future fan-in barrier. **P5**
+  (revision coherence) was already the live gate (`review_generation` is the
+  seal). Each flip carries a recoverable env kill switch
+  (`STRIATUM_BARRIER_QUORUM=0`, `STRIATUM_BARRIER_RUN_ENTITY=0`) reverting to the
+  legacy path without redeploying older code, and a same-decision equivalence
+  fixture (`TestPanelQuorumCutoverEqualsEdgeByEdge`,
+  `TestRunIntegrateRunEntityBarrierGate`). **P1/P2 fan-in stay SHADOW** — the
+  per-completion D206 merge (`fanInIntegrateRunBranch`) remains the default
+  fan-in path; flipping the deferred-join barrier live needs a `barrier_assembly`
+  job dispatcher + staging-at-completion wiring that does not exist, so it is an
+  unproven behavior change, not a provable equivalence flip. Also closes #351
+  (RFC 0133 OQ2): the run branch stays an AUTHORITATIVE ref advanced by the
+  barrier CAS, not a projection of the barrier chain (D233). No schema, migration,
+  or RPC change.
+
 ### Added
 
 - **liveness: transport-aware `probe_basis` classifier outputs (RFC 0131 Layer

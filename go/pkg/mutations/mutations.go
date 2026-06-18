@@ -957,6 +957,43 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 	if heldByAdvisory {
 		return false, nil
 	}
+	// RFC 0135 P4 cutover (#354, D216): when the gate declares a GATING review-seat
+	// panel, the panel-quorum sealed barrier (panelQuorumSatisfied, entity=review_seat,
+	// seal=attempt) governs those review edges over the FROZEN declared-seat denominator
+	// with the abstention budget — RETIRING the edge-by-edge latestVerdict default for
+	// paneled review gates. The barrier is keyed on the stable workflow_job_id (recovery
+	// churns job_id), classifies each seat by the live-seal JOIN (a stale-attempt accept
+	// is structurally absent), honors the live dissent_ledger, and skips only a
+	// provably-dead seat (D214). With the DEFAULT budget 0 and all-gating seats the
+	// quorum is IDENTICAL to the edge-by-edge gate — proven by
+	// TestPanelQuorumCutoverEqualsEdgeByEdge — so this flip changes no default behavior;
+	// a non-zero abstention budget is an explicit, lint-gated author opt-in.
+	//
+	// Fallback: STRIATUM_BARRIER_QUORUM=0 forces the legacy edge-by-edge path for every
+	// gate (the recoverable kill switch), so a quorum regression is reversible without a
+	// redeploy of older code. The gating-seat set is read once; review edges in it are
+	// governed by the barrier, every other edge (non-review deps, advisory seats) still
+	// gates edge-by-edge below.
+	gatingSeats := map[string]bool{}
+	if barrierQuorumEnabled() {
+		decl, err := resolveQuorumDeclaration(ctx, runner, repositoryID, jobID)
+		if err != nil {
+			return false, err
+		}
+		if len(decl.Seats) > 0 {
+			ok, err := panelQuorumSatisfied(ctx, runner, repositoryID, jobID)
+			if err != nil {
+				return false, err
+			}
+			if !ok {
+				return false, nil
+			}
+			for _, seat := range decl.Seats {
+				gatingSeats[seat] = true
+			}
+		}
+	}
+
 	deps, err := queryRows(ctx, runner, `
 		SELECT * FROM striatumd.job_dependencies
 		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
@@ -975,6 +1012,19 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 		if len(required) == 0 {
 			continue
 		}
+		// A review edge governed by the quorum barrier above is already satisfied (the
+		// barrier passed over the frozen denominator); do not re-gate it edge-by-edge,
+		// which would re-introduce the latestVerdict recency read for the seat the
+		// barrier deliberately resolves by the live seal. The barrier's satisfying
+		// criterion is "accept/accept_with_findings at the live seal" — IDENTICAL to a
+		// standard accepting gate — so we only hand a seat to the barrier when its edge
+		// requires exactly that accepting set; a non-standard requires_verdict (rare)
+		// still gates edge-by-edge below, so the barrier can never DISAGREE with an
+		// edge's declared requirement (it only ever ADDS the frozen-denominator/dissent
+		// coherence the edge-by-edge read lacks).
+		if gatingSeats[fmt.Sprint(upstream["workflow_job_id"])] && isStandardAcceptingGate(required) {
+			continue
+		}
 		latest, err := latestVerdict(ctx, runner, repositoryID, fmt.Sprint(upstream["job_id"]))
 		if err != nil {
 			return false, err
@@ -984,6 +1034,24 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 		}
 	}
 	return true, nil
+}
+
+// isStandardAcceptingGate reports whether a gate's requires_verdict set is exactly
+// the accepting set {accept, accept_with_findings} the quorum barrier treats as
+// satisfying. Only such an edge may be governed by the barrier without any risk of
+// disagreeing with the edge-by-edge requirement; a non-standard requires_verdict
+// keeps the edge on the legacy edge-by-edge path.
+func isStandardAcceptingGate(required map[string]bool) bool {
+	return len(required) == 2 && required["accept"] && required["accept_with_findings"]
+}
+
+// barrierQuorumEnabled reports whether the RFC 0135 P4 panel-quorum barrier governs
+// paneled review gates (the default). STRIATUM_BARRIER_QUORUM=0 forces the legacy
+// edge-by-edge path — the recoverable kill switch the cutover keeps so a quorum
+// regression is reversible without redeploying older code. Any value other than the
+// explicit "0" leaves the barrier ON.
+func barrierQuorumEnabled() bool {
+	return os.Getenv("STRIATUM_BARRIER_QUORUM") != "0"
 }
 
 func requiredVerdicts(value any) map[string]bool {

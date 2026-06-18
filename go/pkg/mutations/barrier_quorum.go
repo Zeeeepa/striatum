@@ -244,7 +244,14 @@ func (s panelSeat) satisfied() bool {
 // and all-gating seats it is equivalent to "every gating seat has a live-seal
 // accepting verdict" — i.e. exactly the edge-by-edge behavior, so the default is
 // unchanged.
-func panelQuorumSatisfied(ctx context.Context, runner db.TxRunner, repositoryID, downstreamJobID string) (bool, error) {
+// The runner is accepted as `any` (not db.TxRunner) so the live edge-by-edge gate
+// `dependenciesSatisfied` — itself `runner any`, reached with both a db.Runner and a
+// db.TxRunner across the enqueue call sites — can route paneled review gates through
+// the quorum barrier (RFC 0135 P4 cutover, #354). Every query goes through the
+// `oneRow`/`queryRows`/`existsRow` helpers (which assert the shared `queryer` surface
+// both runner kinds implement), so no caller has to hand the quorum a transaction it
+// does not have.
+func panelQuorumSatisfied(ctx context.Context, runner any, repositoryID, downstreamJobID string) (bool, error) {
 	decl, err := resolveQuorumDeclaration(ctx, runner, repositoryID, downstreamJobID)
 	if err != nil {
 		return false, err
@@ -262,12 +269,30 @@ func panelQuorumSatisfied(ctx context.Context, runner db.TxRunner, repositoryID,
 	if err != nil {
 		return false, err
 	}
-	row := runner.QueryRow(ctx, query, downstreamJobID, quorumBarrierEntityKind)
-	var ready *bool
-	if err := row.Scan(&ready); err != nil {
+	// Evaluate the single-row bool_and predicate through the `oneRow` helper (the
+	// shared `queryer` surface) rather than runner.QueryRow, so this works for a
+	// db.Runner and a db.TxRunner identically. A NULL bool_and (no resolvable edges)
+	// reads as not-ready, matching the fan-in instance.
+	row, err := oneRow(ctx, runner, query, downstreamJobID, quorumBarrierEntityKind)
+	if err != nil {
+		if errorsIsNoRows(err) {
+			return false, nil
+		}
 		return false, fmt.Errorf("panel quorum readiness query: %w", err)
 	}
-	return ready != nil && *ready, nil
+	ready, ok := row["bool_and"]
+	if !ok {
+		// The single projected column may be unnamed depending on the driver's column
+		// alias; fall back to the first value.
+		for _, v := range row {
+			ready = v
+			break
+		}
+	}
+	if ready == nil {
+		return false, nil
+	}
+	return boolValue(ready), nil
 }
 
 // resolvePanelSeats classifies each declared gating seat for the predicate: its live
@@ -281,7 +306,7 @@ func panelQuorumSatisfied(ctx context.Context, runner db.TxRunner, repositoryID,
 // dead) is NEVER a terminal gap — it blocks regardless of budget (silence != consent,
 // D214b). This keeps the predicate the pure all-edges bool_and while the budget
 // policy lives in Go where the oracle probe lives.
-func resolvePanelSeats(ctx context.Context, runner db.TxRunner, repositoryID, downstreamJobID string, decl quorumDeclaration) ([]panelSeat, error) {
+func resolvePanelSeats(ctx context.Context, runner any, repositoryID, downstreamJobID string, decl quorumDeclaration) ([]panelSeat, error) {
 	run, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", downstreamJobID, false)
 	if err != nil {
 		return nil, err
@@ -331,7 +356,7 @@ func resolvePanelSeats(ctx context.Context, runner db.TxRunner, repositoryID, do
 
 // resolvePanelSeat resolves one gating seat's live attempt, satisfying accepting
 // verdict seal, live-dissent state, and structural-unrecoverability.
-func resolvePanelSeat(ctx context.Context, runner db.TxRunner, repositoryID, runID, seatID string) (panelSeat, error) {
+func resolvePanelSeat(ctx context.Context, runner any, repositoryID, runID, seatID string) (panelSeat, error) {
 	seat := panelSeat{WorkflowJobID: seatID, AcceptingAttempt: -1}
 	// Live attempt: MAX(attempt) over the seat's job rows (the live seal). No
 	// COUNT, no recency ORDER BY — a MAX aggregate, exactly as the fan-in live seal.
@@ -402,7 +427,7 @@ func liveValueOrAbsent(value any) *int {
 // so a recovered/transferred seat maps back to the same dissent row. Tolerates an
 // absent dissent_ledger table (runtime-only test DB before the migration is applied)
 // by returning false.
-func seatHasLiveDissent(ctx context.Context, runner db.TxRunner, repositoryID, runID, seatID string, liveAttempt int) (bool, error) {
+func seatHasLiveDissent(ctx context.Context, runner any, repositoryID, runID, seatID string, liveAttempt int) (bool, error) {
 	if !dissentLedgerEnabled(ctx, runner) {
 		return false, nil
 	}
@@ -417,7 +442,7 @@ func seatHasLiveDissent(ctx context.Context, runner db.TxRunner, repositoryID, r
 // seat's live job row joined to its supervisor pointer and probes the same
 // forgery-resistant oracle the recovery sweep uses. A seat with no resolvable pointer
 // is NOT provably dead.
-func seatStructurallyUnrecoverable(ctx context.Context, runner db.TxRunner, repositoryID, runID, seatID string, liveAttempt int) (bool, error) {
+func seatStructurallyUnrecoverable(ctx context.Context, runner any, repositoryID, runID, seatID string, liveAttempt int) (bool, error) {
 	// The seat's live-attempt job row's owning session is its current lease owner; the
 	// supervisor pointer is keyed by that session. The aliases mirror the recovery
 	// sweep's row shape (recovery_decision_tree.go) so supervisedAgentConfirmedDead
@@ -454,7 +479,7 @@ func seatStructurallyUnrecoverable(ctx context.Context, runner db.TxRunner, repo
 //     (default 0).
 //   - Each upstream review-seat dependency's workflow definition carries panel_role
 //     (default gating); only gating seats join the denominator.
-func resolveQuorumDeclaration(ctx context.Context, runner db.TxRunner, repositoryID, downstreamJobID string) (quorumDeclaration, error) {
+func resolveQuorumDeclaration(ctx context.Context, runner any, repositoryID, downstreamJobID string) (quorumDeclaration, error) {
 	decl := quorumDeclaration{}
 	gate, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", downstreamJobID, false)
 	if err != nil {
