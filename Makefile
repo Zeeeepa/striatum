@@ -42,7 +42,7 @@ smoke:
 
 check: lint test
 
-# Broken local doc links (frozen provenance under docs/rfcs, docs/_archive, etc.
+# Broken local doc links (frozen provenance under docs/rfcs, docs/records/_frozen, etc.
 # is excluded via .check-docs-ignore). Standalone for now: a living-doc link
 # backlog must be burned down before this can join `check`.
 check-docs:

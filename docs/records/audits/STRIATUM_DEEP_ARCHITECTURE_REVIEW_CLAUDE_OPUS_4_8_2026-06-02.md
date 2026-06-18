@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: OPUS
+expires: null
+---
+
 # Striatum — Deep Architecture Review
 
 **Reviewer:** Claude Opus 4.8 (adversarial peer review)

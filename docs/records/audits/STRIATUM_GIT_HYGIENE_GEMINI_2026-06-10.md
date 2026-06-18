@@ -1,4 +1,8 @@
 ---
+type: record
+status: frozen
+owner: GEMINI
+expires: null
 author: worker-gemini-1
 ---
 

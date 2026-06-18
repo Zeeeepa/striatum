@@ -30,7 +30,8 @@ var hygieneExcludedPathPrefixes = []string{
 	// carry the literal in error messages, comments, and negative-test fixtures.
 	"go/",
 	// Historical / retired-status documentation and provenance.
-	"docs/_archive/",
+	"docs/records/_frozen/",
+	"docs/records/audits/",
 	"docs/rfcs/",
 	"docs/decisions/",
 	"docs/research/",
@@ -44,16 +45,15 @@ var hygieneExcludedPathPrefixes = []string{
 // pattern in prose. They are not under a clean prefix, so they are named
 // explicitly (the issue enumerates this retired-status category).
 var hygieneExcludedExactPaths = map[string]bool{
-	"CHANGELOG.md": true,
-	"STRIATUM_DOCS_DRIFT_AUDIT_GEMINI_3_5_FLASH_2026-06-08.md": true,
-	"docs/reference/roadmap.md":                                true,
-	"docs/reference/spec.md":                                   true,
-	"docs/reference/ubiquitous-language.md":                    true,
-	"docs/reference/workflow-types.md":                         true,
-	"docs/reference/writing-workflows.md":                      true,
-	"docs/how-to/writing-workflows.md":                         true,
-	"docs/reference/todo.md":                                   true,
-	"skills/optional/refactoring-campaign/REFERENCE.md":        true,
+	"CHANGELOG.md":                                      true,
+	"docs/reference/roadmap.md":                         true,
+	"docs/reference/spec.md":                            true,
+	"docs/reference/ubiquitous-language.md":             true,
+	"docs/reference/workflow-types.md":                  true,
+	"docs/reference/writing-workflows.md":               true,
+	"docs/how-to/writing-workflows.md":                  true,
+	"docs/reference/todo.md":                            true,
+	"skills/optional/refactoring-campaign/REFERENCE.md": true,
 }
 
 func hygienePathExcluded(path string) bool {
@@ -166,10 +166,10 @@ func TestClaudePrintHygieneDetectionLogic(t *testing.T) {
 		excluded bool
 	}{
 		{"go/pkg/workflowauthoring/lint.go", true},
-		{"docs/_archive/src_templates/bin/claude-supervised-wrapper.sh", true},
+		{"docs/records/_frozen/src_templates/bin/claude-supervised-wrapper.sh", true},
 		{"docs/rfcs/0049-interactive-claude-lane-mcp-control-plane.md", true},
 		{"CHANGELOG.md", true},
-		{"STRIATUM_DOCS_DRIFT_AUDIT_GEMINI_3_5_FLASH_2026-06-08.md", true},
+		{"docs/records/audits/STRIATUM_DOCS_DRIFT_AUDIT_GEMINI_3_5_FLASH_2026-06-08.md", true},
 		{"docs/reference/roadmap.md", true},
 		{"docs/how-to/writing-workflows.md", true},
 		{"examples/foo/README.md", true},

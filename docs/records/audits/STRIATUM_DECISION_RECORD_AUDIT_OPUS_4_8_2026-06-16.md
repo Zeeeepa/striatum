@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: OPUS
+expires: null
+---
+
 # Striatum Decision-Record Currency Audit
 
 - **Auditor model:** claude-opus-4-8

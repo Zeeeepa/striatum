@@ -89,8 +89,8 @@ listed collectively via an aggregate directory row, not file by file.
 |---|---|
 | [prior-art.md](explanation/prior-art.md) | Pre-PRD survey of orchestration tools that shaped early framing. Not a list of currently-tracked dependencies. |
 | [interview-log.md](explanation/interview-log.md) | The interview rounds that produced the original PRD and the early `D###` decision rows. |
-| [ENGRAM_INCUBATION_CONTEXT.md](_archive/ENGRAM_INCUBATION_CONTEXT.md) | Engram-extraction provenance; striatum was extracted from a parent project. |
-| [RFC_0014_DOGFOOD_FIX_SPEC.md](_archive/RFC_0014_DOGFOOD_FIX_SPEC.md) | Pre-RFC-0001 dogfood findings; everything actionable here landed in subsequent RFCs. |
+| [ENGRAM_INCUBATION_CONTEXT.md](records/_frozen/ENGRAM_INCUBATION_CONTEXT.md) | Engram-extraction provenance; striatum was extracted from a parent project. |
+| [RFC_0014_DOGFOOD_FIX_SPEC.md](records/_frozen/RFC_0014_DOGFOOD_FIX_SPEC.md) | Pre-RFC-0001 dogfood findings; everything actionable here landed in subsequent RFCs. |
 
 ## RFCs
 

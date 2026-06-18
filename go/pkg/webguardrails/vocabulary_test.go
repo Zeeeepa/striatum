@@ -40,8 +40,8 @@ func TestRetiredVocabularyGrepGate(t *testing.T) {
 				return err
 			}
 			if entry.IsDir() {
-				// Skip _archive directories
-				if entry.Name() == "_archive" {
+				// Skip _archive directories and the relocated frozen records tail
+				if entry.Name() == "_archive" || entry.Name() == "_frozen" {
 					return filepath.SkipDir
 				}
 				return nil
@@ -67,6 +67,7 @@ func TestRetiredVocabularyGrepGate(t *testing.T) {
 			if strings.HasPrefix(rel, "docs/decisions/decision-log.md") ||
 				strings.HasPrefix(rel, "docs/reference/ubiquitous-language.md") ||
 				strings.HasPrefix(rel, "docs/rfcs/") ||
+				strings.HasPrefix(rel, "docs/records/") ||
 				strings.HasPrefix(rel, "docs/operator/") ||
 				strings.HasPrefix(rel, "docs/research/") ||
 				strings.HasPrefix(rel, "docs/explanation/") ||

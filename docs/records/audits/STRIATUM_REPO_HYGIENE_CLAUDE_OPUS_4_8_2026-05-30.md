@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: OPUS
+expires: null
+---
+
 # Striatum — Repo Hygiene Pass (CLAUDE_OPUS_4_8, 2026-05-30)
 
 Project: **striatum** — a Go-only, local-first workflow runner for terminal AI

@@ -2,7 +2,7 @@
 
 Status: partially implemented
 Date: 2026-05-17
-Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0059](../_archive/rfcs/0059-eradicate-legacy-sqlite-fallbacks.md), [RFC 0060](0060-single-daemon-method-contract-source.md), [RFC 0068](0068-go-production-daemon-port.md), [REMEDIATION_SYNTHESIS_2026-05-17](../architecture/REMEDIATION_SYNTHESIS_2026-05-17.md)
+Context: [RFC 0043](0043-postgres-as-sole-substrate-and-daemon-required-runtime.md), [RFC 0059](../records/_frozen/rfcs/0059-eradicate-legacy-sqlite-fallbacks.md), [RFC 0060](0060-single-daemon-method-contract-source.md), [RFC 0068](0068-go-production-daemon-port.md), [REMEDIATION_SYNTHESIS_2026-05-17](../architecture/REMEDIATION_SYNTHESIS_2026-05-17.md)
 
 ## Problem
 

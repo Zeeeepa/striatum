@@ -24,7 +24,7 @@ first, in order:
 8. `docs/operator/BRIEF.md` for current operator state and the bounded
    plan links that supersede older handoffs.
 
-Treat `docs/_archive/ENGRAM_INCUBATION_CONTEXT.md`,
+Treat `docs/records/_frozen/ENGRAM_INCUBATION_CONTEXT.md`,
 `examples/rfc-0014-operational-artifact-home/`, and the older P00x prompts as
 historical/reference fixtures unless a current task explicitly asks you to
 work on Engram dogfood history.
@@ -129,7 +129,7 @@ Examples live under `examples`. Historical execution prompts live under
   when a change moves the state a doc or board describes, update it in the same
   change — `docs/reference/spec.md`, `docs/reference/todo.md`, the decision log,
   `CHANGELOG.md`, and `docs/operator/BRIEF.md`. `make check-docs` flags broken
-  local doc links (frozen provenance under `docs/rfcs/`, `docs/_archive/`, and
+  local doc links (frozen provenance under `docs/rfcs/`, `docs/records/_frozen/`, and
   similar is excluded via `.check-docs-ignore`). It currently passes; keep it
   green (it can be promoted into `make check` when the team is ready).
 - **Do not paste over a broken runner.** The daemon's own state machine is the

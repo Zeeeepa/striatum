@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: FABLE
+expires: null
+---
+
 # Striatum — Deep Architecture Review
 
 **Reviewer:** Claude Fable 5 (adversarial peer review)
