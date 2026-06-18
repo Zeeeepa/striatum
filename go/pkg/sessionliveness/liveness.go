@@ -501,6 +501,31 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		}
 		return workingResult(activity, policy, now)
 	}
+	// RFC 0131 Layer 2 (131-B): the pipe-transport liveness rung. A bare pipe /
+	// agent-loop lane (agy/Gemini, TransportPipe) has no PTY oracle, so it never
+	// records last_pty_activity_at — the working_local PTY rung below can never
+	// fire for it. But a working pipe lane that is mid-RPC almost always touches
+	// the daemon (an MCP request / lease-renewal / artifact query), which stamps
+	// last_mcp_request_at (migration 0012). The per-deadline rungs immediately
+	// below are anchored on STALE timestamps (await_packet on last_tools_list_at,
+	// ack on last_packet_delivered_at) and do not consult that fresh RPC touch, so
+	// a pipe lane that is demonstrably mid-RPC could be read as await_packet- or
+	// ack-stalled even though it just spoke to the daemon. Surface the RPC touch
+	// as a pipe-transport working_local rung BEFORE those deadline rungs: a pipe
+	// lane with a last_mcp_request_at fresh within ProtocolFreshSeconds is
+	// working_local, not stalled. This is the analogue of last_pty_activity_at for
+	// PTY lanes and shrinks the hard problem to the genuinely-silent-but-working
+	// case (a long model generation with no intervening RPC) — exactly the case
+	// the 131-C confidence gate exists for. It NEVER weakens dead-lane detection:
+	// a pipe lane whose last_mcp_request_at has aged past ProtocolFreshSeconds does
+	// not match and falls through to the existing rungs (the protocol-idle
+	// catch-all already folds last_mcp_request_at into its base, so a genuinely
+	// silent pipe lane still trips StallProtocolIdle at ProtocolIdleSeconds).
+	// Scoped to TransportPipe so pty_helper lanes keep their exact prior
+	// classification (their working_local already comes from the PTY rung).
+	if activity.Transport == TransportPipe && pipeMidRPCFresh(activity, policy, now) {
+		return Result{Protocol: ProtocolWorkingLocal, Lease: leaseState(activity, "")}
+	}
 	// The await-packet deadline is anchored on LastToolsListAt, so it is only
 	// meaningful once tools/list has been recorded. A lane discovered via other
 	// MCP activity (LastToolsListAt still nil) must NOT short-circuit to "live"
@@ -740,6 +765,23 @@ func toolProgressWedged(activity Activity, policy Policy, now time.Time) bool {
 		return false
 	}
 	return missed(base, policy.ToolProgressSeconds, now)
+}
+
+// pipeMidRPCFresh reports the RFC 0131 Layer 2 (131-B) pipe-transport liveness
+// signal: a pipe / agent-loop lane that touched the daemon over MCP within
+// ProtocolFreshSeconds is demonstrably mid-RPC and must read working_local rather
+// than stall on a stale await_packet / ack deadline. It keys ONLY on
+// last_mcp_request_at — the timestamp every recorded daemon mutation stamps
+// (migration 0012), which a pipe lane produces on a lease renewal / artifact
+// query / any protocol call — so it captures the general "the pipe lane is
+// talking to the daemon right now" case without depending on any PTY oracle the
+// transport lacks. A non-positive ProtocolFreshSeconds disables the rung.
+func pipeMidRPCFresh(activity Activity, policy Policy, now time.Time) bool {
+	if policy.ProtocolFreshSeconds <= 0 {
+		return false
+	}
+	return activity.LastMCPRequestAt != nil &&
+		!missed(activity.LastMCPRequestAt, policy.ProtocolFreshSeconds, now)
 }
 
 // protocolActivityFresh reports whether any protocol/MCP signal is fresh within

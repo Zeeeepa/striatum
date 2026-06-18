@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 34
+	LatestDaemonDBVersion = 35
 	MigrationLockKey      = 332933
 )
 
@@ -64,6 +64,7 @@ func Migrations() ([]Migration, error) {
 		32: "panel-quorum dissent ledger (RFC 0135 P4 / #339)",
 		33: "reap supervisors stranded on terminal runs (#417)",
 		34: "conversation post_dialog_hook declaration (RFC 0094 §1 / RFC 0095 Phase 3 / #402)",
+		35: "confidence-gated pipe-lane escalation state (RFC 0131 131-C / #336)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {

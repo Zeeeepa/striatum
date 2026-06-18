@@ -1,6 +1,6 @@
 # RFC 0131: Transport-aware liveness confidence and escalation gating
 
-Status: accepted (D211) — Layer 1 (131-A, #334) IMPLEMENTED — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
+Status: accepted (D211) — Layers 1–3+4 (131-A #334, 131-B #335, 131-C #336) IMPLEMENTED; 131-D (#337, doctor/legibility) remains — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -139,69 +139,90 @@ As built:
 
 ### Layer 2 — A pipe-transport liveness rung from existing RPC activity
 
-Surface the daemon-side activity timestamp a pipe lane already produces
-(`last_mcp_request_at` / lease-renewal touch, recorded by
+**IMPLEMENTED (131-B, #335).** Surface the daemon-side activity timestamp a pipe
+lane already produces (`last_mcp_request_at` / lease-renewal touch, recorded by
 `0012_mcp_activity_liveness.sql`) as a pipe-transport liveness input, analogous
 to `last_pty_activity_at` for PTY lanes. A working pipe lane that is mid-RPC is
 classified `working_local`, not stalled. This shrinks the hard problem to the
 genuinely-silent-but-working case (a long model generation with no intervening
 RPC), which is exactly the case the confidence gate exists for.
 
+As built: `Classify()` adds a `pipeMidRPCFresh` rung — for a `TransportPipe`
+lane whose `last_mcp_request_at` is fresh within `ProtocolFreshSeconds`, it
+returns `working_local` BEFORE the await-packet / ack stall rungs (which are
+anchored on stale `last_tools_list_at` / `last_packet_delivered_at` and would
+otherwise read a mid-RPC pipe lane as stalled). It is scoped to `pipe` transport
+(pty_helper lanes keep their exact prior classification — their `working_local`
+comes from the PTY rung) and never weakens dead-lane detection: a pipe lane whose
+`last_mcp_request_at` has aged past `ProtocolFreshSeconds` falls through to the
+existing rungs (the protocol-idle catch-all already folds `last_mcp_request_at`
+into its base, so a genuinely-silent pipe lane still trips `StallProtocolIdle`).
+
 ### Layer 3 — Confidence-gated escalation for `deadline_elapsed_only` pipe stalls
 
-Add `misfire_evidence_score int`, `consecutive_silent_sweeps int`, and
-`last_probe_basis text` to **`job_recovery_state`** (a *runtime* table —
-`go/pkg/db/sql/0020_job_recovery_state.sql`, not owner-held — so this is a
-runtime migration, no owner bundle). None of these columns exist today.
+**IMPLEMENTED (131-C, #336).** Add `misfire_evidence_score int`,
+`consecutive_silent_sweeps int`, and `last_probe_basis text` to
+**`job_recovery_state`** (a *runtime* table — not owner-held — so this is a
+runtime migration, no owner bundle). None of these columns existed; migration
+`0035_job_recovery_confidence_gate.sql` adds them (substrate_version → 35) via
+`ADD COLUMN IF NOT EXISTS` with the runtime-role GRANT, the same shape migration
+0021 used to extend this runtime-owned table.
 
 When `recoverStuckJobs` would escalate a job AND `probe_basis ==
-deadline_elapsed_only` (the pipe-lane no-oracle case):
+deadline_elapsed_only` AND the session is neither dead/absent nor
+confirmed-dead (the genuinely-ambiguous no-oracle case — a closed session or a
+confirmed-dead process probe is itself a death oracle and escalates immediately):
 
 - If a **forgery-resistant progress signal** advanced since the last sweep
-  (sealed-work / artifact-anchor delta, worktree-HEAD movement, sealed verdict —
-  see Layer 4), reset `misfire_evidence_score` and `consecutive_silent_sweeps`
-  to 0 and **defer** (the lane is demonstrably working).
+  (a sealed artifact anchor / sealed verdict whose `created_at` is after the
+  prior sweep, or a cross-lane cohort sibling showing fresher liveness), reset
+  `misfire_evidence_score` and `consecutive_silent_sweeps` to 0 and **defer**
+  (the lane is demonstrably working).
 - Else compound `misfire_evidence_score`, increment
   `consecutive_silent_sweeps`, write a `recovery.escalation_debounced` event, and
   **do not escalate this sweep**.
-- Escalation commits only when the evidence **strictly increased across two
-  consecutive `deadline_elapsed_only` sweeps** (a single sweep never escalates a
-  pipe lane), OR the Layer-4 cap fires.
+- Escalation commits only when the prior sweep was also `deadline_elapsed_only`
+  and this is the **2nd consecutive silent sweep** (a single sweep never
+  escalates a pipe lane), OR the Layer-4 cap fires.
 
-PTY lanes (`pty_confirmed_dead`) skip the gate entirely — they already have a
-real oracle.
+PTY lanes that upgrade to `pty_confirmed_dead` skip the gate entirely — they
+already have a real oracle.
 
 **Cross-lane corroboration (free).** `recoverStuckJobs` already scans every
-unfinished job for the run under one `FOR UPDATE OF j` (verified at
-`recovery_decision_tree.go:346`), so the sibling cohort is already in memory.
-Before escalating a `deadline_elapsed_only` pipe lane: if any sibling shows
-liveness fresher than the window start, treat the solo pipe deadline as a likely
-misfire and defer (bump a skip counter, do not burn budget).
+unfinished job for the run under one `FOR UPDATE OF j`, so the sibling cohort is
+already in memory. Before escalating a `deadline_elapsed_only` pipe lane,
+`cohortHasFresherLiveness` checks whether any sibling shows liveness fresher than
+the window start; if so, the solo pipe deadline is treated as a likely misfire
+and deferred (it folds into `progressAdvanced`). A single-pipe-lane run has no
+siblings, so the Layer-4 cap — not corroboration — is its safety guarantee.
 
 ### Layer 4 — The escape valve: a finite cap keyed off forgery-resistant progress
 
-This is the load-bearing invariant. A genuinely-hung pipe lane **never** produces
-a confirmed-dead signal, so confidence alone can never escalate it — there must
-be a hard cap. Two rules make the cap safe:
+**IMPLEMENTED (131-C, #336).** This is the load-bearing invariant. A
+genuinely-hung pipe lane **never** produces a confirmed-dead signal, so
+confidence alone can never escalate it — there must be a hard cap. Two rules make
+the cap safe:
 
 1. **The cap is an integer ceiling, not a ratchet.** Once
-   `consecutive_silent_sweeps ≥ cap` (default `(maxRequeues*2)+3`), escalation
-   fires regardless of `misfire_evidence_score`. The confidence reduction of
-   Layer 3 **must not apply** when the session is provably silent across
-   consecutive sweeps — silence itself is the oracle the pipe lane otherwise
-   lacks.
-2. **What resets the silent-sweep counter must be forgery-resistant.** A
+   `consecutive_silent_sweeps ≥ cap` (default `(maxRequeues*2)+3`, floored at 3,
+   operator-overridable via `recovery_policy.max_silent_sweeps`), escalation
+   fires regardless of `misfire_evidence_score` (`capFired`). The confidence
+   reduction of Layer 3 **does not apply** when the session is provably silent
+   across consecutive sweeps — silence itself is the oracle the pipe lane lacks.
+2. **What resets the silent-sweep counter is forgery-resistant.** A
    dead-but-spinning agent (the #324 spinner class) can keep emitting stderr/PTY
    frames and trivial protocol chatter that *look like* activity. If the counter
-   reset on raw output, such a loop would be un-escalatable forever — the exact
-   failure this layer must prevent. So the reset (and the Layer-3 decay) keys
-   **only** off *sealed-work / tool-call progress advancement* (an artifact
-   anchor moved, the worktree HEAD advanced, a verdict was sealed) — evidence a
-   dead loop cannot manufacture. Raw protocol chatter is explicitly **not** a
-   reset signal.
+   reset on raw output, such a loop would be un-escalatable forever. So the reset
+   keys **only** off *sealed-work progress advancement* — `jobSealedProgressAt`
+   reads the latest `created_at` across the `artifacts` and `verdicts` rows for
+   the job (a published artifact anchor or a sealed verdict, both written only by
+   the daemon's publish/verdict handlers) — evidence a dead loop cannot
+   manufacture. Raw protocol chatter is explicitly **not** a reset signal.
 
 Because silence monotonically advances `consecutive_silent_sweeps` and only real
-progress resets it, the lane is escalatable in bounded time by construction.
+sealed progress resets it, the lane is escalatable in bounded time by
+construction. A deployment behind on migration 0035 degrades safely to today's
+ungated single-sweep escalation (the gate reads tolerate the absent columns).
 
 ### Relationship to P0 (D209)
 
@@ -253,14 +274,20 @@ are traps; recording them so they are not re-proposed:
 
 ## Migration and rollout
 
-- One **runtime** migration (next free number, ~`0029`) adding the three
-  `job_recovery_state` columns. No owner bundle (the table is runtime-owned).
-- Layer 1 ships first with no migration and is independently valuable
+- One **runtime** migration (`0035_job_recovery_confidence_gate.sql`,
+  substrate_version → 35) adding the three `job_recovery_state` columns. No owner
+  bundle (the table is runtime-owned: `striatumd_rw` created it in the runtime
+  migration 0020, so the runtime-role `ApplyMigrations` path may ALTER it). The
+  future-runtime-owner-DDL guard (floor 27) carries a documented allowlist entry
+  for `striatumd.job_recovery_state` so this legitimate runtime-owned-table column
+  add is permitted while owner-held ALTERs stay forbidden.
+- Layer 1 (131-A) shipped first with no migration and is independently valuable
   (legible `probe_basis` on events).
 - Default policy preserves current behavior for PTY lanes; the gate engages only
-  for `pipe` transport with `deadline_elapsed_only`. A deployment behind on the
-  migration falls back to today's ungated escalation (degrade-safe, like P0's
-  bundle-0012 guard).
+  for a still-present, non-confirmed-dead lane on a `deadline_elapsed_only` basis.
+  A deployment behind on the migration falls back to today's ungated escalation
+  (degrade-safe, like P0's bundle-0012 guard): `readJobRecoveryBudget` retries
+  on the legacy column set and the gate escalates immediately.
 
 ## Doctor and legibility
 
