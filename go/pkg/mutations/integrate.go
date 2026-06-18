@@ -75,56 +75,18 @@ func HandleRunIntegrate(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}, nil
 		}
 
-		intoSHA, err := integrateRevParse(ctx, repoRoot, into)
+		// Compute the merged tree + integration commit via the shared run-entity
+		// assembly (the same merge-tree → conflict-detection → commit-tree plumbing
+		// the RFC 0135 P6 run-entity barrier uses, factored into one place so the live
+		// integrate path and the barrier path cannot drift). This is a pure
+		// computation — it writes NO refs and never mutates a working tree; the
+		// side-effecting event-append + CAS update-ref stay inline below, byte-for-byte
+		// as RFC 0108 shipped them.
+		asm, err := assembleRunEntityIntegration(ctx, repoRoot, runID, runBranch, into)
 		if err != nil {
 			return nil, err
 		}
-		branchSHA, err := integrateRevParse(ctx, repoRoot, runBranch)
-		if err != nil {
-			return nil, err
-		}
-
-		mergeTree, mergeTreeErr, exit, err := mergeTreeWriteTree(ctx, repoRoot, into, runBranch)
-		if err != nil {
-			return nil, err
-		}
-		if exit != 0 {
-			conflicts := parseMergeTreeConflicts(mergeTree)
-			if len(conflicts) > 0 {
-				return nil, rpc.NewError("merge_conflict", fmt.Sprintf(
-					"integrating run branch %q into %q conflicts in %d path(s): %s — resolve the overlap on a branch a maintainer merges (RFC 0108 never auto-resolves); mainline %q is untouched.",
-					runBranch, into, len(conflicts), strings.Join(conflicts, ", "), into),
-					map[string]any{"conflicting_paths": conflicts, "into": into, "run_branch": runBranch})
-			}
-			// Non-zero exit but no parseable conflict path: a merge-tree/plumbing
-			// failure, NOT a content overlap. Surface it honestly with the raw git
-			// output rather than reporting "conflicts in 0 path(s)" (the #327
-			// mislabel); mainline is untouched.
-			detail := strings.TrimSpace(mergeTree + "\n" + mergeTreeErr)
-			return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
-				"integrating run branch %q into %q: merge-tree exited %d with no parseable conflict path; mainline %q is untouched: %s",
-				runBranch, into, exit, into, detail),
-				map[string]any{"into": into, "run_branch": runBranch})
-		}
-		treeOID := firstLine(mergeTree)
-		if treeOID == "" {
-			return nil, rpc.NewError("git_commit_apply_failed", "merge-tree produced no merged tree", nil)
-		}
-
-		message := fmt.Sprintf("striatum: integrate run %s (%s) into %s", runID, runBranch, into)
-		commitOut, exit, err := integrateGit(ctx, repoRoot,
-			"-c", "user.name=striatum-integrator", "-c", "user.email=integrator@striatum.local",
-			"commit-tree", treeOID, "-p", intoSHA, "-p", branchSHA, "-m", message)
-		if err != nil {
-			return nil, err
-		}
-		if exit != 0 {
-			return nil, rpc.NewError("git_commit_apply_failed", "commit-tree failed: "+strings.TrimSpace(commitOut), nil)
-		}
-		mergeCommit := firstLine(commitOut)
-		if !isFullGitSHA(mergeCommit) {
-			return nil, rpc.NewError("git_commit_apply_failed", "commit-tree produced no commit id", nil)
-		}
+		intoSHA, mergeCommit := asm.IntoSHA, asm.MergeCommit
 
 		// Record the integration in the event chain BEFORE advancing the ref: git is
 		// not transactional with the DB, so the order that minimizes inconsistency is
