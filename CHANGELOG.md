@@ -4,6 +4,23 @@
 
 ### Fixed
 
+- **daemon: reap supervisors stranded on terminal runs — `striatum status`
+  RPC storm (#417).** Supervisor rows were only reaped via
+  `closeRemainingSessions`, which iterates sessions in `state='active'` (and
+  skips active-lease holders). A lane that dies abnormally has its session
+  `closed` before the run terminates, so its supervisor is never reached and
+  lingers `attached`/`starting` forever. The status/dashboard read path
+  LEFT-JOINs `process_supervisors ON state='attached'` and sudo+tmux
+  `ProbeLaneLiveness` each one, so a single repo-wide `status` fanned out
+  hundreds of failing probes and blew the 30s CLI read deadline (the daemon sat
+  at 71% CPU with 100% of its DB work being supervisor reconcile; the incident
+  had **562** stranded `process_supervisors` across **128** terminal runs, 511
+  with an already-closed session). Fix: a run-scoped **backstop** in
+  `closeRemainingSessions` reaps every still-live supervisor for a now-terminal
+  run regardless of its session's state or lease; a **status read-path guard**
+  never drains/probes a session whose run is terminal; and migration **0033**
+  (pure DML, no owner DDL, idempotent) backfills the already-accumulated debris.
+  After deploy: `status` 30s-timeout → 0.08s, daemon CPU 71% → 0.2%.
 - **daemon: retry transient `lock_timeout` (SQLSTATE 55P03) on the
   lifecycle/event-write path.** Under multi-run state-DB contention a writer
   that lost a race for a contended run-aggregate or event-chain-head lock could
