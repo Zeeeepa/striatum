@@ -303,6 +303,13 @@ every common run so it can never rot from disuse.
    Should the run branch be demoted to a materialized **projection** of the
    barrier chain that the daemon can rebuild from PG + staging refs, so
    hand-edited state is structurally impossible to confuse for real state?
+   **Resolved (D233, #351): NO — the run branch stays an AUTHORITATIVE git ref
+   advanced by the barrier CAS.** The projection form buys no integrity property
+   the shipped `barrier_state` two-phase journal + the `barrier_integrity` doctor
+   invariant + the existing worktree-ref/artifact-anchor doctor checks do not
+   already provide, while adding a second source of truth that must be kept
+   consistent with the ref. The authoritative-ref form is the simpler invariant
+   and is what the P1/P2/P6 CAS plumbing already builds on.
 3. **Scope: one barrier, or a general primitive?** Two design branches converged
    on the observation that #319's fan-in TOCTOU, RFC 0095's stale-verdict reopen
    wedge, and RFC 0108's integrate gate are *the same bug* — a barrier that counts

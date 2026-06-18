@@ -957,6 +957,38 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 	if heldByAdvisory {
 		return false, nil
 	}
+	// RFC 0135 P4 cutover (#354, D216): when the gate declares a GATING review-seat
+	// panel, the panel-quorum sealed barrier (entity=review_seat, seal=attempt)
+	// COMPOSES WITH the edge-by-edge gate over the FROZEN declared-seat denominator. The
+	// barrier is keyed on the stable workflow_job_id (recovery churns job_id), classifies
+	// each seat by the live seal, honors the live dissent_ledger, and skips only a
+	// provably-dead seat within the abstention budget (D214).
+	//
+	// COMPOSE, do NOT replace (the cutover-regression fix): the barrier MUST NOT block a
+	// review edge the legacy edge-by-edge gate UNBLOCKS — that regressed the
+	// revision-routing / checkpoint-override / blocked-sibling-requeue scenarios where a
+	// settled seat carries a superseding clearing verdict, no required verdict at all, or
+	// an append-only dissent the override cleared by supersession. So each governed seat
+	// is resolved to a per-seat state and the edge-by-edge `latestVerdict` check is kept
+	// as the floor; the barrier only ever ADDS the ONE strictness the seal-blind legacy
+	// gate misses — refusing a STALE-SEAL accept (the trap, panelSeat.staleSealTrap) —
+	// and only ever RELAXES via the explicit abstention budget (a provably-dead seat
+	// within budget, panelSeat.terminalGap). With the DEFAULT budget 0 and all-gating
+	// seats this is IDENTICAL to the edge-by-edge gate except it kills the stale-seal
+	// trap — proven by TestPanelQuorumCutoverEqualsEdgeByEdge.
+	//
+	// Fallback: STRIATUM_BARRIER_QUORUM=0 forces the legacy edge-by-edge path for every
+	// gate (the recoverable kill switch), so a quorum regression is reversible without a
+	// redeploy of older code.
+	governedSeats := map[string]panelSeat{}
+	if barrierQuorumEnabled() {
+		resolved, err := resolveGovernedSeats(ctx, runner, repositoryID, jobID)
+		if err != nil {
+			return false, err
+		}
+		governedSeats = resolved
+	}
+
 	deps, err := queryRows(ctx, runner, `
 		SELECT * FROM striatumd.job_dependencies
 		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
@@ -975,6 +1007,22 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 		if len(required) == 0 {
 			continue
 		}
+		seatID := fmt.Sprint(upstream["workflow_job_id"])
+		seat, governed := governedSeats[seatID]
+		// A seat the barrier governs (a GATING review seat in the frozen denominator)
+		// whose edge requires exactly the standard accepting set is COMPOSED, not
+		// short-circuited: a provably-dead seat the abstention budget admits passes (the
+		// only relaxation), then the edge-by-edge floor below runs unchanged, and the
+		// barrier's only added strictness — refusing a STALE-SEAL accept — is applied
+		// AFTER the floor admits. A non-standard requires_verdict still gates purely
+		// edge-by-edge below, so the barrier can never disagree with an edge's declared
+		// requirement.
+		barrierGoverns := governed && isStandardAcceptingGate(required)
+		if barrierGoverns && seat.terminalGap() {
+			// Provably-dead seat within the abstention budget (D214b): the barrier
+			// RELAXES the gate so the run is not deadlocked on a dead lane.
+			continue
+		}
 		latest, err := latestVerdict(ctx, runner, repositoryID, fmt.Sprint(upstream["job_id"]))
 		if err != nil {
 			return false, err
@@ -982,8 +1030,35 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 		if !required[latest] {
 			return false, nil
 		}
+		// The edge-by-edge floor admitted this seat. The barrier ADDS exactly one
+		// strictness the seal-blind legacy gate misses: if the seat's accepting verdict
+		// is STALE (its live attempt advanced past the accept), refuse — the trap-killer.
+		// For an override (accept at the live seal) or an absorb (no required verdict, not
+		// reached here) the seat is not a stale-seal trap, so the floor's admit stands and
+		// the barrier never regresses the legacy unblock.
+		if barrierGoverns && seat.staleSealTrap() {
+			return false, nil
+		}
 	}
 	return true, nil
+}
+
+// isStandardAcceptingGate reports whether a gate's requires_verdict set is exactly
+// the accepting set {accept, accept_with_findings} the quorum barrier treats as
+// satisfying. Only such an edge may be governed by the barrier without any risk of
+// disagreeing with the edge-by-edge requirement; a non-standard requires_verdict
+// keeps the edge on the legacy edge-by-edge path.
+func isStandardAcceptingGate(required map[string]bool) bool {
+	return len(required) == 2 && required["accept"] && required["accept_with_findings"]
+}
+
+// barrierQuorumEnabled reports whether the RFC 0135 P4 panel-quorum barrier governs
+// paneled review gates (the default). STRIATUM_BARRIER_QUORUM=0 forces the legacy
+// edge-by-edge path — the recoverable kill switch the cutover keeps so a quorum
+// regression is reversible without redeploying older code. Any value other than the
+// explicit "0" leaves the barrier ON.
+func barrierQuorumEnabled() bool {
+	return os.Getenv("STRIATUM_BARRIER_QUORUM") != "0"
 }
 
 func requiredVerdicts(value any) map[string]bool {

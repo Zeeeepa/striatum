@@ -55,6 +55,35 @@ func HandleRunIntegrate(ctx context.Context, runner db.Runner, envelope rpc.Enve
 		if state := fmt.Sprint(run["state"]); state != "completed" {
 			return nil, rpc.NewError("invalid_transition", fmt.Sprintf("run is %q; only a completed run can be integrated", state), nil)
 		}
+		// RFC 0135 P6 cutover (#354, D216): the run is the entity; its integration gate
+		// is the RUN-ENTITY sealed barrier — the run is terminal-acceptable AND every
+		// declared job-level sealed barrier inside it has fired (job barriers compose
+		// into the run barrier). runEntityBarrierReady expresses this through the P0
+		// db.BarrierReadySQL shape (entity_kind='run'). A run that declares NO job-level
+		// barriers (every run today — recordFaninFreezePoint is not yet on the live
+		// completion path) has an empty in-edge set, so the barrier reduces EXACTLY to
+		// the `state == 'completed'` check above — proven byte-identical by
+		// TestRunIntegrateIsTheRunEntityBarrier and TestRunIntegrateRunEntityBarrierGate.
+		// This RETIRES the bare terminal-state default in favor of the composing
+		// run-entity barrier without changing any current run's outcome, and makes a
+		// future fan-in barrier compose into the integrate gate for free. The bare
+		// `state` check is kept above for its precise error message and to short-circuit
+		// the barrier query on a non-terminal run.
+		//
+		// Fallback: STRIATUM_BARRIER_RUN_ENTITY=0 forces the legacy terminal-state-only
+		// gate (the recoverable kill switch), so a composition regression is reversible
+		// without redeploying older code.
+		if barrierRunEntityEnabled() {
+			ready, err := runEntityBarrierReady(ctx, tx, repositoryID, runID)
+			if err != nil {
+				return nil, err
+			}
+			if !ready {
+				return nil, rpc.NewError("invalid_transition",
+					"run-entity barrier is not ready: the run is completed but a declared job-level barrier inside it has not fired (RFC 0135 P6); recover the outstanding barrier before integrating",
+					map[string]any{"run_id": runID})
+			}
+		}
 		runBranch := fmt.Sprint(run["branch_name"])
 		if runBranch == "" || runBranch == "<nil>" {
 			return nil, rpc.NewError("invalid_transition", "run has no branch to integrate", nil)

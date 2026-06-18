@@ -1,6 +1,6 @@
 # RFC 0135: The sealed expectation barrier primitive — one (entity, seal) barrier shared by fan-in, quorum, revision-coherence, and run.integrate
 
-Status: accepted / implemented (D216; P0-P6 shipped v2.34.0, opt-in/shadow)
+Status: accepted / implemented (D216; P0-P6 shipped v2.34.0 opt-in/shadow; FULL cutover D233/#354: P4 quorum + P6 run.integrate now LIVE default, P5 confirmed live, P1/P2 fan-in stay shadow)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -365,9 +365,9 @@ earlier):
 | **P1 — staging + the live-seal JOIN barrier (fan-in instance)** *(IMPLEMENTED — runtime migration `0029`, opt-in + same-final-tree equivalence fixture; D206 stays the default)* | #345 (133-B) | Attempt-addressed staging refs; the immutable freeze record; the JOIN barrier with `entity=job, seal=attempt`; requeue tombstone, `recovery/`-prefix exclusion, merge-base contamination check, advisory-lock fire serialization, quarantine-as-terminal-in-edge. The first *live* instance of the primitive. | freeze/staging tables: **runtime, no FK to jobs, explicit GRANT each** |
 | **P2 — assembly + N=1 unification (job-entity)** | #346 (133-C) | `barrier_assembly` job type backed by a `barrier_state` row (`sealed→assembling→committed\|failed`) with two-phase journaling; route N=1 through the one path. | `barrier_assembly` CHECK => **owner bundle 0013**; `barrier_state` => **runtime, no FK, explicit GRANT** |
 | **P3 — doctor + refusal + verify** *(IMPLEMENTED — `barrier_integrity` doctor invariant + `BARRIER_BLOCKED`/`blocked_manifest` (a DERIVED runtime/doctor condition, NOT a `barrier_state` CHECK value) + `striatum join verify` (`join.verify`) + runtime migration `0031` `barrier_status` view; D206 stays the default)* | #347 (133-D) | The generalized barrier doctor invariant (subsumes `fanin_sibling_unintegrated` and the per-integration checks), the `BARRIER_BLOCKED` named state + `blocked_manifest`, `barrier_status` view, `striatum join verify`. | none |
-| **P4 — quorum consumes the predicate** | #338–#343 (132-A…F) | `panelQuorumSatisfied` is **the primitive** with `entity=review_seat (workflow_job_id), seal=attempt`, declared-seat denominator, verdict-less abstention stub (D214a), skip-only-provably-dead (D214b), forward-written dissent. `k_of_n` desugars in lint (D214). #343's optional `dissent_quarantine` run-state now needs the next available owner bundle if it ships. | per RFC 0132 / D215 (no-DDL workflow_json + runtime `dissent_ledger`; optional run-state CHECK => owner bundle) |
+| **P4 — quorum consumes the predicate** *(LIVE — flipped to default by the D233/#354 cutover: `dependenciesSatisfied` routes a GATING review panel through `panelQuorumSatisfied`, retiring the edge-by-edge `latestVerdict` default for paneled gates; kill switch `STRIATUM_BARRIER_QUORUM=0`; equivalence `TestPanelQuorumCutoverEqualsEdgeByEdge`)* | #338–#343 (132-A…F) | `panelQuorumSatisfied` is **the primitive** with `entity=review_seat (workflow_job_id), seal=attempt`, declared-seat denominator, verdict-less abstention stub (D214a), skip-only-provably-dead (D214b), forward-written dissent. `k_of_n` desugars in lint (D214). #343's optional `dissent_quarantine` run-state now needs the next available owner bundle if it ships. | per RFC 0132 / D215 (no-DDL workflow_json + runtime `dissent_ledger`; optional run-state CHECK => owner bundle) |
 | **P5 — revision coherence is named as the seal instance** *(IMPLEMENTED — docs + tests only, NO behavior change, NO migration; `bumpReviewGeneration` = "advance the entity's seal", the `applyVerdict` review_generation stamp = "embed the seal in the contribution", and the RFC 0126 finalization set-difference = the primitive predicate with `seal := review_generation`, all named in source comments; fenced by `TestRevisionCoherenceIsTheSealInstance`)* | RFC 0095/0126 follow-up | `review_generation` is documented and tested as `seal := review_generation`; the RFC 0126 finalization gate is asserted to be the primitive predicate. **No behavior change**, no migration — a renaming + a shared-doctor/shared-test fold. | none |
-| **P6 — run.integrate folds in (entity=run)** | RFC 0108 follow-up | The run-completion integration gate is recast as the run-entity barrier whose in-edges are job-level barriers; the merge-tree/CAS path is shared with `barrier_assembly`. The highest-risk fold (Risks). | none (uses existing run/integration state) |
+| **P6 — run.integrate folds in (entity=run)** *(LIVE — flipped to default by the D233/#354 cutover: `HandleRunIntegrate` gates on `runEntityBarrierReady`, retiring the bare `state=='completed'` default; the shared assembly `assembleRunEntityIntegration` was already factored in; kill switch `STRIATUM_BARRIER_RUN_ENTITY=0`; equivalence `TestRunIntegrateRunEntityBarrierGate` + `TestRunIntegrateIsTheRunEntityBarrier`. SAFE because no run on the live completion path declares a job-level barrier yet, so the gate reduces EXACTLY to the terminal-state check while composing correctly for a future fan-in barrier)* | RFC 0108 follow-up | The run-completion integration gate is recast as the run-entity barrier whose in-edges are job-level barriers; the merge-tree/CAS path is shared with `barrier_assembly`. The highest-risk fold (Risks). | none (uses existing run/integration state) |
 
 The four-caller span is **P1+P4 (attempt-sealed), P5 (generation-sealed),
 P6 (run-sealed)** — the full breadth #354/D216 ratified. P0–P3 land the primitive
@@ -375,6 +375,25 @@ through the fan-in caller first (lowest risk, RFC 0133's already-accepted design
 P4 reuses the predicate; P5/P6 are the *bet* folds and ship last, each behind the
 existing equivalence-fixture discipline (assert identical outcome to today's path
 before flipping any workflow).
+
+**Cutover outcome (D233, #354 FULL cutover).** Three of the four callers are now
+the LIVE default, each behind a recoverable env kill switch and a proven equivalence
+fixture: **P4 quorum** (`dependenciesSatisfied` → `panelQuorumSatisfied`,
+`STRIATUM_BARRIER_QUORUM=0` reverts; byte-identical to edge-by-edge at the default
+budget 0, STRICTER only where it kills the stale-seal-accept trap), **P5 revision
+coherence** (already the live gate — `review_generation` IS the seal, enforced at the
+verdict stamp + `resetDownstreamForRevision`), and **P6 run.integrate**
+(`HandleRunIntegrate` → `runEntityBarrierReady`, `STRIATUM_BARRIER_RUN_ENTITY=0`
+reverts; equivalent because no live-path run declares a job-level barrier, so the
+gate reduces to the terminal-state check today and composes for the future).
+**P1/P2 fan-in stay SHADOW** — the per-completion D206 merge (`fanInIntegrateRunBranch`)
+remains the default fan-in path. Flipping the deferred-join barrier live requires a
+`barrier_assembly` job dispatcher, staging-at-completion (instead of merge-at-anchor),
+and a downstream gate that waits on the barrier — none of which is wired yet — so it
+is an unproven behavior change, not a provable equivalence flip. The same-final-tree
+fixture (`TestFaninBarrierSameFinalTreeAsPerCompletion`) proves the assembled *tree*
+matches D206, but not the *live wiring*, so P1/P2 correctly stay shadow until that
+end-to-end wiring lands behind its own equivalence run.
 
 ## Risks (honest record of the source finding and the accepted bet)
 

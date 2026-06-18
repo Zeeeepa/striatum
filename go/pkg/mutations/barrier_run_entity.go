@@ -3,11 +3,21 @@ package mutations
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
+
+// barrierRunEntityEnabled reports whether the RFC 0135 P6 run-entity barrier gates
+// run.integrate (the default). STRIATUM_BARRIER_RUN_ENTITY=0 forces the legacy
+// terminal-state-only gate — the recoverable kill switch the cutover keeps so a
+// composition regression is reversible without redeploying older code. Any value
+// other than the explicit "0" leaves the barrier ON.
+func barrierRunEntityEnabled() bool {
+	return os.Getenv("STRIATUM_BARRIER_RUN_ENTITY") != "0"
+}
 
 // RFC 0135 P6 (D216) — run.integrate folds in as the RUN-ENTITY sealed barrier
 // (entity = run). This is the highest-risk fold (RFC 0135 Risks): run.integrate
