@@ -95,6 +95,36 @@ Global opt-out (e.g. in CI, or when you drive runs yourself):
 export STRIATUM_RUN_DRIVE_AUTO=0     # also accepts false / no / off
 ```
 
+## Resume after a pause or a daemon/DB restart (re-arming the driver)
+
+`run pause` holds a run for maintenance (e.g. a DB restart); `run resume` lifts
+the hold by clearing `paused_at`. **Resume does not, by itself, restart the
+driving loop** — and the transient `striatum-drive-<run>` unit from `run start`
+**does not survive a daemon/DB outage** (it dies when its RPCs start failing,
+and `--collect` is for terminal runs, not crashes). So after a
+`pause → restart → resume`, the run is `running` but un-driven until a driver is
+re-armed. To make the resume contract legible, `run resume` reports a `drive`
+field naming which home will (or must) re-drive the run:
+
+| `drive`                          | meaning | what you do |
+| -------------------------------- | ------- | ----------- |
+| `daemon_auto_spawn`              | the run holds an active auto_spawn grant **and** the daemon RFC 0122 scheduler is enabled | nothing — the scheduler re-adopts and re-drives the run on its next sweep |
+| `auto_spawn_scheduler_disabled`  | the run holds a grant but the daemon scheduler is OFF on this deployment (`STRIATUM_AUTO_SPAWN_SCHEDULER` unset) | re-invoke the driver (`next_action` gives the exact command), or enable the scheduler |
+| `operator_run_drive`             | the run has no auto_spawn grant, so the scheduler never adopts it | re-invoke the driver — `striatum run drive --run-id <run>` |
+
+```sh
+striatum --repo <target> run resume --run-id $RUN
+# { ..., "status": "resumed", "drive": "operator_run_drive",
+#   "next_action": "re-invoke the driver: striatum run drive --run-id run_abc123" }
+striatum --repo <target> run drive --run-id $RUN   # re-arm when next_action is present
+```
+
+When `drive` is `daemon_auto_spawn` there is no `next_action` and no manual
+`run drive` is needed — the daemon scheduler owns the loop. The grant exists only
+for runs whose workflow opted a lane into `supervision.auto_spawn` at `run start`
+(RFC 0122); every other run is operator-driven, so plan to re-`run drive` it after
+any outage.
+
 ## Composition with explicit `run drive` and the refactoring-campaign skill
 
 Because the driver is idempotent, auto-drive composes safely with anything that

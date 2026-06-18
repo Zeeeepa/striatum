@@ -273,6 +273,20 @@ func TestRefuseAutonomousSharedCheckoutRepoWrite(t *testing.T) {
 	if !lintHasRule(payload, "shared_checkout_repo_write_override") {
 		t.Fatalf("expected shared_checkout_repo_write_override warning, got %#v", payload["warnings"])
 	}
+	// #383 item 4: the validate-time warning must name the concurrency consequence
+	// so it agrees with the run.start gate (concurrent_run_isolation_required) — a
+	// shared-checkout repo-write lane passes validate but is refused at start when a
+	// sibling run is active. The author should learn this at validate, not at start.
+	finding, ok := lintFindingForRule(t, workflow, "shared_checkout_repo_write_override")
+	if !ok {
+		t.Fatalf("expected shared_checkout_repo_write_override finding")
+	}
+	msg, _ := finding["message"].(string)
+	for _, want := range []string{"concurrent_run_isolation_required", "worktree_isolation: per_job"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("shared_checkout_repo_write_override message missing %q:\n%s", want, msg)
+		}
+	}
 }
 
 func TestValidateSharedCheckoutOverrideRequiresRationale(t *testing.T) {
