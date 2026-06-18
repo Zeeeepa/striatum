@@ -618,6 +618,13 @@ func validateReviewPosture(jobID string, job map[string]any) error {
 // number, default 0). These are workflow config (no DDL); the daemon reads them to
 // compute panelQuorumSatisfied over a frozen declared-seat denominator. The default
 // (panel_role gating, budget 0) keeps behavior unchanged: every gating seat required.
+//
+// Per D214, a non-zero gating-abstention budget lets quorum finalize past unfilled
+// gating seats, which is a dangerous opt-in: it MUST be a fixture-diff-visible explicit
+// author choice, not an accidental default. So when max_gating_abstentions > 0 the job
+// must also carry allow_gating_abstentions: true (the same explicit-boolean idiom used
+// by lanes.allow_shared_checkout_repo_write). Absent = false = budget 0 only, so this is
+// backward-compatible.
 func validatePanelQuorum(jobID string, job map[string]any) error {
 	if value, exists := job["panel_role"]; exists {
 		if defaultString(job["type"], "generic") != "review" {
@@ -628,9 +635,20 @@ func validatePanelQuorum(jobID string, job map[string]any) error {
 			return errf("review job %q has unknown panel_role %v; allowed: gating|advisory", jobID, value)
 		}
 	}
+	allowAbstentions := false
+	if raw, exists := job["allow_gating_abstentions"]; exists {
+		flag, ok := raw.(bool)
+		if !ok {
+			return errf("job %q allow_gating_abstentions must be a boolean", jobID)
+		}
+		allowAbstentions = flag
+	}
 	if value, exists := job["max_gating_abstentions"]; exists {
 		if !nonNegativeWholeNumber(value) {
 			return errf("job %q max_gating_abstentions must be a non-negative whole number", jobID)
+		}
+		if positiveWholeNumber(value) && !allowAbstentions {
+			return errf("job %q sets max_gating_abstentions > 0 but does not set allow_gating_abstentions: true; a non-zero gating-abstention budget must be an explicit author opt-in (D214)", jobID)
 		}
 	}
 	return nil
