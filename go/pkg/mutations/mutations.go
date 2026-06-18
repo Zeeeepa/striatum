@@ -1214,6 +1214,21 @@ func maybeCompleteRun(ctx context.Context, runner any, repositoryID, runID strin
 			"provenance_gate": ledger,
 		}
 		recordExtra := map[string]any{"completion_mode": completionMode, "provenance_gate": ledger}
+			// RFC 0134 / D227: the executable-half gate READ. Load the run's
+			// claim_ledger + the receipts its VERIFIED claims name and record the
+			// EFFECTIVE claim status (two-signal sealed receipt → VERIFIED; missing /
+			// wedged / non-strict / single-signal → ASSERTED). This is a PURE READ:
+			// it executes nothing, adds NO failing gate, and never blocks completion
+			// on engine liveness — it only makes the verified-vs-asserted ledger
+			// durable on the completion event.
+			claimVerification, cverr := evaluateRunClaimVerification(ctx, runner, repositoryID, runID)
+			if cverr != nil {
+				return cverr
+			}
+			if len(claimVerification) > 0 {
+				completionPayload["claim_verification"] = claimVerification
+				recordExtra["claim_verification"] = claimVerification
+			}
 		// #311 P0: a clean completion that left a single recovery-exhausted,
 		// downstream-clear job quarantined finalizes-the-majority — carry the
 		// manifest and set stop_reason='quarantined_jobs' (instead of NULL) so the
