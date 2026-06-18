@@ -1,5 +1,5 @@
 # Frozen provenance: accepted RFCs, archives, dogfood records, prompts.
-docs/_archive/
+docs/records/_frozen/
 docs/rfcs/
 docs/research/
 docs/dogfood/

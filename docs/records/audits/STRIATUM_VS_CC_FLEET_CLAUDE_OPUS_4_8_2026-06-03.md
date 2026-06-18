@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: OPUS
+expires: null
+---
+
 # striatum vs cc-fleet — a senior peer comparison
 
 *Reviewer: Claude Opus 4.8 · 2026-06-03 · ~5,000 words*

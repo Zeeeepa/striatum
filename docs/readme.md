@@ -28,7 +28,7 @@ Start here:
 
 ## Follow-Up Specs
 
-- [RFC_0014_DOGFOOD_FIX_SPEC.md](_archive/RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
+- [RFC_0014_DOGFOOD_FIX_SPEC.md](records/_frozen/RFC_0014_DOGFOOD_FIX_SPEC.md) — fixes
   proposed after the RFC 0014 validation dogfood run. This is now tracked as
   [rfcs/0001](rfcs/0001-run-recovery-and-dogfood-fixes.md).
 
@@ -48,7 +48,7 @@ Start here:
 
 ## Reviews
 
-- [reviews/](_archive/reviews/) — review findings, ledgers, and syntheses.
+- [reviews/](records/_frozen/reviews/) — review findings, ledgers, and syntheses.
 
 ## Prompts
 

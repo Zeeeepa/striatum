@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: GEMINI
+expires: null
+---
+
 # Striatum Documentation Drift Audit
 
 ## 0. Audit Basis

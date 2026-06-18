@@ -1,3 +1,10 @@
+---
+type: record
+status: frozen
+owner: OPUS
+expires: null
+---
+
 # Striatum Run Retrospective — `di-run2` (divergent_ideation)
 
 Auditor: claude-opus-4.8 · Date: 2026-06-16 · Prompt: `~/git/prompts/RUN_RETROSPECTIVE.md`
