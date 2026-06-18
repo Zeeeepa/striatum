@@ -235,20 +235,31 @@ func recordFaninFreezePoint(ctx context.Context, runner db.TxRunner, repositoryI
 
 // stageFaninContribution records a sibling's completion as an attempt-addressed
 // staging contribution AND cuts the staging git ref, co-transactionally with the
-// caller's attempt/state update (RFC 0133). Two provenance gates run before the row
-// is written, so a contaminated contribution can never enter the canonical set:
+// caller's attempt/state update (RFC 0133). Provenance gates run before the row is
+// written, so a contaminated contribution can never enter the canonical set, while
+// a LEGITIMATE base drift is recovered rather than refused.
 //
-//  1. The merge-base contamination check (RFC 0133): the staged commit must DESCEND
-//     from the frozen tip — a staged ref descended from the EVOLVED branch (base
-//     drift) is refused. This proves topological ancestry.
-//  2. The per-commit tree-provenance check (#352, RFC 0133 Risks "Merge-base proves
-//     ancestry, not content"): every commit in the contribution chain
-//     frozen_tip..staged must be authored LINEARLY on top of the frozen tip — no
-//     merge commit may graft in a side branch whose content does not itself descend
-//     from the frozen tip. Ancestry alone passes a staged ref of `frozen_tip +
-//     linear commits` even when an intermediate merge cherry-picked evolved-tip
-//     content; this gate closes that smuggled-content hole using the stored
-//     frozen_tip_tree_sha as the trusted tree anchor.
+// The staged commit is classified against the frozen tip (classifyContributionBase):
+//
+//  1. DIRECT descendant — the staged commit descends from the frozen tip (the
+//     common case). The #352 per-commit tree-provenance check then asserts every
+//     commit in frozen_tip..staged was authored LINEARLY on top of the frozen tip,
+//     closing the smuggled-content hole (a merge grafting an off-base side branch
+//     whose content does not itself descend from the frozen tip).
+//  2. RECOVERABLE base drift (#353, RFC 0133 Risks "Base drift (#299/#306)") — the
+//     run branch evolved under the sibling's feet (e.g. another sibling integrated),
+//     so the sibling authored its change on the EVOLVED tip, not the frozen tip. The
+//     staged commit does NOT descend from the frozen tip but SHARES a real merge-base
+//     with it (same lineage tree, no foreign root) and 3-way-merges onto the frozen
+//     tip cleanly. We RECORD the recoverable rebase leg (the evolved base as the
+//     drift-onto sha) so the assembly folds the contribution against the frozen tip
+//     with an extra commit-tree parent — "a recorded, recoverable extra commit-tree
+//     parent leg, not a CAS wedge." The drift-adapted tree-provenance check (anchored
+//     at the merge-base) keeps the smuggled-content guarantee for this path too.
+//  3. CONTAMINATED base — the staged chain folds in an off-base FOREIGN root lineage
+//     the sibling never authored on top of any shared base (no merge-base, or a root
+//     reachable from the staged commit that the frozen tip does not share). Still
+//     REFUSED (barrier_smuggled_content, #352).
 //
 // The PG row is the authoritative record the barrier JOINs against the live
 // attempt; the git ref is the witness. The row is keyed on
@@ -259,19 +270,22 @@ func stageFaninContribution(ctx context.Context, runner db.TxRunner, repoRoot, r
 	if err != nil {
 		return "", err
 	}
-	// Merge-base contamination check (RFC 0133): the staged commit must descend from
-	// the frozen tip. git merge-base --is-ancestor <frozen> <staged> == ancestor.
-	if ok, err := gitIsAncestor(ctx, repoRoot, fp.FrozenTipSHA, commitSHA); err != nil {
+	class, driftBase, err := classifyContributionBase(ctx, repoRoot, fp, workflowJobID, commitSHA, attempt)
+	if err != nil {
 		return "", err
-	} else if !ok {
-		return "", rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
-			"fan-in staging refused for seat %s (attempt %d): staged commit %s does not descend from the frozen base %s (base drift / contaminated base, RFC 0133)",
-			workflowJobID, attempt, commitSHA, fp.FrozenTipSHA),
-			map[string]any{"workflow_job_id": workflowJobID, "attempt": attempt, "frozen_tip": fp.FrozenTipSHA, "staged_commit": commitSHA})
 	}
-	// Per-commit tree-provenance check (#352): close the smuggled-content hole that
-	// the ancestry check above cannot see (RFC 0133 Risks).
-	if err := assertContributionTreeProvenance(ctx, repoRoot, fp, workflowJobID, commitSHA, attempt); err != nil {
+	// Tree-provenance check (#352): close the smuggled-content hole the ancestry
+	// check cannot see (RFC 0133 Risks). For a direct descendant we measure provenance
+	// against the frozen tip; for a recoverable drift we measure it against the shared
+	// merge-base (the evolved-base lineage is legitimate, so the merge-base is the
+	// trusted anchor the contribution must descend from with no foreign graft).
+	provenanceBase := fp.FrozenTipSHA
+	sealTreeAnchor := true
+	if class == contributionBaseDrift {
+		provenanceBase = driftBase
+		sealTreeAnchor = false // the merge-base is not the frozen tip; its tree is not the sealed one
+	}
+	if err := assertContributionTreeProvenance(ctx, repoRoot, fp, provenanceBase, sealTreeAnchor, workflowJobID, commitSHA, attempt); err != nil {
 		return "", err
 	}
 	ref := stagingRef(runID, workflowJobID, attempt)
@@ -280,68 +294,171 @@ func stageFaninContribution(ctx context.Context, runner db.TxRunner, repoRoot, r
 	} else if exit != 0 {
 		return "", rpc.NewError("git_commit_apply_failed", fmt.Sprintf("could not write fan-in staging ref %q for seat %s", ref, workflowJobID), nil)
 	}
+	// Record the recoverable drift leg (NULL for a direct descendant). base_drift_onto_sha
+	// is the evolved base the assembly folds the contribution against as an extra
+	// commit-tree parent; base_drift_reason makes the recovery legible.
+	var driftOnto, driftReason any
+	if class == contributionBaseDrift {
+		driftOnto = driftBase
+		driftReason = "evolved_run_branch"
+	}
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.barrier_staged_contributions
-		  (repository_id, barrier_id, run_id, workflow_job_id, attempt, job_id, staging_ref, commit_sha, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'staged')
+		  (repository_id, barrier_id, run_id, workflow_job_id, attempt, job_id, staging_ref, commit_sha, status,
+		   base_drift_onto_sha, base_drift_reason)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'staged', $9, $10)
 		ON CONFLICT (repository_id, barrier_id, workflow_job_id, attempt)
 		DO UPDATE SET job_id = EXCLUDED.job_id,
 		              staging_ref = EXCLUDED.staging_ref,
 		              commit_sha = EXCLUDED.commit_sha,
 		              status = 'staged',
 		              voided_at = NULL,
-		              void_reason = NULL`,
-		repositoryID, barrierID, runID, workflowJobID, attempt, jobID, ref, commitSHA); err != nil {
+		              void_reason = NULL,
+		              base_drift_onto_sha = EXCLUDED.base_drift_onto_sha,
+		              base_drift_reason = EXCLUDED.base_drift_reason`,
+		repositoryID, barrierID, runID, workflowJobID, attempt, jobID, ref, commitSHA, driftOnto, driftReason); err != nil {
 		return "", err
 	}
 	return ref, nil
 }
 
+// contributionBaseClass classifies a staged fan-in contribution against the frozen
+// tip (RFC 0133 #353 base-drift-as-a-recoverable-leg).
+type contributionBaseClass int
+
+const (
+	// contributionBaseDirect: the staged commit descends from the frozen tip.
+	contributionBaseDirect contributionBaseClass = iota
+	// contributionBaseDrift: the staged commit does NOT descend from the frozen tip
+	// but shares a real merge-base with it and folds in no foreign root — a
+	// legitimate evolved-run-branch drift that is RECOVERABLE.
+	contributionBaseDrift
+)
+
+// classifyContributionBase decides whether a staged contribution is a direct
+// descendant of the frozen tip, a recoverable base drift, or a contaminated base
+// (refused). For a recoverable drift it returns the merge-base of the frozen tip and
+// the staged commit — the evolved base the assembly folds the contribution against
+// as an extra commit-tree parent leg (RFC 0133 Risks "Base drift (#299/#306)").
+//
+// The discriminator between RECOVERABLE drift and CONTAMINATED base:
+//
+//   - A merge-base of (frozen, staged) MUST exist — disjoint histories (no shared
+//     ancestor) mean the contribution shares no lineage with the frozen tip at all,
+//     the strongest contamination signal. Refused.
+//   - EVERY root commit reachable from the staged commit MUST also be reachable from
+//     the frozen tip. A root reachable from staged but NOT from frozen is a FOREIGN
+//     lineage smuggled in via a merge (exactly the #352 off-base-root shape) — even
+//     though a merge-base may exist on the other parent. Refused.
+//
+// When both hold the drift is recoverable: the staged commit forked off an evolved
+// run-branch tip whose lineage descends from the same root(s) as the frozen tip, so
+// the merge-base is a real common ancestor and the contribution 3-way-merges onto
+// the frozen tip cleanly. (A residual graft inside the merge-base..staged range is
+// still caught by the drift-adapted tree-provenance check the caller runs next.)
+func classifyContributionBase(ctx context.Context, repoRoot string, fp faninFreezePoint, workflowJobID, commitSHA string, attempt int) (contributionBaseClass, string, error) {
+	frozen := fp.FrozenTipSHA
+	descends, err := gitIsAncestor(ctx, repoRoot, frozen, commitSHA)
+	if err != nil {
+		return 0, "", err
+	}
+	if descends {
+		return contributionBaseDirect, "", nil
+	}
+	refuseContaminated := func(reason string) (contributionBaseClass, string, error) {
+		return 0, "", rpc.NewError("barrier_smuggled_content", fmt.Sprintf(
+			"fan-in staging refused for seat %s (attempt %d): staged commit %s does not descend from the frozen base %s and is not a recoverable base drift — %s. A fan-in contribution must descend from the frozen base or evolve from its lineage; an off-base foreign lineage is not a legitimate contribution (RFC 0133 Risks / #353 base-drift, #352 smuggled-content).",
+			workflowJobID, attempt, commitSHA, frozen, reason),
+			map[string]any{"workflow_job_id": workflowJobID, "attempt": attempt, "frozen_tip": frozen, "staged_commit": commitSHA})
+	}
+	// A merge-base must exist — disjoint histories are contamination.
+	mergeBase, err := gitMergeBase(ctx, repoRoot, frozen, commitSHA)
+	if err != nil {
+		return 0, "", err
+	}
+	if mergeBase == "" {
+		c, s, e := refuseContaminated("the staged commit shares no common ancestor with the frozen base (disjoint history)")
+		return c, s, e
+	}
+	// Every root reachable from staged must also be reachable from frozen — a foreign
+	// root in staged's history is an off-base lineage smuggled in via a merge.
+	stagedRoots, err := gitRootCommits(ctx, repoRoot, commitSHA)
+	if err != nil {
+		return 0, "", err
+	}
+	frozenRoots, err := gitRootCommits(ctx, repoRoot, frozen)
+	if err != nil {
+		return 0, "", err
+	}
+	frozenRootSet := map[string]bool{}
+	for _, r := range frozenRoots {
+		frozenRootSet[strings.ToLower(r)] = true
+	}
+	for _, r := range stagedRoots {
+		if !frozenRootSet[strings.ToLower(r)] {
+			c, s, e := refuseContaminated(fmt.Sprintf("the staged commit's history includes an off-base root %s the frozen base does not share (foreign lineage smuggled via a merge)", r))
+			return c, s, e
+		}
+	}
+	return contributionBaseDrift, mergeBase, nil
+}
+
 // assertContributionTreeProvenance closes the smuggled-content hole RFC 0133's
 // Risks section calls out (#352): the merge-base ancestry check proves the staged
-// commit DESCENDS from the frozen tip, but a staged ref of `frozen_tip + linear
-// commits` passes it even when an intermediate MERGE commit grafted in evolved-tip
-// content via a side parent the sibling lane never authored off the frozen base.
-// Ancestry sees the topology; it cannot see that a foreign tree was folded in.
+// commit DESCENDS from the base, but a staged ref of `base + linear commits` passes
+// it even when an intermediate MERGE commit grafted in foreign content via a side
+// parent the sibling lane never authored off the base. Ancestry sees the topology;
+// it cannot see that a foreign tree was folded in.
 //
-// THE ASSERTION (per-commit tree provenance): every commit in the contribution
-// chain frozen_tip..staged (the commits reachable from staged but not from the
-// frozen tip — exactly what the sibling authored on top of the frozen base) must
-// itself DESCEND from the frozen tip. We prove this by connectivity rather than N
-// git calls: a chain commit descends from the frozen tip iff it reaches the frozen
-// tip by a parent walk that stays inside the chain (the range already excludes
-// everything reachable from frozen, so the only legitimate boundary parent is the
-// frozen tip itself). Seed the descendant set with the frozen tip's direct children
-// and propagate forward over child edges; any chain commit NOT reached is grafted
-// from outside the frozen lineage — an off-base merge parent or an independent root
-// commit pulled in by a merge — and the contribution is REFUSED. So every tree
-// mutation folded into the join was authored forward from the frozen tip's tree,
-// never imported from an outside lineage.
+// `base` is the trusted lineage anchor the contribution must be authored forward
+// from. For a DIRECT-descendant contribution it is the frozen tip (and
+// sealTreeAnchor seals the stored frozen_tip_tree_sha against the live tree). For a
+// RECOVERABLE base drift (#353) it is the merge-base of the frozen tip and the
+// staged commit — the legitimate evolved-base lineage — so the same per-commit
+// guarantee holds for the drift path: no foreign graft may enter the base..staged
+// range even when the contribution evolved off a moved run-branch tip.
 //
-// The stored frozen_tip_tree_sha is the trusted tree anchor: before walking, we
-// verify it equals the actual tree of frozen_tip_sha (when the freeze record carries
-// one — older records may not), so the base we measure provenance against cannot
-// have been re-pointed under us. (The freeze record is structurally immutable, so
-// this is a defense-in-depth seal, not the primary guarantee.)
-func assertContributionTreeProvenance(ctx context.Context, repoRoot string, fp faninFreezePoint, workflowJobID, commitSHA string, attempt int) error {
+// THE ASSERTION (per-commit tree provenance): every commit in the contribution chain
+// base..staged (the commits reachable from staged but not from the base — exactly
+// what the sibling authored on top of the base) must itself DESCEND from the base.
+// We prove this by connectivity rather than N git calls: a chain commit descends from
+// the base iff it reaches the base by a parent walk that stays inside the chain (the
+// range already excludes everything reachable from base, so the only legitimate
+// boundary parent is the base itself). Seed the descendant set with the base's direct
+// children and propagate forward over child edges; any chain commit NOT reached is
+// grafted from outside the base lineage — an off-base merge parent or an independent
+// root commit pulled in by a merge — and the contribution is REFUSED. So every tree
+// mutation folded into the join was authored forward from the base's tree, never
+// imported from an outside lineage.
+//
+// The stored frozen_tip_tree_sha is the trusted tree anchor for the DIRECT path:
+// before walking we verify it equals the actual tree of frozen_tip_sha (when the
+// freeze record carries one — older records may not), so the base cannot have been
+// re-pointed under us. (The freeze record is structurally immutable, so this is a
+// defense-in-depth seal, not the primary guarantee.) For the drift path the anchor
+// is the merge-base, whose tree is not the sealed frozen tree, so sealTreeAnchor is
+// false there.
+func assertContributionTreeProvenance(ctx context.Context, repoRoot string, fp faninFreezePoint, base string, sealTreeAnchor bool, workflowJobID, commitSHA string, attempt int) error {
 	frozen := fp.FrozenTipSHA
 	refuse := func(reason string, smuggled string) error {
 		return rpc.NewError("barrier_smuggled_content", fmt.Sprintf(
-			"fan-in staging refused for seat %s (attempt %d): staged commit %s smuggles content into the join — %s. A fan-in contribution must be authored linearly on top of the frozen base %s; a commit pulling in an off-base side branch is not a legitimate contribution (RFC 0133 Risks / #352).",
-			workflowJobID, attempt, commitSHA, reason, frozen),
+			"fan-in staging refused for seat %s (attempt %d): staged commit %s smuggles content into the join — %s. A fan-in contribution must be authored linearly on top of its base %s; a commit pulling in an off-base side branch is not a legitimate contribution (RFC 0133 Risks / #352).",
+			workflowJobID, attempt, commitSHA, reason, base),
 			map[string]any{
 				"workflow_job_id": workflowJobID,
 				"attempt":         attempt,
 				"frozen_tip":      frozen,
+				"provenance_base": base,
 				"staged_commit":   commitSHA,
 				"smuggled_commit": smuggled,
 				"frozen_tip_tree": fp.FrozenTipTreeSHA,
 			})
 	}
 
-	// Seal the tree anchor: the stored frozen_tip_tree_sha must equal the live tree
-	// of the frozen tip, so provenance is measured against the recorded base tree.
-	if strings.TrimSpace(fp.FrozenTipTreeSHA) != "" {
+	// Seal the tree anchor (DIRECT path only): the stored frozen_tip_tree_sha must
+	// equal the live tree of the frozen tip, so provenance is measured against the
+	// recorded base tree. (For a drift the base is the merge-base, not the frozen tip.)
+	if sealTreeAnchor && strings.TrimSpace(fp.FrozenTipTreeSHA) != "" {
 		actualTree, err := gitTreeOf(ctx, repoRoot, frozen)
 		if err != nil {
 			return err
@@ -354,22 +471,22 @@ func assertContributionTreeProvenance(ctx context.Context, repoRoot string, fp f
 		}
 	}
 
-	// Enumerate the contribution chain frozen..staged with each commit's parents.
+	// Enumerate the contribution chain base..staged with each commit's parents.
 	// `--parents` prints "<commit> <parent1> [<parent2> ...]" per line; the range
-	// frozen..staged excludes the frozen tip and everything reachable from it, so the
-	// chain is exactly the commits the sibling authored on top of the frozen base.
-	out, exit, err := integrateGit(ctx, repoRoot, "rev-list", "--parents", frozen+".."+commitSHA)
+	// base..staged excludes the base and everything reachable from it, so the chain is
+	// exactly the commits the sibling authored on top of the base.
+	out, exit, err := integrateGit(ctx, repoRoot, "rev-list", "--parents", base+".."+commitSHA)
 	if err != nil {
 		return err
 	}
 	if exit != 0 {
 		return rpc.NewError("git_commit_apply_failed", fmt.Sprintf(
-			"fan-in tree-provenance walk failed for seat %s: could not enumerate %s..%s", workflowJobID, frozen, commitSHA), nil)
+			"fan-in tree-provenance walk failed for seat %s: could not enumerate %s..%s", workflowJobID, base, commitSHA), nil)
 	}
 
 	// Parse the chain into commit->parents and build the reverse (parent->children)
-	// adjacency so we can propagate "descends from frozen" forward over child edges.
-	frozenLower := strings.ToLower(frozen)
+	// adjacency so we can propagate "descends from base" forward over child edges.
+	baseLower := strings.ToLower(base)
 	chain := map[string][]string{} // commit -> parents (all lowercased), chain commits only
 	children := map[string][]string{}
 	for _, raw := range strings.Split(out, "\n") {
@@ -390,12 +507,12 @@ func assertContributionTreeProvenance(ctx context.Context, repoRoot string, fp f
 		chain[commit] = parents
 	}
 
-	// Seed the descendant frontier with the frozen tip's DIRECT children inside the
-	// chain (a chain commit one of whose parents is the frozen tip), then BFS forward
-	// over child edges. Every commit reached this way provably descends from the
-	// frozen tip through a path that stays inside the chain.
+	// Seed the descendant frontier with the base's DIRECT children inside the chain
+	// (a chain commit one of whose parents is the base), then BFS forward over child
+	// edges. Every commit reached this way provably descends from the base through a
+	// path that stays inside the chain.
 	descends := map[string]bool{}
-	frontier := append([]string(nil), children[frozenLower]...)
+	frontier := append([]string(nil), children[baseLower]...)
 	for len(frontier) > 0 {
 		c := frontier[len(frontier)-1]
 		frontier = frontier[:len(frontier)-1]
@@ -406,14 +523,14 @@ func assertContributionTreeProvenance(ctx context.Context, repoRoot string, fp f
 		frontier = append(frontier, children[c]...)
 	}
 
-	// Any chain commit NOT in the descendant set was pulled in from outside the
-	// frozen lineage (an off-base merge parent, or an independent root and its
-	// off-base descendants reachable only through a merge). Refuse the first such
-	// commit — it carries content not authored forward from the frozen base.
+	// Any chain commit NOT in the descendant set was pulled in from outside the base
+	// lineage (an off-base merge parent, or an independent root and its off-base
+	// descendants reachable only through a merge). Refuse the first such commit — it
+	// carries content not authored forward from the base.
 	for commit := range chain {
 		if !descends[commit] {
 			return refuse(fmt.Sprintf(
-				"commit %s in the contribution chain does not descend from the frozen base (pulled in via a merge of an off-base lineage)", commit), commit)
+				"commit %s in the contribution chain does not descend from the base (pulled in via a merge of an off-base lineage)", commit), commit)
 		}
 	}
 	return nil
@@ -524,7 +641,15 @@ func assembleFaninBarrier(ctx context.Context, runner db.TxRunner, repoRoot, rep
 		if !isFullGitSHA(newTree) {
 			return "", "", nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("fan-in barrier assembly produced invalid tree oid %q for seat %s", newTree, edge.EntityID), nil)
 		}
+		// For a recoverable base drift (#353) the staged commit did not descend from
+		// the frozen tip; it evolved off a moved run-branch tip and was 3-way-merged
+		// here. Record the recoverable leg in the assembly commit message — the staged
+		// commit is already the extra commit-tree parent, so its evolved-base lineage
+		// is anchored in the assembled history (an extra-parent leg, not a CAS wedge).
 		msg := fmt.Sprintf("striatum fan-in barrier: assemble seat %s (attempt %d)", edge.EntityID, edge.Seal)
+		if edge.BaseDriftOnto != "" {
+			msg += fmt.Sprintf(" [recovered base drift: rebased onto evolved base %s]", edge.BaseDriftOnto)
+		}
 		cout, cexit, err := integrateGit(ctx, repoRoot,
 			"-c", "user.name=striatum-fanin", "-c", "user.email=fanin@striatum.local",
 			"commit-tree", newTree, "-p", tip, "-p", edge.CommitSHA, "-m", msg)
@@ -541,6 +666,54 @@ func assembleFaninBarrier(ctx context.Context, runner db.TxRunner, repoRoot, rep
 		tree = newTree
 	}
 	return tree, tip, edges, nil
+}
+
+// gitMergeBase returns the best common ancestor of two commits, or "" when their
+// histories are disjoint (no common ancestor). A non-empty result is the recoverable
+// drift base the assembly folds a drifted contribution against (RFC 0133 #353).
+func gitMergeBase(ctx context.Context, repoRoot, a, b string) (string, error) {
+	out, exit, err := integrateGit(ctx, repoRoot, "merge-base", a, b)
+	if err != nil {
+		return "", err
+	}
+	if exit != 0 {
+		// `git merge-base` exits 1 with no output when the histories are disjoint;
+		// any other non-zero is a real failure.
+		if strings.TrimSpace(out) == "" {
+			return "", nil
+		}
+		return "", rpc.NewError("git_commit_apply_failed", fmt.Sprintf("merge-base %s %s failed: %s", a, b, strings.TrimSpace(out)), nil)
+	}
+	base := firstLine(out)
+	if base == "" {
+		return "", nil
+	}
+	if !isFullGitSHA(base) {
+		return "", rpc.NewError("git_commit_apply_failed", fmt.Sprintf("merge-base %s %s produced invalid oid %q", a, b, base), nil)
+	}
+	return base, nil
+}
+
+// gitRootCommits returns every parentless (root) commit reachable from commit. A
+// root reachable from a staged contribution but NOT from the frozen tip is a foreign
+// lineage smuggled in via a merge — the contamination signal that distinguishes a
+// recoverable base drift from a contaminated base (RFC 0133 #353).
+func gitRootCommits(ctx context.Context, repoRoot, commit string) ([]string, error) {
+	out, exit, err := integrateGit(ctx, repoRoot, "rev-list", "--max-parents=0", commit)
+	if err != nil {
+		return nil, err
+	}
+	if exit != 0 {
+		return nil, rpc.NewError("git_commit_apply_failed", fmt.Sprintf("could not enumerate root commits of %q", commit), nil)
+	}
+	roots := []string{}
+	for _, line := range strings.Split(out, "\n") {
+		sha := strings.TrimSpace(line)
+		if isFullGitSHA(sha) {
+			roots = append(roots, sha)
+		}
+	}
+	return roots, nil
 }
 
 // gitTreeOf returns the tree oid of a commit.
@@ -605,6 +778,11 @@ type faninManifestInEdge struct {
 	CommitSHA  string `json:"commit_sha,omitempty"`
 	StagingRef string `json:"staging_ref,omitempty"`
 	DamageCode string `json:"damage_code,omitempty"`
+	// BaseDriftOnto is the evolved base a RECOVERABLE base-drift contribution was
+	// rebased onto at assembly (#353), empty for a direct-descendant contribution.
+	// The assembly records it as the extra commit-tree parent leg and stamps it into
+	// the assembly commit message, so the recovered drift is auditable in the join.
+	BaseDriftOnto string `json:"base_drift_onto,omitempty"`
 }
 
 // faninBarrierManifest snapshots, under the held advisory lock, the per-seat join
@@ -648,9 +826,11 @@ func faninManifestEdgeForSeat(ctx context.Context, runner db.TxRunner, repositor
 		return faninManifestInEdge{EntityID: seat, Seal: 0, Status: "quarantined", DamageCode: "seat_quarantined"}, nil
 	}
 	// The live-seal staged contribution: the highest-attempt non-voided,
-	// non-recovery staging row, joined on the seat's live attempt.
+	// non-recovery staging row, joined on the seat's live attempt. base_drift_onto_sha
+	// is non-NULL only for a recovered base-drift leg (#353).
 	rows, err := queryRows(ctx, runner, `
-		SELECT s.attempt, s.commit_sha, s.staging_ref
+		SELECT s.attempt, s.commit_sha, s.staging_ref,
+		       COALESCE(s.base_drift_onto_sha,'') AS base_drift_onto_sha
 		  FROM striatumd.barrier_staged_contributions s
 		  JOIN (
 		        SELECT MAX(attempt) AS attempt
@@ -674,10 +854,11 @@ func faninManifestEdgeForSeat(ctx context.Context, runner db.TxRunner, repositor
 	}
 	r := rows[0]
 	return faninManifestInEdge{
-		EntityID:   seat,
-		Seal:       intValue(r["attempt"]),
-		Status:     "staged_live",
-		CommitSHA:  fmt.Sprint(r["commit_sha"]),
-		StagingRef: fmt.Sprint(r["staging_ref"]),
+		EntityID:      seat,
+		Seal:          intValue(r["attempt"]),
+		Status:        "staged_live",
+		CommitSHA:     fmt.Sprint(r["commit_sha"]),
+		StagingRef:    fmt.Sprint(r["staging_ref"]),
+		BaseDriftOnto: strings.TrimSpace(fmt.Sprint(r["base_drift_onto_sha"])),
 	}, nil
 }

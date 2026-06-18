@@ -30,8 +30,13 @@ var runtimeMigrationOwnerDDLPattern = regexp.MustCompile(`(?is)\b(?:ALTER|DROP)\
 // (striatumd_rw owns it) and 0021 already ALTERed it (below the floor); RFC 0131
 // 131-C adds three confidence-gate columns to it via migration 0035 (above the
 // floor) — the same legitimate runtime-owned-table column add.
+// barrier_staged_contributions was created by the runtime migration 0029
+// (striatumd_rw owns it); RFC 0133's base-drift-as-a-recoverable-leg slice (#353)
+// adds two drift-leg columns to it via migration 0036 — the same legitimate
+// runtime-owned-table column add.
 var runtimeOwnedTablesAlterable = map[string]bool{
-	"striatumd.job_recovery_state": true,
+	"striatumd.job_recovery_state":           true,
+	"striatumd.barrier_staged_contributions": true,
 }
 
 func runtimeMigrationOwnerDDLViolations(migration Migration) []string {

@@ -417,6 +417,194 @@ func TestFaninStagingRefusesSmuggledContent(t *testing.T) {
 	_ = tx.Rollback(ctx)
 }
 
+// TestFaninStagingRecoversBaseDrift is the RFC 0133 #353 base-drift-as-a-recoverable-
+// leg fence. A LEGITIMATE base drift — the run branch evolved under a sibling's feet,
+// so the staged sibling forked off an evolved/rebased base that is a SIBLING of the
+// frozen tip (both children of a common ancestor) rather than a descendant of it —
+// must be RECOVERED, not refused: the staging row records the recoverable rebase leg
+// (base_drift_onto_sha = the merge-base) and the assembly folds the contribution onto
+// the frozen tip with an extra commit-tree parent, preserving BOTH the frozen-line
+// content and the evolved-base content. (The old code refused any non-descendant with
+// git_commit_apply_failed "base drift / contaminated base".)
+func TestFaninStagingRecoversBaseDrift(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	root := t.TempDir()
+	common := gitInit(t, root) // the common ancestor C (carries seed.txt)
+	// The frozen tip F is a child of C carrying f.txt (the run-branch tip at fan-out).
+	frozen := commitOnTop(t, root, common, "docs/f.txt", "frozen line\n", "frozen tip")
+	frozenTree := gitRevParse(t, root, frozen+"^{tree}")
+	// The evolved base E is a SIBLING of F (also a child of C) carrying e.txt — the
+	// run branch advanced/rebased onto a different line under the sibling's feet.
+	evolved := commitOnTop(t, root, common, "docs/e.txt", "evolved line\n", "evolved base")
+	// The staged sibling forks off the evolved base E and adds its own disjoint file.
+	driftHead := commitOnTop(t, root, evolved, "docs/sib.txt", "sibling work\n", "sibling off evolved base")
+
+	repoID := "repo_barrier_drift"
+	runID := "run_barrier_drift"
+	barrierID := "barrier_drift"
+	seat := "author_drift"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{"workflow_id": "wf"})
+	seedFaninSeatJob(t, ctx, runner, repoID, runID, "job_drift", seat, "completed", 1)
+
+	tx := beginBarrierTx(t, ctx, pool)
+	if err := recordFaninFreezePoint(ctx, tx, repoID, faninFreezePoint{
+		BarrierID:               barrierID,
+		RunID:                   runID,
+		DownstreamWorkflowJobID: "synth",
+		FrozenTipSHA:            frozen,
+		FrozenTipTreeSHA:        frozenTree,
+		DeclaredSiblingJobIDs:   []string{seat},
+	}); err != nil {
+		t.Fatalf("record freeze point: %v", err)
+	}
+
+	// Precondition: the staged commit does NOT descend from the frozen tip (a true
+	// drift, so the OLD refusal path would have fired), but it DOES share the common
+	// ancestor C as a merge-base (the recoverable signal).
+	if ok, err := gitIsAncestor(ctx, root, frozen, driftHead); err != nil || ok {
+		t.Fatalf("precondition: drift head must NOT descend from frozen tip: ok=%v err=%v", ok, err)
+	}
+	mb, err := gitMergeBase(ctx, root, frozen, driftHead)
+	if err != nil || mb != common {
+		t.Fatalf("precondition: merge-base(frozen, drift) must be the common ancestor %s, got %s err=%v", common, mb, err)
+	}
+
+	// The recoverable drift must STAGE (not refuse) and record the rebase leg.
+	if _, err := stageFaninContribution(ctx, tx, root, repoID, barrierID, runID, seat, "job_drift", driftHead, 1); err != nil {
+		t.Fatalf("recoverable base drift must stage, not refuse: %v", err)
+	}
+	row, err := oneRow(ctx, tx, `
+		SELECT COALESCE(base_drift_onto_sha,'') AS onto, COALESCE(base_drift_reason,'') AS reason
+		  FROM striatumd.barrier_staged_contributions
+		 WHERE repository_id = $1 AND barrier_id = $2 AND workflow_job_id = $3 AND attempt = 1`,
+		repoID, barrierID, seat)
+	if err != nil {
+		t.Fatalf("read drift-leg row: %v", err)
+	}
+	if got := fmt.Sprint(row["onto"]); got != common {
+		t.Fatalf("base_drift_onto_sha should record the recoverable rebase leg (merge-base %s), got %q", common, got)
+	}
+	if got := fmt.Sprint(row["reason"]); got != "evolved_run_branch" {
+		t.Fatalf("base_drift_reason should be evolved_run_branch, got %q", got)
+	}
+
+	// The barrier is ready (the single seat is live-staged) and assembles cleanly,
+	// folding the drift onto the frozen tip and preserving BOTH lines' content.
+	if ready, err := faninBarrierReady(ctx, tx, repoID, barrierID); err != nil || !ready {
+		t.Fatalf("barrier should be ready with the recovered drift staged: ready=%v err=%v", ready, err)
+	}
+	assembledTree, assembledCommit, edges, err := assembleFaninBarrier(ctx, tx, root, repoID, barrierID)
+	if err != nil {
+		t.Fatalf("assemble recovered drift: %v", err)
+	}
+	// The manifest in-edge records the recovered drift leg.
+	if len(edges) != 1 || edges[0].BaseDriftOnto != common {
+		t.Fatalf("manifest in-edge should record base drift onto %s, got %+v", common, edges)
+	}
+	// The assembled tree contains the frozen line AND the evolved-base line AND the
+	// sibling's own work — base drift preserves the intervening run-branch evolution
+	// (the #299 invariant) rather than reverting it.
+	files := gitRun(t, root, "ls-tree", "-r", "--name-only", assembledTree)
+	for _, want := range []string{"seed.txt", "docs/f.txt", "docs/e.txt", "docs/sib.txt"} {
+		if !strings.Contains(files, want) {
+			t.Fatalf("assembled drift tree missing %q (base drift must preserve both lines); tree:\n%s", want, files)
+		}
+	}
+	// The assembly commit folds the staged drift as an extra parent (the recoverable
+	// extra-parent leg the RFC names) and frozen tip as the first parent.
+	parents := strings.Fields(gitRun(t, root, "rev-list", "--parents", "-n", "1", assembledCommit))
+	if len(parents) != 3 || parents[1] != frozen || parents[2] != driftHead {
+		t.Fatalf("assembled commit must fold drift as an extra commit-tree parent (-p frozen -p drift), got parents %v", parents)
+	}
+	_ = tx.Rollback(ctx)
+}
+
+// TestFaninStagingRefusesContaminatedBaseDrift is the contamination fence that the
+// recoverable-drift relaxation (#353) must NOT widen: a staged commit that does not
+// descend from the frozen tip AND folds in an off-base FOREIGN root lineage (the #352
+// smuggled-content shape, but reached via a non-descendant base) is still REFUSED with
+// barrier_smuggled_content — it shares no legitimate lineage the assembly could rebase
+// onto. This keeps the #352 guarantee intact while #353 recovers legit drift.
+func TestFaninStagingRefusesContaminatedBaseDrift(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	root := t.TempDir()
+	common := gitInit(t, root)
+	frozen := commitOnTop(t, root, common, "docs/f.txt", "frozen line\n", "frozen tip")
+	frozenTree := gitRevParse(t, root, frozen+"^{tree}")
+
+	repoID := "repo_barrier_contam"
+	runID := "run_barrier_contam"
+	barrierID := "barrier_contam"
+	driftSeat := "author_legit_drift"
+	contamSeat := "author_contaminated"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{"workflow_id": "wf"})
+	seedFaninSeatJob(t, ctx, runner, repoID, runID, "job_legit", driftSeat, "completed", 1)
+	seedFaninSeatJob(t, ctx, runner, repoID, runID, "job_contam", contamSeat, "completed", 1)
+
+	tx := beginBarrierTx(t, ctx, pool)
+	if err := recordFaninFreezePoint(ctx, tx, repoID, faninFreezePoint{
+		BarrierID:               barrierID,
+		RunID:                   runID,
+		DownstreamWorkflowJobID: "synth",
+		FrozenTipSHA:            frozen,
+		FrozenTipTreeSHA:        frozenTree,
+		DeclaredSiblingJobIDs:   []string{driftSeat, contamSeat},
+	}); err != nil {
+		t.Fatalf("record freeze point: %v", err)
+	}
+
+	// A legitimate evolved-base drift (sibling of the frozen tip) must STILL stage —
+	// the contamination tightening must not refuse a real drift.
+	evolved := commitOnTop(t, root, common, "docs/e.txt", "evolved\n", "evolved base")
+	legitHead := commitOnTop(t, root, evolved, "docs/legit.txt", "legit\n", "legit drift")
+	if _, err := stageFaninContribution(ctx, tx, root, repoID, barrierID, runID, driftSeat, "job_legit", legitHead, 1); err != nil {
+		t.Fatalf("legitimate evolved-base drift must still stage: %v", err)
+	}
+
+	// A contaminated base: a commit that does NOT descend from the frozen tip and
+	// folds in an INDEPENDENT off-base root via a merge (foreign lineage). It shares
+	// no legitimate base with the frozen tip's lineage — its history carries a root
+	// the frozen tip does not — so it must be REFUSED, not recovered.
+	c1 := commitOnTop(t, root, common, "docs/sidebase.txt", "side\n", "off-frozen sibling base")
+	offBase := commitDetachedRoot(t, root, "smuggled_evil.txt", "smuggled\n", "off-base root")
+	contamHead := commitMerge(t, root, c1, offBase, "merge: smuggle off-base content")
+
+	// Precondition: the contaminated head does NOT descend from the frozen tip (so it
+	// reaches the new drift classifier, not the direct #352 path).
+	if ok, err := gitIsAncestor(ctx, root, frozen, contamHead); err != nil || ok {
+		t.Fatalf("precondition: contaminated head must NOT descend from frozen tip: ok=%v err=%v", ok, err)
+	}
+
+	_, err := stageFaninContribution(ctx, tx, root, repoID, barrierID, runID, contamSeat, "job_contam", contamHead, 1)
+	if err == nil {
+		t.Fatal("a contaminated base (off-base foreign root, non-descendant) must be REFUSED, not recovered as a drift")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok {
+		t.Fatalf("contamination refusal must be an *rpc.Error, got %T: %v", err, err)
+	}
+	if rpcErr.Code != "barrier_smuggled_content" {
+		t.Fatalf("contamination refusal must carry code barrier_smuggled_content, got %q (err: %v)", rpcErr.Code, err)
+	}
+	_ = tx.Rollback(ctx)
+}
+
 // commitOnTop commits path=content on top of parent (a single-parent commit) and
 // returns the new commit sha, without touching any branch ref.
 func commitOnTop(t *testing.T, repoRoot, parent, path, content, msg string) string {

@@ -37,6 +37,27 @@
 
 ### Added
 
+- **fan-in: base-drift-as-a-recoverable-leg at the join (RFC 0133 future-slice,
+  #353; builds on #352).** A fan-in staging contribution that does NOT descend
+  from the frozen tip is no longer refused outright. `stageFaninContribution`
+  classifies it (`classifyContributionBase`): a **recoverable base drift** — the
+  run branch evolved under a sibling's feet, so the sibling forked off an evolved
+  base that shares a real merge-base with the frozen tip and folds in **no foreign
+  root** — is now RECORDED as a recoverable rebase leg (new runtime columns
+  `base_drift_onto_sha` / `base_drift_reason` on `barrier_staged_contributions`,
+  migration 0036) and assembled cleanly: `assembleFaninBarrier` 3-way-merges the
+  drift onto the frozen tip and folds the staged commit as an **extra commit-tree
+  parent leg** (RFC 0133 Risks: "a recorded, recoverable extra commit-tree parent
+  leg, not a CAS wedge"), preserving both the frozen line and the evolved-base line
+  (the #299 invariant). A **contaminated base** — disjoint history, or an off-base
+  foreign root smuggled in via a merge (the #352 shape, now reached via a
+  non-descendant base) — stays REFUSED with `barrier_smuggled_content`. The #352
+  per-commit tree-provenance walk is reused for the drift path, anchored at the
+  merge-base, so no foreign graft can enter the recovered range either. Opt-in /
+  shadow only: the default stays the D206 per-completion merge; nothing flips the
+  live path. Regression fence: `TestFaninStagingRecoversBaseDrift` (legit drift
+  assembles cleanly, records the leg) + `TestFaninStagingRefusesContaminatedBaseDrift`
+  (contamination still refuses, legit drift still stages).
 - **liveness: pipe-transport RPC liveness rung (RFC 0131 Layer 2 / 131-B,
   #335).** `sessionliveness.Classify()` adds a `pipeMidRPCFresh` rung — a
   `TransportPipe` lane whose `last_mcp_request_at` is fresh within

@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 35
+	LatestDaemonDBVersion = 36
 	MigrationLockKey      = 332933
 )
 

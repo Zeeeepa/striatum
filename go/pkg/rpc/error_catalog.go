@@ -63,8 +63,8 @@ var ErrorCatalog = []ErrorCatalogEntry{
 	},
 	{
 		Code:       "barrier_smuggled_content",
-		Meaning:    "A fan-in staging contribution descends from the frozen base by ancestry but smuggles content into the join (RFC 0133 Risks / #352): a merge commit in its chain grafts an off-base side branch, or the frozen tip's tree no longer matches the sealed frozen_tip_tree_sha. Ancestry alone cannot see imported content; the per-commit tree-provenance check refused it.",
-		Suggestion: "Re-author the contribution linearly on top of the frozen base (no merge of an off-base branch) and re-stage; if the frozen tip's tree was re-pointed, the run is exposing a corrupted base — recover it through the daemon, do not hand-finish.",
+		Meaning:    "A fan-in staging contribution smuggles content into the join (RFC 0133 Risks / #352, #353): a merge commit in its chain grafts an off-base side branch, the frozen tip's tree no longer matches the sealed frozen_tip_tree_sha, or the contribution does not descend from the frozen base AND is a contaminated base rather than a recoverable drift (disjoint history, or an off-base foreign root the frozen base does not share). A legitimate base drift (the run branch evolved under the sibling's feet, sharing a real merge-base and no foreign root) is recovered as an extra-parent leg, not refused; this code marks the cases that cannot be recovered.",
+		Suggestion: "Re-author the contribution on top of the frozen base or its evolved lineage (no merge of an off-base / disjoint branch) and re-stage; if the frozen tip's tree was re-pointed, the run is exposing a corrupted base — recover it through the daemon, do not hand-finish.",
 	},
 	{
 		Code:       "blob_apply_required",

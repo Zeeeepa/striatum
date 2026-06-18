@@ -166,9 +166,14 @@ exploration):
   requeue/resume) embedded in the staged-ref path makes stale-epoch refs invisible
   by path-prefix mismatch — composable with attempt-in-name.
 - **Merge-base contamination check** — assert `git merge-base <frozen> <staged> ==
-  <frozen>`; a staged ref descended from the *evolved* branch (base drift) is
-  refused and doctor reds. (Caveat: this proves topological ancestry, not content
-  provenance — see Risks.)
+  <frozen>`; a staged ref descended from the *evolved* branch (base drift) was
+  originally refused outright. (Caveat: this proves topological ancestry, not content
+  provenance — see Risks.) **Implemented (#352 + #353):** a non-descendant staged ref
+  is now *classified* (`classifyContributionBase`) into a **recoverable base drift**
+  (recovered, see Risks "Base drift") and a **contaminated base** (still refused with
+  `barrier_smuggled_content`); the content-provenance caveat is closed by the
+  per-commit tree-provenance walk, anchored at the frozen tip for a direct descendant
+  and at the merge-base for a recovered drift.
 - **`pg_advisory_xact_lock(run_id, barrier_id)`** held across barrier eval +
   downstream job creation serializes concurrent fires; the second fire sees the
   created job and exits idempotently.
@@ -238,9 +243,27 @@ every common run so it can never rot from disuse.
   linear commits` passes the merge-base test even if those commits cherry-picked
   evolved-tip content. Mitigation (child idea): record `frozen_tip_tree_sha` and
   assert per-commit tree provenance to close the smuggled-content hole.
+  **Implemented (#352):** `assertContributionTreeProvenance` walks `frozen..staged`
+  and refuses any chain commit not descending from the frozen tip
+  (`barrier_smuggled_content`), sealing the recorded `frozen_tip_tree_sha` against
+  the live tree first.
 - **Base drift** (#299/#306): the frozen tip diverging from the live branch.
   Handle as a recorded, recoverable extra `commit-tree` parent leg, not a CAS
-  wedge.
+  wedge. **Implemented (#353, opt-in/shadow):** `classifyContributionBase`
+  distinguishes a **recoverable base drift** — the staged commit does not descend
+  from the frozen tip but shares a real merge-base with it and folds in no foreign
+  root (the run branch legitimately evolved under a sibling's feet) — from a
+  **contaminated base** (disjoint history, or an off-base foreign root the frozen
+  base does not share, the #352 shape reached via a non-descendant base, still
+  refused). A recoverable drift records the rebase leg
+  (`base_drift_onto_sha`/`base_drift_reason` on `barrier_staged_contributions`,
+  migration 0036 = the merge-base it folds against) and `assembleFaninBarrier`
+  3-way-merges it onto the frozen tip with the staged commit as the **extra
+  `commit-tree` parent leg**, preserving both the frozen line and the evolved-base
+  line (the #299 invariant). The drift path reuses the #352 tree-provenance walk
+  anchored at the merge-base, so no foreign graft can enter the recovered range.
+  Regression: `TestFaninStagingRecoversBaseDrift` +
+  `TestFaninStagingRefusesContaminatedBaseDrift`.
 - **Job-type CHECK ownership** (see Open Questions): adding `barrier_assembly`
   touches the `jobs` table CHECK, which may be owner-held in production.
 
