@@ -841,3 +841,199 @@ func at(value time.Time) *time.Time {
 	v := value.UTC()
 	return &v
 }
+
+// TestClassifyProbeBasisDeadlineElapsedOnly (RFC 0131 Layer 1) asserts the pure
+// classifier stamps every STALL verdict with ProbeBasisDeadlineElapsedOnly —
+// regardless of transport — because Classify() has no confirmed-dead oracle, and
+// leaves ProbeBasis empty for a non-stall (working/quiet) verdict. The
+// pty_confirmed_dead UPGRADE is the recovery decision tree's job
+// (UpgradeProbeBasisConfirmedDead), tested separately.
+func TestClassifyProbeBasisDeadlineElapsedOnly(t *testing.T) {
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+
+	// A protocol-idle stall on a lane that drove the protocol then went silent.
+	stalled := func(transport TransportType) Activity {
+		return Activity{
+			SessionState:          "active",
+			Transport:             transport,
+			RegisteredAt:          at(now.Add(-20 * time.Minute)),
+			LastToolsListAt:       at(now.Add(-19 * time.Minute)),
+			LastAwaitPacketAt:     at(now.Add(-18 * time.Minute)),
+			LastPacketDeliveredAt: at(now.Add(-17 * time.Minute)),
+			LastAckAt:             at(now.Add(-16 * time.Minute)),
+			LastMCPRequestAt:      at(now.Add(-301 * time.Second)),
+		}
+	}
+	// A working lane: fresh MCP activity, every deadline satisfied. tools/list is
+	// recent and await_packet landed after it, so the await/ack rungs pass and the
+	// lane resolves to working_protocol (fresh last_mcp_request_at).
+	working := func(transport TransportType) Activity {
+		return Activity{
+			SessionState:      "active",
+			Transport:         transport,
+			RegisteredAt:      at(now.Add(-5 * time.Minute)),
+			LastToolsListAt:   at(now.Add(-10 * time.Second)),
+			LastAwaitPacketAt: at(now.Add(-6 * time.Second)),
+			LastMCPRequestAt:  at(now.Add(-5 * time.Second)),
+		}
+	}
+
+	tests := []struct {
+		name           string
+		in             Activity
+		wantStall      string
+		wantProbeBasis ProbeBasis
+	}{
+		{
+			name:           "pipe silent stall is deadline_elapsed_only",
+			in:             stalled(TransportPipe),
+			wantStall:      StallProtocolIdle,
+			wantProbeBasis: ProbeBasisDeadlineElapsedOnly,
+		},
+		{
+			name:           "pty_helper silent stall is deadline_elapsed_only (no oracle in Classify)",
+			in:             stalled(TransportPTYHelper),
+			wantStall:      StallProtocolIdle,
+			wantProbeBasis: ProbeBasisDeadlineElapsedOnly,
+		},
+		{
+			name:           "unknown transport silent stall is deadline_elapsed_only",
+			in:             stalled(TransportUnknown),
+			wantStall:      StallProtocolIdle,
+			wantProbeBasis: ProbeBasisDeadlineElapsedOnly,
+		},
+		{
+			name:           "pipe working lane has no probe basis",
+			in:             working(TransportPipe),
+			wantStall:      "",
+			wantProbeBasis: ProbeBasisNone,
+		},
+		{
+			name:           "pty_helper working lane has no probe basis",
+			in:             working(TransportPTYHelper),
+			wantStall:      "",
+			wantProbeBasis: ProbeBasisNone,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.in, policy, now)
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+			if got.ProbeBasis != tc.wantProbeBasis {
+				t.Fatalf("probe basis = %q, want %q; result = %#v", got.ProbeBasis, tc.wantProbeBasis, got)
+			}
+		})
+	}
+}
+
+// TestUpgradeProbeBasisConfirmedDead (RFC 0131 Layer 1) asserts the recovery
+// decision tree's basis upgrade: a deadline_elapsed_only verdict becomes
+// pty_confirmed_dead ONLY for a pty_helper lane (a pipe/unknown lane has no PTY
+// oracle, so it stays deadline_elapsed_only), and a basis that is not
+// deadline_elapsed_only is never altered.
+func TestUpgradeProbeBasisConfirmedDead(t *testing.T) {
+	tests := []struct {
+		name      string
+		transport TransportType
+		current   ProbeBasis
+		want      ProbeBasis
+	}{
+		{
+			name:      "pty_helper deadline upgrades to confirmed_dead",
+			transport: TransportPTYHelper,
+			current:   ProbeBasisDeadlineElapsedOnly,
+			want:      ProbeBasisPTYConfirmedDead,
+		},
+		{
+			name:      "pipe deadline stays deadline_elapsed_only",
+			transport: TransportPipe,
+			current:   ProbeBasisDeadlineElapsedOnly,
+			want:      ProbeBasisDeadlineElapsedOnly,
+		},
+		{
+			name:      "unknown transport deadline stays deadline_elapsed_only",
+			transport: TransportUnknown,
+			current:   ProbeBasisDeadlineElapsedOnly,
+			want:      ProbeBasisDeadlineElapsedOnly,
+		},
+		{
+			name:      "already confirmed_dead is unchanged",
+			transport: TransportPTYHelper,
+			current:   ProbeBasisPTYConfirmedDead,
+			want:      ProbeBasisPTYConfirmedDead,
+		},
+		{
+			name:      "empty basis (non-stall) is never upgraded",
+			transport: TransportPTYHelper,
+			current:   ProbeBasisNone,
+			want:      ProbeBasisNone,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := UpgradeProbeBasisConfirmedDead(tc.transport, tc.current)
+			if got != tc.want {
+				t.Fatalf("upgrade(%q, %q) = %q, want %q", tc.transport, tc.current, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestActivityFromRowDerivesTransport (RFC 0131 Layer 1) asserts ActivityFromRow
+// reads the supervised lane's transport from the supervisor pointer metadata in
+// whatever shape pgx hands it back (a map, a JSON string, raw JSON bytes), and
+// degrades to TransportUnknown when the metadata is absent or unrecognized.
+func TestActivityFromRowDerivesTransport(t *testing.T) {
+	tests := []struct {
+		name string
+		row  map[string]any
+		want TransportType
+	}{
+		{
+			name: "pty_helper from map metadata",
+			row:  map[string]any{SupervisorPointerMetadata: map[string]any{"transport": "pty_helper"}},
+			want: TransportPTYHelper,
+		},
+		{
+			name: "pipe from JSON-string metadata",
+			row:  map[string]any{SupervisorPointerMetadata: `{"transport":"pipe","require_tmux":false}`},
+			want: TransportPipe,
+		},
+		{
+			name: "pty_helper from JSON-bytes metadata",
+			row:  map[string]any{SupervisorPointerMetadata: []byte(`{"transport":"pty_helper"}`)},
+			want: TransportPTYHelper,
+		},
+		{
+			name: "absent metadata is unknown",
+			row:  map[string]any{},
+			want: TransportUnknown,
+		},
+		{
+			name: "unrecognized transport value is unknown",
+			row:  map[string]any{SupervisorPointerMetadata: map[string]any{"transport": "carrier_pigeon"}},
+			want: TransportUnknown,
+		},
+		{
+			name: "malformed metadata json is unknown",
+			row:  map[string]any{SupervisorPointerMetadata: "{not json"},
+			want: TransportUnknown,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ActivityFromRow(tc.row).Transport
+			if got != tc.want {
+				t.Fatalf("transport = %q, want %q", got, tc.want)
+			}
+			// TransportFromRow is the standalone derivation ActivityFromRow uses;
+			// assert they agree.
+			if direct := TransportFromRow(tc.row); direct != tc.want {
+				t.Fatalf("TransportFromRow = %q, want %q", direct, tc.want)
+			}
+		})
+	}
+}

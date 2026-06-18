@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+
+- **liveness: transport-aware `probe_basis` classifier outputs (RFC 0131 Layer
+  1 / 131-A, #334).** `sessionliveness.Classify()` now threads a
+  `TransportType` (`pty_helper`/`pipe`/unknown, derived in `ActivityFromRow`
+  from the supervised lane's supervisor pointer `transport` metadata) and stamps
+  a typed `Result.ProbeBasis` on every stall verdict. The pure classifier (which
+  has no oracle) always stamps `deadline_elapsed_only`; the recovery decision
+  tree upgrades a `pty_helper` lane's verdict to `pty_confirmed_dead` via
+  `UpgradeProbeBasisConfirmedDead` once `supervisedAgentConfirmedDead()`
+  positively judges the process dead (a `pipe`/unknown lane has no PTY oracle and
+  stays `deadline_elapsed_only`). `recoverStuckJobs` carries `transport` +
+  `probe_basis` onto the `recovery.budget_exhausted` event payload and the
+  requeue/transfer action records, so every escalation records WHAT KIND of
+  evidence it acted on. This is OUTPUTS only — no confidence gate, no
+  escape-valve cap (RFC 0131 131-C/#336), and **no migration**.
+
 ### Fixed
 
 - **status: exclude terminal-run blockers/checkpoints from the repo-wide

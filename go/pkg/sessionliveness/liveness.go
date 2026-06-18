@@ -2,6 +2,7 @@ package sessionliveness
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -31,6 +32,12 @@ const (
 	ActiveLeaseAcquiredAt  = "active_lease_acquired_at"
 	ActiveLeaseExpiresAt   = "active_lease_expires_at"
 	ActiveLeaseHeartbeatAt = "active_lease_last_heartbeat_at"
+	// SupervisorPointerMetadata is the row key carrying the supervised lane's
+	// process_supervisor_pointers.metadata_json (RFC 0131 Layer 1). Its
+	// "transport" field ("pty_helper" | "pipe") is the authoritative transport
+	// signal ActivityFromRow reads to populate Activity.Transport. Absent (a row
+	// with no supervisor pointer joined) yields TransportUnknown.
+	SupervisorPointerMetadata = "supervisor_pointer_metadata_json"
 	StallDiscovery         = "agent_mcp_discovery_stall"
 	StallAwaitPacket       = "agent_await_packet_stall"
 	StallAck               = "agent_ack_stall"
@@ -88,6 +95,70 @@ const (
 	ProtocolQuiet           = "quiet"
 	ProtocolDead            = "dead"
 )
+
+// TransportType identifies how a lane's supervised agent communicates with the
+// daemon (RFC 0131 Layer 1). It is a first-class classifier input so the
+// liveness verdict can record WHAT KIND of evidence it acted on:
+//
+//   - TransportPTYHelper — a tmux/pty_helper lane (claude/codex, require_tmux).
+//     It records last_pty_activity_at and, in the recovery decision tree, can
+//     be subject to a supervisedAgentConfirmedDead() PID/pane oracle.
+//   - TransportPipe       — a bare pipe / agent-loop lane (agy/Gemini, no
+//     supervision PTY block). It has NO PTY activity signal and NO confirmed-
+//     dead oracle, so a deadline-elapsed stall is the best evidence available.
+//   - TransportUnknown    — transport could not be determined for this session
+//     (no supervisor pointer / metadata). Treated as the lower-confidence pipe
+//     case for probe_basis purposes (degrade-safe; RFC 0131 "default to the
+//     lower-confidence classification on ambiguity").
+type TransportType string
+
+const (
+	TransportUnknown   TransportType = ""
+	TransportPTYHelper TransportType = "pty_helper"
+	TransportPipe      TransportType = "pipe"
+)
+
+// ProbeBasis is the typed liveness-evidence basis stamped on a stall Result
+// (RFC 0131 Layer 1). It records WHY a lane was judged stuck so every downstream
+// recovery action (and its recovery.* event payload) carries the kind of
+// evidence it acted on, distinguishing a genuine confirmed death from a deadline
+// merely elapsing on a lane with no oracle:
+//
+//   - ProbeBasisDeadlineElapsedOnly — a liveness deadline elapsed but no
+//     forgery-resistant confirmed-dead signal backs the verdict. This is the
+//     pipe-transport no-oracle case (and any PTY case the classifier could not
+//     positively confirm dead). The pure Classify() function stamps this for
+//     every stall, since it has no access to the supervisedAgentConfirmedDead()
+//     oracle (that probe lives in the recovery decision tree).
+//   - ProbeBasisPTYConfirmedDead   — a PTY/pty_helper lane whose supervised
+//     process was positively judged dead by an oracle (a pane/PID it could
+//     probe). The classifier never stamps this itself; the recovery decision
+//     tree UPGRADES a pty_helper deadline_elapsed_only verdict to this once
+//     supervisedAgentConfirmedDead() fires (see UpgradeProbeBasisConfirmedDead).
+//
+// ProbeBasis is empty for a non-stall (working/quiet/live/inactive) Result.
+type ProbeBasis string
+
+const (
+	ProbeBasisNone                ProbeBasis = ""
+	ProbeBasisDeadlineElapsedOnly ProbeBasis = "deadline_elapsed_only"
+	ProbeBasisPTYConfirmedDead    ProbeBasis = "pty_confirmed_dead"
+)
+
+// UpgradeProbeBasisConfirmedDead promotes a pty_helper lane's
+// deadline_elapsed_only verdict to pty_confirmed_dead once an out-of-band oracle
+// (supervisedAgentConfirmedDead) has positively judged the supervised process
+// dead. Classify() cannot make this determination itself — it is a pure function
+// over the activity columns and has no pane/PID probe — so the recovery decision
+// tree calls this to stamp the stronger basis (RFC 0131 Layer 1). The upgrade is
+// gated on transport == pty_helper: a pipe lane has no PTY oracle, so its basis
+// stays deadline_elapsed_only regardless of any probe result.
+func UpgradeProbeBasisConfirmedDead(transport TransportType, current ProbeBasis) ProbeBasis {
+	if transport == TransportPTYHelper && current == ProbeBasisDeadlineElapsedOnly {
+		return ProbeBasisPTYConfirmedDead
+	}
+	return current
+}
 
 type execer interface {
 	Exec(context.Context, string, ...any) error
@@ -171,6 +242,12 @@ type Activity struct {
 	ActiveLeaseAcquiredAt  *time.Time
 	ActiveLeaseExpiresAt   *time.Time
 	ActiveLeaseHeartbeatAt *time.Time
+	// Transport carries how this lane's supervised agent reaches the daemon
+	// (RFC 0131 Layer 1). It is threaded through Classify() so the resulting
+	// Result.ProbeBasis records WHAT KIND of evidence the verdict acted on.
+	// TransportUnknown (the zero value) is degrade-safe: it is treated as the
+	// lower-confidence pipe case (no PTY oracle) for probe_basis.
+	Transport TransportType
 }
 
 type Result struct {
@@ -187,6 +264,13 @@ type Result struct {
 	// inside a hidden tool call. They are nil for every other state.
 	ToolCallSince    *time.Time
 	ToolCallDeadline *time.Time
+	// ProbeBasis is the typed liveness-evidence basis for a stall verdict
+	// (RFC 0131 Layer 1). It is ProbeBasisDeadlineElapsedOnly for every stall the
+	// pure Classify() function produces (it has no confirmed-dead oracle), empty
+	// for a non-stall verdict, and may be UPGRADED to ProbeBasisPTYConfirmedDead
+	// by the recovery decision tree (UpgradeProbeBasisConfirmedDead) once the
+	// supervisedAgentConfirmedDead oracle fires for a pty_helper lane.
+	ProbeBasis ProbeBasis
 }
 
 var allowedColumns = map[string]bool{
@@ -319,7 +403,58 @@ func ActivityFromRow(row map[string]any) Activity {
 		ActiveLeaseAcquiredAt:  timeFromAny(row[ActiveLeaseAcquiredAt]),
 		ActiveLeaseExpiresAt:   timeFromAny(row[ActiveLeaseExpiresAt]),
 		ActiveLeaseHeartbeatAt: timeFromAny(row[ActiveLeaseHeartbeatAt]),
+		Transport:              TransportFromRow(row),
 	}
+}
+
+// TransportFromRow derives the lane's TransportType from the supervisor pointer
+// metadata carried on the row (RFC 0131 Layer 1). The pointer's metadata_json
+// always records "transport" ("pty_helper" | "pipe") from the supervise.start
+// config, so this is the authoritative signal. A row with no pointer metadata
+// (no supervised session joined) or an unrecognized value yields
+// TransportUnknown — degrade-safe, treated downstream as the lower-confidence
+// pipe case for probe_basis.
+func TransportFromRow(row map[string]any) TransportType {
+	if row == nil {
+		return TransportUnknown
+	}
+	return transportFromMetadata(metadataMap(row[SupervisorPointerMetadata]))
+}
+
+func transportFromMetadata(metadata map[string]any) TransportType {
+	switch stringValue(metadata["transport"]) {
+	case string(TransportPTYHelper):
+		return TransportPTYHelper
+	case string(TransportPipe):
+		return TransportPipe
+	default:
+		return TransportUnknown
+	}
+}
+
+// metadataMap normalizes a metadata_json column value (a map, a JSON string, or
+// raw JSON bytes — pgx may hand it back in any of these forms depending on the
+// scan path) into a map. It returns an empty map on any parse failure so callers
+// never panic on a malformed or absent pointer metadata.
+func metadataMap(value any) map[string]any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return typed
+	case []byte:
+		var result map[string]any
+		if json.Unmarshal(typed, &result) == nil && result != nil {
+			return result
+		}
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return map[string]any{}
+		}
+		var result map[string]any
+		if json.Unmarshal([]byte(typed), &result) == nil && result != nil {
+			return result
+		}
+	}
+	return map[string]any{}
 }
 
 func Classify(activity Activity, policy Policy, now time.Time) Result {
@@ -679,6 +814,14 @@ func stallResult(activity Activity, class string, deadline string, seconds int, 
 		StallSince:      since,
 		DeadlineName:    deadline,
 		DeadlineSeconds: seconds,
+		// RFC 0131 Layer 1: every stall the pure classifier produces is, by
+		// construction, only a deadline elapsing. Classify() has no pane/PID
+		// oracle, so it cannot stamp pty_confirmed_dead — that upgrade happens in
+		// the recovery decision tree once supervisedAgentConfirmedDead fires for a
+		// pty_helper lane (UpgradeProbeBasisConfirmedDead). The basis is stamped
+		// regardless of transport so a pipe stall and a (not-yet-probed) pty_helper
+		// stall both carry an honest deadline_elapsed_only until proven otherwise.
+		ProbeBasis: ProbeBasisDeadlineElapsedOnly,
 	}
 }
 

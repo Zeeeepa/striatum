@@ -1,6 +1,6 @@
 # RFC 0131: Transport-aware liveness confidence and escalation gating
 
-Status: accepted (D211) — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
+Status: accepted (D211) — Layer 1 (131-A, #334) IMPLEMENTED — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -105,14 +105,37 @@ recommended landing order.
 
 ### Layer 1 — Transport + `probe_basis` as classifier outputs (no migration)
 
-Thread a `TransportType` (`pty_helper | pipe`) into `sessionliveness.Classify()`
-and stamp `Result.ProbeBasis ∈ { pty_confirmed_dead, deadline_elapsed_only }`.
+**IMPLEMENTED (131-A, #334).** Thread a `TransportType`
+(`pty_helper | pipe`) into `sessionliveness.Classify()` and stamp
+`Result.ProbeBasis ∈ { pty_confirmed_dead, deadline_elapsed_only }`.
 `pty_confirmed_dead` is set only when `supervisedAgentConfirmedDead()` had a pane
 / PID to judge and judged it dead; `deadline_elapsed_only` is the pipe case (and
 any PTY case where no process could be probed). This is a pure-function change
 unit-testable against the existing `liveness_test.go`, with **no schema change**,
 and it is a prerequisite for everything below. The recovery action map in
 `recoverStuckJobs` carries `probe_basis` onto the `recovery.*` event payload.
+
+As built:
+
+- Transport threads in via a new `Activity.Transport TransportType`
+  (`TransportPTYHelper | TransportPipe | TransportUnknown`), derived in
+  `ActivityFromRow` from the supervised lane's
+  `process_supervisor_pointers.metadata_json` `transport` field (always
+  `pty_helper` or `pipe` from `supervise.start` config). An absent/unrecognized
+  value yields `TransportUnknown`, treated as the lower-confidence pipe case
+  (degrade-safe, per the Risks "default to the lower-confidence classification on
+  ambiguity").
+- `Classify()` is a pure function with no oracle, so it stamps EVERY stall
+  `Result.ProbeBasis = deadline_elapsed_only` (and leaves it empty for a
+  non-stall verdict). The `pty_confirmed_dead` UPGRADE is performed in the
+  recovery decision tree by `sessionliveness.UpgradeProbeBasisConfirmedDead`,
+  which promotes a `pty_helper` lane's `deadline_elapsed_only` to
+  `pty_confirmed_dead` only once `supervisedAgentConfirmedDead()` fires (a pipe /
+  unknown lane has no PTY oracle and stays `deadline_elapsed_only`).
+- `recoverStuckJobs` carries `transport` + typed `probe_basis` onto the
+  `recovery.budget_exhausted` event payload and the requeue/transfer action
+  records. This slice is OUTPUTS only: no Layer 2 pipe rung, no Layer 3
+  confidence gate, no Layer 4 escape-valve cap, and **no migration**.
 
 ### Layer 2 — A pipe-transport liveness rung from existing RPC activity
 
