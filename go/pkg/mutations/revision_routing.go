@@ -358,6 +358,19 @@ func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, j
 // verdict can never be stamped against a half-updated generation. The
 // generation is the build's "review epoch" — verdicts stamped with a prior
 // generation are non-current without being deleted.
+//
+// RFC 0135 P5 (D216) — review_generation IS THE SEAL. This is the sealed
+// expectation barrier primitive's "advance the entity's seal" operation
+// (db.BarrierReadySQL with seal := review_generation): the review obligation is
+// the entity, its monotonic review_generation is the seal, and bumping it here
+// renders every prior-seal verdict structurally non-current (a generation
+// mismatch, never a DELETE) — exactly the primitive's trap-killer where a
+// contribution from a superseded seal is structurally absent from the readiness
+// JOIN. The primitive does NOT re-key this onto the churning `attempt` (RFC 0126
+// rejected that because recovery churns attempt); it ADOPTS the monotonic
+// generation as the seal. No behavior changes at P5 — this is the naming of an
+// already-shipped mechanism as the canonical seal instance, fenced by
+// TestRevisionCoherenceIsTheSealInstance.
 func bumpReviewGeneration(ctx context.Context, runner any, repositoryID, jobID string) error {
 	// review_generation is owner-bundle DDL (owner bundle 0009): present once the
 	// daemon has applied owner bundles, absent in a runtime-migrations-only DB
