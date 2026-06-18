@@ -554,9 +554,27 @@ func decorateCheckpointResolveActions(checkpoints []map[string]any) {
 func statusBlockers(ctx context.Context, runner db.Runner, repositoryID, runID, severity string) ([]map[string]any, error) {
 	where := "b.repository_id = $1 AND b.state = 'open'"
 	args := []any{repositoryID}
+	runJoin := ""
 	if runID != "" {
 		where += " AND b.run_id = $" + intPlaceholder(len(args)+1)
 		args = append(args, runID)
+	} else {
+		// #193 (extended): an open blocker / human_checkpoint on a TERMINAL run is
+		// not actionable — the run can never grow new work, so resolving it changes
+		// nothing. The repo-wide claimable_jobs / blocked_downstream_jobs views
+		// already exclude terminal runs for exactly this reason; statusBlockers was
+		// missed, so a canceled/completed run's stale blockers surfaced forever as
+		// phantom open_blockers / human_checkpoints in the operator frontier (e.g. a
+		// 21-day-old revision_routing checkpoint on a canceled run reading as pending
+		// human work). Join runs and drop terminal-run blockers from the repo-wide
+		// default. A run_id-scoped call is an explicit ask for one run (terminal or
+		// not) and is left untouched. The blocker rows themselves are preserved as
+		// durable provenance of why the run was blocked when it terminated.
+		runJoin = `
+		   JOIN striatumd.runs r
+		     ON r.repository_id = b.repository_id
+		    AND r.run_id = b.run_id
+		    AND r.state NOT IN ` + statusTerminalRunStatesSQL
 	}
 	if severity != "" {
 		where += " AND b.severity = $" + intPlaceholder(len(args)+1)
@@ -567,7 +585,7 @@ func statusBlockers(ctx context.Context, runner db.Runner, repositoryID, runID, 
 		        b.severity, b.blocker_kind, b.description, b.state,
 		        b.created_at, b.payload_json, j.workflow_job_id,
 		        j.state AS job_state
-		   FROM striatumd.blockers b
+		   FROM striatumd.blockers b`+runJoin+`
 		   LEFT JOIN striatumd.jobs j
 		     ON j.repository_id = b.repository_id
 		    AND j.job_id = b.job_id
