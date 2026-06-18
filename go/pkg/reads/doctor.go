@@ -253,6 +253,15 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	problems = append(problems, recoveryCursorProblems...)
 	problemRecords = append(problemRecords, recoveryCursorRecords...)
 
+	// RFC 0131 131-D (#337): the confidence-gate escape-valve safety-floor invariant.
+	// A job whose consecutive_silent_sweeps reached its escape-valve cap but is NOT
+	// escalation_pending on a still-actionable run is a never-un-escalatable breach
+	// (Layer 4 Goal 3): the cap must always eventually fire. Hard RED — the safety
+	// floor RFC 0131 forbids letting fail is itself observable here.
+	recoveryGateBlock, recoveryGateProblems, recoveryGateRecords := doctorRecoveryGateIntegrity(ctx, runner, repositoryID)
+	problems = append(problems, recoveryGateProblems...)
+	problemRecords = append(problemRecords, recoveryGateRecords...)
+
 	// #373/#388/#389: surface the wedge family the recovery_sweep_cursor check
 	// could not see — a non-terminal job with NO live session and no recent
 	// progress yields 0 claimable jobs (a sessionless running job, or a blocked
@@ -285,6 +294,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"barrier_integrity":            barrierBlock,
 		"quorum_integrity":             quorumBlock,
 		"recovery_sweep_cursor":        recoveryCursorBlock,
+		"recovery_escape_valve":        recoveryGateBlock,
 		"job_stuck_no_live_session":    stuckJobBlock,
 		"skills":                       skillsBlock,
 		"blob":                         blobBlock,

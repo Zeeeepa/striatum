@@ -24,6 +24,17 @@ const (
 	LastSessionQuestionAt  = "last_session_question_at"
 	LastSessionEscalateAt  = "last_session_escalate_at"
 	LastPTYActivityAt      = "last_pty_activity_at"
+	// LastPipeReadAt is the pipe-transport analogue of LastPTYActivityAt (RFC 0131
+	// 131-future, #350). The supervisor helper stamps it when it observes
+	// meaningful output from a PIPE lane (the same HelperEventProgress signal that
+	// stamps last_pty_activity_at for a PTY lane), so a genuinely-working pipe lane
+	// mid long local generation reads working_local rather than aging toward a
+	// deadline_elapsed_only stall. It is RAW output, NOT forgery-resistant sealed
+	// progress: it is folded into working_local EXACTLY like last_pty_activity_at,
+	// so the #324 wedged_no_tool_progress guard still reclassifies a hung-but-
+	// chattering pipe lane as stalled (a synthetic pipe read can never let a hung
+	// lane defer escalation past the Layer-4 escape-valve cap).
+	LastPipeReadAt         = "last_pipe_read_at"
 	LastToolCallStartedAt  = "last_tool_call_started_at"
 	LastToolCallFinishedAt = "last_tool_call_finished_at"
 	LivenessStallClass     = "liveness_stall_class"
@@ -234,6 +245,7 @@ type Activity struct {
 	LastSessionQuestionAt  *time.Time
 	LastSessionEscalateAt  *time.Time
 	LastPTYActivityAt      *time.Time
+	LastPipeReadAt         *time.Time
 	LastToolCallStartedAt  *time.Time
 	LastToolCallFinishedAt *time.Time
 	PersistedStallClass    string
@@ -288,6 +300,7 @@ var allowedColumns = map[string]bool{
 	LastSessionQuestionAt:  true,
 	LastSessionEscalateAt:  true,
 	LastPTYActivityAt:      true,
+	LastPipeReadAt:         true,
 	LastToolCallStartedAt:  true,
 	LastToolCallFinishedAt: true,
 }
@@ -363,6 +376,7 @@ func ProjectionFromRow(row map[string]any, now time.Time) map[string]any {
 		"last_session_escalate_at":       timeValue(activity.LastSessionEscalateAt),
 		"last_session_report_kind":       nullableText(lastSessionReportKind(activity)),
 		"last_pty_activity_at":           timeValue(activity.LastPTYActivityAt),
+		"last_pipe_read_at":              timeValue(activity.LastPipeReadAt),
 		"last_tool_call_started_at":      timeValue(activity.LastToolCallStartedAt),
 		"last_tool_call_finished_at":     timeValue(activity.LastToolCallFinishedAt),
 		"tool_call_since":                timeValue(result.ToolCallSince),
@@ -395,6 +409,7 @@ func ActivityFromRow(row map[string]any) Activity {
 		LastSessionQuestionAt:  timeFromAny(row[LastSessionQuestionAt]),
 		LastSessionEscalateAt:  timeFromAny(row[LastSessionEscalateAt]),
 		LastPTYActivityAt:      timeFromAny(row[LastPTYActivityAt]),
+		LastPipeReadAt:         timeFromAny(row[LastPipeReadAt]),
 		LastToolCallStartedAt:  timeFromAny(row[LastToolCallStartedAt]),
 		LastToolCallFinishedAt: timeFromAny(row[LastToolCallFinishedAt]),
 		PersistedStallClass:    stringValue(row[LivenessStallClass]),
@@ -623,8 +638,11 @@ func Classify(activity Activity, policy Policy, now time.Time) Result {
 		// it out of agent_protocol_idle_stall and lets it surface as working_local
 		// — honoring G2 (never report stalled while demonstrably producing
 		// output). A lane that stops producing output still trips the idle stall
-		// at ProtocolIdleSeconds, so dead-lane detection is preserved.
-		activity.LastPTYActivityAt,
+		// at ProtocolIdleSeconds, so dead-lane detection is preserved. RFC 0131
+		// #350 folds in last_pipe_read_at (the pipe-transport analogue) via
+		// localOutputAt so a working PIPE lane gets the same protocol-idle
+		// reprieve — still subject to the #324 tool-progress wedge guard.
+		localOutputAt(activity),
 		activity.RegisteredAt,
 	)
 	if missed(base, policy.ProtocolIdleSeconds, now) {
@@ -695,7 +713,13 @@ func workingResult(activity Activity, policy Policy, now time.Time) Result {
 		return Result{Protocol: ProtocolWorkingProtocol, Lease: lease}
 	}
 
-	if ptyActive(activity) && !missed(activity.LastPTYActivityAt, policy.PTYFreshSeconds, now) {
+	// RFC 0131 #350: working_local is driven by the lane's local-output signal —
+	// last_pty_activity_at for a pty_helper lane, last_pipe_read_at for a pipe
+	// lane. localOutputAt folds the two so a genuinely-working pipe lane reads
+	// working_local exactly like a PTY lane. Both are RAW output (not forgery-
+	// resistant): the #324 wedged_no_tool_progress guard above still fires on a
+	// chattering-but-stalled lane regardless of which signal kept it fresh.
+	if local := localOutputAt(activity); local != nil && !missed(local, policy.PTYFreshSeconds, now) {
 		return Result{Protocol: ProtocolWorkingLocal, Lease: lease}
 	}
 
@@ -725,11 +749,24 @@ func inToolCall(activity Activity) (bool, *time.Time) {
 	return true, activity.LastToolCallStartedAt
 }
 
-// ptyActive reports whether the lane has ever produced PTY output the helper
-// recorded (last_pty_activity_at is set). Used both to keep an honestly-working
-// local lane out of the dead classification (#117) and to drive working_local.
+// ptyActive reports whether the lane has ever produced recorded LOCAL output —
+// PTY frames for a pty_helper lane (last_pty_activity_at) or read output for a
+// pipe lane (last_pipe_read_at, RFC 0131 #350). Used to keep an honestly-working
+// local lane out of the dead-at-spawn classification (#117): a lane that produced
+// output, of either transport, is alive even if it is slow to bind MCP.
 func ptyActive(activity Activity) bool {
-	return activity.LastPTYActivityAt != nil
+	return activity.LastPTYActivityAt != nil || activity.LastPipeReadAt != nil
+}
+
+// localOutputAt returns the most recent LOCAL-output timestamp across the two
+// transports — last_pty_activity_at (pty_helper) and last_pipe_read_at (pipe,
+// RFC 0131 #350). It is the signal working_local ages against, so a pipe lane's
+// synthetic pipe-read keeps it working_local exactly as a PTY lane's PTY activity
+// does. It is RAW output, not forgery-resistant: the #324 wedged_no_tool_progress
+// guard reclassifies a chattering-but-stalled lane regardless of which transport
+// kept this fresh, so a synthetic pipe read can never defer escalation past the cap.
+func localOutputAt(activity Activity) *time.Time {
+	return latestTime(activity.LastPTYActivityAt, activity.LastPipeReadAt)
 }
 
 // toolProgressBase returns the most recent tool-call timeline timestamp — the
@@ -827,6 +864,7 @@ func RemoveProjectionSourceFields(row map[string]any) {
 		LastSessionQuestionAt,
 		LastSessionEscalateAt,
 		LastPTYActivityAt,
+		LastPipeReadAt,
 		LastToolCallStartedAt,
 		LastToolCallFinishedAt,
 		LivenessStallClass,

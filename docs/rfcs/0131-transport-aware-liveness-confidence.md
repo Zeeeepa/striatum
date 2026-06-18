@@ -1,6 +1,6 @@
 # RFC 0131: Transport-aware liveness confidence and escalation gating
 
-Status: accepted (D211) — Layers 1–3+4 (131-A #334, 131-B #335, 131-C #336) IMPLEMENTED; 131-D (#337, doctor/legibility) remains — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
+Status: accepted (D211) — Layers 1–4 IMPLEMENTED: 131-A (#334) transport + probe_basis, 131-B (#335) pipe RPC liveness rung, 131-C (#336) confidence-gated escalation + escape-valve cap + migration 0035, 131-D (#337) escalation-decision legibility (status / run.summary / dashboard surfacing + the doctor escape-valve safety-floor invariant); plus the two 131-future items — OQ1 topology-adaptive cap (#349) and OQ2 synthetic `last_pipe_read_at` pipe rung (#350, owner bundle 0017). OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -288,17 +288,39 @@ are traps; recording them so they are not re-proposed:
   A deployment behind on the migration falls back to today's ungated escalation
   (degrade-safe, like P0's bundle-0012 guard): `readJobRecoveryBudget` retries
   on the legacy column set and the gate escalates immediately.
+- 131-future #350 adds one **owner bundle** (`0017_pipe_read_liveness.sql`,
+  `LatestOwnerBundleVersion` → 17) adding `sessions.last_pipe_read_at`. Unlike the
+  131-C runtime migration, the `sessions` table is **owner-held** (the
+  future-runtime-owner-DDL guard at floor 27 forbids a runtime migration from
+  ALTERing it), so the column lives in the owner/admin bundle, mirroring owner
+  bundle 0010 (the `wedged_no_tool_progress` stall class on the same table). Apply
+  via `striatum daemon owner-ddl apply`. Degrade-safe before the bundle: the
+  `SessionPipeReadColumnPresent` probe gates both the liveness read projection
+  (`NULL::timestamptz` when absent) and the daemon stamp (falls back to
+  `last_pty_activity_at`), so a daemon behind the bundle behaves as pre-#350.
 
 ## Doctor and legibility
 
+**131-D (#337) IMPLEMENTED.**
+
 - `recovery.*` events carry `probe_basis` and, when deferred,
   `recovery.escalation_debounced` with the current
-  `consecutive_silent_sweeps` / `misfire_evidence_score`.
-- `striatum dashboard --run-id` and `run.summary` surface the gate state for a
-  lane being debounced, so an operator sees "deferred, 2/N silent sweeps" rather
-  than silence.
-- A doctor warning when a pipe lane has exceeded the cap but the run did not
-  escalate (an invariant breach), so the safety floor is itself observable.
+  `consecutive_silent_sweeps` / `misfire_evidence_score` / `silent_sweep_cap` /
+  `progress_reset`; the eventual `recovery.budget_exhausted` records
+  `confidence_gated` / `cap_fired` so the escalation reason is auditable.
+- `run.summary` carries a `recovery_gate` block (`reads.recoveryGateSummary`)
+  projecting each job's confidence-gate state — `consecutive_silent_sweeps` vs
+  `silent_sweep_cap`, `misfire_evidence_score`, `last_probe_basis`, and a
+  `gate_state` of `debounced` or `escalated` — so a lane being debounced reads
+  "deferred, N/cap silent sweeps" rather than silence. The same `last_pipe_read_at`
+  pipe-read liveness is surfaced through `status` / `dashboard` session liveness.
+- A doctor **problem** (hard red, `recovery_escape_valve` block /
+  `recovery_escape_valve_uncapped` code, `reads.doctorRecoveryGateIntegrity`) when
+  a job's `consecutive_silent_sweeps` reached its escape-valve cap but it is NOT
+  `escalation_pending` on a still-actionable run — the never-un-escalatable breach
+  the cap exists to prevent. Per-job cap is derived from the run's
+  `recovery_policy` exactly as `recoveryPolicy.silentSweepCap` does, and the check
+  short-circuits (degrade-safe) when migration 0035 is absent.
 
 ## Test plan
 
@@ -315,12 +337,35 @@ are traps; recording them so they are not re-proposed:
 
 ## Open questions
 
-1. Should the escape-valve cap be **adaptive to run topology** (a generous cap
+1. ~~Should the escape-valve cap be **adaptive to run topology** (a generous cap
    for a leaf job, a tight cap for a critical-path job whose downstream is
-   blocked)? Simpler to ship a single cap first.
-2. Should Layer 2's pipe-transport rung be promoted to a synthetic
-   `last_pipe_read_at` stamped by the adapter, so corroboration is only needed
-   for the truly-silent case? (Captured as a child idea; deferrable.)
+   blocked)?~~ **RESOLVED — IMPLEMENTED (131-future, #349).** The escalation
+   decision is topology-adaptive: a job whose downstream dependent is still blocked
+   (a critical path waiting on it) escalates at the tight 2-sweep floor exactly as
+   before (no regression — `topologyAdaptiveEscalationThreshold` returns 2), while a
+   leaf job whose silence wedges nothing downstream is given a generous threshold
+   (`silentSweepCap()`, the floor cap) before the bar fires, and a loosened
+   `topologyAdaptiveSilentSweepCap` ceiling (the floor doubled). The single cap
+   stays the FLOOR — no job escalates sooner than the pre-#349 single cap — and both
+   the threshold and the ceiling stay finite, so the never-un-escalatable invariant
+   holds for every topology. `jobHasBlockedDownstream` reads `job_dependencies` for a
+   non-terminal dependent.
+2. ~~Should Layer 2's pipe-transport rung be promoted to a synthetic
+   `last_pipe_read_at` stamped by the adapter?~~ **RESOLVED — IMPLEMENTED
+   (131-future, #350).** `sessions.last_pipe_read_at` (owner bundle 0017, the
+   owner-held sessions table) is the pipe analogue of `last_pty_activity_at`: when
+   the supervisor helper observes meaningful output from a PIPE lane (the same
+   `HelperEventProgress` signal that stamps `last_pty_activity_at` for a PTY lane)
+   the daemon stamps `last_pipe_read_at`, which the classifier folds into
+   `working_local` via `localOutputAt`. It is **forgery-resistant w.r.t. the Layer-4
+   cap by reuse**: it is RAW output, so the #324 `wedged_no_tool_progress` guard
+   still reclassifies a chattering-but-hung pipe lane (stale tool-call timeline) as
+   stalled regardless of how fresh the read signal is, and the silent-sweep counter
+   resets only on sealed-work progress — a synthetic pipe read can never let a hung
+   lane defer escalation past the cap. Degrade-safe: a daemon behind owner bundle
+   0017 has no column, so the pipe rung reads as the pre-#350 no-rung path (the
+   `SessionPipeReadColumnPresent` probe drives both the read projection and the
+   daemon stamp, which falls back to `last_pty_activity_at`).
 3. **Provocation / alternative worth deciding:** wrap every pipe lane in a thin
    PTY shim purely to manufacture a `last_pty_activity_at` oracle, making
    `confirmedDead()` universal and dissolving the confidence-modeling problem

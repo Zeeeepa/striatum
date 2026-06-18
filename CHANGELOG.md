@@ -92,6 +92,48 @@
   the runtime-owned `job_recovery_state`; a deployment behind on it degrades safely
   to today's ungated escalation. The `recovery.budget_exhausted` event records
   `confidence_gated` / `cap_fired` so a gated escalation is auditable provenance.
+- **recovery: confidence-gate escalation-decision legibility + escape-valve doctor
+  invariant (RFC 0131 131-D, #337).** The confidence-gate state is now observable so
+  an operator can see WHY a lane is or is not escalated. `run.summary` carries a
+  `recovery_gate` block (`reads.recoveryGateSummary`) projecting each job's
+  `consecutive_silent_sweeps` vs its `silent_sweep_cap`, `misfire_evidence_score`,
+  `last_probe_basis`, and a `gate_state` of `debounced` / `escalated`. A new
+  **doctor** block (`recovery_escape_valve`, `reads.doctorRecoveryGateIntegrity`)
+  raises a hard **problem** (`recovery_escape_valve_uncapped`) when a job's
+  `consecutive_silent_sweeps` reached its escape-valve cap but it is NOT
+  `escalation_pending` on a still-actionable run — the never-un-escalatable breach
+  the Layer-4 cap exists to prevent, so the safety floor is itself observable. The
+  per-job cap is derived from the run's `recovery_policy` exactly as
+  `recoveryPolicy.silentSweepCap` does; both surfaces degrade safely (skip) when
+  migration 0035 is absent.
+- **recovery: topology-adaptive escape-valve cap (RFC 0131 131-future, #349).** The
+  pipe-lane escalation decision adapts to run topology: a job whose downstream
+  dependent is still blocked (a critical path waiting on it) escalates at the tight
+  2-sweep floor exactly as before, while a leaf job whose silence wedges nothing
+  downstream is given a generous escalation threshold (the floor cap) and a loosened
+  ceiling (the floor doubled) before the escape valve fires. The single cap stays the
+  FLOOR — no job escalates sooner than the pre-#349 single cap — and the threshold
+  and ceiling stay finite, so the never-un-escalatable invariant holds for every
+  topology. `jobHasBlockedDownstream` reads `job_dependencies` for a non-terminal
+  dependent.
+- **liveness: synthetic pipe-read liveness for pipe-transport lanes (RFC 0131
+  131-future, #350).** A genuinely-working pipe lane mid long local generation now
+  refreshes liveness without an intervening MCP call: the supervisor helper's
+  meaningful-output progress event stamps `sessions.last_pipe_read_at` (the pipe
+  analogue of `last_pty_activity_at`) for a `pipe`-transport lane, which the
+  classifier folds into `working_local` via `localOutputAt` — so the lane reads
+  working rather than aging toward the `deadline_elapsed_only` stall the confidence
+  gate would otherwise have to debounce. It is **forgery-resistant w.r.t. the
+  Layer-4 escape-valve cap by reuse**: it is RAW output, so the #324
+  `wedged_no_tool_progress` guard still reclassifies a chattering-but-hung pipe lane
+  (stale tool-call timeline) as stalled regardless of how fresh the read signal is,
+  and the silent-sweep counter resets only on sealed-work progress — a synthetic
+  pipe read can never let a hung lane defer escalation past the cap. The column lives
+  on the owner-held `sessions` table via **owner bundle 0017**
+  (`go/pkg/db/sql/owner/0017_pipe_read_liveness.sql`, `LatestOwnerBundleVersion =
+  17`); degrade-safe before the bundle (the `SessionPipeReadColumnPresent` probe
+  gates both the liveness read projection and the daemon stamp, which falls back to
+  `last_pty_activity_at`).
 - **verification: executable verifier lane + receipt-reading completion gate
   (RFC 0134 executable half / D227, #395).** The off-gate-path executable half
   of the claim-status verification gate, built as **validate-not-execute** — the

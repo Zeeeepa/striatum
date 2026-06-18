@@ -326,11 +326,31 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	// the helper observes the PTY and the daemon — the sole authority over lease
 	// state (D094) — performs the lease transition.
 	if event.EventType == gosupervisor.HelperEventProgress && progressIsMeaningful(event.Payload) && supervisor.SessionID != "" {
-		// Slice 2 (#80 working_local): stamp last_pty_activity_at on meaningful
-		// PTY output regardless of lease state — it is the raw "the child is
-		// producing output" signal the classifier reads to report working_local
-		// and to keep an honestly-working local lane out of protocol_idle.
-		if err := sessionliveness.Record(ctx, runner, repositoryID, supervisor.SessionID, sessionliveness.LastPTYActivityAt); err != nil {
+		// Slice 2 (#80 working_local): stamp the lane's LOCAL-output signal on
+		// meaningful output regardless of lease state — it is the raw "the child is
+		// producing output" signal the classifier reads to report working_local and
+		// to keep an honestly-working local lane out of protocol_idle.
+		//
+		// RFC 0131 #350: a PIPE-transport lane (agy/Gemini, no pty_helper oracle)
+		// stamps last_pipe_read_at — its transport analogue of last_pty_activity_at —
+		// so a genuinely-working pipe lane mid long local generation reads
+		// working_local instead of aging toward a deadline_elapsed_only stall (the
+		// exact misclassification the 131-C confidence gate exists to debounce). The
+		// signal is forgery-resistant w.r.t. the Layer-4 escape-valve cap by reuse:
+		// it is RAW output, so the classifier's #324 wedged_no_tool_progress guard
+		// still reclassifies a chattering-but-stalled lane (a recorded tool-call
+		// history that has gone stale) as stalled regardless of how fresh the read
+		// signal is, and the silent-sweep counter resets ONLY on sealed-work
+		// progress. A synthetic pipe read can never let a hung lane defer past the cap.
+		localColumn := sessionliveness.LastPTYActivityAt
+		if supervisorTransportIsPipe(supervisor.Metadata) && db.SessionPipeReadColumnPresent(ctx, runner) {
+			// Degrade-safe: stamp last_pipe_read_at only when owner bundle 0017 added
+			// the column. A daemon behind the bundle has no column to write, so a pipe
+			// lane falls back to last_pty_activity_at (the established pre-#350 path) —
+			// its meaningful-output signal is still recorded, just under the PTY column.
+			localColumn = sessionliveness.LastPipeReadAt
+		}
+		if err := sessionliveness.Record(ctx, runner, repositoryID, supervisor.SessionID, localColumn); err != nil {
 			return superviseReportRecordResult{}, err
 		}
 		// Lease-gated: refresh the active lease work-heartbeat (no-op without one).
@@ -757,6 +777,17 @@ func progressIsMeaningful(payload map[string]any) bool {
 		return flag
 	}
 	return false
+}
+
+// supervisorTransportIsPipe reports whether the supervised lane is a PIPE
+// transport (agy/Gemini, no pty_helper oracle), read from the supervisor pointer
+// metadata's "transport" field (RFC 0131 #350). A pipe lane's meaningful-output
+// progress is stamped onto last_pipe_read_at (the pipe analogue of
+// last_pty_activity_at) so a genuinely-working pipe lane reads working_local. An
+// absent/unrecognized transport is treated as NOT pipe so the established PTY path
+// (last_pty_activity_at) is unchanged for every existing lane.
+func supervisorTransportIsPipe(metadata map[string]any) bool {
+	return fmt.Sprint(nullable(metadata["transport"])) == supervisionTransportPipe
 }
 
 // refreshActiveLeaseWorkHeartbeat finds the session's single active lease (if

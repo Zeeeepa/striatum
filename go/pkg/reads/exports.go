@@ -136,6 +136,13 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	// operator runs checkpoint resolve.
 	quorumDissent := quorumDissentSummary(ctx, runner, repositoryID, runID)
 
+	// RFC 0131 131-D (#337): the confidence-gate escalation-decision legibility block —
+	// per-job confidence-gate state (consecutive_silent_sweeps / cap / misfire score /
+	// last_probe_basis) for any deadline_elapsed_only pipe lane currently being
+	// debounced or already escalated, so an operator sees WHY a lane is/isn't escalated
+	// rather than silence.
+	recoveryGate := recoveryGateSummary(ctx, runner, repositoryID, runID)
+
 	result := map[string]any{
 		"run":            runs[0],
 		"jobs":           jobs,
@@ -146,6 +153,7 @@ func HandleRunSummary(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 		"doctor":         doctor,
 		"operator_mode":  workflowOperatorMode(workflow),
 		"quorum_dissent": quorumDissent,
+		"recovery_gate":  recoveryGate,
 	}
 	if len(completionRecord) > 0 {
 		result["completion_record"] = completionRecord

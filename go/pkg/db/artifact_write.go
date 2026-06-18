@@ -73,6 +73,38 @@ func ArtifactPlacementColumnPresent(ctx context.Context, runner scalarQueryer) b
 	return err == nil && value == "true"
 }
 
+// SessionPipeReadColumnPresent reports whether striatumd.sessions carries the RFC
+// 0131 131-future (#350) last_pipe_read_at column, added by owner bundle 0017.
+// sessions is owner-held, so the column is present in production once owner bundles
+// are applied but absent on a daemon behind the bundle (and in the default,
+// runtime-migrations-only pgtest harness). Liveness reads branch on this so a
+// deployment behind the bundle degrades to today's no-pipe-read-rung behavior
+// (degrade-safe), mirroring ArtifactPlacementColumnPresent / reviewGenerationEnabled.
+func SessionPipeReadColumnPresent(ctx context.Context, runner scalarQueryer) bool {
+	value, err := runner.QueryScalar(ctx, `
+		SELECT EXISTS (
+		  SELECT 1
+		    FROM information_schema.columns
+		   WHERE table_schema = 'striatumd'
+		     AND table_name = 'sessions'
+		     AND column_name = 'last_pipe_read_at'
+		)::text`)
+	return err == nil && value == "true"
+}
+
+// SessionPipeReadProjection returns the SELECT projection fragment for the RFC 0131
+// #350 last_pipe_read_at column on a sessions-table alias. It returns the real
+// column when owner bundle 0017 is applied, else NULL::timestamptz — so a single
+// query string is degrade-safe across the bundle boundary (the classifier reads a
+// nil pipe-read as today's no-rung path). The leading separator is NOT included;
+// callers place it where the column belongs in the list.
+func SessionPipeReadProjection(ctx context.Context, runner scalarQueryer, alias string) string {
+	if SessionPipeReadColumnPresent(ctx, runner) {
+		return alias + ".last_pipe_read_at"
+	}
+	return "NULL::timestamptz AS last_pipe_read_at"
+}
+
 func artifactPlacementAppendOverloadPresent(ctx context.Context, runner scalarQueryer) bool {
 	value, err := runner.QueryScalar(ctx, `
 		SELECT (to_regprocedure('striatumd.append_artifact_row(text,text,text,text,text,text,text,text,text,bigint,text,timestamptz,text,text,text,text,integer,text)') IS NOT NULL)::text`)

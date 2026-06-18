@@ -148,6 +148,7 @@ func HandleDashboard(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		        s.last_session_question_at,
 		        s.last_session_escalate_at,
 		        s.last_pty_activity_at,
+		        `+db.SessionPipeReadProjection(ctx, runner, "s")+`,
 		        s.last_tool_call_started_at,
 		        s.last_tool_call_finished_at,
 		        s.liveness_stall_class,
