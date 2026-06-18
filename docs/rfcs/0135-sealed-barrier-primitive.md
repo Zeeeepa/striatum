@@ -1,6 +1,6 @@
 # RFC 0135: The sealed expectation barrier primitive — one (entity, seal) barrier shared by fan-in, quorum, revision-coherence, and run.integrate
 
-Status: proposed (D216)
+Status: accepted (D216)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -330,11 +330,11 @@ exactly as RFC 0133 framed them for fan-in:
 - **`join_manifest.v1` => no DDL.** It is an `artifactcontracts` registration with
   the publisher's exit-6 schema guard (RFC 0133 Slice 1), not a table.
 
-**Owner-bundle number coordination (copied from #333 / D215).** Coordinate the
-`0013` bundle number with RFC 0132's *reserved* `dissent_quarantine` bundle:
-**whichever lands first takes `0013`, the other `0014`.** The current
-`go/pkg/db/sql/owner/` ceiling is `0012`; both RFC 0132's optional run-state form
-and this primitive's `barrier_assembly` widening contend for `0013`.
+**Owner-bundle number coordination (resolved after #333 / D215).** The
+`barrier_assembly` widening landed first as owner bundle `0013`. The earlier RFC
+0132 optional `dissent_quarantine` run-state reservation did not land before
+#372/#379 consumed owner bundle `0014`, so `dissent_quarantine` must use the next
+available owner bundle number if it ships.
 
 ## Slice plan — re-cast #344–#347 as the primitive's first callers
 
@@ -350,9 +350,9 @@ earlier):
 | --- | --- | --- | --- |
 | **P0 — the predicate + the manifest** | #344 (133-A) | Mint `barrier_ready` once as an exported fragment + named SQL function, entity/seal-generic; ship the static build guard against any bare ref-`COUNT(*)` barrier shape; register `join_manifest.v1`. Lands on today's D206 merge for audit value before any new barrier fires. | `join_manifest.v1` **no DDL** |
 | **P1 — staging + the live-seal JOIN barrier (fan-in instance)** *(IMPLEMENTED — runtime migration `0029`, opt-in + same-final-tree equivalence fixture; D206 stays the default)* | #345 (133-B) | Attempt-addressed staging refs; the immutable freeze record; the JOIN barrier with `entity=job, seal=attempt`; requeue tombstone, `recovery/`-prefix exclusion, merge-base contamination check, advisory-lock fire serialization, quarantine-as-terminal-in-edge. The first *live* instance of the primitive. | freeze/staging tables: **runtime, no FK to jobs, explicit GRANT each** |
-| **P2 — assembly + N=1 unification (job-entity)** | #346 (133-C) | `barrier_assembly` job type backed by a `barrier_state` row (`sealed→assembling→committed\|failed`) with two-phase journaling; route N=1 through the one path. | `barrier_assembly` CHECK => **owner bundle 0013/0014**; `barrier_state` => **runtime, no FK, explicit GRANT** |
+| **P2 — assembly + N=1 unification (job-entity)** | #346 (133-C) | `barrier_assembly` job type backed by a `barrier_state` row (`sealed→assembling→committed\|failed`) with two-phase journaling; route N=1 through the one path. | `barrier_assembly` CHECK => **owner bundle 0013**; `barrier_state` => **runtime, no FK, explicit GRANT** |
 | **P3 — doctor + refusal + verify** *(IMPLEMENTED — `barrier_integrity` doctor invariant + `BARRIER_BLOCKED`/`blocked_manifest` (a DERIVED runtime/doctor condition, NOT a `barrier_state` CHECK value) + `striatum join verify` (`join.verify`) + runtime migration `0031` `barrier_status` view; D206 stays the default)* | #347 (133-D) | The generalized barrier doctor invariant (subsumes `fanin_sibling_unintegrated` and the per-integration checks), the `BARRIER_BLOCKED` named state + `blocked_manifest`, `barrier_status` view, `striatum join verify`. | none |
-| **P4 — quorum consumes the predicate** | #338–#343 (132-A…F) | `panelQuorumSatisfied` is **the primitive** with `entity=review_seat (workflow_job_id), seal=attempt`, declared-seat denominator, verdict-less abstention stub (D214a), skip-only-provably-dead (D214b), forward-written dissent. `k_of_n` desugars in lint (D214). #343's optional `dissent_quarantine` run-state contends for owner bundle 0013/0014. | per RFC 0132 / D215 (no-DDL workflow_json + runtime `dissent_ledger`; optional run-state CHECK => owner bundle) |
+| **P4 — quorum consumes the predicate** | #338–#343 (132-A…F) | `panelQuorumSatisfied` is **the primitive** with `entity=review_seat (workflow_job_id), seal=attempt`, declared-seat denominator, verdict-less abstention stub (D214a), skip-only-provably-dead (D214b), forward-written dissent. `k_of_n` desugars in lint (D214). #343's optional `dissent_quarantine` run-state now needs the next available owner bundle if it ships. | per RFC 0132 / D215 (no-DDL workflow_json + runtime `dissent_ledger`; optional run-state CHECK => owner bundle) |
 | **P5 — revision coherence is named as the seal instance** | RFC 0095/0126 follow-up | `review_generation` is documented and tested as `seal := review_generation`; the RFC 0126 finalization gate is asserted to be the primitive predicate. **No behavior change**, no migration — a renaming + a shared-doctor/shared-test fold. | none |
 | **P6 — run.integrate folds in (entity=run)** | RFC 0108 follow-up | The run-completion integration gate is recast as the run-entity barrier whose in-edges are job-level barriers; the merge-tree/CAS path is shared with `barrier_assembly`. The highest-risk fold (Risks). | none (uses existing run/integration state) |
 

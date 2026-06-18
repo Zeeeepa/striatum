@@ -195,8 +195,8 @@ func TestOwnerBundleTwelveAddsQuarantineState(t *testing.T) {
 // barrier_assembly job_type CHECK widening ships as OWNER BUNDLE 0013 (the
 // owner-held jobs CHECK cannot be widened by a runtime migration; D187/#244). It
 // mirrors bundle 0012 EXACTLY — an idempotent DROP+re-ADD of jobs_job_type_check
-// guarded by a pg_get_constraintdef probe — and reserves RFC 0132's
-// dissent_quarantine bundle as 0014.
+// guarded by a pg_get_constraintdef probe. The older RFC 0132 dissent_quarantine
+// 0014 reservation was superseded once GH #372/#379 consumed bundle 0014.
 func TestOwnerBundleThirteenAddsBarrierAssemblyJobType(t *testing.T) {
 	bundles, err := OwnerBundles()
 	if err != nil {
@@ -218,8 +218,7 @@ func TestOwnerBundleThirteenAddsBarrierAssemblyJobType(t *testing.T) {
 		"ADD CONSTRAINT jobs_job_type_check",
 		"'barrier_assembly'",
 		"NOT LIKE '%barrier_assembly%'",
-		// The 0014-coordination note (RFC 0132 dissent_quarantine).
-		"0014",
+		"dissent_quarantine",
 	} {
 		if !strings.Contains(bundle.SQL, needle) {
 			t.Fatalf("bundle 13 missing %q", needle)
@@ -245,5 +244,60 @@ func TestOwnerBundleThirteenAddsBarrierAssemblyJobType(t *testing.T) {
 	}
 	if ownerBundleLabels[13] == "" {
 		t.Fatal("owner bundle 13 has no label in ownerBundleLabels")
+	}
+}
+
+func TestOwnerBundleFourteenAddsChainLockWaitGauges(t *testing.T) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		t.Fatalf("OwnerBundles: %v", err)
+	}
+	var bundle *OwnerBundle
+	for index := range bundles {
+		if bundles[index].Version == 14 {
+			bundle = &bundles[index]
+			break
+		}
+	}
+	if bundle == nil {
+		t.Fatal("owner bundle 14 is missing")
+	}
+	for _, needle := range []string{
+		"ALTER TABLE striatumd.events",
+		"ALTER TABLE striatumd.audit_log",
+		"ADD COLUMN IF NOT EXISTS lock_wait_us bigint",
+		"CREATE OR REPLACE FUNCTION striatumd.append_event_row",
+		"CREATE OR REPLACE FUNCTION striatumd.append_audit_row",
+		"SECURITY DEFINER",
+		"PERFORM striatumd.assert_daemon_authority()",
+		"striatumd.audit_v3_row_hash",
+		"striatumd.event_v3_row_hash",
+		"clock_timestamp()",
+		"FROM striatumd.repo_event_chain_heads",
+		"FROM striatumd.audit_chain_head",
+		"FOR UPDATE",
+		"lock_wait_us",
+		"REVOKE ALL ON FUNCTION striatumd.append_audit_row",
+		"REVOKE ALL ON FUNCTION striatumd.append_event_row",
+		"GRANT EXECUTE ON FUNCTION striatumd.append_audit_row",
+		"GRANT EXECUTE ON FUNCTION striatumd.append_event_row",
+	} {
+		if !strings.Contains(bundle.SQL, needle) {
+			t.Fatalf("bundle 14 missing %q", needle)
+		}
+	}
+	for _, forbidden := range []string{
+		"CREATE INDEX",
+		"CREATE UNIQUE INDEX",
+	} {
+		if strings.Contains(bundle.SQL, forbidden) {
+			t.Fatalf("bundle 14 must not add an index, found %q", forbidden)
+		}
+	}
+	if LatestOwnerBundleVersion < 14 {
+		t.Fatalf("LatestOwnerBundleVersion = %d; want >= 14 (owner bundle 0014 shipped)", LatestOwnerBundleVersion)
+	}
+	if ownerBundleLabels[14] == "" {
+		t.Fatal("owner bundle 14 has no label in ownerBundleLabels")
 	}
 }

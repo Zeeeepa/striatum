@@ -53,14 +53,29 @@
   the P1 equivalence + P2 deployment-tolerance/crash-recovery tests, and the
   authority/contract/error-catalog guards all stay green.
 
+- **#372/#379 chain-head lock-wait gauges + bounded doctor convoy warnings.**
+  Owner bundle 0014
+  (`go/pkg/db/sql/owner/0014_chain_lock_wait_gauges.sql`) adds nullable
+  `lock_wait_us` columns to `striatumd.events` and `striatumd.audit_log`, then
+  restates the existing SECURITY DEFINER append functions so they measure the
+  `FOR UPDATE` wait on `repo_event_chain_heads` and `audit_chain_head`. The
+  gauge is excluded from row-hash inputs. `doctor` now exposes warning-only
+  `event_chain_head_lock_convoy` and `audit_chain_head_lock_convoy` blocks:
+  events are sampled by recent/active candidate runs plus a per-run event tail,
+  audit rows by a bounded newest-`audit_id` tail. Missing 0014 columns skip the
+  checks instead of reddening doctor, so binary-before-owner-bundle deploys stay
+  tolerant. No runtime migration, no new index, no CLI/API flag. Closes #372 and
+  #379.
 - **#346 RFC 0135 P2 — recoverable `barrier_assembly` job + owner bundle 0013 +
   N=1 unification.** The P1 opt-in fan-in assembly graduates into a first-class,
   CRASH-RECOVERABLE operation. **Owner bundle 0013**
   (`go/pkg/db/sql/owner/0013_barrier_assembly_job_type.sql`) widens the owner-held
   `striatumd.jobs` `jobs_job_type_check` to include `barrier_assembly`, mirroring
   bundle 0012 exactly (idempotent DROP+re-ADD guarded by a `pg_get_constraintdef`
-  probe; `LatestOwnerBundleVersion` 12→13); per D215 RFC 0132's reserved
-  `dissent_quarantine` bundle becomes 0014. **Runtime migration `0030`**
+  probe; `LatestOwnerBundleVersion` 12→13). The earlier D215/RFC 0132
+  `dissent_quarantine` reservation did not land before #372/#379 consumed owner
+  bundle 0014, so that optional run-state form must use the next available owner
+  bundle if it ships. **Runtime migration `0030`**
   (`go/pkg/db/sql/0030_barrier_state.sql`) adds the `barrier_state` journal table
   (`sealed → assembling → committed | failed`) with two-phase-journal columns
   (`target_commit_sha` + `tree_sha`) and the barrier/seat identity as BARE COLUMNS

@@ -186,6 +186,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// ownership probes rather than hard-coded.
 	pgReadScopeBlock := pgReadScopeDoctorBlock(ctx, runner)
 
+	eventLockWaitBlock, auditLockWaitBlock, lockWaitWarnings, lockWaitWarningRecords := doctorLockWaitConvoys(ctx, runner, repositoryID, time.Now().UTC())
+	warnings = append(warnings, lockWaitWarnings...)
+	warningRecords = append(warningRecords, lockWaitWarningRecords...)
+
 	worktreeRefSafetyBlock, worktreeProblems, worktreeProblemRecords, worktreeWarnings, worktreeWarningRecords := doctorWorktreeRefSafety(ctx, runner, repositoryID)
 	problems = append(problems, worktreeProblems...)
 	problemRecords = append(problemRecords, worktreeProblemRecords...)
@@ -238,26 +242,28 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	problemRecords = append(problemRecords, recoveryCursorRecords...)
 
 	result := map[string]any{
-		"ok":                        len(problems) == 0,
-		"schema_version":            schemaVersion,
-		"stale_leases":              staleLeases,
-		"waiting_human":             waitingHuman,
-		"needs_operator":            len(needsOperatorRuns),
-		"needs_operator_runs":       needsOperatorRuns,
-		"supervisors":               supervisorLiveness,
-		"problems":                  problems,
-		"warnings":                  warnings,
-		"codex":                     codexBlock,
-		"lane_sandbox":              laneSandboxBlock,
-		"principals":                principalsBlock,
-		"pg_write_boundary":         pgWriteBoundaryBlock,
-		"pg_read_scope":             pgReadScopeBlock,
-		"worktree_ref_safety":       worktreeRefSafetyBlock,
-		"artifact_anchor_integrity": artifactAnchorBlock,
-		"barrier_integrity":         barrierBlock,
-		"recovery_sweep_cursor":     recoveryCursorBlock,
-		"skills":                    skillsBlock,
-		"blob":                      blobBlock,
+		"ok":                           len(problems) == 0,
+		"schema_version":               schemaVersion,
+		"stale_leases":                 staleLeases,
+		"waiting_human":                waitingHuman,
+		"needs_operator":               len(needsOperatorRuns),
+		"needs_operator_runs":          needsOperatorRuns,
+		"supervisors":                  supervisorLiveness,
+		"problems":                     problems,
+		"warnings":                     warnings,
+		"codex":                        codexBlock,
+		"lane_sandbox":                 laneSandboxBlock,
+		"principals":                   principalsBlock,
+		"pg_write_boundary":            pgWriteBoundaryBlock,
+		"pg_read_scope":                pgReadScopeBlock,
+		"event_chain_head_lock_convoy": eventLockWaitBlock,
+		"audit_chain_head_lock_convoy": auditLockWaitBlock,
+		"worktree_ref_safety":          worktreeRefSafetyBlock,
+		"artifact_anchor_integrity":    artifactAnchorBlock,
+		"barrier_integrity":            barrierBlock,
+		"recovery_sweep_cursor":        recoveryCursorBlock,
+		"skills":                       skillsBlock,
+		"blob":                         blobBlock,
 	}
 	if verbose {
 		result["problem_records"] = problemRecords

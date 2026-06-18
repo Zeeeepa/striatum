@@ -174,17 +174,47 @@ func TestExecAuthorityGate(t *testing.T) {
 		t.Fatalf("append with wrong secret: want 28000")
 	}
 
-	// Correct secret -> succeeds, writes a v3 row.
+	// Correct secret -> succeeds, writes v3 rows on the linear audit chain.
 	if _, err := conn.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
 		t.Fatalf("set correct secret: %v", err)
 	}
-	if _, err := conn.Exec(ctx, call); err != nil {
-		t.Fatalf("authorized append failed: %v", err)
+	var auditID1, auditID2 int64
+	if err := conn.QueryRow(ctx, call).Scan(&auditID1); err != nil {
+		t.Fatalf("first authorized append failed: %v", err)
+	}
+	if err := conn.QueryRow(ctx, call).Scan(&auditID2); err != nil {
+		t.Fatalf("second authorized append failed: %v", err)
+	}
+	if auditID1 == 0 || auditID2 == 0 || auditID1 == auditID2 {
+		t.Fatalf("expected two distinct non-zero audit ids, got %d and %d", auditID1, auditID2)
 	}
 	format := scalar(t, ctx, pool.Runner,
-		"SELECT hash_format_version::text FROM striatumd.audit_log ORDER BY audit_id DESC LIMIT 1")
-	if format != "3" {
-		t.Fatalf("authorized append wrote hash_format_version=%s; want 3", format)
+		"SELECT COUNT(*)::text FROM striatumd.audit_log WHERE audit_id IN ($1,$2) AND hash_format_version = 3",
+		auditID1, auditID2)
+	if format != "2" {
+		t.Fatalf("authorized appends wrote v3 count=%s; want 2", format)
+	}
+	hash1 := scalar(t, ctx, pool.Runner,
+		"SELECT row_hash FROM striatumd.audit_log WHERE audit_id=$1", auditID1)
+	prev2 := scalar(t, ctx, pool.Runner,
+		"SELECT COALESCE(previous_hash,'') FROM striatumd.audit_log WHERE audit_id=$1", auditID2)
+	if hash1 == "" {
+		t.Fatal("first audit row has empty row_hash")
+	}
+	if prev2 != hash1 {
+		t.Fatalf("audit chain broken: audit %d previous_hash=%q, want first row_hash=%q", auditID2, prev2, hash1)
+	}
+	headHash := scalar(t, ctx, pool.Runner,
+		"SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true")
+	hash2 := scalar(t, ctx, pool.Runner,
+		"SELECT row_hash FROM striatumd.audit_log WHERE audit_id=$1", auditID2)
+	if headHash != hash2 {
+		t.Fatalf("audit chain head last_hash=%q does not point at tail row_hash=%q", headHash, hash2)
+	}
+	if got := scalar(t, ctx, pool.Runner,
+		"SELECT COUNT(*)::text FROM striatumd.audit_log WHERE audit_id IN ($1,$2) AND lock_wait_us IS NOT NULL AND lock_wait_us >= 0",
+		auditID1, auditID2); got != "2" {
+		t.Fatalf("audit SD appends with nonnegative lock_wait_us = %s; want 2", got)
 	}
 }
 
@@ -538,6 +568,205 @@ func TestEventSDPathLandsAndChains(t *testing.T) {
 		"SELECT row_hash FROM striatumd.events WHERE repository_id='repo_p2' AND event_id=$1", id2)
 	if headHash != hash2 {
 		t.Fatalf("chain head last_hash=%q does not point at the tail row_hash=%q", headHash, hash2)
+	}
+	if got := scalar(t, ctx, pool.Runner,
+		"SELECT COUNT(*)::text FROM striatumd.events WHERE repository_id='repo_p2' AND event_id IN ($1,$2) AND lock_wait_us IS NOT NULL AND lock_wait_us >= 0",
+		id1, id2); got != "2" {
+		t.Fatalf("event SD appends with nonnegative lock_wait_us = %s; want 2", got)
+	}
+}
+
+func TestAuditSDPathRecordsPositiveLockWaitUnderContention(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-audit-contention"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-audit-contention', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+
+	locker, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire locker: %v", err)
+	}
+	defer locker.Release()
+	tx, err := locker.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin locker tx: %v", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SELECT last_hash FROM striatumd.audit_chain_head WHERE singleton = true FOR UPDATE"); err != nil {
+		t.Fatalf("lock audit chain head: %v", err)
+	}
+
+	appender, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire appender: %v", err)
+	}
+	defer appender.Release()
+	if _, err := appender.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+	pid := backendPID(t, ctx, appender)
+	done := make(chan asyncAppendResult, 1)
+	go func() {
+		var auditID int64
+		err := appender.QueryRow(ctx,
+			`SELECT striatumd.append_audit_row('v','c','r','m','allowed',NULL,'rpc','q-contention',true,'p')`).Scan(&auditID)
+		done <- asyncAppendResult{id: auditID, err: err}
+	}()
+
+	waitForBackendLockWait(t, ctx, pool.Runner, pid, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit locker tx: %v", err)
+	}
+	committed = true
+	result := waitForAsyncAppend(t, done)
+	if result.id == 0 {
+		t.Fatal("authorized audit append returned zero audit id")
+	}
+	if got := scalar(t, ctx, pool.Runner,
+		"SELECT (lock_wait_us > 0)::text FROM striatumd.audit_log WHERE audit_id=$1",
+		result.id); got != "true" {
+		t.Fatalf("contended audit append lock_wait_us > 0 = %s; want true", got)
+	}
+}
+
+func TestEventSDPathRecordsPositiveLockWaitUnderContention(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	const secret = "s3cr3t-event-contention"
+	const salt = "per-instance-salt"
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.daemon_auth_registry(instance_id, role_name, digest, salt)
+		VALUES ('inst-event-contention', 'striatumd_rw',
+		        encode(striatumd.digest(convert_to($1 || $2, 'UTF8'), 'sha256'), 'hex'), $2)`,
+		secret, salt); err != nil {
+		t.Fatalf("register secret: %v", err)
+	}
+	if err := pool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories(
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state)
+		VALUES ('repo_event_contention', 'id-event-contention', '/tmp/r-event-contention',
+		        '/tmp/r-event-contention/.striatum', 'r-event-contention', now(), 1, 'active')`); err != nil {
+		t.Fatalf("seed repository: %v", err)
+	}
+
+	appender, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire appender: %v", err)
+	}
+	defer appender.Release()
+	if _, err := appender.Exec(ctx, "SELECT set_config('striatum.daemon_auth', $1, false)", secret); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+	const call = `SELECT striatumd.append_event_row('repo_event_contention',NULL,$1,NULL,NULL,NULL,NULL,NULL,$2::jsonb)`
+	var firstID int64
+	if err := appender.QueryRow(ctx, call, "run.started", `{"k":"v"}`).Scan(&firstID); err != nil {
+		t.Fatalf("first append failed: %v", err)
+	}
+
+	locker, err := pool.RawPool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire locker: %v", err)
+	}
+	defer locker.Release()
+	tx, err := locker.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin locker tx: %v", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SELECT last_hash FROM striatumd.repo_event_chain_heads WHERE repository_id='repo_event_contention' FOR UPDATE"); err != nil {
+		t.Fatalf("lock event chain head: %v", err)
+	}
+
+	pid := backendPID(t, ctx, appender)
+	done := make(chan asyncAppendResult, 1)
+	go func() {
+		var eventID int64
+		err := appender.QueryRow(ctx, call, "job.created", `{"job":"j1"}`).Scan(&eventID)
+		done <- asyncAppendResult{id: eventID, err: err}
+	}()
+
+	waitForBackendLockWait(t, ctx, pool.Runner, pid, done)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit locker tx: %v", err)
+	}
+	committed = true
+	result := waitForAsyncAppend(t, done)
+	if result.id == 0 || result.id == firstID {
+		t.Fatalf("authorized event append returned invalid event id %d after first id %d", result.id, firstID)
+	}
+	if got := scalar(t, ctx, pool.Runner,
+		"SELECT (lock_wait_us > 0)::text FROM striatumd.events WHERE repository_id='repo_event_contention' AND event_id=$1",
+		result.id); got != "true" {
+		t.Fatalf("contended event append lock_wait_us > 0 = %s; want true", got)
+	}
+}
+
+type asyncAppendResult struct {
+	id  int64
+	err error
+}
+
+func backendPID(t *testing.T, ctx context.Context, conn interface {
+	QueryRow(context.Context, string, ...any) db.Row
+}) int {
+	t.Helper()
+	var pid int
+	if err := conn.QueryRow(ctx, "SELECT pg_backend_pid()").Scan(&pid); err != nil {
+		t.Fatalf("read backend pid: %v", err)
+	}
+	return pid
+}
+
+func waitForBackendLockWait(t *testing.T, ctx context.Context, runner db.Runner, pid int, done <-chan asyncAppendResult) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case result := <-done:
+			t.Fatalf("append returned before observing lock wait: id=%d err=%v", result.id, result.err)
+		default:
+		}
+		if got := scalar(t, ctx, runner,
+			`SELECT EXISTS (
+			   SELECT 1
+			     FROM pg_stat_activity
+			    WHERE pid = $1
+			      AND wait_event_type = 'Lock'
+			 )::text`, pid); got == "true" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("backend %d did not enter PostgreSQL lock wait", pid)
+}
+
+func waitForAsyncAppend(t *testing.T, done <-chan asyncAppendResult) asyncAppendResult {
+	t.Helper()
+	select {
+	case result := <-done:
+		if result.err != nil {
+			t.Fatalf("authorized append failed: %v", result.err)
+		}
+		return result
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for authorized append")
+		return asyncAppendResult{}
 	}
 }
 
