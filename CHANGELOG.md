@@ -2,7 +2,22 @@
 
 ## Unreleased
 
+## v2.34.1 — 2026-06-18
+
 ### Changed
+
+- **docs: adopt shared documentation convention + structural fold (Phase 1–2,
+  warn-only).** Vendors `github.com/halbritt/doc-convention-lint` (pinned by SHA
+  via pre-commit) and adds `docs/reference/doc-convention.{md,yaml}` as the
+  layout/enforcement companion to `doc-map.md` (concept ownership). Phase 1 is
+  warn-only — it reports drift, it does not block. Phase 2 folds genuinely-dead
+  exhaust (root audits, `.agents/`, stale operator/campaign drafts) into
+  `docs/records/`, and sanctions `docs/operator/` + `docs/campaigns/` as in-place
+  operational regions (the RFC 0058 runtime contract the daemon reads + accepted
+  frozen provenance) via a new extend-only `sanctioned_regions` overlay key —
+  dropping ~1030 spurious unmapped-path findings. The relocated `docs/records/`
+  tree is excluded from the retired-vocabulary gate. (#406/#407/#408). No code or
+  behavior change.
 
 - **docs: RFC index status reconciliation (2026-06-18 disposition audit).**
   Promoted ~19 rows in `docs/rfcs/README.md` and the matching RFC file headers
