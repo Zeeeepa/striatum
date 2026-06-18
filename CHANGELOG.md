@@ -286,6 +286,17 @@
 
 ### Fixed
 
+- **daemon: resolve open blockers when a run reaches a terminal state (#420).**
+  Open blockers were resolved on every state transition EXCEPT the run reaching a
+  terminal state, so a blocker (including `human_checkpoint` / escalation-class) on
+  a canceled/completed/failed run lingered `open` forever (38 such rows, ages up to
+  ~21 days, reading as pending operator work; #419 had hidden them read-side).
+  `resolveTerminalRunOpenBlockers` (called from the terminal cleanup path) now
+  resolves all kinds — the adjudication obligation is moot once the run is dead, so
+  it records the terminal cause as honest provenance (not a forged decision) + a
+  `blocker.resolved` event, and keeps the `escalation_inbox` mirror consistent. It
+  only ever runs from terminal cleanup, never short-circuiting live-run
+  adjudication. Migration 0037 backfills the already-accumulated rows (pure DML).
 - **status: exclude terminal-run blockers/checkpoints from the repo-wide
   frontier (#417 follow-on).** `statusBlockers` surfaced every `state='open'`
   blocker and `human_checkpoint` repo-wide, including those on
