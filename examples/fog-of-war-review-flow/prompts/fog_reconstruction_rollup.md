@@ -1,0 +1,1 @@
+Roll up every reconstructor's recovered-constraint record into one findings ledger. Interrogate each reconstructor to confirm which constraints it actually reconstructed; carry unanswered interrogations forward as evidence for the coverage judge.

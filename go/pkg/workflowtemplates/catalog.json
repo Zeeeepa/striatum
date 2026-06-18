@@ -146,6 +146,58 @@
       }
     },
     {
+      "template_id": "fog_of_war_review",
+      "kind": "shape",
+      "display_name": "Fog-of-war review",
+      "summary": "Distribute disjoint spec fragments to reconstructor lanes that interrogate peers to recover the hidden constraints, then withhold the proposal until a full-spec judge scores reconstruction coverage through the substance gate (RFC 0094 §2 work-packet type sequencing).",
+      "recommended_for": ["partial-context reconstruction checks", "constraint-coverage adjudication", "deliberately-withheld-context design reviews"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "generation_status": "generated",
+      "shape_family": "collaboration",
+      "collaboration_shape_pack": "substance_gate_v1",
+      "example_workflow_path": "examples/fog-of-war-review-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "distribution", "label": "Fragment distribution"},
+          {"id": "reconstruction", "label": "Reconstruction (peer interrogation)"},
+          {"id": "coverage", "label": "Coverage gate (judge ledger)"},
+          {"id": "proposal", "label": "Proposal (withheld)"}
+        ],
+        "edges": [
+          {"from": "distribution", "to": "reconstruction"},
+          {"from": "reconstruction", "to": "coverage"},
+          {"from": "coverage", "to": "proposal"}
+        ],
+        "cycles": [{"from": "coverage", "to": "reconstruction", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
+      "template_id": "synaptic_prune",
+      "kind": "shape",
+      "display_name": "Synaptic prune",
+      "summary": "After a forum closes, a post_dialog_hook (RFC 0094 §1) emits a prune packet before the participant lanes' preserved-context window releases; each still-live participant nominates one claim to retire, and any claim with >=2 votes is recorded in a durable collaboration_ledger injected as a negative preamble into future runs on the same topic.",
+      "recommended_for": ["retiring re-litigated claims", "durable do-not-re-litigate records", "post-forum consolidation"],
+      "default_lane_sets": ["multi_review", "author_reviewer", "local"],
+      "required_options": ["workflow_id", "artifact_root", "topic"],
+      "generation_status": "generated",
+      "shape_family": "collaboration",
+      "collaboration_shape_pack": "substance_gate_v1",
+      "example_workflow_path": "examples/synaptic-prune-flow/workflow.json",
+      "graph_preview": {
+        "nodes": [
+          {"id": "forum", "label": "Forum (post_dialog_hook)"},
+          {"id": "nomination", "label": "Prune nomination"},
+          {"id": "prune_tally", "label": "Tally (>=2-vote retire)"}
+        ],
+        "edges": [
+          {"from": "forum", "to": "nomination"},
+          {"from": "nomination", "to": "prune_tally"}
+        ],
+        "cycles": [{"from": "prune_tally", "to": "nomination", "on_verdict": "needs_revision"}]
+      }
+    },
+    {
       "template_id": "custom",
       "kind": "shape",
       "display_name": "Custom safe block plan",

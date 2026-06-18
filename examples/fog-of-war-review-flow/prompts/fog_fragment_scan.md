@@ -1,0 +1,1 @@
+Partition the spec into disjoint fragments — one per reconstructor lane. Each lane receives ONLY its fragment; the full spec is held only by the judge. Record the partition so each reconstructor's hidden constraints are well-defined.

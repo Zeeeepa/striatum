@@ -274,7 +274,20 @@ selected with an anti-redundancy + min-structure policy; the convergence critic
 can run on a different lane/family (the multi-model signal). It adds no daemon
 method and no model call in any state transition, and is `supported` (graduated
 D199 per RFC 0106) on a green RFC 0105 fixture covering its double fan-out/join
-and branch-death self-recovery. Other built-in shapes emit V1.
+and branch-death self-recovery. `shape: "fog_of_war_review"` and `shape:
+"synaptic_prune"` (RFC 0094) emit V1.1 phased workflows and are the two deferred
+collaboration shapes from RFC 0093. `fog_of_war_review` distributes disjoint spec
+fragments to interrogable reconstructor lanes (a judge alone holds the full spec),
+has them reconstruct the hidden constraints through peer interrogation, scores
+coverage at a judge-owned `collaboration_ledger` gate, and **withholds** the
+`proposal`-typed job behind that verdict via work-packet type sequencing
+(`gate.withhold_packet_types` / `until_verdict_clears`, compiled to a cross-phase
+dependency). `synaptic_prune` opens a forum with a `post_dialog_hook` so close
+emits a prune fan-out before participant teardown, collects one retire-nomination
+per still-live participant, and records every ≥2-vote claim into a
+`collaboration_ledger` as a durable negative preamble. Both remain `experimental`
+until a later RFC 0106 graduation on a green RFC 0105 fixture. Other built-in
+shapes emit V1.
 Generator preview and `workflow validate --json` envelopes include the advisory
 lint payload, including warning count and coverage summary; lint
 remains informational except where a later rule explicitly promotes a finding

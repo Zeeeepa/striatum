@@ -1,0 +1,1 @@
+Close the conversation. On close the post_dialog_hook emits exactly one prune packet to the coordinator carrying the participant session ids + the transcript ref, before any participant teardown. Publish the close summary referencing the curated dialogue trajectory.

@@ -1,0 +1,1 @@
+Open a round-robin conversation via conversation.open, declaring a post_dialog_hook {deliver_to: <coordinator session>, packet_type: prune} so close emits the prune packet BEFORE the participants' preserved-context window releases (RFC 0094 §1). Run the discussion; record the transcript reference, not raw provider output.

@@ -1,0 +1,1 @@
+Gather every still-live participant's prune nomination. If a target participant already died, RECORD the dead target and continue (do not hang) — clean refusal. Carry each nomination + rationale forward to the tally.

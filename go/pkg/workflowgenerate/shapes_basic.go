@@ -113,7 +113,8 @@ func compileShape(spec Spec) ([]map[string]any, []map[string]any, []map[string]a
 			}
 		}
 		return jobs, edges, nil, nil, nil
-	case "falsification_gate", "cross_examination", "adjudicated_constraint_extraction":
+	case "falsification_gate", "cross_examination", "adjudicated_constraint_extraction",
+		"fog_of_war_review", "synaptic_prune":
 		return compileCollaborationShape(spec)
 	case "implementation_panel":
 		jobs, edges, cycles, err := compileImplementationPanel(spec)

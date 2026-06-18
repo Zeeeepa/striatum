@@ -31,6 +31,7 @@ var (
 		"multi_phase", "custom", "conversation",
 		"falsification_gate", "cross_examination",
 		"adjudicated_constraint_extraction", "divergent_ideation",
+		"fog_of_war_review", "synaptic_prune",
 	)
 	laneSets      = set("local", "single_agent", "author_reviewer", "multi_review", "custom")
 	laneModifiers = set("supervised", "worktree_isolated", "constrained", "harness_profiled")
@@ -43,6 +44,7 @@ var (
 		"topic", "turns", "max_dialog_rounds", "falsifier_count", "include_scribe",
 		"branch_count", "ideas_per_branch", "deepen_count", "frame_pack",
 		"frame_packs", "score_weights", "problem_shape", "convergence_lane_id",
+		"reconstructor_count", "participant_count",
 	)
 	blockKinds = set(
 		"draft", "review", "synthesis", "implementation", "test",
@@ -909,6 +911,11 @@ func roleStub(role string) string {
 		"convergence_critic": "# Convergence Critic Role\n\nYou are the critic. Read every divergence branch, score each idea on novelty/viability/fit, cluster by underlying angle, flag traps with reasons, and select the top picks by weighted score. Note ideas independently surfaced by branches on different model families (cross-model agreement). Publish only the convergence ledger at the declared path.\n",
 		"deepener":          "# Deepener Role\n\nYou take one surviving pick and connect the dots: a 4-8 sentence sketch of how it works, the load-bearing risk, the first concrete step a builder would take, and 3-5 child ideas. Publish only your deepened artifact at the declared path.\n\nYour artifact is a `striatum.synthesis.v1` document. Every deepen lane must emit identical front-matter shape so the artifacts are uniform across models: include an `author:` line (your `<role-name>-<model-name>-<ordinal>` byline) and a complete `inputs:` list naming BOTH upstream artifacts you consumed — the convergence ledger (`CONVERGENCE.md`) AND the problem brief (`PROBLEM_BRIEF.md`). Do not omit `author:` and do not list only the convergence ledger.\n",
 		"final_synthesizer": "# Final Synthesizer Role\n\nYou assemble the operator-facing result: the shortlist with rationale, the non-obvious-but-viable pick marked with a star, the trap list, and one wildcard provocation. Publish only the final synthesis at the declared path.\n",
+		"coordinator":       "# Coordinator Role\n\nYou orchestrate a collaboration shape (fog-of-war or synaptic-prune): you partition context, open and close the conversation/interrogation cycles, and stage the curated trajectory for the judge/adjudicator. For synaptic_prune you open the conversation with a post_dialog_hook so close emits the prune fan-out BEFORE participant teardown, then nominate against still-live participants. You do not score substance — the judge/adjudicator ledger decides whether the gate clears. Carry session ids and trajectory references, never raw provider output.\n",
+		"reconstructor":     "# Reconstructor Role\n\nYou hold exactly ONE disjoint fragment of the spec. You must interrogate your peers to recover the constraints you were NOT given, and record which constraints you reconstructed (citing the peer turn that revealed each) versus which you could not. Never invent a constraint you cannot source from a peer answer — the full-spec judge scores hallucinations as failures. Stay live for interrogation by the rollup.\n",
+		"judge":             "# Judge Role\n\nYou alone hold the FULL spec (the ground truth). You read only the curated reconstruction trajectory and score each hidden constraint reconstructed / hallucinated / missed; you publish the collaboration ledger verdict. A lane that claimed coverage it never reconstructed scores hallucinated/missed and you return needs_revision; the proposal stays withheld until your verdict clears. The `verdict` field MUST be one of: accept, accept_with_findings, needs_revision, reject.\n",
+		"proposer":          "# Proposer Role\n\nYou author the proposal — but only after the coverage gate cleared (the work-packet type sequencing withholds you until then). Build on the reconstructed constraints the judge confirmed, never on a constraint a reconstructor hallucinated.\n",
+		"pruner":            "# Pruner Role\n\nYou are a forum participant. While still live in your preserved-context window, you nominate exactly ONE claim from the forum to retire ('do not re-litigate'), with a coherent rationale. A claim is retired only if at least two participants independently nominate it. You do not tally — the adjudicator ledger records the ≥2-vote retirements.\n",
 	}
 	if content, ok := panelRoles[role]; ok {
 		return content
@@ -985,6 +992,34 @@ func promptStub(prompt string) string {
 		return "Take the assigned ranked pick from the convergence ledger and deepen it: a 4-8 sentence sketch, the load-bearing risk, the first concrete step, and 3-5 child ideas.\n\nEmit a `striatum.synthesis.v1` artifact with uniform front matter so every deepen lane (across models) is identical in shape: set the `author:` front-matter line to your `<role-name>-<model-name>-<ordinal>` byline, and set a complete `inputs:` list naming BOTH `CONVERGENCE.md` (the convergence ledger) and `PROBLEM_BRIEF.md` (the problem brief). Do not put `author:` only in the body, and do not list only the convergence ledger.\n"
 	case "final_synthesis.md":
 		return "Assemble the operator-facing result from the deepened picks and the convergence ledger: shortlist with rationale, the non-obvious-but-viable pick marked with a star, the trap list, and one wildcard provocation.\n"
+	case "fog_fragment_scan.md":
+		return "Partition the spec into disjoint fragments — one per reconstructor lane. Each lane receives ONLY its fragment; the full spec is held only by the judge. Record the partition so each reconstructor's hidden constraints are well-defined.\n"
+	case "fog_fragment_map.md":
+		return "Publish the fixed fragment-to-lane map. Frame which constraints each reconstructor must recover THROUGH peer interrogation, not from its own fragment. The partition is fixed at prepare time.\n"
+	case "fog_reconstructor.md":
+		return "You hold ONE disjoint fragment of the spec. Interrogate your peers to recover the constraints you were NOT given, and record which constraints you reconstructed (with the peer turn that revealed each) vs which you could not. Do not invent constraints you cannot source from a peer answer. Stay live for interrogation.\n"
+	case "fog_reconstruction_rollup.md":
+		return "Roll up every reconstructor's recovered-constraint record into one findings ledger. Interrogate each reconstructor to confirm which constraints it actually reconstructed; carry unanswered interrogations forward as evidence for the coverage judge.\n"
+	case "fog_coverage_intake.md":
+		return "Assemble the reconstruction rollup and the full spec for coverage adjudication. Do not add new constraints; stage the curated trajectory only.\n"
+	case "fog_coverage_gate.md":
+		return "You alone hold the full spec. Read only the curated reconstruction trajectory and score each hidden constraint reconstructed / hallucinated / missed against your ground truth; publish the collaboration_ledger (shape fog_of_war_review) verdict. A lane that CLAIMED coverage it never reconstructed scores hallucinated/missed → needs_revision; the proposal stays withheld until this verdict clears.\n"
+	case "fog_proposal.md":
+		return "Author the proposal only after the coverage gate cleared (work-packet type sequencing withholds you until then). Build on the reconstructed constraints the judge confirmed, not on any constraint a reconstructor hallucinated.\n"
+	case "fog_proposal_synthesis.md":
+		return "Summarize the cleared coverage gate and the published proposal.\n"
+	case "prune_forum_open.md":
+		return "Open a round-robin conversation via conversation.open, declaring a post_dialog_hook {deliver_to: <coordinator session>, packet_type: prune} so close emits the prune packet BEFORE the participants' preserved-context window releases (RFC 0094 §1). Run the discussion; record the transcript reference, not raw provider output.\n"
+	case "prune_forum_close.md":
+		return "Close the conversation. On close the post_dialog_hook emits exactly one prune packet to the coordinator carrying the participant session ids + the transcript ref, before any participant teardown. Publish the close summary referencing the curated dialogue trajectory.\n"
+	case "prune_nominator.md":
+		return "While still live in your preserved-context window, nominate exactly ONE claim from the forum to retire ('do not re-litigate'), with a coherent rationale. A claim is only retired if ≥2 nominators independently pick it.\n"
+	case "prune_nomination_rollup.md":
+		return "Gather every still-live participant's prune nomination. If a target participant already died, RECORD the dead target and continue (do not hang) — clean refusal. Carry each nomination + rationale forward to the tally.\n"
+	case "prune_tally_intake.md":
+		return "Assemble the nominations for the prune tally. Stage the curated trajectory only.\n"
+	case "prune_tally.md":
+		return "Read only the curated nomination trajectory. Retire every claim nominated by ≥2 participants with coherent rationale as a nomination-kind entry in the collaboration_ledger (shape synaptic_prune); publish the verdict. The retired set is the durable NEGATIVE PREAMBLE ('do not re-litigate: …') injected into future runs on the same topic — provenance, not reputation.\n"
 	default:
 		return fmt.Sprintf("Complete the %s step declared by the workflow.\n", strings.ReplaceAll(strings.TrimSuffix(prompt, ".md"), "_", " "))
 	}
@@ -1239,6 +1274,9 @@ func coordinator(spec Spec, lanes map[string]any) map[string]any {
 	if spec.Shape == "adjudicated_constraint_extraction" {
 		return map[string]any{"role_id": "convener", "lane_id": authorLane(spec)}
 	}
+	if spec.Shape == "fog_of_war_review" || spec.Shape == "synaptic_prune" {
+		return map[string]any{"role_id": "coordinator", "lane_id": authorLane(spec)}
+	}
 	if spec.Shape == "divergent_ideation" {
 		return map[string]any{"role_id": "problem_framer", "lane_id": divergentPrimaryLane(spec)}
 	}
@@ -1354,7 +1392,9 @@ func maxCycles(spec Spec) (int, error) {
 }
 
 func isCollaborationShape(shape string) bool {
-	return shape == "falsification_gate" || shape == "cross_examination" || shape == "adjudicated_constraint_extraction"
+	return shape == "falsification_gate" || shape == "cross_examination" ||
+		shape == "adjudicated_constraint_extraction" ||
+		shape == "fog_of_war_review" || shape == "synaptic_prune"
 }
 
 func validatePosture(posture, fieldPath string) error {

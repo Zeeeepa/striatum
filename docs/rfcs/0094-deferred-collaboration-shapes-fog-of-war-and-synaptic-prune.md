@@ -1,8 +1,33 @@
 # RFC 0094: Deferred Collaboration Shapes — Fog-of-War Review, Synaptic Prune, and Adjudicator Reliability
 
-Status: proposed
+Status: partially implemented (slices 1 & 3 landed — `post_dialog_hook`, work-packet
+type sequencing, and the `fog_of_war_review` / `synaptic_prune` shapes; Check-B +
+ledger `v1.1` + second-adjudicator remain deferred)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
+
+Implementation note (2026-06-18, #402): The two prerequisite mechanisms —
+`post_dialog_hook` (Goal 1, the close-time emit-before-teardown) and **work-packet
+type sequencing** (Goal 2, the generator `gate.withhold_packet_types` /
+`until_verdict_clears` declaration that compiles to ordinary RFC 0045 cross-phase
+dependencies) — landed first. Both deferred shapes are now **real generated
+shapes** (Goals 3 & 4): `workflow generate --shape fog_of_war_review` and
+`--shape synaptic_prune` each compile to a `striatum.workflow.v1.1` phased graph
+(`go/pkg/workflowgenerate/shapes_fog_synaptic.go`), registered in the catalog and
+generator. `fog_of_war_review` uses the §2 type-sequencing gate to withhold its
+`proposal`-typed job behind a full-spec judge's coverage verdict; `synaptic_prune`
+declares the §1 `post_dialog_hook` on the coordinator's runtime `conversation.open`
+so close emits the prune fan-out before participant teardown. Both publish the
+existing `collaboration_ledger.v1.1` (which already carries the `fog_of_war_review`
+/ `synaptic_prune` shape enum + `constraint`/`nomination` entry kinds), so no new
+artifact contract was required. Both ship at support-tier `experimental` (RFC 0106:
+no graduation without a green RFC 0105 unattended-reliability fixture). **Still
+deferred** (RFC's own slices 2 & 4): the Goal 5 adjudicator-reliability layer — the
+semantic **Check-B** challenge↔rebuttal rubric, the additive ledger `v1.1` fields
+(`correspondence` / `coverage` / `adjudicators` / `adjudication_mode`), and the
+opt-in **second-adjudicator-on-disagreement** gate — and the anti-theater
+regression corpus (the shapes' coverage/prune scoring is currently the existing
+structural substance gate, not the semantic Check-B layer).
 
 Context:
 - [RFC 0093](0093-structured-live-collaboration-workflow-shapes.md) — the parent.
