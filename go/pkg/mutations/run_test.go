@@ -44,6 +44,38 @@ func TestGitBranchExists(t *testing.T) {
 	}
 }
 
+// TestStoredJobTypeMapsAuthoringTypesToDBEnum proves run.prepare projects the
+// workflow-authoring job `type` onto the jobs_job_type_check storage enum:
+// phase_synthesis -> review and the RFC 0094 §2 work-packet `proposal` type ->
+// build (the fog_of_war_review withheld deliverable), an empty type -> generic,
+// and every already-valid type passes through. The DB CHECK only accepts
+// draft/review/ledger/synthesis/build/test/human_checkpoint/generic, so an
+// unmapped `proposal` would fail the jobs INSERT at prepare.
+func TestStoredJobTypeMapsAuthoringTypesToDBEnum(t *testing.T) {
+	cases := map[string]string{
+		"":                 "generic",
+		"phase_synthesis":  "review",
+		"proposal":         "build",
+		"build":            "build",
+		"review":           "review",
+		"synthesis":        "synthesis",
+		"draft":            "draft",
+		"human_checkpoint": "human_checkpoint",
+	}
+	dbEnum := map[string]bool{
+		"draft": true, "review": true, "ledger": true, "synthesis": true,
+		"build": true, "test": true, "human_checkpoint": true, "generic": true,
+	}
+	for in, want := range cases {
+		if got := storedJobType(in); got != want {
+			t.Errorf("storedJobType(%q) = %q, want %q", in, got, want)
+		}
+		if !dbEnum[storedJobType(in)] {
+			t.Errorf("storedJobType(%q) = %q is not in jobs_job_type_check", in, storedJobType(in))
+		}
+	}
+}
+
 // TestAutoConfirmBranchEnsuresRefWithoutCheckout exercises the git helper used
 // by branch.confirm/run.prepare: when the suggested branch does not exist, the
 // daemon creates the ref without moving the operator's primary checkout.

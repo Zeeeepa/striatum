@@ -165,6 +165,27 @@ flowchart TD
   n2 -.->|needs_revision| n1
 ```
 
+### Fog-of-war review (`fog_of_war_review`)
+
+Distribute disjoint spec fragments to reconstructor lanes that interrogate peers to recover the hidden constraints, then withhold the proposal until a full-spec judge scores reconstruction coverage through the substance gate (RFC 0094 §2 work-packet type sequencing).
+
+- Recommended for: partial-context reconstruction checks; constraint-coverage adjudication; deliberately-withheld-context design reviews
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Fragment distribution"]
+  n1["Reconstruction (peer interrogation)"]
+  n2["Coverage gate (judge ledger)"]
+  n3["Proposal (withheld)"]
+  n0 --> n1
+  n1 --> n2
+  n2 --> n3
+  n2 -.->|needs_revision| n1
+```
+
 ### Human checkpoint (`human_checkpoint`)
 
 Require owner judgment before downstream work proceeds.
@@ -327,6 +348,25 @@ flowchart TD
   n2["Synthesis"]
   n0 --> n1
   n1 --> n2
+```
+
+### Synaptic prune (`synaptic_prune`)
+
+After a forum closes, a post_dialog_hook (RFC 0094 §1) emits a prune packet before the participant lanes' preserved-context window releases; each still-live participant nominates one claim to retire, and any claim with >=2 votes is recorded in a durable collaboration_ledger injected as a negative preamble into future runs on the same topic.
+
+- Recommended for: retiring re-litigated claims; durable do-not-re-litigate records; post-forum consolidation
+- Default lane sets: `multi_review`, `author_reviewer`, `local`
+- Required options: `workflow_id`, `artifact_root`, `topic`
+**Support tier:** `experimental` — no unattended-reliability gate yet (RFC 0105); expect to supervise.
+
+```mermaid
+flowchart TD
+  n0["Forum (post_dialog_hook)"]
+  n1["Prune nomination"]
+  n2["Tally (>=2-vote retire)"]
+  n0 --> n1
+  n1 --> n2
+  n2 -.->|needs_revision| n1
 ```
 
 ## Lane Sets

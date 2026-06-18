@@ -17,6 +17,10 @@ func compileCollaborationShape(spec Spec) ([]map[string]any, []map[string]any, [
 		return compileCrossExamination(spec, max)
 	case "adjudicated_constraint_extraction":
 		return compileAdjudicatedConstraintExtraction(spec, max)
+	case "fog_of_war_review":
+		return compileFogOfWarReview(spec, max)
+	case "synaptic_prune":
+		return compileSynapticPrune(spec, max)
 	default:
 		return nil, nil, nil, nil, genErr("unknown collaboration shape", "spec.shape")
 	}

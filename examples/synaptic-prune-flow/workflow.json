@@ -1,0 +1,338 @@
+{
+  "allow_same_model_review_pairing": true,
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/synaptic-prune-flow"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "coordinator"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "allow_same_model": true,
+      "from": "prune_tally",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "nominator_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "forum_open",
+      "on": "completed",
+      "to": "forum_close"
+    },
+    {
+      "from": "nominator_1",
+      "on": "completed",
+      "to": "nomination_rollup"
+    },
+    {
+      "from": "nominator_2",
+      "on": "completed",
+      "to": "nomination_rollup"
+    },
+    {
+      "from": "tally_intake",
+      "on": "completed",
+      "to": "prune_tally"
+    },
+    {
+      "from": "forum_close",
+      "on": "completed",
+      "to": "nominator_1"
+    },
+    {
+      "from": "nomination_rollup",
+      "on": "completed",
+      "to": "tally_intake"
+    },
+    {
+      "from": "forum_close",
+      "on": "completed",
+      "to": "nominator_2"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "forum_open",
+          "path": "examples/synaptic-prune-flow/artifacts/forum/open/FORUM.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "forum_open",
+      "interrogable": true,
+      "lane_id": "local",
+      "objective": "Open a round-robin conversation on example synaptic_prune topic via conversation.open, declaring a post_dialog_hook {deliver_to: \u003ccoordinator session\u003e, packet_type: prune} so close emits the prune packet BEFORE the participants' preserved-context window releases (RFC 0094 §1). Run the discussion; record the transcript reference, not raw provider output.",
+      "phase_id": "forum",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/prune_forum_open.md"
+      },
+      "title": "Open the forum with a post_dialog_hook",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/forum/open/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "forum_close",
+          "path": "examples/synaptic-prune-flow/artifacts/forum/close/FORUM_CLOSE.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "forum_close",
+      "lane_id": "local",
+      "objective": "Close the conversation for example synaptic_prune topic. On close the post_dialog_hook emits exactly one prune packet to the coordinator carrying the participant session ids + the transcript ref, before any participant teardown. Publish the close summary referencing the curated dialogue trajectory.",
+      "phase_id": "forum",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/prune_forum_close.md"
+      },
+      "title": "Close the forum (hook fires)",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/forum/close/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "nominator_1",
+          "path": "examples/synaptic-prune-flow/artifacts/nomination/nominator_1/NOMINATION.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "nominator_1",
+      "lane_id": "local",
+      "objective": "While still live in your preserved-context window, nominate exactly ONE claim from the example synaptic_prune topic forum to retire ('do not re-litigate'), with a coherent rationale. A claim is only retired if ≥2 nominators independently pick it.",
+      "parallel_group": "nomination",
+      "phase_id": "nomination",
+      "role_id": "pruner",
+      "task_prompt": {
+        "path": "prompts/prune_nominator.md"
+      },
+      "title": "Prune nominator 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/nomination/nominator_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "nominator_2",
+          "path": "examples/synaptic-prune-flow/artifacts/nomination/nominator_2/NOMINATION.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "nominator_2",
+      "lane_id": "local",
+      "objective": "While still live in your preserved-context window, nominate exactly ONE claim from the example synaptic_prune topic forum to retire ('do not re-litigate'), with a coherent rationale. A claim is only retired if ≥2 nominators independently pick it.",
+      "parallel_group": "nomination",
+      "phase_id": "nomination",
+      "role_id": "pruner",
+      "task_prompt": {
+        "path": "prompts/prune_nominator.md"
+      },
+      "title": "Prune nominator 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/nomination/nominator_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "findings_ledger",
+          "logical_name": "nomination_rollup",
+          "path": "examples/synaptic-prune-flow/artifacts/nomination/synthesis/NOMINATION_ROLLUP.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "nomination_rollup",
+      "lane_id": "local",
+      "objective": "Gather every still-live participant's prune nomination for example synaptic_prune topic. If a target participant already died, RECORD the dead target and continue (do not hang) — AC#5 clean refusal. Carry each nomination + rationale forward to the tally.",
+      "phase_id": "nomination",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/prune_nomination_rollup.md"
+      },
+      "title": "Gather prune nominations",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/nomination/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "tally_intake",
+          "path": "examples/synaptic-prune-flow/artifacts/prune_tally/intake/TALLY_INTAKE.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "tally_intake",
+      "lane_id": "local",
+      "objective": "Assemble the nominations for example synaptic_prune topic for the prune tally. Stage the curated trajectory only.",
+      "phase_id": "prune_tally",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/prune_tally_intake.md"
+      },
+      "title": "Stage tally inputs",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/prune_tally/intake/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "prune_ledger_${cycle}",
+          "path": "examples/synaptic-prune-flow/artifacts/prune_tally/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "prune_tally",
+      "lane_id": "local",
+      "objective": "Read only the curated nomination trajectory for example synaptic_prune topic. Retire every claim nominated by ≥2 participants with coherent rationale as a nomination-kind entry in the collaboration_ledger (shape synaptic_prune); publish the verdict. The retired set is the durable NEGATIVE PREAMBLE ('do not re-litigate: …') injected into future runs on the same topic — provenance, not reputation.",
+      "phase_id": "prune_tally",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/prune_tally.md"
+      },
+      "title": "Tally and retire ≥2-vote claims",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/synaptic-prune-flow/artifacts/prune_tally/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "synaptic-prune-flow",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Round-robin conversation opened with a post_dialog_hook so close emits the prune fan-out before teardown",
+      "id": "forum",
+      "name": "Forum",
+      "synthesis_job_id": "forum_close"
+    },
+    {
+      "description": "Each still-live participant nominates one claim to retire via a prune interrogation",
+      "id": "nomination",
+      "name": "Nomination",
+      "synthesis_job_id": "nomination_rollup"
+    },
+    {
+      "description": "Retire ≥2-vote claims into the durable negative preamble ledger",
+      "id": "prune_tally",
+      "name": "Prune tally",
+      "synthesis_job_id": "prune_tally"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "coordinator": {
+      "definition_path": "roles/coordinator.md"
+    },
+    "pruner": {
+      "definition_path": "roles/pruner.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "synaptic-prune-flow",
+  "workflow_version": "2026-06-18"
+}

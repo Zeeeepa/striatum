@@ -1069,13 +1069,8 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		}
 		jobID := fmt.Sprintf("job_%s_%s", runID, workflowJobID)
 		jobIDs[workflowJobID] = jobID
-		jobType, _ := job["type"].(string)
-		if jobType == "" {
-			jobType = "generic"
-		}
-		if jobType == "phase_synthesis" {
-			jobType = "review"
-		}
+		rawType, _ := job["type"].(string)
+		jobType := storedJobType(rawType)
 		capabilityReqs := map[string]any{
 			"objective":   job["objective"],
 			"task_prompt": asMap(job["task_prompt"]),
@@ -1237,6 +1232,31 @@ func effectiveFreshSessionRequired(job map[string]any) bool {
 	}
 	_, hasExplicit := job["fresh_session_required"]
 	return job["type"] == "review" && job["reviewer_context_policy"] == "fresh" && !hasExplicit
+}
+
+// storedJobType maps a workflow-authoring job `type` to the DB job_type the
+// jobs_job_type_check constraint accepts. The workflow snapshot keeps the
+// authoring-level type (the value validatePhaseGateSequencing / edge gating key
+// on); this is the prepare-time projection onto the storage enum:
+//   - phase_synthesis is a verdict-emitting synthesis stored as `review` (the
+//     job-row type a review.verdict transition expects).
+//   - proposal (RFC 0094 §2 work-packet type sequencing) is a build-class
+//     deliverable whose EMISSION is withheld behind a coverage gate; stored as
+//     `build`.
+//   - an empty type defaults to `generic`.
+//
+// Every other type is already in the constraint set and passes through unchanged.
+func storedJobType(rawType string) string {
+	switch rawType {
+	case "":
+		return "generic"
+	case "phase_synthesis":
+		return "review"
+	case "proposal":
+		return "build"
+	default:
+		return rawType
+	}
 }
 
 func workflowJobType(workflow map[string]any, workflowJobID string) string {

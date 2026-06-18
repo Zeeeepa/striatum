@@ -93,6 +93,37 @@
     Runtime migration 0034 persists the declaration in a sidecar table
     (`conversation_post_dialog_hooks`, no FK into owner-held tables, its own
     GRANT).
+- **RFC 0094 deferred collaboration shapes — `fog_of_war_review` +
+  `synaptic_prune` (#402).** Both deferred shapes are now real generated shapes
+  built on the prerequisite mechanisms above; each compiles through `workflow
+  generate --shape <name>` to a `striatum.workflow.v1.1` phased graph
+  (`go/pkg/workflowgenerate/shapes_fog_synaptic.go`), is registered in the
+  catalog and generator, and validates / lints clean. No new daemon method,
+  route, or artifact contract.
+  - **`fog_of_war_review`.** Four phases — fragment distribution (the
+    coordinator partitions the spec into disjoint fragments; a judge alone holds
+    the full spec) → reconstruction (interrogable reconstructor lanes interrogate
+    peers to recover the constraints their fragment omitted) → coverage gate (the
+    full-spec judge scores reconstructed / hallucinated / missed and publishes a
+    `collaboration_ledger`) → proposal. The `proposal`-typed job is **withheld**
+    behind the coverage verdict via §2 work-packet type sequencing
+    (`gate.withhold_packet_types: [proposal]` / `until_verdict_clears:
+    coverage_gate`), compiled to an ordinary cross-phase dependency. A
+    coverage→reconstruction revision cycle re-opens on `needs_revision`. The
+    `proposal` work-packet type is stored as DB job_type `build` at `run.prepare`
+    (the snapshot keeps the authoring-level type the sequencing gate keys on).
+  - **`synaptic_prune`.** Three phases — forum (the coordinator opens a
+    round-robin `conversation.open` declaring a §1 `post_dialog_hook` so close
+    emits the prune fan-out before participant teardown) → nomination (each
+    still-live participant nominates one claim to retire) → prune tally (the
+    adjudicator retires every ≥2-vote claim into a `collaboration_ledger` — the
+    durable negative preamble for future runs on the same topic; a dead target is
+    recorded, not hung on).
+  - Both ship at support-tier `experimental` (RFC 0106: no graduation without a
+    green RFC 0105 unattended-reliability fixture). Still deferred (RFC 0094
+    slices 2 & 4): the semantic **Check-B** adjudicator rubric, the additive
+    ledger `v1.1` fields, the second-adjudicator-on-disagreement gate, and the
+    anti-theater regression corpus.
 
 ### Fixed
 

@@ -1,0 +1,1 @@
+Author the proposal only after the coverage gate cleared (work-packet type sequencing withholds you until then). Build on the reconstructed constraints the judge confirmed, not on any constraint a reconstructor hallucinated.

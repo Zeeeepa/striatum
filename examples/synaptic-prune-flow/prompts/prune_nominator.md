@@ -1,0 +1,1 @@
+While still live in your preserved-context window, nominate exactly ONE claim from the forum to retire ('do not re-litigate'), with a coherent rationale. A claim is only retired if ≥2 nominators independently pick it.

@@ -1,0 +1,426 @@
+{
+  "allow_same_model_review_pairing": true,
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/fog-of-war-review-flow"
+  },
+  "context_docs": [],
+  "coordinator": {
+    "lane_id": "local",
+    "role_id": "coordinator"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "allow_same_model": true,
+      "from": "coverage_gate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "reconstructor_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "fragment_scan",
+      "on": "completed",
+      "to": "fragment_map"
+    },
+    {
+      "from": "reconstructor_1",
+      "on": "completed",
+      "to": "reconstruction_rollup"
+    },
+    {
+      "from": "reconstructor_2",
+      "on": "completed",
+      "to": "reconstruction_rollup"
+    },
+    {
+      "from": "coverage_intake",
+      "on": "completed",
+      "to": "coverage_gate"
+    },
+    {
+      "from": "coverage_gate",
+      "on": "completed",
+      "to": "proposal"
+    },
+    {
+      "from": "proposal",
+      "on": "completed",
+      "to": "proposal_synthesis"
+    },
+    {
+      "from": "fragment_map",
+      "on": "completed",
+      "to": "reconstructor_1"
+    },
+    {
+      "from": "reconstruction_rollup",
+      "on": "completed",
+      "to": "coverage_intake"
+    },
+    {
+      "from": "fragment_map",
+      "on": "completed",
+      "to": "reconstructor_2"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "fragment_scan",
+          "path": "examples/fog-of-war-review-flow/artifacts/distribution/scan/FRAGMENTS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "fragment_scan",
+      "lane_id": "local",
+      "objective": "Partition the spec for example fog_of_war_review topic into disjoint fragments — one per reconstructor lane. Each lane receives ONLY its fragment; the full spec is held only by the judge. Record the partition so each reconstructor's hidden constraints are well-defined.",
+      "phase_id": "distribution",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/fog_fragment_scan.md"
+      },
+      "title": "Partition spec into disjoint fragments",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/distribution/scan/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "fragment_map",
+          "path": "examples/fog-of-war-review-flow/artifacts/distribution/synthesis/FRAGMENT_MAP.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "fragment_map",
+      "lane_id": "local",
+      "objective": "Publish the fixed fragment-to-lane map for example fog_of_war_review topic. This synthesis frames which constraints each reconstructor must recover THROUGH peer interrogation, not from its own fragment.",
+      "phase_id": "distribution",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/fog_fragment_map.md"
+      },
+      "title": "Publish the fragment map",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/distribution/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "reconstructor_1",
+          "path": "examples/fog-of-war-review-flow/artifacts/reconstruction/reconstructor_1/RECONSTRUCTION.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "reconstructor_1",
+      "interrogable": true,
+      "lane_id": "local",
+      "objective": "You hold ONE disjoint fragment of the spec for example fog_of_war_review topic. Interrogate your peers to recover the constraints you were NOT given, and record which constraints you reconstructed (with the peer turn that revealed each) vs which you could not. Do not invent constraints you cannot source from a peer answer. Stay live for interrogation.",
+      "parallel_group": "reconstruction",
+      "phase_id": "reconstruction",
+      "role_id": "reconstructor",
+      "task_prompt": {
+        "path": "prompts/fog_reconstructor.md"
+      },
+      "title": "Reconstructor 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/reconstruction/reconstructor_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "reconstructor_2",
+          "path": "examples/fog-of-war-review-flow/artifacts/reconstruction/reconstructor_2/RECONSTRUCTION.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "reconstructor_2",
+      "interrogable": true,
+      "lane_id": "local",
+      "objective": "You hold ONE disjoint fragment of the spec for example fog_of_war_review topic. Interrogate your peers to recover the constraints you were NOT given, and record which constraints you reconstructed (with the peer turn that revealed each) vs which you could not. Do not invent constraints you cannot source from a peer answer. Stay live for interrogation.",
+      "parallel_group": "reconstruction",
+      "phase_id": "reconstruction",
+      "role_id": "reconstructor",
+      "task_prompt": {
+        "path": "prompts/fog_reconstructor.md"
+      },
+      "title": "Reconstructor 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/reconstruction/reconstructor_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "findings_ledger",
+          "logical_name": "reconstruction_rollup",
+          "path": "examples/fog-of-war-review-flow/artifacts/reconstruction/synthesis/RECONSTRUCTION_ROLLUP.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "reconstruction_rollup",
+      "lane_id": "local",
+      "objective": "Roll up every reconstructor's recovered-constraint record for example fog_of_war_review topic into one findings ledger. Preserve which constraints each lane reconstructed vs missed, and carry unanswered peer interrogations forward as evidence for the coverage judge.",
+      "phase_id": "reconstruction",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/fog_reconstruction_rollup.md"
+      },
+      "title": "Roll up reconstruction coverage",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/reconstruction/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "coverage_intake",
+          "path": "examples/fog-of-war-review-flow/artifacts/coverage/intake/COVERAGE_INTAKE.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "coverage_intake",
+      "lane_id": "local",
+      "objective": "Assemble the reconstruction rollup and the full spec for coverage adjudication of example fog_of_war_review topic. Do not add new constraints; stage the curated trajectory only.",
+      "phase_id": "coverage",
+      "role_id": "judge",
+      "task_prompt": {
+        "path": "prompts/fog_coverage_intake.md"
+      },
+      "title": "Stage coverage inputs",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/coverage/intake/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "fog_coverage_ledger_${cycle}",
+          "path": "examples/fog-of-war-review-flow/artifacts/coverage/judge/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "coverage_gate",
+      "lane_id": "local",
+      "objective": "You alone hold the full spec for example fog_of_war_review topic. Read only the curated reconstruction trajectory and score each hidden constraint reconstructed / hallucinated / missed against your ground truth; publish the collaboration_ledger (shape fog_of_war_review) verdict. A lane that CLAIMED coverage it never reconstructed scores hallucinated/missed → needs_revision; the proposal stays withheld until this verdict clears.",
+      "phase_id": "coverage",
+      "role_id": "judge",
+      "task_prompt": {
+        "path": "prompts/fog_coverage_gate.md"
+      },
+      "title": "Score reconstruction coverage",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/coverage/judge/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "proposal",
+          "path": "examples/fog-of-war-review-flow/artifacts/proposal/draft/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "proposal",
+      "lane_id": "local",
+      "objective": "Author the proposal for example fog_of_war_review topic only after the coverage gate cleared. Build on the reconstructed constraints the judge confirmed, not on any constraint a reconstructor hallucinated.",
+      "phase_id": "proposal",
+      "role_id": "proposer",
+      "task_prompt": {
+        "path": "prompts/fog_proposal.md"
+      },
+      "title": "Author the proposal",
+      "type": "proposal",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/proposal/draft/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "proposal_synthesis",
+          "path": "examples/fog-of-war-review-flow/artifacts/proposal/synthesis/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "proposal_synthesis",
+      "lane_id": "local",
+      "objective": "Summarize the cleared coverage gate and the published proposal for example fog_of_war_review topic.",
+      "phase_id": "proposal",
+      "role_id": "coordinator",
+      "task_prompt": {
+        "path": "prompts/fog_proposal_synthesis.md"
+      },
+      "title": "Finalize the fog-of-war run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "examples/fog-of-war-review-flow/artifacts/proposal/synthesis/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "local": {
+      "adapter": "process",
+      "capabilities": [
+        "write",
+        "review"
+      ],
+      "command": [
+        "sh",
+        "-c",
+        "cat \u003e/dev/null"
+      ],
+      "display_model": "Local Fixture"
+    }
+  },
+  "name": "fog-of-war-review-flow",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Partition the spec into disjoint fragments; the judge alone holds the full spec",
+      "id": "distribution",
+      "name": "Fragment distribution",
+      "synthesis_job_id": "fragment_map"
+    },
+    {
+      "description": "Reconstructors interrogate peers to recover the constraints their fragment omitted",
+      "id": "reconstruction",
+      "name": "Reconstruction",
+      "synthesis_job_id": "reconstruction_rollup"
+    },
+    {
+      "description": "The full-spec judge scores reconstructed vs hallucinated vs missed and gates the proposal",
+      "id": "coverage",
+      "name": "Coverage gate",
+      "synthesis_job_id": "coverage_gate"
+    },
+    {
+      "description": "The proposal is withheld until the coverage gate clears (RFC 0094 §2 work-packet type sequencing)",
+      "gate": {
+        "until_verdict_clears": "coverage_gate",
+        "withhold_packet_types": [
+          "proposal"
+        ]
+      },
+      "id": "proposal",
+      "name": "Proposal",
+      "synthesis_job_id": "proposal_synthesis"
+    }
+  ],
+  "roles": {
+    "coordinator": {
+      "definition_path": "roles/coordinator.md"
+    },
+    "judge": {
+      "definition_path": "roles/judge.md"
+    },
+    "proposer": {
+      "definition_path": "roles/proposer.md"
+    },
+    "reconstructor": {
+      "definition_path": "roles/reconstructor.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "fog-of-war-review-flow",
+  "workflow_version": "2026-06-18"
+}

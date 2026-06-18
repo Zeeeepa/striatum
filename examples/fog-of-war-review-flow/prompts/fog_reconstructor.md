@@ -1,0 +1,1 @@
+You hold ONE disjoint fragment of the spec. Interrogate your peers to recover the constraints you were NOT given, and record which constraints you reconstructed (with the peer turn that revealed each) vs which you could not. Do not invent constraints you cannot source from a peer answer. Stay live for interrogation.
