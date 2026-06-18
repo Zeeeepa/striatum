@@ -314,6 +314,9 @@ func Validate(workflow map[string]any) error {
 		if err := validateReviewPosture(jobID, job); err != nil {
 			return err
 		}
+		if err := validatePanelQuorum(jobID, job); err != nil {
+			return err
+		}
 		if err := validateRequiredReviewPostures(jobID, job); err != nil {
 			return err
 		}
@@ -607,6 +610,30 @@ func validateReviewPosture(jobID string, job map[string]any) error {
 		return errf("review job %q review_posture must be a non-empty string", jobID)
 	}
 	return validatePostureValue(jobID, "review job", posture)
+}
+
+// validatePanelQuorum validates the RFC 0135 P4 panel-quorum workflow config
+// (#338, D214): the per-reviewer panel_role (gating|advisory, default gating) on a
+// review job, and the per-gate-job max_gating_abstentions budget (a non-negative whole
+// number, default 0). These are workflow config (no DDL); the daemon reads them to
+// compute panelQuorumSatisfied over a frozen declared-seat denominator. The default
+// (panel_role gating, budget 0) keeps behavior unchanged: every gating seat required.
+func validatePanelQuorum(jobID string, job map[string]any) error {
+	if value, exists := job["panel_role"]; exists {
+		if defaultString(job["type"], "generic") != "review" {
+			return errf("non-review job %q cannot declare panel_role", jobID)
+		}
+		role, ok := value.(string)
+		if !ok || (role != "gating" && role != "advisory") {
+			return errf("review job %q has unknown panel_role %v; allowed: gating|advisory", jobID, value)
+		}
+	}
+	if value, exists := job["max_gating_abstentions"]; exists {
+		if !nonNegativeWholeNumber(value) {
+			return errf("job %q max_gating_abstentions must be a non-negative whole number", jobID)
+		}
+	}
+	return nil
 }
 
 func validateRequiredReviewPostures(jobID string, job map[string]any) error {
@@ -1316,6 +1343,22 @@ func positiveWholeNumber(value any) bool {
 		return item >= 1
 	case float64:
 		return item >= 1 && item == float64(int64(item))
+	default:
+		return false
+	}
+}
+
+func nonNegativeWholeNumber(value any) bool {
+	switch item := value.(type) {
+	case json.Number:
+		integer, err := item.Int64()
+		return err == nil && integer >= 0
+	case int:
+		return item >= 0
+	case int64:
+		return item >= 0
+	case float64:
+		return item >= 0 && item == float64(int64(item))
 	default:
 		return false
 	}

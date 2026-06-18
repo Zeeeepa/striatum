@@ -105,6 +105,54 @@ func TestValidateReturnsAuthoringErrors(t *testing.T) {
 	}
 }
 
+// TestValidatePanelQuorum verifies RFC 0135 P4 (#338, D214): panel_role defaults to
+// gating, accepts gating|advisory on a review job, is rejected on a non-review job and
+// for unknown values; max_gating_abstentions must be a non-negative whole number and
+// defaults to 0 (behavior unchanged).
+func TestValidatePanelQuorum(t *testing.T) {
+	// Default: no panel_role declared → valid (defaults to gating).
+	if err := Validate(validWorkflow()); err != nil {
+		t.Fatalf("default workflow (no panel_role) rejected: %v", err)
+	}
+
+	// Explicit gating and advisory on a review job are valid.
+	for _, role := range []string{"gating", "advisory"} {
+		workflow := validWorkflow()
+		review := workflow["jobs"].([]any)[1].(map[string]any)
+		review["panel_role"] = role
+		if err := Validate(workflow); err != nil {
+			t.Fatalf("review job panel_role=%q rejected: %v", role, err)
+		}
+	}
+
+	// An unknown panel_role value is rejected.
+	workflow := validWorkflow()
+	workflow["jobs"].([]any)[1].(map[string]any)["panel_role"] = "blocking"
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "unknown panel_role") {
+		t.Fatalf("unknown panel_role error = %v", err)
+	}
+
+	// panel_role on a NON-review job is rejected.
+	workflow = validWorkflow()
+	workflow["jobs"].([]any)[0].(map[string]any)["panel_role"] = "gating"
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "non-review job") {
+		t.Fatalf("panel_role on non-review job error = %v", err)
+	}
+
+	// max_gating_abstentions: a non-negative whole number is valid; a negative one is
+	// rejected.
+	workflow = validWorkflow()
+	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = 1
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("max_gating_abstentions=1 rejected: %v", err)
+	}
+	workflow = validWorkflow()
+	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = -1
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "non-negative whole number") {
+		t.Fatalf("negative max_gating_abstentions error = %v", err)
+	}
+}
+
 // TestValidateLaneLaunchEnv verifies #223: a lane may declare path_prefix and
 // command_env, and the validator enforces their shape and the control-plane
 // boundary (no PATH or STRIATUM_-namespaced keys in command_env).
