@@ -1,6 +1,6 @@
 # RFC 0112: Explicit interrogation consumers for phased collaboration shapes
 
-Status: accepted (D171)
+Status: accepted / implemented (V1; D171)
 Date: 2026-06-05
 author: proposer-codex-gpt-5-001
 Panel resolution: design-panel recommendation

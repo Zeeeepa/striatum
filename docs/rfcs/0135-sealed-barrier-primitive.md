@@ -1,6 +1,6 @@
 # RFC 0135: The sealed expectation barrier primitive — one (entity, seal) barrier shared by fan-in, quorum, revision-coherence, and run.integrate
 
-Status: accepted (D216)
+Status: accepted / implemented (D216; P0-P6 shipped v2.34.0, opt-in/shadow)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:

@@ -95,7 +95,7 @@ so external references keep resolving even as items move between sections.
 | 36 | RFC 0048 daemon-side substrate migration (Phases A+B+C + V1.5 hardening + migration 0006) | ✅ done (v1.55.0) |
 | 37 | RFC 0049 interactive claude lane via MCP (experimental) | 💤 shelved |
 | 38 | RFC 0050 follow-ups — GH #9-13 V2 surface findings | ✅ done |
-| 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | 🟡 daemon method slice landed |
+| 39 | RFC 0051 V1 auto-finalize from frontmatter (downgraded urgency post-v1.48.1) | ✅ done (D133 default-on cutover) |
 | 40 | GH #14 — recovery cannot clear terminal-run `process_exit_nonzero` blocker | ✅ done |
 | 41 | GH #15 — docs clarify PostgreSQL transition guidance | ✅ done |
 | 42 | GH #17 — Striatum doc consistency for Engram memory integration | ✅ done |

@@ -1,6 +1,6 @@
 # RFC 0027: Sealed Patch Provenance Mode
 
-Status: proposed (phase 2 guardrails shipped)
+Status: superseded by RFC 0127 (D195)
 Date: 2026-05-10
 Context:
 [`docs/research/P005_SYNTHESIS.md`](../research/P005_SYNTHESIS.md),

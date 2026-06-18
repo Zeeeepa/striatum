@@ -1,6 +1,6 @@
 # RFC 0102: Operator Attention Economy — one control surface, high-signal feedback, fewer things to stare at
 
-Status: proposed
+Status: proposed (lever-1 realized indirectly; attention-view question tracked in #396)
 Date: 2026-05-31
 author: proposer-claude-opus-4-8-001
 

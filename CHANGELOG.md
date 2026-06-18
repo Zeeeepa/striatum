@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- **docs: RFC index status reconciliation (2026-06-18 disposition audit).**
+  Promoted ~19 rows in `docs/rfcs/README.md` and the matching RFC file headers
+  from `proposed`/`blocked` to `implemented`/`superseded` to match shipped
+  code: the RFC 0135 sealed-barrier primitive (P0–P6, opt-in/shadow behind
+  D206) with its 0132 quorum and 0133 fan-in folds; 0119 hot tier; 0118, 0112,
+  0099, 0051, 0064, 0057, 0066, 0044, 0054, 0055; and supersessions
+  0097→0116/0122/0124, 0027→0127, 0049→0088, 0041→0044/0057/0119, 0102
+  (lever-1 realized indirectly). Corrected the D212/D213/D216 outcome columns
+  in `docs/decisions/decision-log.md`. The two genuinely-live builds (0131,
+  0134) and the split/decision remainders were filed as tracked issues
+  (#394–#404). No code or behavior change.
+
 ## v2.34.0 — 2026-06-18
 
 ### Added

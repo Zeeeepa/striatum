@@ -1,6 +1,6 @@
 # RFC 0057: Striatum Corpus Contract V2
 
-Status: proposed (scaffold)
+Status: resolved / implemented (D126)
 Date: 2026-05-14
 author: implementer-unknown-model-001
 Context:

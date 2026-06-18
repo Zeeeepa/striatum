@@ -1,6 +1,6 @@
 # RFC 0051 — Auto-finalize jobs from artifact frontmatter
 
-**Status:** accepted (bounded daemon slice landed)
+**Status:** accepted / implemented (D133 default-on)
 **Scope:** V1 (single-version)
 **Driven by:** the operator-on-behalf burden observed across
 dogfood-054b / 055 / 055b / 056 (8 on-behalf publishes in one session,

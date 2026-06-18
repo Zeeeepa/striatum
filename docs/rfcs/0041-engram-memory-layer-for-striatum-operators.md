@@ -1,6 +1,6 @@
 # RFC 0041: Engram as an Optional Memory Layer for Striatum Operators
 
-Status: proposed (design-shape only — no acceptance criteria fully specified;
+Status: superseded by RFC 0044 / 0057 / 0119 (historical; design-shape only — no acceptance criteria fully specified;
 the design phase consumes this and produces the concrete plan)
 Date: 2026-05-13
 Context:
