@@ -168,6 +168,18 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 // agree.
 const statusTerminalRunStatesSQL = "('completed', 'failed', 'canceled')"
 
+// statusRunStateIsTerminal reports whether a run state is terminal, mirroring
+// statusTerminalRunStatesSQL. A terminal run can have no live lane, so its
+// sessions are never liveness-probed (#417).
+func statusRunStateIsTerminal(state string) bool {
+	switch state {
+	case "completed", "failed", "canceled":
+		return true
+	default:
+		return false
+	}
+}
+
 // defaultStatusTerminalRunLimit bounds how many recent TERMINAL runs the
 // repo-wide default surfaces (non-terminal runs are always included in full).
 const defaultStatusTerminalRunLimit = 20
@@ -384,6 +396,7 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		        s.last_tool_call_finished_at,
 		        s.liveness_stall_class,
 		        s.liveness_stall_since,
+		        r.state AS run_state,
 		        ps.supervisor_id AS supervisor_id, ps.pid AS pid,
 		        ptr.metadata_json AS supervisor_metadata_json,
 		        active_lease.lease_id AS active_lease_id,
@@ -391,6 +404,9 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 		        active_lease.expires_at AS active_lease_expires_at,
 		        active_lease.last_heartbeat_at AS active_lease_last_heartbeat_at
 		   FROM striatumd.sessions s
+		   LEFT JOIN striatumd.runs r
+		     ON r.repository_id = s.repository_id
+		    AND r.run_id = s.run_id
 		   LEFT JOIN striatumd.process_supervisors ps
 		     ON ps.repository_id = s.repository_id
 		    AND ps.session_id = s.session_id
@@ -416,6 +432,18 @@ func statusSessions(ctx context.Context, runner db.Runner, repositoryID, runID s
 	}
 	now := time.Now().UTC()
 	for _, row := range rows {
+		// #417: a session on a terminal run is not live. Blanking its supervisor
+		// columns routes it through the no-attached-supervisor path below, so the
+		// loop neither drains its helper FIFO nor sudo+tmux ProbeLaneLiveness it.
+		// Supervisors are reaped to a terminal state on run completion; this also
+		// guards any terminal path that leaks a still-'attached' row from
+		// re-storming the repo-wide status read (the #417 30s-timeout incident).
+		runStateTerminal := statusRunStateIsTerminal(stringFrom(row, "run_state"))
+		delete(row, "run_state")
+		if runStateTerminal {
+			row["supervisor_id"] = ""
+			row["pid"] = nil
+		}
 		row["liveness"] = sessionliveness.ProjectionFromRow(row, now)
 		sessionliveness.RemoveProjectionSourceFields(row)
 		supervisorID := stringFrom(row, "supervisor_id")

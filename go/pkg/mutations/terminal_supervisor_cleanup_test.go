@@ -16,11 +16,13 @@ type terminalCleanupExec struct {
 }
 
 type terminalCleanupTx struct {
-	execs      []terminalCleanupExec
-	nextEvent  int64
-	queries    []string
-	committed  bool
-	rolledBack bool
+	execs                  []terminalCleanupExec
+	nextEvent              int64
+	queries                []string
+	committed              bool
+	rolledBack             bool
+	suppressActiveSessions bool     // #417: model a run with no active sessions left
+	orphanSessionIDs       []string // #417: sessions still owning a live supervisor
 }
 
 func (tx *terminalCleanupTx) Exec(ctx context.Context, sql string, args ...any) error {
@@ -32,6 +34,9 @@ func (tx *terminalCleanupTx) Query(ctx context.Context, sql string, args ...any)
 	tx.queries = append(tx.queries, sql)
 	switch {
 	case strings.Contains(sql, "FROM striatumd.sessions") && strings.Contains(sql, "state = 'active'"):
+		if tx.suppressActiveSessions {
+			return runPrepareRowsFromMaps(nil), nil
+		}
 		return runPrepareRowsFromMaps([]map[string]any{{
 			"session_id": "sess_1",
 			"role_id":    "implementer",
@@ -39,6 +44,14 @@ func (tx *terminalCleanupTx) Query(ctx context.Context, sql string, args ...any)
 		}}), nil
 	case strings.Contains(sql, "FROM striatumd.leases"):
 		return runPrepareRowsFromMaps(nil), nil
+	case strings.Contains(sql, "SELECT DISTINCT") && strings.Contains(sql, "FROM striatumd.process_supervisors"):
+		// #417 backstop: sessions (regardless of their own state) that still own a
+		// live supervisor for this terminal run.
+		rows := []map[string]any{}
+		for _, sid := range tx.orphanSessionIDs {
+			rows = append(rows, map[string]any{"session_id": sid})
+		}
+		return runPrepareRowsFromMaps(rows), nil
 	case strings.Contains(sql, "FROM striatumd.process_supervisors ps") && strings.Contains(sql, "FOR UPDATE OF ps"):
 		return runPrepareRowsFromMaps([]map[string]any{{
 			"supervisor_id":         "sup_1",
@@ -139,6 +152,34 @@ func TestCloseRemainingSessionsStopsAttachedSupervisors(t *testing.T) {
 	}
 	if !sawExecWithArg(tx.execs, "INSERT INTO striatumd.events", "session.closed") {
 		t.Fatalf("expected session.closed event, execs=%#v", tx.execs)
+	}
+}
+
+// TestCloseRemainingSessionsReapsOrphanSupervisorOfClosedSession is the #417
+// regression: 511 of 562 stranded supervisors in the incident belonged to a
+// session that was ALREADY closed when the run terminated, so the active-session
+// loop never reached them and they lingered 'attached', storming the status
+// sudo+tmux probe path. Here there are no active sessions at all, yet a supervisor
+// is still live for the terminal run; the run-scoped backstop must reap it.
+func TestCloseRemainingSessionsReapsOrphanSupervisorOfClosedSession(t *testing.T) {
+	tx := &terminalCleanupTx{
+		suppressActiveSessions: true,
+		orphanSessionIDs:       []string{"sess_orphan"},
+	}
+	if err := closeRemainingSessions(context.Background(), tx, "repo_1", "run_1", "run_completed", "run_completed"); err != nil {
+		t.Fatalf("closeRemainingSessions: %v", err)
+	}
+	if !sawExecWithArg(tx.execs, "UPDATE striatumd.process_supervisors", "stopped") {
+		t.Fatalf("expected orphan process_supervisors reaped to stopped, execs=%#v", tx.execs)
+	}
+	if !sawExecWithArg(tx.execs, "UPDATE striatumd.process_supervisor_pointers", "stopped") {
+		t.Fatalf("expected orphan process_supervisor_pointers reaped to stopped, execs=%#v", tx.execs)
+	}
+	if !sawExecWithArg(tx.execs, "UPDATE striatumd.daemon_supervisors", "stopped") {
+		t.Fatalf("expected orphan daemon_supervisors reaped to stopped, execs=%#v", tx.execs)
+	}
+	if !sawExecWithArg(tx.execs, "INSERT INTO striatumd.events", "supervisor.stopped") {
+		t.Fatalf("expected supervisor.stopped event for orphan, execs=%#v", tx.execs)
 	}
 }
 
