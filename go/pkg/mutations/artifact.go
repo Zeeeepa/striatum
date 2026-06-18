@@ -199,6 +199,15 @@ func publishArtifactWithOptions(
 	if err := enforceConstraintDischarge(ctx, runner, repositoryID, job, kind, path, payload); err != nil {
 		return nil, err
 	}
+	// RFC 0134 / D227 lattice slice: the daemon-writer half of the claim-status
+	// lattice. The contract layer already ran the per-row provenance lint (status
+	// may not exceed evidence); this enforces the cross-seal rules that need the
+	// prior ledger — monotonic append-only ledger_seal and demotable-but-never-
+	// self-promotable claims. Pure validation: it reads prior ledgers, never
+	// executes a check.
+	if err := enforceClaimLedgerLattice(ctx, runner, repositoryID, job, kind, path, payload); err != nil {
+		return nil, err
+	}
 	sum := sha256.Sum256(payload)
 	digest := hex.EncodeToString(sum[:])
 	now := nowString()

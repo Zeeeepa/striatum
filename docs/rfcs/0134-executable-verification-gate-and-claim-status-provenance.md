@@ -35,6 +35,24 @@ other repos). The accepted shape, which re-scopes build issue #395:
 Build order: lattice + ledger + provenance-lint first; sandboxed off-gate-path
 verifier second — **not** a daemon-gate-path executor.
 
+**Implementation status (lattice slice, #395 — landed).** The first,
+validation-only half is implemented: the `claim_ledger.v1` and `receipt.v1`
+artifact contracts (`go/pkg/artifactcontracts/claim_ledger.go`,
+registered in `contracts.go` with the publisher's exit-code-6 schema guard),
+the claim lattice `VERIFIED > ASSERTED > DESIGNED`, the provenance lint
+(`LintClaimLedger` — a claim's status may not exceed its evidence; `VERIFIED`
+requires a bound receipt and a matching input digest), VERIFIED→ASSERTED
+auto-decay on bound-input change (`EffectiveClaimStatus`), and the
+daemon-writer cross-seal rules (`go/pkg/mutations/claim_ledger.go`,
+`enforceClaimLedgerLattice` — monotonic append-only `ledger_seal`, demotable
+but never self-promotable). **No engine execution, no `verify` job type that
+runs `checks[]`, and no wiring into the run-completion gate are in this slice**
+— the executable half (the sandboxed off-gate-path verifier lane that mints
+receipts, and the completion gate that merely *reads* them) is a later,
+separate slice. The "Goals" / "Proposal" §2–§3 / "Acceptance Criteria" below
+describe that deferred executable half and are **not** satisfied by this slice;
+only the lattice/ledger/lint (§1, §4) are.
+
 Context:
 - The **cam-analyzer dogfood** (`~/git/cam-analyzer`, a lane-produced product;
   review `CAM_ANALYZER_DEEP_ARCHITECTURE_REVIEW_CLAUDE_OPUS_4_8_2026-06-17.md`).
