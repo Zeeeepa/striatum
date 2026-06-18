@@ -16,14 +16,35 @@ import (
 
 const futureRuntimeMigrationOwnerDDLFloor = 27
 
-var runtimeMigrationOwnerDDLPattern = regexp.MustCompile(`(?is)\b(?:ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?striatumd\.[a-z_][a-z0-9_]*`)
+var runtimeMigrationOwnerDDLPattern = regexp.MustCompile(`(?is)\b(?:ALTER|DROP)\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(striatumd\.[a-z_][a-z0-9_]*)`)
+
+// runtimeOwnedTablesAlterable lists tables the RUNTIME role (striatumd_rw) itself
+// CREATEd in a regular runtime migration (sql/*.sql) and therefore OWNS. The
+// production deploy applies the sql/*.sql runtime set through the runtime-role
+// ApplyMigrations path (owner.go: owner DDL goes through `owner-ddl apply` as the
+// database owner, never through ApplyMigrations), so a runtime migration may
+// ALTER a table the runtime role owns without the owner-held crash-loop the
+// floor-27 guard exists to prevent (RFC 0079 §5 / RFC 0081). The guard's blanket
+// regex cannot introspect ownership, so confirmed runtime-owned tables are listed
+// here explicitly. job_recovery_state was created by the runtime migration 0020
+// (striatumd_rw owns it) and 0021 already ALTERed it (below the floor); RFC 0131
+// 131-C adds three confidence-gate columns to it via migration 0035 (above the
+// floor) — the same legitimate runtime-owned-table column add.
+var runtimeOwnedTablesAlterable = map[string]bool{
+	"striatumd.job_recovery_state": true,
+}
 
 func runtimeMigrationOwnerDDLViolations(migration Migration) []string {
-	matches := runtimeMigrationOwnerDDLPattern.FindAllString(migration.SQL, -1)
+	matches := runtimeMigrationOwnerDDLPattern.FindAllStringSubmatch(migration.SQL, -1)
 	violations := make([]string, 0, len(matches))
 	seen := map[string]bool{}
 	for _, match := range matches {
-		cleaned := strings.Join(strings.Fields(match), " ")
+		cleaned := strings.Join(strings.Fields(match[0]), " ")
+		table := strings.ToLower(match[1])
+		if runtimeOwnedTablesAlterable[table] {
+			// A runtime-owned table the runtime role may legitimately ALTER.
+			continue
+		}
 		if seen[cleaned] {
 			continue
 		}

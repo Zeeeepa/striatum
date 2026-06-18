@@ -4,6 +4,40 @@
 
 ### Added
 
+- **liveness: pipe-transport RPC liveness rung (RFC 0131 Layer 2 / 131-B,
+  #335).** `sessionliveness.Classify()` adds a `pipeMidRPCFresh` rung — a
+  `TransportPipe` lane whose `last_mcp_request_at` is fresh within
+  `ProtocolFreshSeconds` is mid-RPC and reads `working_local`, not stalled,
+  BEFORE the await-packet / ack stall rungs (which anchor on stale
+  `last_tools_list_at` / `last_packet_delivered_at` and would otherwise misread a
+  mid-RPC pipe lane as stalled — a pipe lane has no PTY oracle and the RPC touch
+  is its analogue of `last_pty_activity_at`). Scoped to `pipe` transport
+  (pty_helper lanes keep their exact prior classification) and never weakens
+  dead-lane detection: a pipe lane whose RPC touch has aged past
+  `ProtocolFreshSeconds` falls through to the existing rungs (the protocol-idle
+  catch-all already folds `last_mcp_request_at` into its base, so a
+  genuinely-silent pipe lane still stalls).
+- **recovery: confidence-gated pipe-lane escalation + escape-valve cap (RFC 0131
+  Layers 3+4 / 131-C, #336).** A budget-exhausted, still-present,
+  non-confirmed-dead lane on a `deadline_elapsed_only` basis (the pipe / no-oracle
+  case) no longer escalates the run on a single sweep. `recoverStuckJobs`
+  interposes a confidence gate: forgery-resistant **sealed-work progress** since
+  the last sweep (a published artifact anchor or a sealed verdict — daemon-written
+  rows a dead-but-spinning #324 loop cannot forge — read by `jobSealedProgressAt`,
+  or a cross-lane cohort sibling showing fresher liveness) resets the counters and
+  defers; otherwise the silent-sweep counter compounds, a
+  `recovery.escalation_debounced` event is written, and escalation commits only on
+  the **2nd consecutive `deadline_elapsed_only` sweep** OR when the Layer-4
+  escape-valve cap (`consecutive_silent_sweeps ≥ (maxRequeues*2)+3`, floored at 3,
+  operator-overridable via `recovery_policy.max_silent_sweeps`) fires regardless of
+  confidence — so a genuinely-hung pipe lane is escalatable in bounded time and
+  never un-escalatable. A confirmed-dead or closed/absent session keeps its
+  immediate pre-131-C escalation timing (it already has a death oracle). Migration
+  `0035_job_recovery_confidence_gate.sql` (substrate_version → 35) adds
+  `misfire_evidence_score` / `consecutive_silent_sweeps` / `last_probe_basis` to
+  the runtime-owned `job_recovery_state`; a deployment behind on it degrades safely
+  to today's ungated escalation. The `recovery.budget_exhausted` event records
+  `confidence_gated` / `cap_fired` so a gated escalation is auditable provenance.
 - **liveness: transport-aware `probe_basis` classifier outputs (RFC 0131 Layer
   1 / 131-A, #334).** `sessionliveness.Classify()` now threads a
   `TransportType` (`pty_helper`/`pipe`/unknown, derived in `ActivityFromRow`

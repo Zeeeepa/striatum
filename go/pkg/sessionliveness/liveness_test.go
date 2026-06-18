@@ -929,6 +929,82 @@ func TestClassifyProbeBasisDeadlineElapsedOnly(t *testing.T) {
 	}
 }
 
+// TestClassifyPipeTransportRPCRung (RFC 0131 Layer 2 / 131-B) asserts the
+// pipe-transport liveness rung: a pipe lane that is mid-RPC (fresh
+// last_mcp_request_at) reads working_local rather than stalling on a stale
+// await_packet / ack deadline, because a pipe lane has no PTY oracle and its only
+// honest progress signal is the daemon-side RPC touch. It must NEVER weaken
+// dead-lane detection (a genuinely-silent pipe lane still stalls) and must NOT
+// change pty_helper classification (the rung is pipe-scoped).
+func TestClassifyPipeTransportRPCRung(t *testing.T) {
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+
+	// A lane that drove tools/list long ago (its await_packet deadline elapsed) but
+	// just made an MCP request (mid-RPC). For a PTY lane this would read
+	// agent_await_packet_stall; for a pipe lane the RPC rung should suppress that.
+	midRPC := func(transport TransportType) Activity {
+		return Activity{
+			SessionState:     "active",
+			Transport:        transport,
+			RegisteredAt:     at(now.Add(-30 * time.Minute)),
+			LastToolsListAt:  at(now.Add(-10 * time.Minute)), // past AwaitPacketSeconds (90s)
+			LastMCPRequestAt: at(now.Add(-5 * time.Second)),  // fresh: mid-RPC
+		}
+	}
+	// A genuinely-silent pipe lane: even its last_mcp_request_at is stale. The RPC
+	// rung must NOT fire — dead-lane detection is preserved.
+	silentPipe := Activity{
+		SessionState:     "active",
+		Transport:        TransportPipe,
+		RegisteredAt:     at(now.Add(-30 * time.Minute)),
+		LastToolsListAt:  at(now.Add(-10 * time.Minute)),
+		LastMCPRequestAt: at(now.Add(-10 * time.Minute)),
+	}
+
+	tests := []struct {
+		name         string
+		in           Activity
+		wantProtocol string
+		wantStall    string
+		wantNotStall string
+	}{
+		{
+			name:         "pipe lane mid-RPC reads working_local, not await_packet stall",
+			in:           midRPC(TransportPipe),
+			wantProtocol: ProtocolWorkingLocal,
+			wantStall:    "",
+			wantNotStall: StallAwaitPacket,
+		},
+		{
+			name:         "pty_helper lane mid-RPC keeps its prior classification (rung is pipe-scoped)",
+			in:           midRPC(TransportPTYHelper),
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallAwaitPacket,
+		},
+		{
+			name:         "genuinely-silent pipe lane still stalls (dead-lane detection preserved)",
+			in:           silentPipe,
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallAwaitPacket,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.in, policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+			if tc.wantNotStall != "" && got.StallClass == tc.wantNotStall {
+				t.Fatalf("stall class must NOT be %q; result = %#v", tc.wantNotStall, got)
+			}
+		})
+	}
+}
+
 // TestUpgradeProbeBasisConfirmedDead (RFC 0131 Layer 1) asserts the recovery
 // decision tree's basis upgrade: a deadline_elapsed_only verdict becomes
 // pty_confirmed_dead ONLY for a pty_helper lane (a pipe/unknown lane has no PTY

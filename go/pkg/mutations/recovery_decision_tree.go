@@ -11,6 +11,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // recoveryPolicy holds the per-job autonomous-recovery budgets read from the
@@ -40,6 +41,18 @@ type recoveryPolicy struct {
 	// recovery_policy.max_quarantinable_jobs; 0 disables quarantine entirely
 	// (every exhaustion escalates the whole run, the pre-#311 behavior).
 	maxQuarantinableJobs int
+	// maxSilentSweeps is the RFC 0131 Layer 4 escape-valve cap: the number of
+	// CONSECUTIVE deadline_elapsed_only silent sweeps (no forgery-resistant
+	// progress) a pipe / no-oracle lane may accrue before escalation fires
+	// regardless of the confidence (misfire_evidence_score) reduction. It is a hard
+	// integer ceiling, not a ratchet: once consecutive_silent_sweeps reaches it,
+	// silence itself is the oracle the pipe lane otherwise lacks, so the lane is
+	// escalatable in bounded time by construction (never un-escalatable, Goal 3).
+	// 0 means "derive the RFC default (maxRequeues*2)+3 at use time"; an operator
+	// may set it explicitly via recovery_policy.max_silent_sweeps. The cap must be
+	// chosen so cap × sweep_interval exceeds the longest plausible silent
+	// generation turn (Risks: long legitimate silent generation).
+	maxSilentSweeps int
 }
 
 const (
@@ -48,6 +61,22 @@ const (
 	defaultMaxTransfers         = 3
 	defaultMaxQuarantinableJobs = 1
 )
+
+// silentSweepCap returns the RFC 0131 Layer 4 escape-valve cap for this policy:
+// the operator override (recovery_policy.max_silent_sweeps) when set, else the
+// RFC default (maxRequeues*2)+3. The +3 floor keeps the cap finite and useful
+// even when maxRequeues is 0 (a workflow that disabled requeues): a pipe lane is
+// still escalatable in bounded silent sweeps.
+func (p recoveryPolicy) silentSweepCap() int {
+	if p.maxSilentSweeps > 0 {
+		return p.maxSilentSweeps
+	}
+	silentCap := (p.maxRequeues * 2) + 3
+	if silentCap < 3 {
+		silentCap = 3
+	}
+	return silentCap
+}
 
 // Recovery-specific stall classifications for a confirmed-dead supervised agent.
 // These are distinct from the sessionliveness.* protocol stall classes (which
@@ -96,6 +125,15 @@ func recoveryPolicyFromWorkflow(workflow map[string]any) recoveryPolicy {
 	if v, ok := block["max_quarantinable_jobs"]; ok {
 		policy.maxQuarantinableJobs = intFromAny(v, policy.maxQuarantinableJobs)
 	}
+	if v, ok := block["max_silent_sweeps"]; ok {
+		// RFC 0131 Layer 4 escape-valve cap override. 0/absent derives the RFC
+		// default (maxRequeues*2)+3 at use time; a negative value is clamped to 0
+		// (derive default) below.
+		policy.maxSilentSweeps = intFromAny(v, policy.maxSilentSweeps)
+	}
+	if policy.maxSilentSweeps < 0 {
+		policy.maxSilentSweeps = 0
+	}
 	if policy.maxRequeues < 0 {
 		policy.maxRequeues = 0
 	}
@@ -124,12 +162,68 @@ type jobRecoveryBudget struct {
 	respawnCount       int
 	escalationPending  bool
 	lastRecoveryAction string
+	// RFC 0131 131-C confidence-gate columns (migration 0035). misfireEvidenceScore
+	// and consecutiveSilentSweeps are monotone-compounding signals that gate a
+	// deadline_elapsed_only pipe-lane escalation; lastProbeBasis is the probe_basis
+	// the previous sweep recorded, used to require the evidence strictly increased
+	// across two consecutive deadline_elapsed_only sweeps. confidenceColumns reports
+	// whether migration 0035 is applied: a deployment behind on it leaves these at
+	// their zero values and the gate degrades to today's ungated escalation.
+	misfireEvidenceScore    int
+	consecutiveSilentSweeps int
+	lastProbeBasis          string
+	confidenceColumns       bool
+	// lastRecoveryAt is the timestamp the previous sweep stamped on this budget
+	// row. The confidence gate uses it as the "since the last sweep" boundary for
+	// the forgery-resistant progress check: sealed work created after it counts as
+	// progress made since the prior sweep. The zero time.Time when the row is new.
+	lastRecoveryAt time.Time
 }
 
 // readJobRecoveryBudget reads (without upserting) the current budget row for a
 // job. A missing row is reported as a zeroed budget — the upsert happens only
-// when an action is actually recorded.
+// when an action is actually recorded. The RFC 0131 131-C confidence-gate columns
+// (migration 0035) are read when present; a deployment behind on 0035 falls back
+// to the pre-131-C column set (degrade-safe: the gate then sees zeroed confidence
+// state and behaves as the ungated path), matching the bundle-0012 degrade-safe
+// pattern P0 uses.
 func readJobRecoveryBudget(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (jobRecoveryBudget, error) {
+	row, err := oneRow(ctx, tx, `
+		SELECT requeue_count, transfer_count, respawn_count, escalation_pending,
+		       last_recovery_action, last_recovery_at, misfire_evidence_score,
+		       consecutive_silent_sweeps, last_probe_basis
+		  FROM striatumd.job_recovery_state
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID)
+	if err != nil {
+		if isNoRows(err) {
+			return jobRecoveryBudget{confidenceColumns: true}, nil
+		}
+		if isUndefinedColumn(err) {
+			// Deployment behind on migration 0035: read the legacy column set so the
+			// gate degrades to ungated single-sweep escalation (the pre-131-C path).
+			return readJobRecoveryBudgetLegacy(ctx, tx, repositoryID, jobID)
+		}
+		return jobRecoveryBudget{}, err
+	}
+	lastRecoveryAt, _ := timeFromAny(row["last_recovery_at"])
+	return jobRecoveryBudget{
+		requeueCount:            intFromAny(row["requeue_count"], 0),
+		transferCount:           intFromAny(row["transfer_count"], 0),
+		respawnCount:            intFromAny(row["respawn_count"], 0),
+		escalationPending:       row["escalation_pending"] == true,
+		lastRecoveryAction:      fmt.Sprint(nullable(row["last_recovery_action"])),
+		misfireEvidenceScore:    intFromAny(row["misfire_evidence_score"], 0),
+		consecutiveSilentSweeps: intFromAny(row["consecutive_silent_sweeps"], 0),
+		lastProbeBasis:          fmt.Sprint(nullable(row["last_probe_basis"])),
+		confidenceColumns:       true,
+		lastRecoveryAt:          lastRecoveryAt.UTC(),
+	}, nil
+}
+
+// readJobRecoveryBudgetLegacy reads the pre-131-C column set for a deployment
+// behind on migration 0035. confidenceColumns stays false so the confidence gate
+// knows the new state cannot be persisted and falls back to ungated escalation.
+func readJobRecoveryBudgetLegacy(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (jobRecoveryBudget, error) {
 	row, err := oneRow(ctx, tx, `
 		SELECT requeue_count, transfer_count, respawn_count, escalation_pending,
 		       last_recovery_action
@@ -193,6 +287,224 @@ func markRecoveryEscalation(ctx context.Context, tx db.TxRunner, repositoryID, r
 		       last_stall_class = EXCLUDED.last_stall_class,
 		       updated_at = EXCLUDED.updated_at`,
 		repositoryID, runID, jobID, action, now, nullable(stallClass))
+}
+
+// jobSealedProgressAt returns the most recent FORGERY-RESISTANT sealed-work
+// progress timestamp for a job: the later of its latest published artifact's
+// created_at (an artifact anchor moved) and its latest sealed verdict's
+// created_at (a verdict was sealed). Both rows are written only by the daemon's
+// publish / verdict handlers — a dead-but-spinning agent (the #324 spinner class)
+// can keep emitting raw PTY/stderr frames and trivial protocol chatter, but it
+// cannot manufacture an artifacts or verdicts row, so this is the exact
+// un-forgeable progress signal RFC 0131 Layer 4 requires for the silent-sweep
+// counter reset. Returns the zero time.Time (and false) when the job has no such
+// sealed progress yet.
+func jobSealedProgressAt(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (time.Time, bool, error) {
+	row, err := oneRow(ctx, tx, `
+		SELECT GREATEST(
+		         (SELECT max(created_at) FROM striatumd.artifacts
+		           WHERE repository_id = $1 AND job_id = $2),
+		         (SELECT max(created_at) FROM striatumd.verdicts
+		           WHERE repository_id = $1 AND job_id = $2)
+		       ) AS sealed_at`, repositoryID, jobID)
+	if err != nil {
+		if isNoRows(err) {
+			return time.Time{}, false, nil
+		}
+		return time.Time{}, false, err
+	}
+	ts, ok := timeFromAny(row["sealed_at"])
+	if !ok {
+		return time.Time{}, false, nil
+	}
+	return ts.UTC(), true, nil
+}
+
+// cohortHasFresherLiveness implements RFC 0131 Layer 3 cross-lane corroboration:
+// it reports whether ANY SIBLING job in the same in-memory recovery cohort (the
+// rows already scanned under recoverStuckJobs' single FOR UPDATE OF j) has an
+// owning session whose liveness is fresher than `windowStart`. A solo
+// deadline_elapsed_only pipe deadline alongside a demonstrably-live sibling is a
+// likely misfire (a host pause / sweep-timing artifact, not a real hang), so the
+// gate defers rather than burning budget. This is FREE — the cohort is already in
+// hand — and is an optimization for the multi-lane case only: a single-pipe-lane
+// run has no siblings, so the Layer-4 cap (not corroboration) is its safety
+// guarantee. selfJobID excludes the job being decided from its own cohort. The
+// freshness signal is the same last_mcp_request_at / activity columns the
+// classifier consumes, so a sibling that is genuinely working corroborates; a
+// cohort that is uniformly silent does not (and must not — a fleet-wide wedge
+// must still escalate, RFC 0131 Alternatives "naive global-quiescence").
+func cohortHasFresherLiveness(rows []map[string]any, selfJobID string, windowStart time.Time, now time.Time) bool {
+	windowStart = windowStart.UTC()
+	for _, row := range rows {
+		if fmt.Sprint(row["job_id"]) == selfJobID {
+			continue
+		}
+		sibling := sessionliveness.ActivityFromRow(row)
+		// A sibling counts as "fresher than the window" when its most recent
+		// recorded MCP/protocol/PTY/lease-heartbeat activity is after windowStart.
+		// We reuse the classifier's freshest-signal set indirectly: any of the
+		// activity timestamps after windowStart is conclusive recent life.
+		latest := latestSiblingActivity(sibling)
+		if latest != nil && latest.UTC().After(windowStart) {
+			return true
+		}
+	}
+	return false
+}
+
+// latestSiblingActivity returns the most recent activity timestamp across a
+// sibling session's liveness columns — the signal cross-lane corroboration ages
+// against. It deliberately includes the forgery-resistant work/lease columns and
+// the protocol columns so any genuine recent life in the cohort corroborates.
+func latestSiblingActivity(a sessionliveness.Activity) *time.Time {
+	return latestTimePtr(
+		a.LastMCPRequestAt, a.LastToolsListAt, a.LastAwaitPacketAt,
+		a.LastPacketDeliveredAt, a.LastAckAt, a.LastWorkBlockAt,
+		a.LastWorkReleaseAt, a.LastWorkCompleteAt, a.LastWorkHeartbeatAt,
+		a.LastSessionReadyAt, a.LastSessionHeartbeatAt, a.LastPTYActivityAt,
+		a.LastToolCallStartedAt, a.LastToolCallFinishedAt, a.ActiveLeaseHeartbeatAt,
+	)
+}
+
+func latestTimePtr(values ...*time.Time) *time.Time {
+	var latest *time.Time
+	for _, v := range values {
+		if v == nil {
+			continue
+		}
+		if latest == nil || v.UTC().After(latest.UTC()) {
+			latest = v
+		}
+	}
+	return latest
+}
+
+// windowStartForGate returns the "since the last sweep" boundary the confidence
+// gate compares forgery-resistant sealed progress against (RFC 0131 Layer 3/4).
+// It is the timestamp the previous sweep stamped on the budget row
+// (budget.lastRecoveryAt). For a job with no prior recovery touch (a fresh
+// budget row) it falls back to a bounded look-back window (one protocol-idle
+// interval before `now`), so a lane that sealed real work very recently — but
+// has no prior sweep yet — is still credited with progress on its first
+// debounce.
+func windowStartForGate(budget jobRecoveryBudget, now time.Time) time.Time {
+	if !budget.lastRecoveryAt.IsZero() {
+		return budget.lastRecoveryAt.UTC()
+	}
+	lookback := time.Duration(sessionliveness.DefaultPolicy().ProtocolIdleSeconds) * time.Second
+	return now.UTC().Add(-lookback)
+}
+
+// confidenceGateDecision is the outcome of the RFC 0131 Layer 3/4 confidence gate
+// for a deadline_elapsed_only pipe-lane escalation candidate.
+type confidenceGateDecision struct {
+	// escalate is true when the gate permits this sweep to commit the escalation
+	// (the evidence cleared the two-consecutive-sweep bar, OR the Layer-4 silent-
+	// sweep cap fired). When false, the escalation is DEBOUNCED this sweep.
+	escalate bool
+	// capFired is true when escalation was forced by the Layer-4 escape-valve cap
+	// regardless of the confidence reduction (recorded for legibility).
+	capFired bool
+	// reset is true when forgery-resistant sealed progress advanced since the last
+	// sweep, so the gate reset the counters and deferred (the lane is working).
+	reset bool
+	// silentSweeps / misfireScore are the post-update counter values (for the
+	// debounced/escalation event payloads and the persisted row). silentCap is the
+	// Layer-4 escape-valve cap in force for this decision.
+	silentSweeps int
+	misfireScore int
+	silentCap    int
+}
+
+// applyConfidenceGate decides whether a deadline_elapsed_only escalation may
+// commit this sweep (RFC 0131 Layer 3 + Layer 4) and persists the updated gate
+// state on the job_recovery_state row. It is called ONLY for the pipe / no-oracle
+// case (probe_basis == deadline_elapsed_only); a pty_confirmed_dead basis skips
+// the gate entirely (it has a real oracle and escalates immediately). The rules:
+//
+//   - Forgery-resistant progress advanced since the last sweep (sealed artifact /
+//     verdict, or a corroborating live sibling) => reset both counters to 0,
+//     persist, and DEFER (the lane is demonstrably working).
+//   - Else compound misfire_evidence_score, increment consecutive_silent_sweeps,
+//     persist, and check the bars:
+//   - Escape-valve cap (Layer 4): consecutive_silent_sweeps >= cap => ESCALATE
+//     regardless of the confidence reduction (silence is the oracle).
+//   - Two-consecutive-sweep bar (Layer 3): the PRIOR sweep was also a
+//     deadline_elapsed_only stall (last_probe_basis == deadline_elapsed_only, i.e.
+//     this is at least the 2nd consecutive silent sweep) => ESCALATE. A single
+//     sweep never escalates a pipe lane.
+//   - Otherwise DEBOUNCE (do not escalate this sweep).
+//
+// When migration 0035 is not applied (budget.confidenceColumns == false) the gate
+// cannot persist its state, so it degrades to the pre-131-C ungated path:
+// escalate immediately. progressAdvanced folds the sealed-progress and cohort
+// signals; lastSilentBasis is whether the prior recorded basis was
+// deadline_elapsed_only.
+func applyConfidenceGate(
+	ctx context.Context, tx db.TxRunner,
+	repositoryID, runID, jobID string,
+	budget jobRecoveryBudget, policy recoveryPolicy,
+	progressAdvanced bool,
+) (confidenceGateDecision, error) {
+	silentCap := policy.silentSweepCap()
+	if !budget.confidenceColumns {
+		// Degrade-safe: a deployment behind on migration 0035 cannot persist the
+		// gate state, so it falls back to today's ungated single-sweep escalation.
+		return confidenceGateDecision{escalate: true, silentCap: silentCap}, nil
+	}
+
+	if progressAdvanced {
+		// Forgery-resistant progress: reset both counters and defer.
+		if err := writeConfidenceGateState(ctx, tx, repositoryID, runID, jobID, 0, 0, sessionliveness.ProbeBasisDeadlineElapsedOnly); err != nil {
+			return confidenceGateDecision{}, err
+		}
+		return confidenceGateDecision{escalate: false, reset: true, silentSweeps: 0, misfireScore: 0, silentCap: silentCap}, nil
+	}
+
+	silent := budget.consecutiveSilentSweeps + 1
+	misfire := budget.misfireEvidenceScore + 1
+	if err := writeConfidenceGateState(ctx, tx, repositoryID, runID, jobID, misfire, silent, sessionliveness.ProbeBasisDeadlineElapsedOnly); err != nil {
+		return confidenceGateDecision{}, err
+	}
+
+	// Layer 4 escape-valve cap: a hard integer ceiling. Once the lane has been
+	// provably silent for `silentCap` consecutive sweeps, escalate regardless of
+	// the confidence reduction — silence itself is the oracle the pipe lane lacks.
+	if silent >= silentCap {
+		return confidenceGateDecision{escalate: true, capFired: true, silentSweeps: silent, misfireScore: misfire, silentCap: silentCap}, nil
+	}
+
+	// Layer 3 two-consecutive-sweep bar: escalation commits only after at least
+	// two consecutive deadline_elapsed_only sweeps (the prior recorded basis was
+	// also deadline_elapsed_only). A single sweep never escalates a pipe lane.
+	priorSilent := budget.lastProbeBasis == string(sessionliveness.ProbeBasisDeadlineElapsedOnly)
+	if priorSilent && silent >= 2 {
+		return confidenceGateDecision{escalate: true, silentSweeps: silent, misfireScore: misfire, silentCap: silentCap}, nil
+	}
+
+	// Debounce: do not escalate this sweep.
+	return confidenceGateDecision{escalate: false, silentSweeps: silent, misfireScore: misfire, silentCap: silentCap}, nil
+}
+
+// writeConfidenceGateState upserts the RFC 0131 131-C confidence-gate columns on
+// the job_recovery_state row (migration 0035). It does NOT touch escalation_pending
+// / escalated_at (the escalation flag is set separately by markRecoveryEscalation
+// once the gate permits escalation) and does NOT increment a budget counter.
+func writeConfidenceGateState(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID string, misfireScore, silentSweeps int, basis sessionliveness.ProbeBasis) error {
+	now := nowString()
+	return tx.Exec(ctx, `
+		INSERT INTO striatumd.job_recovery_state (
+		  repository_id, run_id, job_id,
+		  misfire_evidence_score, consecutive_silent_sweeps, last_probe_basis,
+		  last_recovery_at, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $7)
+		ON CONFLICT (repository_id, job_id) DO UPDATE
+		   SET misfire_evidence_score = EXCLUDED.misfire_evidence_score,
+		       consecutive_silent_sweeps = EXCLUDED.consecutive_silent_sweeps,
+		       last_probe_basis = EXCLUDED.last_probe_basis,
+		       updated_at = EXCLUDED.updated_at`,
+		repositoryID, runID, jobID, misfireScore, silentSweeps, string(basis), now)
 }
 
 const recoveryDecisionAuthor = "striatumd-recovery"
@@ -675,13 +987,108 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// unsealed exit, so hand it to the operator sooner with a precise reason.
 			limit = policy.maxUnsealedRequeues
 		}
+		// gateEscalation is set when the RFC 0131 131-C confidence gate PERMITTED a
+		// deadline_elapsed_only escalation to commit this sweep (the two-sweep bar
+		// cleared, or the Layer-4 cap fired). It enriches the budget_exhausted event
+		// with WHY it finally escalated; nil for a pty_confirmed_dead (oracle) basis
+		// or a deployment behind on migration 0035 (degrade-safe ungated path).
+		var gateEscalation *confidenceGateDecision
 		if current >= limit {
+			// Budget exhausted: the pre-131-C behavior escalates immediately. RFC
+			// 0131 Layer 3/4 (131-C) interposes a CONFIDENCE GATE for the pipe /
+			// no-oracle case: a job whose stall basis is deadline_elapsed_only (a
+			// deadline merely elapsed on a lane with no confirmed-dead oracle) must
+			// clear a higher bar — two consecutive silent sweeps with no
+			// forgery-resistant progress AND no corroborating live sibling — OR the
+			// Layer-4 escape-valve cap — before it may flip the run toward
+			// needs_operator. A pty_confirmed_dead basis (the PTY oracle fired) skips
+			// the gate and escalates immediately, exactly as today.
+			//
+			// The gate is scoped to the NO-ORACLE ambiguous case — a still-present
+			// pipe lane that MIGHT be quietly working (RFC 0131 Problem gap 2/3). Two
+			// exclusions keep it from suppressing a lane that actually has a death
+			// signal:
+			//   - !sessionDead: a CLOSED / absent / protocol-dead session is itself a
+			//     forgery-resistant death signal (the session row is terminal,
+			//     independent of any PTY oracle), so it escalates immediately, exactly
+			//     as before (preserves the dead-lane CASE-1 timing).
+			//   - !confirmedDead(): the supervised-agent process probe positively
+			//     judged the agent dead (e.g. the #289 agent_exited_unsealed class on an
+			//     active session). That IS a real oracle regardless of transport — even
+			//     when the basis did not upgrade to pty_confirmed_dead (a pipe/unknown
+			//     transport) — so a confirmed-dead lane escalates immediately and is
+			//     NOT debounced. Only a lane with NO confirmed-dead oracle and only an
+			//     elapsed deadline is the genuinely-ambiguous case the gate exists for.
+			gateApplies := !sessionDead && !confirmedDead() &&
+				probeBasis() == sessionliveness.ProbeBasisDeadlineElapsedOnly
+			if gateApplies {
+				// Forgery-resistant progress since the last sweep: a sealed artifact
+				// anchor / sealed verdict advanced (daemon-recorded sealed-work the
+				// #324 spinner cannot manufacture), OR a sibling in the in-memory
+				// cohort shows liveness fresher than this job's last recovery touch.
+				sealedAt, hasSealed, serr := jobSealedProgressAt(ctx, tx, repositoryID, jobID)
+				if serr != nil {
+					return nil, serr
+				}
+				windowStart := windowStartForGate(budget, now)
+				progressAdvanced := (hasSealed && sealedAt.After(windowStart)) ||
+					cohortHasFresherLiveness(rows, jobID, windowStart, now)
+
+				gate, gerr := applyConfidenceGate(ctx, tx, repositoryID, runID, jobID, budget, policy, progressAdvanced)
+				if gerr != nil {
+					return nil, gerr
+				}
+				if !gate.escalate {
+					// Debounced: do NOT escalate this sweep. Record the gate state so
+					// an operator (and doctor/dashboard) sees "deferred, N/cap silent
+					// sweeps" rather than silence.
+					if _, eerr := appendEvent(ctx, tx, repositoryID, runID, "recovery.escalation_debounced", nullable(sessionID), jobID, nil, nil, nil, map[string]any{
+						"workflow_job_id":           workflowJobID,
+						"action":                    action,
+						"budget":                    counterColumn,
+						"count":                     current,
+						"limit":                     limit,
+						"stall_class":               stallClass,
+						"transport":                 transportPayloadValue(transport),
+						"probe_basis":               string(probeBasis()),
+						"consecutive_silent_sweeps": gate.silentSweeps,
+						"misfire_evidence_score":    gate.misfireScore,
+						"silent_sweep_cap":          gate.silentCap,
+						"progress_reset":            gate.reset,
+						"escalation_pending":        false,
+					}); eerr != nil {
+						return nil, eerr
+					}
+					actions = append(actions, map[string]any{
+						"workflow_job_id":           workflowJobID,
+						"job_id":                    jobID,
+						"action":                    action,
+						"budget":                    counterColumn,
+						"count":                     current,
+						"limit":                     limit,
+						"escalation_debounced":      true,
+						"escalation_pending":        false,
+						"acted":                     false,
+						"transport":                 transportPayloadValue(transport),
+						"probe_basis":               string(probeBasis()),
+						"consecutive_silent_sweeps": gate.silentSweeps,
+						"misfire_evidence_score":    gate.misfireScore,
+						"silent_sweep_cap":          gate.silentCap,
+						"progress_reset":            gate.reset,
+					})
+					continue
+				}
+				// gate.escalate: fall through to the escalation path below. The
+				// recovery.budget_exhausted event records WHY it finally fired (the
+				// Layer-4 cap, or the two-consecutive-sweep bar) via the gate fields.
+				gateEscalation = &gate
+			}
 			// Budget exhausted: do NOT act. Flag escalation_pending (Phase 4
 			// consumes it) and record it once. Idempotent.
 			if eerr := markRecoveryEscalation(ctx, tx, repositoryID, runID, jobID, action+"_budget_exhausted", stallClass); eerr != nil {
 				return nil, eerr
 			}
-			if _, eerr := appendEvent(ctx, tx, repositoryID, runID, "recovery.budget_exhausted", nullable(sessionID), jobID, nil, nil, nil, map[string]any{
+			budgetExhaustedPayload := map[string]any{
 				"workflow_job_id":    workflowJobID,
 				"action":             action,
 				"budget":             counterColumn,
@@ -695,10 +1102,22 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				// on a no-oracle (pipe) lane.
 				"transport":   transportPayloadValue(transport),
 				"probe_basis": string(probeBasis()),
-			}); eerr != nil {
+			}
+			if gateEscalation != nil {
+				// RFC 0131 131-C: record WHY the confidence gate finally permitted this
+				// deadline_elapsed_only escalation — the Layer-4 escape-valve cap fired,
+				// or the two-consecutive-sweep bar cleared — so the escalation is
+				// auditable provenance, never silent daemon behavior (Goal 5).
+				budgetExhaustedPayload["confidence_gated"] = true
+				budgetExhaustedPayload["cap_fired"] = gateEscalation.capFired
+				budgetExhaustedPayload["consecutive_silent_sweeps"] = gateEscalation.silentSweeps
+				budgetExhaustedPayload["misfire_evidence_score"] = gateEscalation.misfireScore
+				budgetExhaustedPayload["silent_sweep_cap"] = gateEscalation.silentCap
+			}
+			if _, eerr := appendEvent(ctx, tx, repositoryID, runID, "recovery.budget_exhausted", nullable(sessionID), jobID, nil, nil, nil, budgetExhaustedPayload); eerr != nil {
 				return nil, eerr
 			}
-			actions = append(actions, map[string]any{
+			budgetExhaustedAction := map[string]any{
 				"workflow_job_id":    workflowJobID,
 				"job_id":             jobID,
 				"action":             action,
@@ -709,7 +1128,15 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				"acted":              false,
 				"transport":          transportPayloadValue(transport),
 				"probe_basis":        string(probeBasis()),
-			})
+			}
+			if gateEscalation != nil {
+				budgetExhaustedAction["confidence_gated"] = true
+				budgetExhaustedAction["cap_fired"] = gateEscalation.capFired
+				budgetExhaustedAction["consecutive_silent_sweeps"] = gateEscalation.silentSweeps
+				budgetExhaustedAction["misfire_evidence_score"] = gateEscalation.misfireScore
+				budgetExhaustedAction["silent_sweep_cap"] = gateEscalation.silentCap
+			}
+			actions = append(actions, budgetExhaustedAction)
 			continue
 		}
 
@@ -1165,4 +1592,17 @@ func sessionStateLabel(sessionID, sessionState string) string {
 // isNoRows reports a pgx no-rows error.
 func isNoRows(err error) bool {
 	return errors.Is(err, pgx.ErrNoRows)
+}
+
+// isUndefinedColumn reports a PostgreSQL undefined_column error (SQLSTATE 42703).
+// The RFC 0131 131-C confidence-gate columns (migration 0035) read path uses this
+// to fall back to the legacy column set on a deployment behind on 0035, so the
+// gate degrades safely to today's ungated escalation rather than erroring the
+// whole recovery sweep.
+func isUndefinedColumn(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "42703"
+	}
+	return false
 }
