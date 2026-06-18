@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **status: exclude terminal-run blockers/checkpoints from the repo-wide
+  frontier (#417 follow-on).** `statusBlockers` surfaced every `state='open'`
+  blocker and `human_checkpoint` repo-wide, including those on
+  canceled/completed runs, so a dead run's stale blockers read as pending
+  operator work forever (the frontier showed 26 `open_blockers` + 15
+  `human_checkpoints`, all on terminal runs, ages up to ~21 days). The #193
+  terminal-run scoping that already excludes such runs from `claimable_jobs` /
+  `blocked_downstream_jobs` was missing here. The repo-wide `statusBlockers`
+  query now joins runs and drops terminal-run blockers; a `run_id`-scoped call
+  is unchanged. No data is mutated — the blocker rows are preserved as durable
+  provenance of why each run was blocked when it terminated. The remaining
+  write-side gap (run-terminal does not formally resolve its open blockers) is
+  tracked in #420.
 - **daemon: reap supervisors stranded on terminal runs — `striatum status`
   RPC storm (#417).** Supervisor rows were only reaped via
   `closeRemainingSessions`, which iterates sessions in `state='active'` (and
