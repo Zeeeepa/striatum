@@ -1,6 +1,6 @@
 # RFC 0042: Run-List Workflow Identity and Graph Viewer Ergonomics
 
-Status: proposed
+Status: proposed (re-scoped to the live Go SSE UI per D224, closes #400) — the original Phase A targeted the now-deleted Python UI; the run-list problem is still real (`go/pkg/webassets/templates/page.html` renders only `run_id` + `branch_name`, no `workflow.name`). Surfacing `workflow.name` + a workflow link in the Go UI is this RFC's open implementation work.
 Date: 2026-05-12
 Context:
 [`RFC 0013`](0013-local-web-ui.md),
@@ -9,15 +9,7 @@ Context:
 [`RFC 0034`](0034-workflow-generator-and-template-catalog.md),
 [`RFC 0037`](0037-web-ui-ergonomic-improvements.md),
 [`RFC 0038`](0038-web-ui-feature-additions-and-frontend-toolchain.md),
-`src/striatum/service.py` (`_render_run_list_page`, `_render_view_path`),
-`src/striatum/web/graph_svg.py`,
-`src/striatum/web/templates/run_list.html`,
-`src/striatum/web/templates/run_detail.html`,
-`src/striatum/web/templates/workflow_detail.html`,
-`src/striatum/web/static/run_list.js`,
-`src/striatum/web/static/run_detail.js`,
-`src/striatum/web/static/base.css`,
-`src/striatum/schema.py` (`runs`, `workflow_snapshots`)
+`go/pkg/webassets/templates/page.html` (the live Go SSE run-list surface, renders `run_id` + `branch_name`)
 
 ## Problem
 

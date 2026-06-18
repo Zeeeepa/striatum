@@ -1,6 +1,6 @@
 # RFC 0098: Adjudicated Constraint-Extraction Loop (Refusal-to-Constraint)
 
-Status: partially implemented (V1 slices 1-3 landed)
+Status: implemented — the ACE shape (`adjudicated_constraint_extraction`) is graduated to `supported` (catalog `supportedShapes` + `adapterconformance/ace_interrogation_test.go`, tier-guarded); slice-4 first-class `constraint.*` objects (§6) are deferred until a second cross-run constraint consumer appears, and the §7 coverage metrics are optional-future (D222, closes #399)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 Source: GitHub issue #89 — surfaced by the Engram entity-relationship forum run

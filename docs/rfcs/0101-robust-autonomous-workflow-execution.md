@@ -1,6 +1,6 @@
 # RFC 0101: Robust Autonomous Workflow Execution — survive lane failure, run to completion or fail loudly, without a human babysitter
 
-Status: partially implemented (Phases 1-2 landed; Phases 3-5 in progress)
+Status: umbrella-of-record (D223, closes #401) — the five defense layers map to shipped slices: L1 `pkg/lanehealth`; L2 the RFC 0096/0101 `pkg/adapterconformance` fixture; L3 RFC 0095 attempt primitives + recovery verbs; L4 `needs_operator` (RFC 0099); L5 `pkg/adapterconformance/chaos_test.go` (promoted by RFC 0105). Reconciled with RFC 0103 (accepted, W1–W7) so the two no longer double-track the residual defense tail.
 Date: 2026-05-31
 author: proposer-claude-opus-4-8-001
 

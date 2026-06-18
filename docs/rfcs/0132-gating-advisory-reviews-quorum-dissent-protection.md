@@ -1,6 +1,6 @@
 # RFC 0132: Gating/advisory reviews and quorum with dissent protection
 
-Status: accepted / implemented (D212; via RFC 0135 P4, opt-in/shadow)
+Status: accepted / implemented (D212; via RFC 0135 P4, opt-in/shadow) — OQs resolved D228 (closes #340: the daemon-signed abstention-stub artifact is descoped; the live `barrier_quorum.go` oracle probe already satisfies skip-only-provably-dead) and D229 (closes #343: the artifact + `escalation_inbox` blocker form is the v1 dissent-protection mechanism; the heavier `dissent_quarantine` run-state form is not planned unless override-rate fatigue appears)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:

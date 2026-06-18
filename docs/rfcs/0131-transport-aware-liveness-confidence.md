@@ -1,6 +1,6 @@
 # RFC 0131: Transport-aware liveness confidence and escalation gating
 
-Status: accepted (D211)
+Status: accepted (D211) — OQ3 resolved D230 (closes #348): pursue the confidence model (layers 131-A..D); the PTY-shim-all-pipe-lanes alternative stays tracked, to re-evaluate after 131-A + 131-C land with measured pipe-lane misclassification data
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
