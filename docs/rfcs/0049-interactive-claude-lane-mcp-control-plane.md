@@ -1,6 +1,6 @@
 # RFC 0049 — Interactive claude lane via MCP control plane
 
-**Status:** shelved (D106; experimental spike required before commitment)
+**Status:** deprecated — overtaken by RFC 0088 (was shelved D106; billing residue tracked via RFC 0115)
 **Scope:** V1.8 or V2.0 depending on Claude Code interactive-headless stability
 **Closes (partially):** the economic skew between Max-plan subscription quota and the Agent SDK monthly credit
 

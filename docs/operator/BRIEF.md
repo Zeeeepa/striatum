@@ -204,12 +204,14 @@ relocation (#364, ready-for-human).
   missed-notification fallback. Wake events stay hints over committed state,
   never authoritative. The earlier `issue-248-wake-bus-implementation` runs
   were canceled/superseded dogfood attempts; do not drive them as live work.
-- **RFC 0119 (warm-tier memory boundary, D179) — accepted, implementation
-  gated.** Authorizes the `hippo`/`fornix` warm-tier adjunct (separate
+- **RFC 0119 (warm-tier memory boundary, D179) — accepted; hot tier
+  implemented.** Authorizes the `hippo`/`fornix` warm-tier adjunct (separate
   repo, `~/git/hippo`) + a striatum-native read-only hot tier (`recall.*`
   over the daemon's own artifact stream, scaffold-time digest injection,
   default-off redacted `lane_trajectory` export, `progress_note`-only git
-  eviction). D179 lists hard test obligations before any Go lands; no
+  eviction). The hot tier shipped (`recall.*`, `RecallMemory`, commit
+  `80dc82e7`) with C1-C4 discharged; only the runtime evictor (D193) remains
+  deferred. No
   `memory.*` capability, no retrieval-dependent state transition.
 - **RFC 0118 (#240)** implementation is on main and the issue is closed:
   frozen verdict provenance stamps, override posture/basis, completion

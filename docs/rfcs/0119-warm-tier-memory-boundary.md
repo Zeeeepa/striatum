@@ -1,6 +1,6 @@
 # RFC 0119: Warm-Tier Memory Boundary and Striatum Hot Tier
 
-Status: accepted (D179; C1-C4 discharged, implementation gated)
+Status: accepted / implemented (hot tier; D179; runtime evictor D193 deferred)
 Date: 2026-06-11
 author: rfc-author-claude-opus-4.8-001
 Context: RFC 0044/0057 (corpus export + augmentation boundary), spec.md

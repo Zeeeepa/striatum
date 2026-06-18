@@ -1,6 +1,6 @@
 # RFC 0099: Constrained Operator Mode — control-surface-only AI operator
 
-Status: proposed
+Status: accepted / partially implemented (Phases 1-2)
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 

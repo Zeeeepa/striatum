@@ -1,6 +1,6 @@
 # RFC 0044: Engram Phase 1 Implementation Spec
 
-Status: proposed (Striatum-side V1 landed, D100)
+Status: accepted / implemented (Striatum-side V1; Engram consumer out-of-repo; D100)
 Date: 2026-05-13
 author: implementer-codex-gpt-5.5-001
 Context:

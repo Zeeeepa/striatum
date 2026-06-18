@@ -1,6 +1,6 @@
 # RFC 0132: Gating/advisory reviews and quorum with dissent protection
 
-Status: accepted (D212)
+Status: accepted / implemented (D212; via RFC 0135 P4, opt-in/shadow)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:

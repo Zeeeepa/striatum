@@ -1,7 +1,7 @@
 # RFC 0064: Workflow Risk Lint and Review Diversity Enforcement
 
 ## Status
-Partially implemented; policy decision required for accepted-risk persistence
+Accepted / implemented — durable accepted-risk persistence landed; authoring-helper lint polish tracked in #397
 
 ## Summary
 Architecture remediation Phase 7 added workflow risk linting, review-diversity
@@ -27,7 +27,14 @@ Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).
 - `workflow validate` refuses same-model review-pair and revision-cycle lint
   findings by default unless `--allow-same-model-pairing` is supplied.
 
-## Blocked Policy
+## Blocked Policy (RESOLVED 2026-06-18)
+
+> **Resolved:** durable accepted-risk persistence shipped — runtime migration
+> 0013 `workflow_accepted_risks` + the `workflow.accept_risk` /
+> `workflow.accepted_risks.list` RPCs and CLI. The product decision below (where
+> accepted-risk evidence lives durably) was answered: an append-only daemon-owned
+> table. The original text is retained for provenance; remaining authoring-helper
+> lint polish is tracked in #397.
 
 Accepted lint-risk persistence is not implemented because the durable authority
 surface is undecided. `workflow lint` is currently a CLI-local authoring helper:

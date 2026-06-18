@@ -1,6 +1,6 @@
 # RFC 0055 — Marketing-friendly README + system architecture graphics
 
-**Status:** proposed (Phase A shipped)
+**Status:** accepted (Phase A shipped)
 **Scope:** V1.7 documentation; Phase A rewrote the top-level README
 **Composes with:** RFC 0053 (operator/principal model — anchors the
 diagram), RFC 0054 (day-zero usage guide — the README cross-links

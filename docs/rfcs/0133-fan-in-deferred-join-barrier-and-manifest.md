@@ -1,6 +1,6 @@
 # RFC 0133: Fan-in deferred join barrier and join manifest
 
-Status: accepted (D213)
+Status: accepted / implemented (D213; folded into RFC 0135 P1, opt-in/shadow)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:

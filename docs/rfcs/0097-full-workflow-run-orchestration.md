@@ -1,6 +1,6 @@
 # RFC 0097: Full Workflow Run Orchestration — autonomous end-to-end run execution
 
-Status: proposed
+Status: superseded by RFC 0116 / 0122 / 0124
 Date: 2026-05-30
 author: proposer-claude-opus-4-8-001
 
