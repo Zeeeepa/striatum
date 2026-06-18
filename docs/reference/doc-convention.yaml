@@ -1,0 +1,15 @@
+# striatum repo overlay — EXTEND-ONLY. Base rules come from the vendored
+# doc-convention-lint package (github.com/halbritt/doc-convention-lint), pinned by
+# SHA in .pre-commit-config.yaml. This file may only add roots / path_exceptions;
+# the linter refuses any overlay that redefines the rules.
+#
+# striatum already has docs/{tutorials,how-to,reference,explanation,rfcs,decisions}
+# (handled by the base path_types) plus a doc-map.md "one home per concept" contract.
+# Whitelist the legitimate curated repo-root docs here.
+path_exceptions:
+  ARCHITECTURE.md: { type: reference, optional_frontmatter: true }
+  CONTRIBUTING.md: { type: how-to, optional_frontmatter: true }
+  AGENTS.md: { type: reference, optional_frontmatter: true }
+  CHANGELOG.md: { type: reference, optional_frontmatter: true }
+  # NOTE: loose root-level STRIATUM_<TASK>_<MODEL>_<DATE>.md audits are NOT whitelisted —
+  # they are records and belong under docs/records/audits/ (migration Phase 2).
