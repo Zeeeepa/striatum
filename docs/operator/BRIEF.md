@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-16_reliability-reset-closeout"
-supersedes: "brief_2026-06-16_290-296-implemented"
+brief_id: "brief_2026-06-18_v2.34.0-release"
+supersedes: "brief_2026-06-16_reliability-reset-closeout"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,27 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-18 delta — v2.34.0 released
+
+**v2.34.0** packages six deployed reliability/security fixes plus the RFC 0135
+sealed-barrier primitive. Fixes (merged, daemon redeployed, `doctor` green, issues
+closed): #355 recovery-reconcile convoy (SQLSTATE 57014, pre-tx oracle), #356
+untested-spine tests + `escalation.resolve` run-lock, #357 dead-code deletion
+(~1280 LOC, supervisor liveness twin), #358 boundary/security batch (`seenRequests`
+DoS cap, CLI read deadline, RFC 0111 suggestions, FIFO delivered-lie, CSP, blob
+flag), #363 `supervise.rebridge` on-contract + registry-guard blind-spot, #359b
+docs/index. This closes most of the 2026-06-11 deep-review P0/P1 work-list (untested
+spine, deletion pass, conformance honesty, truth mechanization, boundary hygiene).
+
+**RFC 0135 (D214/D215/D216)** — the unified `(entity, seal)` sealed-expectation
+barrier across fan-in / quorum / 0095-revision / 0108-integrate — is fully
+IMPLEMENTED (P0–P6; migrations 0029–0032 + owner bundle 0013) but **opt-in/shadow:
+D206 stays the default, ZERO behavior change**. Go-live (apply owner bundle 0013 +
+flip each gate to consume the primitive) is DEFERRED. Remaining: P4b (#341/#342),
+#343, ready-for-human #361/#362/#364, #372. See the RFC 0135 slice plan and
+`/tmp/striatum-handoff-rfc0135-remaining.md`. A concurrent session landed perf-
+observability latches (#375–#381) alongside.
 
 ## 2026-06-17 delta — #311 P0 per-job quarantine (D209)
 
@@ -137,9 +158,9 @@ and the issues CLOSED. `doctor` stayed green throughout.
 
 ## State
 
-Latest release is **v2.33.0 (2026-06-16)**, the `v2.33.0` tag at `564a8209`
-(release workflow `27632712989`, published 2026-06-16T16:40Z), daemon redeployed
-and verified (running sha == installed). It packages the post-v2.32.0 landing set:
+Latest release is **v2.34.0 (2026-06-18)** — see the top delta (six reliability/
+security fixes + the RFC 0135 sealed-barrier primitive, opt-in/shadow). The prior
+**v2.33.0 (2026-06-16)** tag at `564a8209` packaged the post-v2.32.0 landing set:
 doctor integrity legibility **P0+P1** (D204/D205, #300), **#290/D206** fan-in
 run-branch integration, **#296** codex push-lane loud-fallback, **#301/#307**
 workflowgenerate fixes, **#304** dangling-blocker resolution, and **#311**
@@ -148,44 +169,18 @@ recovery-escalation legibility (details in CHANGELOG `v2.33.0`). The prior
 fixes; the v2.10.0 → v2.31.0 release burst is indexed in CHANGELOG and the
 decision log. Historical open sets such as #212/#263-#267 are no longer current.
 
-## Deep architecture review 2026-06-11 — the standing work-list
+## Deep architecture review 2026-06-11 — work-list (mostly closed in v2.34.0)
 
-`STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md`
-(`0e8671ed`, Claude Fable 5, partitioned exhaustive read at `076c5eec`):
-verdict **ROUGHLY RIGHT-SIZED · ON TRACK** (medium-high confidence),
-reversing 06-02's OVERBUILT·DRIFTING. The core state machine is earned,
-incident-pinned complexity; risk has migrated to **verification capacity**
-and the **orientation/meta layer** (this brief's 22-release staleness was a
-named SERIOUS finding — this revision is part of the remedy). Its ranked
-asks:
-
-- **BLOCKER:** sweep-error daemon suicide — any sweep iteration error
-  cancels the whole daemon (`pkg/recovery/scheduler.go:53-55` +
-  `cmd/striatumd/main.go:698-701`); plus in-tx git subprocesses in the sweep
-  (`recovery.go:2051`, the #198 convoy class one layer down). Aggravated by
-  #246 (abandoned runs accumulate, adding sweep load).
-- **P0 untested spine:** `work.heartbeat` has zero behavioral tests;
-  `worktree.create` composition untested; 4 packet-content blocks
-  unasserted; `escalation_resolve.go:156` re-drives completion **without
-  `lockRun`** (the one unguarded RFC 0104 door).
-- **P1 deletion pass (~4-5K LOC):** inert crossrepo pkg; dead supervisor
-  liveness twin; one-shot migration RPCs; auto-finalize circuit breaker;
-  conversation gating + per-poll query; 10 deprecated aliases; installer
-  template dedupe (~800 lines); 6 stale example dirs.
-- **P1 token-out-of-argv:** lane env incl. `STRIATUM_MCP_TOKEN` passes
-  through tmux/sudo argv — world-readable via `/proc/*/cmdline`
-  (`supervisor/pty.go`).
-- **P1 conformance honesty:** scheduled installed-CLI CI runs agy only;
-  claude (the flagship adapter) has no fixture; the "tier cannot lie" guard
-  checks registry↔registry, not registry↔CI.
-- **P1 truth mechanization:** guard-test BRIEF freshness / README status /
-  docs index / authority matrix (missing 16 live methods;
-  `supervise.rebridge` bypassed the contract); retire roadmap.md/todo.md to
-  archive.
-- **P2:** relocate `docs/operator/` exhaust (44% of tracked files);
-  boundary-hygiene batch (CLI suggestion surfacing, read deadlines,
-  `seenRequests` bound, FIFO delivered-lie, `--apply-blob-creation` no-op,
-  CSP-dead dashboard JS).
+`STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md` (`0e8671ed`,
+Claude Fable 5): verdict **ROUGHLY RIGHT-SIZED · ON TRACK**. v2.34.0 closed the
+ranked BLOCKER (sweep-error daemon suicide + in-tx git — fixed earlier), the P0
+untested spine (#356), the P1 deletion pass (#357, scoped to the ~1K provably-dead
+LOC — the review's "4-5K" did not survive verification), conformance honesty (#358),
+truth mechanization (#359/#363, incl. this brief's freshness guard + `supervise.rebridge`
+on-contract), and the P2 boundary-hygiene batch (#358). **STILL OPEN:** P1
+token-out-of-argv (`STRIATUM_MCP_TOKEN` passes through tmux/sudo argv, world-readable
+via `/proc/*/cmdline`, `supervisor/pty.go`) and the `docs/operator/` exhaust
+relocation (#364, ready-for-human).
 
 ## Current Frontier
 
