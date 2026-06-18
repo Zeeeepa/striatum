@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.34.0 — 2026-06-18
+
 ### Added
 
 - **#338/#339/#340 RFC 0135 P4 — panel quorum consumes the sealed barrier
