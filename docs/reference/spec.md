@@ -1204,6 +1204,39 @@ V1 schemas:
   (`BarrierReadySQL`) and protected by a static build guard; P0 ships the
   manifest contract and the predicate shape with no live caller yet (fan-in is
   the first live caller in P1).
+- `striatum.claim_ledger.v1` (kind `claim_ledger`, RFC 0134 lattice slice /
+  D227): required `schema_version`, `artifact_kind: claim_ledger`, `run_id`,
+  `ledger_seal` (non-negative integer — the monotonic, append-only seal), and
+  `claims` (non-empty list of objects); optional `created_at`. Each `claims`
+  row carries required `id` (ledger-unique), `status` (one of `DESIGNED`,
+  `ASSERTED`, `VERIFIED` — the claim lattice `VERIFIED > ASSERTED > DESIGNED`),
+  and `text`, plus optional `bound_input_digest`, `receipt_ref`, and
+  `evidence_digest`. The **provenance lint** (at the publisher, exit code 6)
+  refuses a claim whose status exceeds its evidence: a `VERIFIED` claim
+  requires a non-empty `receipt_ref`, a non-empty `bound_input_digest`, and an
+  `evidence_digest` equal to it (the receipt is bound to *these* inputs); a
+  `VERIFIED` claim that fails to bind reads back as `ASSERTED` (auto-decay), so
+  an unwitnessed claim asserts at most `ASSERTED`. The **daemon writer**
+  additionally enforces the cross-seal lattice rules against the prior ledger:
+  the `ledger_seal` must strictly exceed the most recent prior ledger's seal
+  (append-only), and a claim (matched by `id`) is demotable but **never
+  self-promotable** — its status may be lowered across seals but raising it to
+  a higher rung is refused (promotion is the sealed mint, off the gate path).
+  This is the validation-only half of RFC 0134 (the claim-status lattice): the
+  daemon validates and reads prior ledgers, it never executes a check, and
+  there is no `verify` job type that runs `checks[]` in this slice (the
+  executable verifier is a later, sandboxed off-gate-path lane).
+- `striatum.receipt.v1` (kind `receipt`, RFC 0134 / D227): the sealed evidence
+  a `VERIFIED` claim binds to. Required `schema_version`,
+  `artifact_kind: receipt`, `check_id`, `argv` (non-empty list of tokens),
+  `binary_sha256`, `exit_code` (non-negative integer), `stdout_sha256`,
+  `cwd_tree_sha`, and `seal_digest`; optional `created_at`. It records the
+  tamper-evident transcript shape (argv + resolved binary hash + exit code +
+  stdout digest + cwd tree-sha) so the provenance lint can bind a claim's
+  `evidence_digest` to the receipt's `seal_digest`. In this validation-only
+  slice the daemon does **not** execute checks to produce a receipt — a receipt
+  is authored/sealed off the gate path by a sandboxed verifier lane (a later
+  slice); the claim ledger merely names it.
 - `striatum.collaboration_ledger.v1` / `striatum.collaboration_ledger.v1.1`
   (kind `collaboration_ledger`, RFC 0093 / RFC 0098): required
   `schema_version`, `artifact_kind: collaboration_ledger`, `shape` (one of

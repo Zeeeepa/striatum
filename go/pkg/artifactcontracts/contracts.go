@@ -44,6 +44,8 @@ var allowedKinds = map[string]bool{
 	"auto_finalize_gate_evidence":  true,
 	"collaboration_ledger":         true,
 	"join_manifest":                true,
+	"claim_ledger":                 true,
+	"receipt":                      true,
 }
 
 var Schemas = map[string]Schema{
@@ -286,6 +288,52 @@ var Schemas = map[string]Schema{
 			"created_at":     {true, isNonEmptyStringValue},
 		},
 	},
+	// claim_ledger (RFC 0134 lattice slice / D227): a durable, append-only
+	// value object carrying claims with a status in the lattice
+	// VERIFIED > ASSERTED > DESIGNED. The daemon VALIDATES, never executes —
+	// this slice ships the lattice + ledger + provenance lint only (no engine
+	// execution, no verify job type). Required fields:
+	//   - run_id: the run this ledger belongs to.
+	//   - ledger_seal: the monotonic, append-only seal (non-negative integer).
+	//     The daemon writer refuses a new ledger whose seal does not exceed the
+	//     prior one, and refuses any self-promotion across seals.
+	//   - claims: a non-empty list of {id, status, text, bound_input_digest?,
+	//     receipt_ref?, evidence_digest?} rows. claim row shape, the status enum,
+	//     and the provenance lint (status may not exceed evidence) are enforced
+	//     by validateClaimLedger → ParseClaims + LintClaimLedger.
+	"claim_ledger": {
+		Fields: map[string]Field{
+			"schema_version": {true, equalsValue("striatum.claim_ledger.v1")},
+			"artifact_kind":  {true, equalsValue("claim_ledger")},
+			"run_id":         {true, isNonEmptyStringValue},
+			"ledger_seal":    {true, isNonNegativeIntValue},
+			"claims":         {true, isMapListValue},
+			"created_at":     {false, isNonEmptyStringValue},
+		},
+	},
+	// receipt (RFC 0134 / D227): the sealed evidence a VERIFIED claim binds to.
+	// In this validation-only slice the daemon does NOT execute checks to
+	// produce a receipt — a receipt is authored/sealed off the gate path (a
+	// later, sandboxed verifier-lane slice) and the claim_ledger merely names
+	// it. The receipt records the tamper-evident transcript shape so the
+	// provenance lint can bind a claim's evidence_digest to it: argv + resolved
+	// binary hash + exit code + stdout digest + cwd tree-sha. seal_digest is the
+	// receipt's own content digest, which a VERIFIED claim's evidence_digest
+	// must equal.
+	"receipt": {
+		Fields: map[string]Field{
+			"schema_version": {true, equalsValue("striatum.receipt.v1")},
+			"artifact_kind":  {true, equalsValue("receipt")},
+			"check_id":       {true, isNonEmptyStringValue},
+			"argv":           {true, isNonEmptyStringListValue},
+			"binary_sha256":  {true, isNonEmptyStringValue},
+			"exit_code":      {true, isNonNegativeIntValue},
+			"stdout_sha256":  {true, isNonEmptyStringValue},
+			"cwd_tree_sha":   {true, isNonEmptyStringValue},
+			"seal_digest":    {true, isNonEmptyStringValue},
+			"created_at":     {false, isNonEmptyStringValue},
+		},
+	},
 }
 
 // StandardOptionalMetadata are byline/workflow metadata keys that any markdown
@@ -411,6 +459,10 @@ var skeletonShapeHints = map[string]struct{ value, comment string }{
 	"constraint_discharge": {"[]", "list of objects"},
 	"inputs":               {"[]", "list of upstream artifact refs"},
 	"entries":              {"[]", "non-empty list of objects"},
+	"claims":               {"[]", "non-empty list of {id, status, text, bound_input_digest?, receipt_ref?, evidence_digest?}"},
+	"argv":                 {"[]", "non-empty list of argv tokens"},
+	"ledger_seal":          {"0", "non-negative integer; monotonic append-only seal"},
+	"exit_code":            {"0", "non-negative integer"},
 	"summary_count":        {"0", "non-negative integer"},
 	"claim_count":          {"0", "non-negative integer"},
 	"total_items":          {"0", "non-negative integer"},
@@ -771,6 +823,8 @@ func validateKindSpecific(kind string, path string, parsed map[string]any, paylo
 		return validateAutoFinalizeGateEvidence(parsed)
 	case "join_manifest":
 		return validateJoinManifest(parsed)
+	case "claim_ledger":
+		return validateClaimLedger(parsed)
 	case "collaboration_ledger":
 		return validateCollaborationLedger(parsed)
 	case "finding", "findings_ledger":

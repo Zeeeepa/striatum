@@ -18,6 +18,26 @@
   requeue/transfer action records, so every escalation records WHAT KIND of
   evidence it acted on. This is OUTPUTS only — no confidence gate, no
   escape-valve cap (RFC 0131 131-C/#336), and **no migration**.
+- **claim-status lattice (RFC 0134 lattice slice / D227, #395).** The first,
+  validation-only half of RFC 0134: a `claim_ledger.v1` first-class artifact
+  carrying claims with a status on the lattice `VERIFIED > ASSERTED > DESIGNED`,
+  and a `receipt.v1` artifact for the sealed evidence a `VERIFIED` claim binds
+  to (`go/pkg/artifactcontracts/claim_ledger.go`, registered in `contracts.go`
+  with the publisher's exit-code-6 schema guard). A **provenance lint** refuses
+  a claim whose status exceeds its evidence — `VERIFIED` requires a bound
+  `receipt_ref` and an `evidence_digest` matching the claim's
+  `bound_input_digest`; a claim that fails to bind reads back as `ASSERTED`
+  (VERIFIED→ASSERTED auto-decay), so an unwitnessed claim asserts at most
+  `ASSERTED`. The **daemon writer** enforces the cross-seal lattice rules
+  against the prior ledger (`go/pkg/mutations/claim_ledger.go`): the
+  `ledger_seal` is monotonic and append-only, and a claim is demotable but
+  never self-promotable. This is **validate-not-execute**: the daemon validates
+  and reads prior ledgers but never runs a command — there is no `verify` job
+  type that executes `checks[]` and no wiring into the run-completion gate in
+  this slice. The executable half (the sandboxed off-gate-path verifier lane
+  that mints receipts, and the completion gate that merely reads them) is a
+  later, separate slice. Docs: `docs/reference/spec.md`,
+  `docs/reference/ubiquitous-language.md`, RFC 0134.
 
 ### Fixed
 
