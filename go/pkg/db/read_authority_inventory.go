@@ -71,7 +71,7 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	// journal (sealed -> assembling -> committed|failed) the assembler SELECTs to
 	// resume a crash — coordination state, like the staging table above.
 	"barrier_state": ReadClassRuntimeSensitive,
-	// dissent_ledger (RFC 0135 P4, migration 0031): the forward-written, seal-durable
+	// dissent_ledger (RFC 0135 P4, migration 0032): the forward-written, seal-durable
 	// panel-quorum dissent witness the quorum barrier SELECTs to BLOCK finalize
 	// wherever recovery moved a seat's lineage — coordination state keyed on the stable
 	// workflow_job_id, like the staging table above.

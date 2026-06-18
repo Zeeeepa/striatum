@@ -249,10 +249,10 @@ every common run so it can never rot from disuse.
 - `join_manifest.v1` (Slice 1): `artifactcontracts` registration, **no DDL** —
   lands first.
 - `fanin_freeze_points` + `barrier_state` + the staging row table (Slice 2/3): new
-  tables. Whether they are runtime migrations or **owner bundle 0013** depends on
-  the open question below; the freeze record's append-only immutability and the
-  staging table's composite FK to `jobs(repository_id, run_id, workflow_job_id,
-  attempt)` are the load-bearing schema constraints regardless.
+  runtime tables with no SQL FK to owner-held `jobs`, per D215. The freeze
+  record's append-only immutability and the staging table's live-attempt identity
+  are the load-bearing schema constraints; referential integrity is enforced in
+  Go, and each table carries its own explicit runtime grant.
 - Ship behind a workflow opt-in; existing runs keep the D206 per-completion merge
   until they declare a barrier. The barrier and the per-completion path produce
   the same final tree for any completion order — assert that equivalence in a
@@ -290,14 +290,11 @@ every common run so it can never rot from disuse.
 
 ## Open questions
 
-1. **Ownership of the new schema.** The `jobs.job_type` CHECK is defined in the
-   runtime migration `0005_repo_local_workflow_state.sql`, but D209 added a
-   `jobs.state` value via **owner bundle 0012**, so the live `jobs` constraints
-   may be owner-held in production. Adding `barrier_assembly` (and the new
-   `fanin_freeze_points` / `barrier_state` tables) must resolve to **runtime
-   migration vs owner bundle 0013** — mirror the `0012_job_quarantine_state.sql`
-   precedent if the constraint is owner-held; avoid the grants-vs-bundle
-   `25P02`-on-terminal-revoke gotcha either way.
+1. **Ownership of the new schema (resolved by D215/D216).** The `jobs.job_type`
+   CHECK is owner-held in production, so `barrier_assembly` ships as owner
+   bundle 0013. The new freeze/staging/`barrier_state` tables ship as runtime
+   migrations with no SQL FK to owner-held `jobs` and with explicit grants,
+   avoiding the grants-vs-bundle `25P02`-on-terminal-revoke gotcha.
 2. **Run branch as a projection (the wildcard, pushed one step).** If every
    run-branch advance is a committed `barrier_state` row whose first parent is the
    prior barrier's commit, the run branch becomes a linear chain doctor can walk

@@ -21,10 +21,11 @@
 -- frozen tip and CAS-advances the run branch is a `barrier_assembly` job; without
 -- this value the live jobs_job_type_check would refuse to persist it.
 --
--- Owner-bundle number coordination (per RFC 0135 / RFC 0132 / D215): RFC 0132's
--- RESERVED optional `dissent_quarantine` run-state bundle becomes 0014. Per
--- D215 "whichever lands first takes 0013, the other 0014," RFC 0135 P2 lands
--- first and takes 0013; the RFC 0132 dissent-quarantine bundle is 0014.
+-- Owner-bundle number coordination (per RFC 0135 / RFC 0132 / D215): this
+-- bundle landed first and took 0013. The earlier reserved optional RFC 0132
+-- `dissent_quarantine` run-state bundle did not land before GH #372/#379
+-- consumed 0014, so dissent_quarantine must use the next available owner bundle
+-- number if it ships.
 --
 -- Idempotent: the DROP is guarded by a pg_constraint definition probe and the
 -- ADD by an existence probe, so a re-run (or applying onto a DB an operator has

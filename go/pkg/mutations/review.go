@@ -657,6 +657,15 @@ func applyVerdict(ctx context.Context, runner any, repositoryID, sessionID, jobI
 	// owner-bundle DDL (owner bundle 0009): when it is absent (a
 	// runtime-migrations-only database such as the default pgtest harness) the
 	// INSERT omits it, exactly as db.appendArtifactRowDirect omits placement.
+	//
+	// RFC 0135 P5 (D216) — this stamp is the sealed expectation barrier
+	// primitive's "embed the seal in the contribution" operation
+	// (db.BarrierReadySQL with seal := review_generation). The verdict is the
+	// staged contribution; review_generation is the seal it is sealed at. The
+	// finalization gate then JOINs each required obligation's accepting verdict on
+	// the build's LIVE seal (staged.review_generation = live.review_generation), so
+	// a verdict stamped below the live seal is structurally absent from the readiness
+	// count — the exact trap-killer the primitive guarantees. No P5 behavior change.
 	if reviewGenerationEnabled(ctx, runner) {
 		generation, gerr := reviewedBuildGeneration(ctx, runner, repositoryID, job)
 		if gerr != nil {

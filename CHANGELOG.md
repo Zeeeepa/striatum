@@ -17,8 +17,8 @@
   A stale-seal accepting verdict is structurally invisible (`staged.attempt =
   live.attempt`). **DEFAULT BEHAVIOR UNCHANGED:** at budget 0 every gating seat is
   required — identical to the edge-by-edge `dependenciesSatisfied` path it branches
-  off. **#339 — forward-written `dissent_ledger`.** New RUNTIME migration **`0031`**
-  (`go/pkg/db/sql/0031_dissent_ledger.sql`, `LatestDaemonDBVersion` 30→31) adds an
+  off. **#339 — forward-written `dissent_ledger`.** New RUNTIME migration **`0032`**
+  (`go/pkg/db/sql/0032_dissent_ledger.sql`, `LatestDaemonDBVersion` 31→32) adds an
   append-only, seal-durable dissent witness keyed on the stable `workflow_job_id`,
   written **co-transactionally with a blocking (needs_revision/reject) verdict** in
   the review apply path under the existing per-run advisory lock. Per D215: RUNTIME,
@@ -46,14 +46,123 @@
   completeness guards stay green. Deferred to **P4b**: #341 (advisory guards +
   `advisory_minority_report.v1`), #342 (doctor checks), #343 (optional
   `dissent_quarantine` owner bundle 0014).
+- **RFC 0135 P5 — `review_generation` is named as the seal instance (docs +
+  tests only, NO behavior change, NO migration).** The revision-coherence fold
+  that justifies the primitive's "seal not attempt" framing: RFC 0126's
+  build-owned monotonic `review_generation` (D194) IS the sealed expectation
+  barrier primitive's seal (`db.BarrierReadySQL` with `seal :=
+  review_generation`). Source comments now name each operation as a seal
+  operation — `bumpReviewGeneration` ("advance the entity's seal",
+  `go/pkg/mutations/revision_routing.go`), the `applyVerdict` `review_generation`
+  stamp ("embed the seal in the contribution", `go/pkg/mutations/review.go`), and
+  the RFC 0126 per-build finalization set-difference (`required obligations MINUS
+  current-generation accepting verdicts`) as the primitive readiness predicate
+  (`go/pkg/mutations/run_completion_gate.go`). The default finalization path is
+  unchanged — the seal predicate is a pure equivalence witness, never a new
+  production code path. New regression fence `TestRevisionCoherenceIsTheSealInstance`
+  (`go/pkg/mutations/revision_coherence_seal_test.go`) re-expresses the RFC 0126
+  #282 shape (a revised build at generation 2; reviewer A accepts at gen 2;
+  reviewer B's gen-1 `needs_revision` survives) and evaluates BOTH the RFC 0126
+  set-difference AND the P0 primitive predicate (`seal := review_generation`) over
+  the same live rows, asserting they agree — both refuse naming reviewer B until B
+  records its own current-seal accepting verdict. The RFC's P5 slice row, the
+  "Revision coherence" reconciliation, and the `TestRevisionCoherenceIsTheSealInstance`
+  test-plan entry are marked IMPLEMENTED in `docs/rfcs/0135-sealed-barrier-primitive.md`.
+- **RFC 0135 P6 — `run.integrate` folds in as the run-entity sealed barrier
+  (equivalence-gated, non-breaking).** The highest-risk fold (RFC 0135 Risks):
+  `run.integrate`'s `run_id`-keyed gate is recast as the **run-entity** instance
+  of the sealed expectation barrier (`entity = run`), whose in-edges are the run's
+  job-level barriers and whose readiness composes (a) the run's terminal-acceptable
+  state (`completed`, matching `HandleRunIntegrate`) AND (b) every declared
+  job-level sealed barrier having fired — expressed through P0's
+  `db.BarrierReadySQL` shape (`entity_kind='run'`,
+  `go/pkg/mutations/barrier_run_entity.go`). The RFC 0108 merge-tree →
+  conflict-detection → commit-tree plumbing is factored into
+  **`assembleRunEntityIntegration`**, a pure, ref-free computation shared verbatim
+  by the live `HandleRunIntegrate` path and the run-entity barrier (the same way
+  RFC 0133's `barrier_assembly` is the job-entity's assembly) — so the live path's
+  per-repo serialization (`lockRepo`), integration idempotency (`runIntegratedInto`
+  no-op), conflict/plumbing error surfaces, and integrated tree are preserved
+  **byte-for-byte**. **NON-BREAKING / SHADOW PROOF:** nothing flips a default. The
+  run-entity barrier ships as the asserted-equivalent **shadow**
+  (`shadowRunEntityIntegrate`); `TestRunIntegrateIsTheRunEntityBarrier`
+  (the deliverable gate) proves it produces the **same integrated tree OID** and
+  the **same idempotency outcome** as today's `HandleRunIntegrate` BEFORE any
+  caller flips. No migration (uses existing run/integration state); the P0 static
+  anti-`COUNT(*)` guard (`TestBarrierPredicateHasNoRefCount`) now also covers
+  `barrier_run_entity.go`.
+- **#347 RFC 0135 P3 — barrier doctor invariant + `BARRIER_BLOCKED` +
+  `striatum join verify`.** P3 closes the sealed expectation barrier primitive
+  with its doctor/refusal/verify surface. **Runtime migration `0031`**
+  (`go/pkg/db/sql/0031_barrier_status_view.sql`) adds the read-only
+  `striatumd.barrier_status` view over the three barrier tables (freeze /
+  staging / `barrier_state`) — `CREATE VIEW` is runtime-safe (no owner bundle, no
+  `ALTER`/`DROP`, no FK), with its own explicit `IF EXISTS striatumd_rw`-guarded
+  `GRANT SELECT`; `LatestDaemonDBVersion` 30→31. **Generalized barrier doctor
+  invariant** (`go/pkg/reads/doctor_barrier.go`, wired into `HandleDoctor` as the
+  `barrier_integrity` block): fires on a sealed-but-corrupt barrier — an
+  `assembling` barrier whose journaled `target_commit_sha` is unreachable
+  (`barrier_assembling_target_unreachable`), a `committed` barrier whose manifest
+  disagrees with the staged refs at the live seal
+  (`barrier_committed_manifest_mismatch`), an orphaned staging ref with no freeze
+  record (`barrier_orphaned_staging_ref`), and the `barrier_blocked` condition —
+  and stays quiet on a healthy in-flight barrier. It subsumes the per-integration
+  `fanin_sibling_unintegrated` check at the barrier level (the per-worktree warning
+  remains the worktree-scoped view). **`BARRIER_BLOCKED` + `blocked_manifest`:** a
+  barrier with a live blocking in-edge (a `blocked`/`waiting_human`/`failed` seat,
+  or an open blocking/human_checkpoint blocker) — not a clean terminal gap — is
+  surfaced as the named `BARRIER_BLOCKED` condition with a `blocked_manifest`
+  enumerating which seat blocks and why. **Placement choice:** `BARRIER_BLOCKED`
+  is a DERIVED runtime/doctor condition emitted by the `barrier_status` view and
+  the `barrier_blocked` error code — NOT a `barrier_state` CHECK value. The
+  `barrier_state` assembly-journal lifecycle stays
+  `sealed→assembling→committed|failed` (runtime-owned, owner-bundle-free); "blocked"
+  is an UPSTREAM, pre-seal condition over the in-edges, so keeping it out of the
+  `barrier_state` CHECK avoids touching an owner-held constraint (D215). **New RPC +
+  CLI verb `striatum join verify <barrier-id>`** (`join.verify`,
+  `go/pkg/reads/join_verify.go`): read-only verification that a barrier's manifest
+  matches the staged refs at the live seal and its assembly journal is consistent;
+  it returns `barrier_integrity_failed` / `barrier_blocked` (with `blocked_manifest`)
+  on a corrupted or blocked barrier so it is usable as a CI/operator gate. Wired
+  through `contracts/daemon_methods.json` + `go generate` (`registry_methods.go`,
+  `routes_generated.go`, `daemon-method-tables.md`), two new error-catalog codes,
+  and the command-authority matrix. **D206 per-completion remains the DEFAULT**
+  (the barrier stays opt-in/shadow; nothing flips here). Tests:
+  `TestMigrationThirtyOneBarrierStatusViewIsOwnershipSafe`,
+  `TestBarrierStatusViewReturnsExpectedRows`,
+  `TestDoctorBarrierQuietOnHealthyBarrier`,
+  `TestDoctorBarrierFiresOnBlockedBarrier`,
+  `TestDoctorBarrierFiresOnOrphanedStagingRef`,
+  `TestJoinVerifyPassesOnGoodBarrier`,
+  `TestJoinVerifyFailsOnTamperedBarrier`,
+  `TestJoinVerifyMissingBarrierIsNotFound`;
+  `TestBarrierPredicateHasNoRefCount`, `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL`,
+  the P1 equivalence + P2 deployment-tolerance/crash-recovery tests, and the
+  authority/contract/error-catalog guards all stay green.
+
+- **#372/#379 chain-head lock-wait gauges + bounded doctor convoy warnings.**
+  Owner bundle 0014
+  (`go/pkg/db/sql/owner/0014_chain_lock_wait_gauges.sql`) adds nullable
+  `lock_wait_us` columns to `striatumd.events` and `striatumd.audit_log`, then
+  restates the existing SECURITY DEFINER append functions so they measure the
+  `FOR UPDATE` wait on `repo_event_chain_heads` and `audit_chain_head`. The
+  gauge is excluded from row-hash inputs. `doctor` now exposes warning-only
+  `event_chain_head_lock_convoy` and `audit_chain_head_lock_convoy` blocks:
+  events are sampled by recent/active candidate runs plus a per-run event tail,
+  audit rows by a bounded newest-`audit_id` tail. Missing 0014 columns skip the
+  checks instead of reddening doctor, so binary-before-owner-bundle deploys stay
+  tolerant. No runtime migration, no new index, no CLI/API flag. Closes #372 and
+  #379.
 - **#346 RFC 0135 P2 — recoverable `barrier_assembly` job + owner bundle 0013 +
   N=1 unification.** The P1 opt-in fan-in assembly graduates into a first-class,
   CRASH-RECOVERABLE operation. **Owner bundle 0013**
   (`go/pkg/db/sql/owner/0013_barrier_assembly_job_type.sql`) widens the owner-held
   `striatumd.jobs` `jobs_job_type_check` to include `barrier_assembly`, mirroring
   bundle 0012 exactly (idempotent DROP+re-ADD guarded by a `pg_get_constraintdef`
-  probe; `LatestOwnerBundleVersion` 12→13); per D215 RFC 0132's reserved
-  `dissent_quarantine` bundle becomes 0014. **Runtime migration `0030`**
+  probe; `LatestOwnerBundleVersion` 12→13). The earlier D215/RFC 0132
+  `dissent_quarantine` reservation did not land before #372/#379 consumed owner
+  bundle 0014, so that optional run-state form must use the next available owner
+  bundle if it ships. **Runtime migration `0030`**
   (`go/pkg/db/sql/0030_barrier_state.sql`) adds the `barrier_state` journal table
   (`sealed → assembling → committed | failed`) with two-phase-journal columns
   (`target_commit_sha` + `tree_sha`) and the barrier/seat identity as BARE COLUMNS

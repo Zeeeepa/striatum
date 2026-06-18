@@ -62,7 +62,7 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// coordination state, not an SD-gated append surface.
 	"barrier_state": ClassRuntimeDML,
 	"blockers":      ClassRuntimeDML,
-	// dissent_ledger (RFC 0135 P4, migration 0031): the forward-written panel-quorum
+	// dissent_ledger (RFC 0135 P4, migration 0032): the forward-written panel-quorum
 	// dissent witness. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger +
 	// the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as
 	// fanin_freeze_points above, NOT an SD-gated surface (it uses a plain

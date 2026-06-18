@@ -245,9 +245,11 @@ Layer B is co-transactional with the verdict insert for exactly this reason.
 - `dissent_ledger` is a new **runtime** table (next free runtime migration). The
   abstention stub is an artifact (registered in `artifactcontracts`, no DDL).
 - If the optional `dissent_quarantine` *run state* (the legible-deadlock form) is
-  adopted, the `runs.state` CHECK is owner-held, so it needs **owner bundle 0013**
-  (mirroring `0012_job_quarantine_state.sql`). The artifact-plus-`escalation_inbox`
-  blocker form needs no owner bundle and is the recommended v1.
+  adopted, the `runs.state` CHECK is owner-held, so it needs the **next available
+  owner bundle** (mirroring `0012_job_quarantine_state.sql`). The earlier 0013/0014
+  reservation was superseded when `barrier_assembly` shipped as 0013 and
+  #372/#379 consumed 0014. The artifact-plus-`escalation_inbox` blocker form needs
+  no owner bundle and is the recommended v1.
 - Ship behind an off-by-default policy flag; default behavior is unchanged
   (every gating seat required, today's wedge) until a workflow opts into a
   quorum.

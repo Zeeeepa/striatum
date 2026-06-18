@@ -228,6 +228,10 @@ func positionalNames(group string) []string {
 		return []string{"workflow"}
 	case "why":
 		return []string{"target_id"}
+	case "join_verify":
+		// RFC 0135 P3 (#347): `striatum join verify <barrier-id>` verifies one
+		// sealed expectation barrier's integrity (read-only).
+		return []string{"barrier_id"}
 	case "run_start", "run_pause", "run_resume", "run_cancel", "run_summary", "run_graph", "run_integrate":
 		return []string{"run_id"}
 	case "run_retry_job":

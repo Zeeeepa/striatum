@@ -186,6 +186,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// ownership probes rather than hard-coded.
 	pgReadScopeBlock := pgReadScopeDoctorBlock(ctx, runner)
 
+	eventLockWaitBlock, auditLockWaitBlock, lockWaitWarnings, lockWaitWarningRecords := doctorLockWaitConvoys(ctx, runner, repositoryID, time.Now().UTC())
+	warnings = append(warnings, lockWaitWarnings...)
+	warningRecords = append(warningRecords, lockWaitWarningRecords...)
+
 	worktreeRefSafetyBlock, worktreeProblems, worktreeProblemRecords, worktreeWarnings, worktreeWarningRecords := doctorWorktreeRefSafety(ctx, runner, repositoryID)
 	problems = append(problems, worktreeProblems...)
 	problemRecords = append(problemRecords, worktreeProblemRecords...)
@@ -219,30 +223,47 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings = append(warnings, artifactAnchorWarnings...)
 	warningRecords = append(warningRecords, artifactAnchorWarningRecords...)
 
+	// RFC 0135 P3 (#347): the generalized barrier integrity invariant over the
+	// sealed expectation barrier tables (freeze / staging / barrier_state), surfaced
+	// through the migration-0031 striatumd.barrier_status view. It detects a
+	// BARRIER_BLOCKED condition (a live blocking in-edge), an 'assembling' barrier
+	// whose journaled target commit is unreachable, a 'committed' barrier whose
+	// manifest disagrees with the staged refs at the live seal, and orphaned staging
+	// refs. It subsumes the per-integration fanin_sibling_unintegrated warning at the
+	// barrier level (that per-worktree warning remains the worktree-scoped view).
+	barrierBlock, barrierProblems, barrierRecords, barrierWarnings, barrierWarningRecords := doctorBarrierIntegrity(ctx, runner, repositoryID)
+	problems = append(problems, barrierProblems...)
+	problemRecords = append(problemRecords, barrierRecords...)
+	warnings = append(warnings, barrierWarnings...)
+	warningRecords = append(warningRecords, barrierWarningRecords...)
+
 	recoveryCursorBlock, recoveryCursorProblems, recoveryCursorRecords := doctorRecoverySweepCursor(ctx, runner, repositoryID, time.Now().UTC())
 	problems = append(problems, recoveryCursorProblems...)
 	problemRecords = append(problemRecords, recoveryCursorRecords...)
 
 	result := map[string]any{
-		"ok":                        len(problems) == 0,
-		"schema_version":            schemaVersion,
-		"stale_leases":              staleLeases,
-		"waiting_human":             waitingHuman,
-		"needs_operator":            len(needsOperatorRuns),
-		"needs_operator_runs":       needsOperatorRuns,
-		"supervisors":               supervisorLiveness,
-		"problems":                  problems,
-		"warnings":                  warnings,
-		"codex":                     codexBlock,
-		"lane_sandbox":              laneSandboxBlock,
-		"principals":                principalsBlock,
-		"pg_write_boundary":         pgWriteBoundaryBlock,
-		"pg_read_scope":             pgReadScopeBlock,
-		"worktree_ref_safety":       worktreeRefSafetyBlock,
-		"artifact_anchor_integrity": artifactAnchorBlock,
-		"recovery_sweep_cursor":     recoveryCursorBlock,
-		"skills":                    skillsBlock,
-		"blob":                      blobBlock,
+		"ok":                           len(problems) == 0,
+		"schema_version":               schemaVersion,
+		"stale_leases":                 staleLeases,
+		"waiting_human":                waitingHuman,
+		"needs_operator":               len(needsOperatorRuns),
+		"needs_operator_runs":          needsOperatorRuns,
+		"supervisors":                  supervisorLiveness,
+		"problems":                     problems,
+		"warnings":                     warnings,
+		"codex":                        codexBlock,
+		"lane_sandbox":                 laneSandboxBlock,
+		"principals":                   principalsBlock,
+		"pg_write_boundary":            pgWriteBoundaryBlock,
+		"pg_read_scope":                pgReadScopeBlock,
+		"event_chain_head_lock_convoy": eventLockWaitBlock,
+		"audit_chain_head_lock_convoy": auditLockWaitBlock,
+		"worktree_ref_safety":          worktreeRefSafetyBlock,
+		"artifact_anchor_integrity":    artifactAnchorBlock,
+		"barrier_integrity":            barrierBlock,
+		"recovery_sweep_cursor":        recoveryCursorBlock,
+		"skills":                       skillsBlock,
+		"blob":                         blobBlock,
 	}
 	if verbose {
 		result["problem_records"] = problemRecords

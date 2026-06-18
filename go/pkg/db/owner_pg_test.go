@@ -54,6 +54,8 @@ func TestOwnerBundleAppliesAndIsIdempotent(t *testing.T) {
 		"assert_daemon_authority fn": "SELECT (to_regprocedure('striatumd.assert_daemon_authority()') IS NOT NULL)::text",
 		"audit_v3_row_hash fn":       "SELECT (to_regproc('striatumd.audit_v3_row_hash') IS NOT NULL)::text",
 		"append_audit_row fn":        "SELECT (to_regproc('striatumd.append_audit_row') IS NOT NULL)::text",
+		"events lock_wait_us":        "SELECT (to_regclass('striatumd.events') IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='striatumd' AND table_name='events' AND column_name='lock_wait_us'))::text",
+		"audit_log lock_wait_us":     "SELECT (to_regclass('striatumd.audit_log') IS NOT NULL AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='striatumd' AND table_name='audit_log' AND column_name='lock_wait_us'))::text",
 	}
 	for name, sql := range checks {
 		got, err := pool.Runner.QueryScalar(ctx, sql)
