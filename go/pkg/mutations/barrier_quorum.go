@@ -231,6 +231,63 @@ func (s panelSeat) satisfied() bool {
 	return s.AcceptingAttempt == s.LiveAttempt
 }
 
+// staleSealTrap reports whether the seat is in the EXACT state the panel-quorum
+// barrier exists to catch and the legacy edge-by-edge gate misses: the seat HAS a
+// non-superseded accepting verdict, but it lives at a STALE seal (the seat's live
+// attempt advanced past it via a requeue/resume), and no live dissent already blocks
+// the seat. The seal-blind legacy `latestVerdict` read ADMITS such a seat (it sees the
+// non-superseded accept and ignores the seal); the barrier REFUSES it
+// (staged.attempt != live.attempt). This is the one place the barrier legitimately
+// adds strictness over the legacy gate — proven as the only divergence by
+// TestPanelQuorumCutoverEqualsEdgeByEdge State 4.
+//
+// It deliberately does NOT fire for a seat with no accepting verdict at all
+// (AcceptingAttempt < 0 → an absorb / no-verdict edge the legacy gate clears without an
+// accept) nor for a seat whose accept IS at the live seal (AcceptingAttempt ==
+// LiveAttempt → an override/clearing verdict the legacy gate clears). Those are the
+// revision-routing / checkpoint-override / blocked-sibling scenarios where the legacy
+// gate UNBLOCKS and the barrier must fall through to that result, not regress it.
+func (s panelSeat) staleSealTrap() bool {
+	if s.DissentAtLiveSeal {
+		// A live dissent is already handled edge-by-edge (the latest non-superseded
+		// verdict the gate reads is the blocking one) — not a stale-seal trap.
+		return false
+	}
+	if s.LiveAttempt <= 0 || s.AcceptingAttempt <= 0 {
+		// No live seal, or no accepting verdict to be stale — the legacy gate already
+		// refuses (no accept) or there is nothing to trap.
+		return false
+	}
+	return s.AcceptingAttempt != s.LiveAttempt
+}
+
+// resolveGovernedSeats resolves the gate's frozen GATING review-seat denominator into a
+// per-seat map keyed by the stable workflow_job_id, with the abstention budget already
+// applied (resolvePanelSeats marks at most max_gating_abstentions provably-dead seats as
+// terminal gaps). The caller (dependenciesSatisfied) composes the per-seat result with
+// the edge-by-edge gate so the barrier only ADDS strictness (kills the stale-seal trap)
+// and only RELAXES via the explicit abstention budget — it never blocks an edge the
+// legacy gate unblocks. An empty map means the gate declares no gating panel, so the
+// gate is governed entirely edge-by-edge.
+func resolveGovernedSeats(ctx context.Context, runner any, repositoryID, downstreamJobID string) (map[string]panelSeat, error) {
+	decl, err := resolveQuorumDeclaration(ctx, runner, repositoryID, downstreamJobID)
+	if err != nil {
+		return nil, err
+	}
+	if len(decl.Seats) == 0 {
+		return nil, nil
+	}
+	seats, err := resolvePanelSeats(ctx, runner, repositoryID, downstreamJobID, decl)
+	if err != nil {
+		return nil, err
+	}
+	bySeat := make(map[string]panelSeat, len(seats))
+	for _, s := range seats {
+		bySeat[s.WorkflowJobID] = s
+	}
+	return bySeat, nil
+}
+
 // panelQuorumSatisfied evaluates the panel-quorum barrier for one downstream gate
 // job under the per-run advisory lock the caller already holds (RFC 0104). It reads
 // the frozen declared-seat denominator + abstention budget from the gate's workflow

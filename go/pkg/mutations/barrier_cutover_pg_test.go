@@ -144,7 +144,11 @@ func TestRunIntegrateRunEntityBarrierGate(t *testing.T) {
 	pool := pgtest.Pool(t)
 	runner := pool.Runner
 
-	integrateOnce := func(t *testing.T, barrierOn bool) string {
+	// Each invocation seeds its OWN repository/run/branch (seedRunEntityRepoAndRun does an
+	// unconditional INSERT INTO repositories): the equivalence proof runs the gate twice
+	// over IDENTICALLY-SHAPED but DISTINCT rows, so the two seeds never collide on
+	// repositories_pkey. The label distinguishes them.
+	integrateOnce := func(t *testing.T, label string, barrierOn bool) string {
 		t.Helper()
 		prior, had := os.LookupEnv("STRIATUM_BARRIER_RUN_ENTITY")
 		if barrierOn {
@@ -160,9 +164,9 @@ func TestRunIntegrateRunEntityBarrierGate(t *testing.T) {
 			}
 		}()
 		repoRoot := t.TempDir()
-		repoID := "repo_p6_gate"
-		runID := "run_p6_gate"
-		runBranch := "striatum/p6-gate"
+		repoID := "repo_p6_gate_" + label
+		runID := "run_p6_gate_" + label
+		runBranch := "striatum/p6-gate-" + label
 		seedRunEntityRepoAndRun(t, ctx, runner, repoRoot, repoID, runID, runBranch)
 
 		res, err := HandleRunIntegrate(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID, "into": "main"}))
@@ -179,8 +183,8 @@ func TestRunIntegrateRunEntityBarrierGate(t *testing.T) {
 	// barrier gate (default) and the legacy terminal-state-only gate. The run-entity
 	// barrier reduces to the terminal-state check for such a run (empty in-edges →
 	// vacuously satisfied), so the same merged tree results either way.
-	barrierTree := integrateOnce(t, true)
-	legacyTree := integrateOnce(t, false)
+	barrierTree := integrateOnce(t, "barrier", true)
+	legacyTree := integrateOnce(t, "legacy", false)
 	if barrierTree != legacyTree {
 		t.Fatalf("run-entity barrier gate tree %s != legacy terminal-state-only tree %s — the P6 flip must accept exactly the runs the bare check did", barrierTree, legacyTree)
 	}
