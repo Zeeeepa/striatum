@@ -1005,6 +1005,94 @@ func TestClassifyPipeTransportRPCRung(t *testing.T) {
 	}
 }
 
+// TestClassifyPipeReadLivenessRung (RFC 0131 #350) asserts the synthetic
+// pipe-read liveness signal: a working pipe lane mid long LOCAL generation with no
+// MCP call but a fresh last_pipe_read_at reads working_local (kept out of the
+// protocol-idle stall the confidence gate would otherwise have to debounce), AND
+// the signal is forgery-resistant w.r.t. the Layer-4 escape-valve cap — a pipe
+// lane whose pipe-read stays fresh (chatter) but whose tool-call timeline has gone
+// stale is reclassified wedged_no_tool_progress (stalled), exactly like the #324
+// PTY-spinner case, so a synthetic pipe read can never defer escalation past the cap.
+func TestClassifyPipeReadLivenessRung(t *testing.T) {
+	now := time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC)
+	policy := DefaultPolicy()
+	staleProtocol := now.Add(-time.Duration(policy.ProtocolIdleSeconds+120) * time.Second)
+	staleTool := now.Add(-time.Duration(policy.ToolProgressSeconds+60) * time.Second)
+	freshRead := now.Add(-2 * time.Second)
+
+	tests := []struct {
+		name         string
+		in           Activity
+		wantProtocol string
+		wantStall    string
+	}{
+		{
+			// A working pipe lane: discovered (one old MCP request), no fresh protocol,
+			// no active lease, but a fresh pipe-read keeps it working_local rather than
+			// tripping agent_protocol_idle_stall.
+			name: "fresh pipe-read keeps a working pipe lane out of protocol-idle",
+			in: Activity{
+				SessionState:     "active",
+				Transport:        TransportPipe,
+				RegisteredAt:     at(now.Add(-30 * time.Minute)),
+				LastMCPRequestAt: at(staleProtocol),
+				LastPipeReadAt:   at(freshRead),
+			},
+			wantProtocol: ProtocolWorkingLocal,
+			wantStall:    "",
+		},
+		{
+			// FORGERY RESISTANCE: a pipe lane whose pipe-read stays fresh (chatter) but
+			// which has a recorded tool-call history that has gone stale is wedged — the
+			// #324 guard fires regardless of which local-output signal kept it fresh. So
+			// a chattering-but-hung pipe lane still reaches the gate and escalates.
+			name: "fresh pipe-read but stale tool calls classifies wedged (forgery-resistant)",
+			in: Activity{
+				SessionState:           "active",
+				Transport:              TransportPipe,
+				RegisteredAt:           at(now.Add(-4 * time.Hour)),
+				LastToolsListAt:        at(now.Add(-239 * time.Minute)),
+				LastAwaitPacketAt:      at(now.Add(-238 * time.Minute)),
+				LastPacketDeliveredAt:  at(now.Add(-237 * time.Minute)),
+				LastAckAt:              at(now.Add(-236 * time.Minute)),
+				ActiveLeaseID:          "lease_1",
+				ActiveLeaseAcquiredAt:  at(now.Add(-235 * time.Minute)),
+				ActiveLeaseHeartbeatAt: at(staleTool),
+				LastPipeReadAt:         at(freshRead),
+				LastToolCallStartedAt:  at(staleTool),
+				LastToolCallFinishedAt: at(staleTool),
+			},
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallToolProgress,
+		},
+		{
+			// A genuinely-silent pipe lane (pipe-read also stale) still stalls —
+			// dead-lane detection is preserved.
+			name: "stale pipe-read still stalls (dead-lane detection preserved)",
+			in: Activity{
+				SessionState:     "active",
+				Transport:        TransportPipe,
+				RegisteredAt:     at(now.Add(-30 * time.Minute)),
+				LastMCPRequestAt: at(staleProtocol),
+				LastPipeReadAt:   at(staleProtocol),
+			},
+			wantProtocol: ProtocolStalled,
+			wantStall:    StallProtocolIdle,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Classify(tc.in, policy, now)
+			if got.Protocol != tc.wantProtocol {
+				t.Fatalf("protocol = %q, want %q; result = %#v", got.Protocol, tc.wantProtocol, got)
+			}
+			if got.StallClass != tc.wantStall {
+				t.Fatalf("stall class = %q, want %q; result = %#v", got.StallClass, tc.wantStall, got)
+			}
+		})
+	}
+}
+
 // TestUpgradeProbeBasisConfirmedDead (RFC 0131 Layer 1) asserts the recovery
 // decision tree's basis upgrade: a deadline_elapsed_only verdict becomes
 // pty_confirmed_dead ONLY for a pty_helper lane (a pipe/unknown lane has no PTY

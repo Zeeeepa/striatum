@@ -96,6 +96,31 @@ func seedSilentPipeLaneJob(t *testing.T, ctx context.Context, runner db.Runner, 
 	return runID, jobID, sessionID
 }
 
+// seedBlockedDownstreamDependent makes the silent pipe-lane job CRITICAL-PATH for
+// the RFC 0131 #349 topology-adaptive gate: it inserts a non-terminal downstream
+// job that depends on jobID (via job_dependencies), so jobHasBlockedDownstream
+// reports true and the gate uses the tight 2-sweep escalation threshold. Without
+// it the job is a LEAF and gets the loosened (floor-cap) threshold.
+func seedBlockedDownstreamDependent(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, dependsOnJobID string) {
+	t.Helper()
+	downstreamJobID := "job_downstream_" + repoID
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.jobs (
+		  repository_id, job_id, run_id, workflow_job_id, attempt, state, role_id,
+		  title, job_type, idempotency_key, expected_artifacts_json, write_scope_json,
+		  lane_selector_json, created_at
+		) VALUES ($1,$2,$3,'gate',1,'blocked','gater','Gate','build',
+		          'idem_gate_'||$1,'[]'::jsonb,'{}'::jsonb,'{}'::jsonb, now())`,
+		repoID, downstreamJobID, runID); err != nil {
+		t.Fatalf("insert downstream dependent job: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id)
+		VALUES ($1,$2,$3)`, repoID, downstreamJobID, dependsOnJobID); err != nil {
+		t.Fatalf("insert job dependency: %v", err)
+	}
+}
+
 func gateColumns(t *testing.T, ctx context.Context, runner any, repoID, jobID string) (silentSweeps, misfire int, lastBasis string) {
 	t.Helper()
 	row, err := oneRow(ctx, runner, `
@@ -123,6 +148,11 @@ func TestConfidenceGateDebouncesThenEscalatesSilentPipeLane(t *testing.T) {
 	runner := pgtest.Pool(t).Runner
 	repoID := "repo_131c_gate_debounce"
 	runID, jobID, _ := seedSilentPipeLaneJob(t, ctx, runner, repoID, defaultMaxTransfers)
+	// RFC 0131 #349: make the job CRITICAL-PATH (a blocked downstream dependent) so
+	// it uses the tight 2-sweep escalation threshold and escalates on sweep 2 — the
+	// #311 incident shape this test pins. A leaf job would debounce longer (covered
+	// by TestTopologyAdaptiveGateDefersLeafJobPastTwoSweeps).
+	seedBlockedDownstreamDependent(t, ctx, runner, repoID, runID, jobID)
 
 	if got := runStateOf(t, ctx, runner, repoID, runID); got != "running" {
 		t.Fatalf("pre-sweep run state = %q, want running", got)
@@ -227,5 +257,92 @@ func TestConfidenceGateResetByForgeryResistantProgress(t *testing.T) {
 	// A second debounce event was written for the reset sweep (progress_reset=true).
 	if n := eventCount(t, ctx, runner, repoID, runID, "recovery.escalation_debounced"); n != 2 {
 		t.Fatalf("recovery.escalation_debounced count = %d, want 2", n)
+	}
+}
+
+// TestTopologyAdaptiveGateDefersLeafJobPastTwoSweeps is the RFC 0131 #349 contrast
+// to TestConfidenceGateDebouncesThenEscalatesSilentPipeLane: an otherwise-identical
+// silent pipe lane that is a LEAF (no blocked downstream dependent) uses the
+// generous escalation threshold (the floor cap, 7), so it stays DEBOUNCED on sweep
+// 2 where the critical-path job escalated — its prolonged silence wedges nothing
+// downstream, so the topology-adaptive gate gives it more room before flipping the
+// run to needs_operator.
+func TestTopologyAdaptiveGateDefersLeafJobPastTwoSweeps(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_131_349_leaf_defer"
+	// No seedBlockedDownstreamDependent: the job is a leaf (nothing depends on it).
+	runID, jobID, _ := seedSilentPipeLaneJob(t, ctx, runner, repoID, defaultMaxTransfers)
+
+	// Sweep 1: debounce (1 silent sweep), as for any pipe lane.
+	if _, err := SweepRun(ctx, runner, repoID, runID, ""); err != nil {
+		t.Fatalf("sweep 1: %v", err)
+	}
+	if got := runStateOf(t, ctx, runner, repoID, runID); got != "running" {
+		t.Fatalf("after sweep 1 run state = %q, want running", got)
+	}
+
+	// Sweep 2: a CRITICAL-PATH job would escalate here (two-sweep bar). A LEAF job
+	// uses the generous threshold (floor cap 7), so it stays DEBOUNCED — the run
+	// stays running and no budget_exhausted escalation fires.
+	if _, err := SweepRun(ctx, runner, repoID, runID, ""); err != nil {
+		t.Fatalf("sweep 2: %v", err)
+	}
+	if got := runStateOf(t, ctx, runner, repoID, runID); got != "running" {
+		t.Fatalf("after sweep 2 run state = %q, want running (leaf job deferred past two sweeps)", got)
+	}
+	if n := eventCount(t, ctx, runner, repoID, runID, "recovery.budget_exhausted"); n != 0 {
+		t.Fatalf("recovery.budget_exhausted count = %d, want 0 (leaf job not yet escalated)", n)
+	}
+	silent, _, _ := gateColumns(t, ctx, runner, repoID, jobID)
+	if silent != 2 {
+		t.Fatalf("after sweep 2 silent sweeps = %d, want 2 (accruing, not escalated)", silent)
+	}
+}
+
+// TestPipeReadRungKeepsWorkingPipeLaneLive is the RFC 0131 #350 end-to-end: a pipe
+// lane whose owning session has a FRESH last_pipe_read_at (the supervisor helper
+// observed meaningful pipe output) reads working_local and is NOT swept toward
+// escalation — the recovery sweep leaves it untouched. It requires owner bundle
+// 0017 (the last_pipe_read_at column on the owner-held sessions table), applied
+// here, so the classifier's pipe-read rung actually consults the column.
+func TestPipeReadRungKeepsWorkingPipeLaneLive(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+	// Owner bundle 0017 adds sessions.last_pipe_read_at (owner-held table DDL).
+	if _, _, err := db.ApplyOwnerBundles(ctx, runner, "test"); err != nil {
+		t.Fatalf("apply owner bundles: %v", err)
+	}
+	repoID := "repo_131_350_pipe_read_live"
+	runID, jobID, sessionID := seedSilentPipeLaneJob(t, ctx, runner, repoID, defaultMaxTransfers)
+
+	// Stamp a FRESH pipe-read on the otherwise-silent pipe lane: the helper just
+	// observed meaningful pipe output, so the lane is demonstrably working.
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET last_pipe_read_at = NOW() - INTERVAL '2 seconds'
+		 WHERE repository_id = $1 AND session_id = $2`, repoID, sessionID); err != nil {
+		t.Fatalf("stamp fresh pipe-read: %v", err)
+	}
+
+	if _, err := SweepRun(ctx, runner, repoID, runID, ""); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	// The lane is working_local (fresh pipe-read), so the sweep neither escalates nor
+	// debounces it: the run stays running and no gate event fires.
+	if got := runStateOf(t, ctx, runner, repoID, runID); got != "running" {
+		t.Fatalf("run state = %q, want running (working pipe lane left untouched)", got)
+	}
+	if n := eventCount(t, ctx, runner, repoID, runID, "recovery.escalation_debounced"); n != 0 {
+		t.Fatalf("recovery.escalation_debounced = %d, want 0 (a working pipe lane never reaches the gate)", n)
+	}
+	if n := eventCount(t, ctx, runner, repoID, runID, "recovery.budget_exhausted"); n != 0 {
+		t.Fatalf("recovery.budget_exhausted = %d, want 0", n)
+	}
+	// The gate confidence columns never advanced (the lane never hit the stall path).
+	silent, _, _ := gateColumns(t, ctx, runner, repoID, jobID)
+	if silent != 0 {
+		t.Fatalf("silent sweeps = %d, want 0 (working pipe lane never debounced)", silent)
 	}
 }

@@ -1,0 +1,46 @@
+-- RFC 0131 131-future (#350) — owner bundle 0017: synthetic pipe-read liveness for
+-- pipe-transport lanes.
+--
+-- striatumd.sessions is an OWNER-HELD table in the two-role posture (owned by the
+-- database owner, not the runtime role striatumd_rw). Adding a column to it is
+-- owner-table DDL the runtime role cannot perform (`must be owner of table
+-- sessions`; the RFC 0079 §5 / RFC 0081 owner-held ALTER crash-loop). The runtime
+-- guard test TestFutureRuntimeMigrationsDoNotCarryOwnerDDL (floor v27) forbids any
+-- runtime migration from ALTERing sessions, so this column lives here rather than a
+-- regular runtime migration — mirroring owner bundle 0010, which added the
+-- wedged_no_tool_progress liveness stall class to the same table.
+--
+-- last_pty_activity_at (runtime migration 0019, applied as the owner back when the
+-- floor was lower) is a pty_helper lane's local-output signal; the classifier folds
+-- it into working_local so an honestly-working local lane between MCP calls does not
+-- trip protocol_idle. A bare PIPE / agent-loop lane (agy/Gemini, no pty_helper
+-- oracle) had NO equivalent: a genuinely-working pipe lane mid long local
+-- generation produced no MCP call and no PTY-activity stamp, so it aged toward a
+-- deadline_elapsed_only stall (exactly the misclassification RFC 0131 Layer 3's
+-- confidence gate exists to debounce). This adds last_pipe_read_at, the pipe
+-- analogue: when the supervisor helper observes meaningful output from a PIPE lane
+-- (the same HelperEventProgress signal that stamps last_pty_activity_at for a PTY
+-- lane), the daemon stamps last_pipe_read_at, which the classifier folds into
+-- working_local for pipe lanes.
+--
+-- FORGERY RESISTANCE w.r.t. the Layer-4 escape-valve cap (131-C, #336): this
+-- synthetic read signal is treated EXACTLY like last_pty_activity_at — it keeps a
+-- working pipe lane out of the STALL classification, but it is RAW output, not
+-- forgery-resistant sealed-work progress. It therefore does NOT reset
+-- consecutive_silent_sweeps (which only sealed artifacts/verdicts reset) and is
+-- subject to the SAME #324 wedged_no_tool_progress guard the PTY path uses: a
+-- hung-but-chattering pipe lane with a recorded tool-call history whose tool-call
+-- timeline has gone stale past ToolProgressSeconds is reclassified
+-- wedged_no_tool_progress (stalled) even while last_pipe_read_at stays fresh, so it
+-- still reaches the confidence gate and escalates at the cap. A synthetic pipe
+-- heartbeat can defer escalation only while the lane is genuinely making tool-call
+-- progress; it can never let a hung lane defer past the cap.
+--
+-- striatumd_rw already holds table-level INSERT/UPDATE/SELECT on sessions
+-- (migration 0005), which extends to new columns, and the sessions write path is
+-- not revoked from the runtime role, so no new grant or SECURITY DEFINER function
+-- is required. Idempotent (ADD COLUMN IF NOT EXISTS), so a re-run — or applying onto
+-- a DB an operator hand-patched — is a safe no-op.
+
+ALTER TABLE striatumd.sessions
+  ADD COLUMN IF NOT EXISTS last_pipe_read_at timestamptz;

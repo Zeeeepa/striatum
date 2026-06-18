@@ -62,11 +62,13 @@ const (
 	defaultMaxQuarantinableJobs = 1
 )
 
-// silentSweepCap returns the RFC 0131 Layer 4 escape-valve cap for this policy:
-// the operator override (recovery_policy.max_silent_sweeps) when set, else the
-// RFC default (maxRequeues*2)+3. The +3 floor keeps the cap finite and useful
+// silentSweepCap returns the RFC 0131 Layer 4 escape-valve cap FLOOR for this
+// policy: the operator override (recovery_policy.max_silent_sweeps) when set, else
+// the RFC default (maxRequeues*2)+3. The +3 floor keeps the cap finite and useful
 // even when maxRequeues is 0 (a workflow that disabled requeues): a pipe lane is
-// still escalatable in bounded silent sweeps.
+// still escalatable in bounded silent sweeps. This is the FLOOR — the tightest cap
+// any job gets — applied to a critical-path job whose downstream is blocked
+// (topologyAdaptiveSilentSweepCap loosens it for a leaf job).
 func (p recoveryPolicy) silentSweepCap() int {
 	if p.maxSilentSweeps > 0 {
 		return p.maxSilentSweeps
@@ -76,6 +78,68 @@ func (p recoveryPolicy) silentSweepCap() int {
 		silentCap = 3
 	}
 	return silentCap
+}
+
+// leafSilentSweepSlack is how many EXTRA silent sweeps a leaf job (no blocked
+// downstream dependent) is granted on top of the single-cap floor (RFC 0131 #349
+// topology-adaptive cap). A leaf job's prolonged silence wedges nothing downstream,
+// so it is given generous room for a long legitimate silent generation turn before
+// the escape valve fires; a critical-path job whose downstream is blocked stays at
+// the tight floor cap (it must escalate sooner because its wedge is costly). The
+// extra room scales with the floor so a workflow with a larger requeue budget gets a
+// proportionally larger leaf allowance.
+func (p recoveryPolicy) topologyAdaptiveSilentSweepCap(downstreamBlocked bool) int {
+	floor := p.silentSweepCap()
+	if downstreamBlocked {
+		// Critical path: a blocked downstream dependent is waiting on this job, so
+		// escalate at the tight single-cap floor (the established, backward-compatible
+		// behavior — no job ever escalates SOONER than the pre-#349 single cap).
+		return floor
+	}
+	// Leaf / non-critical: nothing is blocked behind this job, so loosen the cap —
+	// double the floor — to tolerate a long legitimate silent generation turn before
+	// the escape valve fires. Still finite, so the lane remains escalatable in bounded
+	// time by construction (the never-un-escalatable invariant holds for every cap).
+	return floor * 2
+}
+
+// topologyAdaptiveEscalationThreshold returns how many CONSECUTIVE silent sweeps a
+// pipe lane must accrue before the Layer-3 bar escalates it (RFC 0131 #349). A
+// critical-path job whose downstream is blocked escalates at the tight 2-sweep
+// floor (the established, backward-compatible two-consecutive-sweep bar — no job
+// escalates SOONER than pre-#349). A leaf job whose silence wedges nothing
+// downstream is given a generous threshold (the floor cap) so a long legitimate
+// silent generation turn is tolerated before the bar fires; the loosened escape-
+// valve cap remains its absolute ceiling. The threshold is always >= 2 and is
+// clamped to <= the cap by applyConfidenceGate, so the lane is always escalatable.
+func (p recoveryPolicy) topologyAdaptiveEscalationThreshold(downstreamBlocked bool) int {
+	if downstreamBlocked {
+		return 2
+	}
+	threshold := p.silentSweepCap()
+	if threshold < 2 {
+		threshold = 2
+	}
+	return threshold
+}
+
+// jobHasBlockedDownstream reports whether any NON-TERMINAL sibling job depends on
+// this job (it is downstream of jobID via job_dependencies) — i.e. this job is on a
+// critical path whose downstream is blocked waiting for it (RFC 0131 #349). A job
+// with a blocked downstream gets the tight single-cap floor; a leaf job (no
+// dependents, or all dependents already terminal) gets the generous loosened cap.
+// A terminal dependent (completed/failed/canceled/quarantined/compromised) is no
+// longer blocked on this job, so it does not make the job critical-path.
+func jobHasBlockedDownstream(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (bool, error) {
+	return existsRow(ctx, tx, `
+		SELECT 1
+		  FROM striatumd.job_dependencies dep
+		  JOIN striatumd.jobs d
+		    ON d.repository_id = dep.repository_id AND d.job_id = dep.job_id
+		 WHERE dep.repository_id = $1
+		   AND dep.depends_on_job_id = $2
+		   AND d.state NOT IN ('completed','failed','canceled','quarantined','compromised')
+		 LIMIT 1`, repositoryID, jobID)
 }
 
 // Recovery-specific stall classifications for a confirmed-dead supervised agent.
@@ -363,7 +427,8 @@ func latestSiblingActivity(a sessionliveness.Activity) *time.Time {
 		a.LastPacketDeliveredAt, a.LastAckAt, a.LastWorkBlockAt,
 		a.LastWorkReleaseAt, a.LastWorkCompleteAt, a.LastWorkHeartbeatAt,
 		a.LastSessionReadyAt, a.LastSessionHeartbeatAt, a.LastPTYActivityAt,
-		a.LastToolCallStartedAt, a.LastToolCallFinishedAt, a.ActiveLeaseHeartbeatAt,
+		a.LastPipeReadAt, a.LastToolCallStartedAt, a.LastToolCallFinishedAt,
+		a.ActiveLeaseHeartbeatAt,
 	)
 }
 
@@ -430,24 +495,45 @@ type confidenceGateDecision struct {
 //     persist, and check the bars:
 //   - Escape-valve cap (Layer 4): consecutive_silent_sweeps >= cap => ESCALATE
 //     regardless of the confidence reduction (silence is the oracle).
-//   - Two-consecutive-sweep bar (Layer 3): the PRIOR sweep was also a
-//     deadline_elapsed_only stall (last_probe_basis == deadline_elapsed_only, i.e.
-//     this is at least the 2nd consecutive silent sweep) => ESCALATE. A single
-//     sweep never escalates a pipe lane.
+//   - Layer-3 consecutive-silent-sweep bar: the PRIOR sweep was also a
+//     deadline_elapsed_only stall (last_probe_basis == deadline_elapsed_only) AND
+//     the lane has been silent for at least `escalateThreshold` consecutive sweeps
+//     => ESCALATE. A single sweep never escalates a pipe lane (escalateThreshold is
+//     never below 2). RFC 0131 #349 makes the threshold topology-adaptive: a
+//     critical-path job (blocked downstream) escalates at the tight 2-sweep floor
+//     exactly as before; a leaf job whose silence wedges nothing downstream is given
+//     a generous threshold (the floor cap) before the bar fires — so topology
+//     governs the OBSERVABLE escalation timing, not just the rarely-reached ceiling.
 //   - Otherwise DEBOUNCE (do not escalate this sweep).
 //
 // When migration 0035 is not applied (budget.confidenceColumns == false) the gate
 // cannot persist its state, so it degrades to the pre-131-C ungated path:
 // escalate immediately. progressAdvanced folds the sealed-progress and cohort
-// signals; lastSilentBasis is whether the prior recorded basis was
-// deadline_elapsed_only.
+// signals; silentCap is the topology-adaptive Layer-4 ceiling and escalateThreshold
+// is the topology-adaptive Layer-3 bar minimum (always >= 2, always <= silentCap).
 func applyConfidenceGate(
 	ctx context.Context, tx db.TxRunner,
 	repositoryID, runID, jobID string,
 	budget jobRecoveryBudget, policy recoveryPolicy,
-	progressAdvanced bool,
+	progressAdvanced bool, escalateThreshold, silentCap int,
 ) (confidenceGateDecision, error) {
-	silentCap := policy.silentSweepCap()
+	// RFC 0131 #349: silentCap is the topology-adaptive escape-valve ceiling the
+	// caller resolved for this job (policy.silentSweepCap() floor, loosened for a
+	// leaf job); escalateThreshold is the topology-adaptive Layer-3 bar minimum (2
+	// for a critical-path job, generous for a leaf). A non-positive value (an
+	// unspecified caller, or a legacy call) falls back to the single-cap floor / the
+	// 2-sweep bar so the cap is always finite and a single sweep never escalates.
+	if silentCap <= 0 {
+		silentCap = policy.silentSweepCap()
+	}
+	if escalateThreshold < 2 {
+		escalateThreshold = 2
+	}
+	if escalateThreshold > silentCap {
+		// The Layer-3 bar can never demand more sweeps than the Layer-4 ceiling — the
+		// ceiling always fires first, keeping the lane escalatable in bounded time.
+		escalateThreshold = silentCap
+	}
 	if !budget.confidenceColumns {
 		// Degrade-safe: a deployment behind on migration 0035 cannot persist the
 		// gate state, so it falls back to today's ungated single-sweep escalation.
@@ -475,11 +561,12 @@ func applyConfidenceGate(
 		return confidenceGateDecision{escalate: true, capFired: true, silentSweeps: silent, misfireScore: misfire, silentCap: silentCap}, nil
 	}
 
-	// Layer 3 two-consecutive-sweep bar: escalation commits only after at least
-	// two consecutive deadline_elapsed_only sweeps (the prior recorded basis was
-	// also deadline_elapsed_only). A single sweep never escalates a pipe lane.
+	// Layer 3 consecutive-silent-sweep bar: escalation commits only after at least
+	// `escalateThreshold` consecutive deadline_elapsed_only sweeps (the prior
+	// recorded basis was also deadline_elapsed_only). A single sweep never escalates
+	// a pipe lane; a leaf job's threshold is generous, a critical-path job's is 2.
 	priorSilent := budget.lastProbeBasis == string(sessionliveness.ProbeBasisDeadlineElapsedOnly)
-	if priorSilent && silent >= 2 {
+	if priorSilent && silent >= escalateThreshold {
 		return confidenceGateDecision{escalate: true, silentSweeps: silent, misfireScore: misfire, silentCap: silentCap}, nil
 	}
 
@@ -556,7 +643,8 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		       s.last_work_release_at, s.last_work_complete_at, s.last_work_heartbeat_at,
 		       s.last_session_ready_at, s.last_session_heartbeat_at,
 		       s.last_session_question_at, s.last_session_escalate_at,
-		       s.last_pty_activity_at, s.last_tool_call_started_at,
+		       s.last_pty_activity_at, ` + db.SessionPipeReadProjection(ctx, tx, "s") + `,
+		       s.last_tool_call_started_at,
 		       s.last_tool_call_finished_at,
 		       s.liveness_stall_class, s.liveness_stall_since,
 		       al.lease_id AS active_lease_id, al.acquired_at AS active_lease_acquired_at,
@@ -1034,7 +1122,20 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				progressAdvanced := (hasSealed && sealedAt.After(windowStart)) ||
 					cohortHasFresherLiveness(rows, jobID, windowStart, now)
 
-				gate, gerr := applyConfidenceGate(ctx, tx, repositoryID, runID, jobID, budget, policy, progressAdvanced)
+				// RFC 0131 #349: resolve the topology-adaptive escape-valve cap. A job
+				// whose downstream dependent is still blocked (a critical path waiting on
+				// it) escalates at the tight single-cap floor; a leaf job whose silence
+				// wedges nothing downstream gets a loosened cap (more room for a long
+				// legitimate silent generation turn). The single cap stays the floor, so
+				// no job ever escalates sooner than the pre-#349 behavior.
+				downstreamBlocked, dberr := jobHasBlockedDownstream(ctx, tx, repositoryID, jobID)
+				if dberr != nil {
+					return nil, dberr
+				}
+				silentCap := policy.topologyAdaptiveSilentSweepCap(downstreamBlocked)
+				escalateThreshold := policy.topologyAdaptiveEscalationThreshold(downstreamBlocked)
+
+				gate, gerr := applyConfidenceGate(ctx, tx, repositoryID, runID, jobID, budget, policy, progressAdvanced, escalateThreshold, silentCap)
 				if gerr != nil {
 					return nil, gerr
 				}

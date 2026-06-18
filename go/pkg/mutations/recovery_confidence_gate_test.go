@@ -63,6 +63,45 @@ func TestSilentSweepCapDefault(t *testing.T) {
 	}
 }
 
+// TestTopologyAdaptiveSilentSweepCap asserts the RFC 0131 #349 topology-adaptive
+// escape-valve cap: a critical-path job whose downstream is blocked escalates at
+// the tight single-cap FLOOR (no regression vs the pre-#349 single cap), while a
+// leaf job whose silence wedges nothing downstream gets a loosened (doubled) cap —
+// yet the cap stays finite in both cases, so the never-un-escalatable invariant
+// (Goal 3) holds for every topology. An operator max_silent_sweeps override is the
+// floor for the critical-path case and is still loosened for a leaf.
+func TestTopologyAdaptiveSilentSweepCap(t *testing.T) {
+	cases := []struct {
+		name              string
+		policy            recoveryPolicy
+		downstreamBlocked bool
+		want              int
+	}{
+		// Default cap floor = (2*2)+3 = 7.
+		{"critical-path job escalates at the single-cap floor", recoveryPolicy{maxRequeues: 2}, true, 7},
+		{"leaf job gets the loosened (doubled) cap", recoveryPolicy{maxRequeues: 2}, false, 14},
+		// Requeues disabled: floor = 3.
+		{"critical-path at the +3 floor", recoveryPolicy{maxRequeues: 0}, true, 3},
+		{"leaf doubles the +3 floor", recoveryPolicy{maxRequeues: 0}, false, 6},
+		// Operator override floor.
+		{"critical-path honors the operator override floor", recoveryPolicy{maxRequeues: 2, maxSilentSweeps: 4}, true, 4},
+		{"leaf doubles the operator override", recoveryPolicy{maxRequeues: 2, maxSilentSweeps: 4}, false, 8},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.policy.topologyAdaptiveSilentSweepCap(tc.downstreamBlocked)
+			if got != tc.want {
+				t.Fatalf("topologyAdaptiveSilentSweepCap(%v) = %d, want %d", tc.downstreamBlocked, got, tc.want)
+			}
+			// The single cap is always the FLOOR — no topology ever escalates sooner
+			// than the pre-#349 single cap.
+			if got < tc.policy.silentSweepCap() {
+				t.Fatalf("adaptive cap %d undercut the single-cap floor %d", got, tc.policy.silentSweepCap())
+			}
+		})
+	}
+}
+
 // TestApplyConfidenceGate exercises the RFC 0131 Layer 3/4 gate decision matrix
 // directly: a single deadline_elapsed_only sweep never escalates a pipe lane;
 // forgery-resistant progress resets and defers; the second consecutive silent
@@ -76,7 +115,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 	t.Run("first silent sweep debounces (single sweep never escalates a pipe lane)", func(t *testing.T) {
 		tx := &confidenceGateTx{}
 		budget := jobRecoveryBudget{confidenceColumns: true} // no prior basis, 0 sweeps
-		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false)
+		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false, 2, policy.silentSweepCap())
 		if err != nil {
 			t.Fatalf("applyConfidenceGate: %v", err)
 		}
@@ -100,7 +139,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 			misfireEvidenceScore:    5,
 			lastProbeBasis:          deadlineBasis,
 		}
-		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, true /* progress advanced */)
+		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, true /* progress advanced */, 2, policy.silentSweepCap())
 		if err != nil {
 			t.Fatalf("applyConfidenceGate: %v", err)
 		}
@@ -121,7 +160,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 			misfireEvidenceScore:    1,
 			lastProbeBasis:          deadlineBasis,
 		}
-		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false)
+		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false, 2, policy.silentSweepCap())
 		if err != nil {
 			t.Fatalf("applyConfidenceGate: %v", err)
 		}
@@ -146,7 +185,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 			misfireEvidenceScore:    999,
 			lastProbeBasis:          deadlineBasis,
 		}
-		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false)
+		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false, 2, policy.silentSweepCap())
 		if err != nil {
 			t.Fatalf("applyConfidenceGate: %v", err)
 		}
@@ -161,7 +200,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 	t.Run("deployment behind on migration 0035 degrades to ungated escalation", func(t *testing.T) {
 		tx := &confidenceGateTx{}
 		budget := jobRecoveryBudget{confidenceColumns: false} // 0035 not applied
-		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false)
+		got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false, 2, policy.silentSweepCap())
 		if err != nil {
 			t.Fatalf("applyConfidenceGate: %v", err)
 		}
@@ -182,7 +221,7 @@ func TestApplyConfidenceGate(t *testing.T) {
 		escalatedAt := 0
 		for sweep := 1; sweep <= silentCap+2; sweep++ {
 			tx := &confidenceGateTx{}
-			got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false)
+			got, err := applyConfidenceGate(ctx, tx, "repo", "run", "job", budget, policy, false, 2, policy.silentSweepCap())
 			if err != nil {
 				t.Fatalf("sweep %d: %v", sweep, err)
 			}

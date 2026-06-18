@@ -324,6 +324,125 @@ func TestSuperviseReportMeaningfulProgressWithoutLeaseUpdatesLivenessOnly(t *tes
 	}
 }
 
+// TestSuperviseReportPipeLaneStampsPipeRead asserts the RFC 0131 #350 synthetic
+// pipe-read signal: a meaningful progress event for a PIPE-transport lane (its
+// supervisor pointer metadata records transport=pipe) stamps last_pipe_read_at —
+// the pipe analogue of last_pty_activity_at — rather than last_pty_activity_at, so
+// a genuinely-working pipe lane reads working_local during long local work. A
+// pty_helper lane still stamps last_pty_activity_at (unchanged).
+func TestSuperviseReportPipeLaneStampsPipeRead(t *testing.T) {
+	t.Run("pipe lane stamps last_pipe_read_at", func(t *testing.T) {
+		tx := &superviseReportFakeTx{
+			supervisor: supervisorReportRow{
+				SupervisorID: "sup_pipe",
+				RunID:        "run_1",
+				SessionID:    "sess_pipe",
+				State:        "attached",
+				Metadata:     map[string]any{"transport": "pipe"},
+			},
+			activeLeaseID:       "lease_1",
+			activeLeaseResource: "job_1",
+		}
+		runner := &superviseReportFakeRunner{tx: tx}
+		_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			RequestID:     "req_pipe_progress",
+			Method:        "supervise.report",
+			Params: map[string]any{
+				"repository_id": "repo_1",
+				"supervisor_id": "sup_pipe",
+				"session_id":    "sess_pipe",
+				"event_type":    "progress",
+				"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("HandleSuperviseReport: %v", err)
+		}
+		if !tx.sawExec("UPDATE striatumd.sessions", "last_pipe_read_at") {
+			t.Fatalf("pipe lane meaningful progress must stamp last_pipe_read_at: %#v", tx.execs)
+		}
+		if tx.sawExec("UPDATE striatumd.sessions", "last_pty_activity_at") {
+			t.Fatalf("a pipe lane must NOT stamp last_pty_activity_at: %#v", tx.execs)
+		}
+	})
+
+	t.Run("pty_helper lane still stamps last_pty_activity_at", func(t *testing.T) {
+		tx := &superviseReportFakeTx{
+			supervisor: supervisorReportRow{
+				SupervisorID: "sup_pty",
+				RunID:        "run_1",
+				SessionID:    "sess_pty",
+				State:        "attached",
+				Metadata:     map[string]any{"transport": "pty_helper"},
+			},
+			activeLeaseID:       "lease_2",
+			activeLeaseResource: "job_2",
+		}
+		runner := &superviseReportFakeRunner{tx: tx}
+		_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			RequestID:     "req_pty_progress",
+			Method:        "supervise.report",
+			Params: map[string]any{
+				"repository_id": "repo_1",
+				"supervisor_id": "sup_pty",
+				"session_id":    "sess_pty",
+				"event_type":    "progress",
+				"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("HandleSuperviseReport: %v", err)
+		}
+		if !tx.sawExec("UPDATE striatumd.sessions", "last_pty_activity_at") {
+			t.Fatalf("pty_helper lane meaningful progress must stamp last_pty_activity_at: %#v", tx.execs)
+		}
+		if tx.sawExec("UPDATE striatumd.sessions", "last_pipe_read_at") {
+			t.Fatalf("a pty_helper lane must NOT stamp last_pipe_read_at: %#v", tx.execs)
+		}
+	})
+
+	t.Run("pipe lane behind owner bundle 0017 degrades to last_pty_activity_at", func(t *testing.T) {
+		tx := &superviseReportFakeTx{
+			supervisor: supervisorReportRow{
+				SupervisorID: "sup_pipe_legacy",
+				RunID:        "run_1",
+				SessionID:    "sess_pipe_legacy",
+				State:        "attached",
+				Metadata:     map[string]any{"transport": "pipe"},
+			},
+			activeLeaseID:        "lease_3",
+			activeLeaseResource:  "job_3",
+			pipeReadColumnAbsent: true, // simulate a daemon behind owner bundle 0017
+		}
+		runner := &superviseReportFakeRunner{tx: tx}
+		_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+			SchemaVersion: rpc.SupportedEnvelopeVersion,
+			RequestID:     "req_pipe_legacy",
+			Method:        "supervise.report",
+			Params: map[string]any{
+				"repository_id": "repo_1",
+				"supervisor_id": "sup_pipe_legacy",
+				"session_id":    "sess_pipe_legacy",
+				"event_type":    "progress",
+				"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+			},
+		})
+		if err != nil {
+			t.Fatalf("HandleSuperviseReport: %v", err)
+		}
+		// Degrade-safe: no last_pipe_read_at column, so the pipe lane's output is
+		// recorded under the established last_pty_activity_at column instead.
+		if !tx.sawExec("UPDATE striatumd.sessions", "last_pty_activity_at") {
+			t.Fatalf("pipe lane behind the bundle must fall back to last_pty_activity_at: %#v", tx.execs)
+		}
+		if tx.sawExec("UPDATE striatumd.sessions", "last_pipe_read_at") {
+			t.Fatalf("a daemon behind owner bundle 0017 must NOT stamp last_pipe_read_at: %#v", tx.execs)
+		}
+	})
+}
+
 func TestSuperviseReportRecordsAttachClientExitAsDetached(t *testing.T) {
 	tx := &superviseReportFakeTx{
 		supervisor: supervisorReportRow{
@@ -706,6 +825,10 @@ type superviseReportFakeTx struct {
 	execs               []superviseReportExec
 	committed           bool
 	rolledBack          bool
+	// pipeReadColumnAbsent simulates a daemon behind owner bundle 0017 (RFC 0131
+	// #350): the last_pipe_read_at column-present probe returns false, so a pipe
+	// lane degrades to stamping last_pty_activity_at.
+	pipeReadColumnAbsent bool
 }
 
 type superviseReportExec struct {
@@ -758,7 +881,17 @@ func (tx *superviseReportFakeTx) QueryRow(_ context.Context, sql string, _ ...an
 	}
 }
 
-func (tx *superviseReportFakeTx) QueryScalar(context.Context, string, ...any) (string, error) {
+func (tx *superviseReportFakeTx) QueryScalar(_ context.Context, sql string, _ ...any) (string, error) {
+	// RFC 0131 #350: the pipe-read stamp probes for the last_pipe_read_at column
+	// (owner bundle 0017). The fake reports it present (true) so the pipe-transport
+	// path is exercised; pipeReadColumnAbsent flips it to simulate a daemon behind
+	// the bundle (degrade-safe fallback to last_pty_activity_at).
+	if strings.Contains(sql, "last_pipe_read_at") {
+		if tx.pipeReadColumnAbsent {
+			return "false", nil
+		}
+		return "true", nil
+	}
 	return "", errors.New("unexpected query scalar")
 }
 
