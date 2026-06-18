@@ -62,6 +62,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Inspect the problems and manifest in the verify result; recover the assembly through the daemon (do not hand-finish), then re-run `striatum join verify <barrier-id>`.",
 	},
 	{
+		Code:       "barrier_smuggled_content",
+		Meaning:    "A fan-in staging contribution descends from the frozen base by ancestry but smuggles content into the join (RFC 0133 Risks / #352): a merge commit in its chain grafts an off-base side branch, or the frozen tip's tree no longer matches the sealed frozen_tip_tree_sha. Ancestry alone cannot see imported content; the per-commit tree-provenance check refused it.",
+		Suggestion: "Re-author the contribution linearly on top of the frozen base (no merge of an off-base branch) and re-stage; if the frozen tip's tree was re-pointed, the run is exposing a corrupted base — recover it through the daemon, do not hand-finish.",
+	},
+	{
 		Code:       "blob_apply_required",
 		Meaning:    "The blob bucket does not exist and creation was not authorized.",
 		Suggestion: "Re-run `striatum repo add <path> --apply-blob-creation` to create the bucket.",

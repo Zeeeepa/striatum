@@ -12,6 +12,7 @@ import (
 
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // seedFaninSeatJob inserts a jobs row for one fan-in seat at a given attempt and
@@ -329,6 +330,170 @@ func TestFaninBarrierSameFinalTreeAsPerCompletion(t *testing.T) {
 			t.Fatalf("manifest in-edge %s should be staged_live at seal 1, got %+v", e.EntityID, e)
 		}
 	}
+}
+
+// TestFaninStagingRefusesSmuggledContent is the RFC 0133 Risks / #352 fence: the
+// merge-base ancestry check (gitIsAncestor(frozen, staged)) proves the staged commit
+// DESCENDS from the frozen tip, but a staged ref of `frozen_tip + linear commits`
+// passes it even when an intermediate MERGE commit grafts in content the sibling
+// never authored off the frozen base. The per-commit tree-provenance check
+// (assertContributionTreeProvenance) closes that smuggled-content hole: a
+// contribution whose chain pulls in an off-base lineage is REFUSED with
+// barrier_smuggled_content, while a clean linear contribution still passes.
+func TestFaninStagingRefusesSmuggledContent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	root := t.TempDir()
+	base := gitInit(t, root) // the frozen tip
+	baseTree := gitRevParse(t, root, base+"^{tree}")
+
+	repoID := "repo_barrier_smuggle"
+	runID := "run_barrier_smuggle"
+	barrierID := "barrier_smuggle"
+	cleanSeat := "author_clean"
+	smuggleSeat := "author_smuggle"
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{"workflow_id": "wf"})
+	seedFaninSeatJob(t, ctx, runner, repoID, runID, "job_clean", cleanSeat, "completed", 1)
+	seedFaninSeatJob(t, ctx, runner, repoID, runID, "job_smuggle", smuggleSeat, "completed", 1)
+
+	tx := beginBarrierTx(t, ctx, pool)
+	// Freeze the barrier over the real frozen tip AND its sealed tree sha, so the
+	// per-commit tree-provenance check has its trusted tree anchor.
+	if err := recordFaninFreezePoint(ctx, tx, repoID, faninFreezePoint{
+		BarrierID:               barrierID,
+		RunID:                   runID,
+		DownstreamWorkflowJobID: "synth",
+		FrozenTipSHA:            base,
+		FrozenTipTreeSHA:        baseTree,
+		DeclaredSiblingJobIDs:   []string{cleanSeat, smuggleSeat},
+	}); err != nil {
+		t.Fatalf("record freeze point: %v", err)
+	}
+
+	// --- Clean case: a linear contribution authored on top of the frozen tip. ---
+	cleanHead := commitSiblingOffBase(t, root, base, "docs/clean.txt", "clean\n")
+	if _, err := stageFaninContribution(ctx, tx, root, repoID, barrierID, runID, cleanSeat, "job_clean", cleanHead, 1); err != nil {
+		t.Fatalf("clean linear contribution must pass tree-provenance: %v", err)
+	}
+
+	// --- Smuggled case: a commit that DESCENDS from the frozen tip (so it passes the
+	// merge-base ancestry check) but folds in an off-base side lineage via a merge,
+	// smuggling content the sibling never authored off the frozen base. ---
+	// (a) c1: a clean commit off the frozen tip (so the merge descends from frozen).
+	c1 := commitOnTop(t, root, base, "docs/smuggle.txt", "legit\n", "c1 off frozen")
+	// (b) offBase: an INDEPENDENT root commit — a foreign lineage that never
+	//     descended from the frozen tip (the "evolved-tip / cherry-picked" content).
+	//     A top-level path keeps the flat `git mktree` spec valid (no nested tree).
+	offBase := commitDetachedRoot(t, root, "smuggled_evil.txt", "smuggled\n", "off-base root")
+	// (c) merge c1 + offBase. The merge descends from the frozen tip via c1, so
+	//     gitIsAncestor(frozen, merge) is TRUE — the ancestry check is satisfied — but
+	//     its tree now contains the smuggled off-base content.
+	smuggleHead := commitMerge(t, root, c1, offBase, "merge: smuggle off-base content")
+
+	// Sanity: the smuggled head really does pass the ancestry check the old code
+	// relied on, so this test exercises the gap the new check closes.
+	if ok, err := gitIsAncestor(ctx, root, base, smuggleHead); err != nil || !ok {
+		t.Fatalf("precondition: smuggled head must descend from frozen tip (ancestry must pass): ok=%v err=%v", ok, err)
+	}
+
+	_, err := stageFaninContribution(ctx, tx, root, repoID, barrierID, runID, smuggleSeat, "job_smuggle", smuggleHead, 1)
+	if err == nil {
+		t.Fatal("smuggled-content contribution (off-base merge) must be REFUSED by the per-commit tree-provenance check")
+	}
+	rpcErr, ok := err.(*rpc.Error)
+	if !ok {
+		t.Fatalf("smuggled-content refusal must be an *rpc.Error, got %T: %v", err, err)
+	}
+	if rpcErr.Code != "barrier_smuggled_content" {
+		t.Fatalf("smuggled-content refusal must carry code barrier_smuggled_content, got %q (err: %v)", rpcErr.Code, err)
+	}
+	_ = tx.Rollback(ctx)
+}
+
+// commitOnTop commits path=content on top of parent (a single-parent commit) and
+// returns the new commit sha, without touching any branch ref.
+func commitOnTop(t *testing.T, repoRoot, parent, path, content, msg string) string {
+	t.Helper()
+	wt := filepath.Join(repoRoot, ".striatum", "worktrees", "wt_ontop_"+strings.ReplaceAll(path, "/", "_"))
+	gitRun(t, repoRoot, "worktree", "add", "--detach", wt, parent)
+	full := filepath.Join(wt, filepath.FromSlash(path))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir for %s: %v", full, err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", full, err)
+	}
+	gitRun(t, wt, "add", path)
+	gitRun(t, wt, "commit", "-q", "-m", msg)
+	head := gitRevParse(t, wt, "HEAD")
+	gitRun(t, repoRoot, "worktree", "remove", "--force", wt)
+	return head
+}
+
+// commitDetachedRoot creates an INDEPENDENT root commit (no parent, an orphan
+// lineage that does not descend from any existing commit) carrying a single file at
+// path=content, via git plumbing, and returns its sha. This is the "foreign /
+// off-base" content a smuggling merge folds into an otherwise-linear chain. Using
+// plumbing (hash-object / mktree / commit-tree) avoids orphan-worktree fragility.
+func commitDetachedRoot(t *testing.T, repoRoot, path, content, msg string) string {
+	t.Helper()
+	// Write the blob via a temp file (gitRun does not pipe stdin).
+	tmp := filepath.Join(t.TempDir(), "blob")
+	if err := os.WriteFile(tmp, []byte(content), 0o644); err != nil {
+		t.Fatalf("write blob temp: %v", err)
+	}
+	blob := gitRun(t, repoRoot, "hash-object", "-w", tmp)
+	treeSpec := fmt.Sprintf("100644 blob %s\t%s\n", blob, path)
+	tmpTree := filepath.Join(t.TempDir(), "treespec")
+	if err := os.WriteFile(tmpTree, []byte(treeSpec), 0o644); err != nil {
+		t.Fatalf("write tree spec: %v", err)
+	}
+	tree := mktreeFromFile(t, repoRoot, tmpTree)
+	return gitRun(t, repoRoot, "commit-tree", tree, "-m", msg)
+}
+
+// mktreeFromFile runs `git mktree` reading the tree spec from a file (gitRun does
+// not pipe stdin), returning the written tree oid.
+func mktreeFromFile(t *testing.T, repoRoot, specPath string) string {
+	t.Helper()
+	spec, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("read tree spec: %v", err)
+	}
+	cmd := exec.Command("git", "mktree")
+	cmd.Dir = repoRoot
+	cmd.Stdin = strings.NewReader(string(spec))
+	cmd.Env = append(os.Environ(),
+		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git mktree: %v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// commitMerge creates a merge commit with parents p1 (first parent) and p2, using
+// a detached worktree off p1, and returns the merge commit sha. The resulting commit
+// descends from p1 (and thus from anything p1 descends from) while folding p2's
+// content into its tree — the smuggling shape.
+func commitMerge(t *testing.T, repoRoot, p1, p2, msg string) string {
+	t.Helper()
+	wt := filepath.Join(repoRoot, ".striatum", "worktrees", "wt_merge")
+	gitRun(t, repoRoot, "worktree", "add", "--detach", wt, p1)
+	// Allow unrelated histories so the orphan off-base lineage can be merged in.
+	gitRun(t, wt, "merge", "--no-ff", "--no-edit", "--allow-unrelated-histories", "-m", msg, p2)
+	head := gitRevParse(t, wt, "HEAD")
+	gitRun(t, repoRoot, "worktree", "remove", "--force", wt)
+	return head
 }
 
 // beginBarrierTx opens a real transaction runner for the barrier helpers (which
