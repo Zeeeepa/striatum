@@ -262,6 +262,113 @@ func escalateExhaustedJobs(ctx context.Context, tx db.TxRunner, repositoryID, ru
 	return raised, nil
 }
 
+// redispatchRecoveryExhaustedJob is the #388 fix, invoked by escalation.resolve
+// (via reads.RecoveryExhaustedRedispatchHook) when an operator resolves a
+// recovery_exhausted escalation. The repro: an agent_exited_unsealed job ran out
+// of requeue budget, the daemon escalated recovery_exhausted, the driver exited,
+// and after `escalation resolve` the job was left in 'running' with a dead session
+// and a SPENT budget — so retry-job rejected the running state, complete-stalled
+// had nothing durable, and the re-armed sweep simply re-escalated (the budget was
+// never reset). A permanent wedge that doctor never flagged.
+//
+// This resets a sessionless running/claimed/stale_lease job back to queued
+// (releasing its lease and re-pending its work message via requeueJobSameAttempt)
+// AND clears its job_recovery_state — escalation_pending=false, requeue_count=0,
+// transfer_count=0, respawn_count=0, run_escalated_at=NULL — so the re-armed run /
+// next sweep re-dispatches it with a FRESH budget instead of re-escalating. It is
+// a guarded no-op (returns false) when the job:
+//   - already completed / was quarantined / is otherwise terminal (nothing to
+//     re-dispatch), or
+//   - still has a LIVE owning session (active lease + active session) — the lane
+//     is alive, so escalation.resolve must not yank the job out from under it.
+//
+// Returns whether it actually re-dispatched the job so the caller can suppress
+// the run-completion re-drive (the run now has a live queued job to finish).
+func redispatchRecoveryExhaustedJob(ctx context.Context, tx db.TxRunner, repositoryID, runID, jobID string) (bool, error) {
+	job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", jobID, true)
+	if err != nil {
+		if isNoRows(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	state := fmt.Sprint(job["state"])
+	switch state {
+	case "running", "claimed", "stale_lease":
+		// re-dispatchable states
+	default:
+		// queued (already re-dispatched), waiting_human/blocked (a human gate),
+		// completed/failed/canceled/quarantined (terminal): leave untouched.
+		return false, nil
+	}
+
+	// Refuse to yank a job out from under a genuinely-live lane: an active lease
+	// whose owning session is still active means the lane is alive (mirrors the
+	// complete-stalled liveness guard). A spent-budget wedge has a DEAD session, so
+	// this only blocks the harmless case.
+	if leaseID := nullable(job["current_lease_id"]); leaseID != nil {
+		live, err := existsRow(ctx, tx, `
+			SELECT 1
+			  FROM striatumd.leases l
+			  JOIN striatumd.sessions s
+			    ON s.repository_id = l.repository_id
+			   AND s.session_id = l.owner_session_id
+			 WHERE l.repository_id = $1 AND l.lease_id = $2
+			   AND l.state = 'active' AND l.expires_at > $3::timestamptz
+			   AND s.state = 'active'
+			 LIMIT 1`, repositoryID, leaseID, nowString())
+		if err != nil {
+			return false, err
+		}
+		if live {
+			return false, nil
+		}
+	}
+
+	// Reset the job to queued + re-pend its work message on the SAME attempt. The
+	// repo-write override matches the autonomous recovery decision tree: the
+	// operator's explicit escalation resolve IS the inspection D036 requires.
+	opts := requeueSameAttemptOptions{
+		author:        recoveryDecisionAuthor,
+		justification: "escalation resolve (#388): re-dispatched budget-exhausted sessionless job with a fresh recovery budget",
+	}
+	if isRepoWrite(job) {
+		opts.operatorOverride = true
+	}
+	if _, err := requeueJobSameAttempt(ctx, tx, repositoryID, job, opts); err != nil {
+		return false, err
+	}
+
+	// Clear the recovery budget so the re-armed run/sweep re-dispatches with a
+	// fresh budget instead of immediately re-escalating. Resetting run_escalated_at
+	// to NULL lets a genuinely-recurring stall re-escalate later (after a fresh full
+	// budget), rather than being silently swallowed.
+	now := nowString()
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.job_recovery_state
+		   SET escalation_pending = false,
+		       escalated_at = NULL,
+		       run_escalated_at = NULL,
+		       requeue_count = 0,
+		       transfer_count = 0,
+		       respawn_count = 0,
+		       last_recovery_action = 'escalation_resolved_redispatch',
+		       last_recovery_at = $3,
+		       updated_at = $3
+		 WHERE repository_id = $1 AND job_id = $2`, repositoryID, jobID, now); err != nil {
+		return false, err
+	}
+
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "recovery.redispatched_after_escalation_resolve", nil, jobID, nil, nil, nil, map[string]any{
+		"job_id":     jobID,
+		"from_state": state,
+		"reason":     "recovery_exhausted_resolved",
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // jobQuarantineStatePermitted reports whether the live striatumd.jobs
 // jobs_state_check CHECK constraint permits the 'quarantined' state — i.e. owner
 // bundle 0012 has been applied (#311 P0). It probes pg_get_constraintdef rather
@@ -590,13 +697,21 @@ func suggestedOperatorActions(stallClass string) []any {
 	if stallClass == stallClassAgentExitedUnsealed {
 		return []any{
 			"inspect the per-job worktree / published artifacts: the agent emitted output but exited before work.complete, so the work may be complete-but-unsealed",
-			"re-drive the run to respawn the lane so it can re-author and seal (work.complete) the deliverable",
-			"capture the worktree diff if the deliverable is already present, then cancel the run",
+			// #388: `escalation resolve` now re-dispatches a sessionless, budget-
+			// exhausted job back to queued with a fresh recovery budget, so a fresh
+			// lane re-authors and seals it. (The old "re-drive the run to respawn the
+			// lane" guidance did NOT work from the running+spent-budget state.)
+			"if the deliverable is NOT durably present: `escalation resolve <id>` to re-dispatch the job with a fresh recovery budget, then let the run drive a fresh lane to re-author and seal (work.complete)",
+			"if the deliverable IS already durable on the run branch: `recovery complete-stalled --job-id <job>` to finalize from the published artifact",
+			"otherwise capture the worktree diff and `run cancel`",
 		}
 	}
 	return []any{
 		"re-prepare with corrected write_scope",
 		"transfer to a fresh session (session close --requeue-job / recovery requeue-stale --force)",
+		// #388: for a sessionless budget-exhausted job, `escalation resolve` resets
+		// it to queued with a fresh budget so the run re-dispatches it.
+		"`escalation resolve <id>` to re-dispatch a sessionless budget-exhausted job with a fresh recovery budget",
 		"cancel the run",
 	}
 }

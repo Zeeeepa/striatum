@@ -496,19 +496,39 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 					}
 					ownerClosed = closed
 				}
+				// #373A: clear any open NON-escalation autonomous blocker so the
+				// reopened attempt can proceed (same selection as the requeue path).
+				blockersResolved, brerr := resolveDanglingAutonomousBlockersOnRequeue(ctx, tx, repositoryID, runID, jobID, sessionID, nowString())
+				if brerr != nil {
+					return nil, brerr
+				}
 				actions = append(actions, map[string]any{
-					"workflow_job_id":       workflowJobID,
-					"job_id":                jobID,
-					"action":                "reopen_fresh_attempt_stale_artifact",
-					"stall_class":           stallClassAgentExitedUnsealed,
-					"from_attempt":          fromAttempt,
-					"to_attempt":            toAttempt,
-					"acted":                 true,
-					"stalled_owner_closed":  ownerClosed,
-					"stalled_owner_session": nullable(sessionID),
+					"workflow_job_id":            workflowJobID,
+					"job_id":                     jobID,
+					"action":                     "reopen_fresh_attempt_stale_artifact",
+					"stall_class":                stallClassAgentExitedUnsealed,
+					"from_attempt":               fromAttempt,
+					"to_attempt":                 toAttempt,
+					"acted":                      true,
+					"stalled_owner_closed":       ownerClosed,
+					"stalled_owner_session":      nullable(sessionID),
+					"dangling_blockers_resolved": blockersResolved,
 				})
 				continue
 			}
+		}
+
+		// #373B guardrail: a still-active session in the ProtocolAttention posture
+		// (agent_escalation_pending) is presumed "awaiting human" — but ONLY when a
+		// genuine human-attention blocker was actually raised. session.escalate stamps
+		// last_session_escalate_at (driving ProtocolAttention) WITHOUT necessarily
+		// raising a human_checkpoint/escalation-class blocker, so an attention session
+		// with no such blocker is a dead/parked lane wedging the run forever. We probe
+		// the open-blocker frontier per-job so the reap path below leaves a real
+		// human gate for the operator and only reaps the false-attention wedge.
+		hasHumanAttention, haerr := jobHasOpenHumanAttentionBlocker(ctx, tx, repositoryID, jobID)
+		if haerr != nil {
+			return nil, haerr
 		}
 
 		// Decide the operational recovery action.
@@ -525,7 +545,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// closed/absent session is sessionDead and never broadens into CASE 2).
 			action = "requeue_same_attempt"
 			counterColumn = "requeue_count"
-		case !sessionDead && protocol == sessionliveness.ProtocolStalled && !confirmedDead():
+		case !sessionDead && protocol == sessionliveness.ProtocolStalled && !hasHumanAttention && !confirmedDead():
 			// CASE 2 (RFC 0101 Phase 3 Slice 2b, #121 parked agent): the owning
 			// session is still present and state='active' but HONESTLY stalled — and
 			// its supervised agent PROCESS is NOT confirmed dead. The confirmed-dead
@@ -549,6 +569,27 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// safe; forceExpire stays true as belt-and-suspenders. Because the
 			// session never closed itself, also close the superseded stalled owner
 			// below so the parked lane cannot wake up to double-work or reclaim.
+			action = "transfer_requeue"
+			counterColumn = "transfer_count"
+			forceExpire = true
+			closeStalledOwner = true
+		case !sessionDead && protocol == sessionliveness.ProtocolAttention &&
+			leaseClearedOrGone && !leaseStaleActive(row) && !hasHumanAttention && !confirmedDead():
+			// CASE 2b (#373B no-lease attention reap): the owning session is still
+			// state='active' and in the ProtocolAttention posture
+			// (agent_escalation_pending) past its deadline, holds NO active lease, has
+			// NO genuine open human-attention blocker (the guardrail above), and its
+			// supervised agent PROCESS is not confirmed dead (indeterminate). The repro
+			// (#373) is a relaunched codex lane that posted session.escalate but never
+			// raised a human_checkpoint, then froze: the job sat behind a dead-but-
+			// active session forever, healed only by a manual `session close`. This is
+			// exactly what CASE 2 does for the protocol-idle stall — reap (close) the
+			// stalled owner and transfer the attempt to a fresh lane — so we treat the
+			// no-blocker attention session identically. The hasHumanAttention guard
+			// (an open human_checkpoint / escalation-class blocker) keeps a REAL human
+			// gate untouched: it falls through to default and, absent a confirmed-dead
+			// probe, is left for the operator. Restricted to no_lease so an attention
+			// session that still holds a live lease is never reaped mid-gate.
 			action = "transfer_requeue"
 			counterColumn = "transfer_count"
 			forceExpire = true
@@ -689,10 +730,22 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			}
 			ownerClosed = closed
 		}
-		if res.alreadyReclaimable && !ownerClosed {
+		// #373A: a requeue/transfer must also clear the job's open NON-escalation
+		// autonomous blockers (e.g. an agent-raised branch_contamination), or the
+		// requeued attempt cannot proceed behind its own dangling blocker. Reuses the
+		// EXACT #304 completion-time selection so a genuine human-attention blocker
+		// (human_checkpoint / waiting_human / any escalation-class kind, including a
+		// recovery_exhausted escalation) is NEVER auto-resolved here. Done even on the
+		// already_reclaimable path: a prior sweep may have requeued the message while
+		// leaving the blocker open, and a still-open blocker is exactly the wedge.
+		blockersResolved, brerr := resolveDanglingAutonomousBlockersOnRequeue(ctx, tx, repositoryID, runID, jobID, sessionID, nowString())
+		if brerr != nil {
+			return nil, brerr
+		}
+		if res.alreadyReclaimable && !ownerClosed && blockersResolved == 0 {
 			// Convergent no-op: the job was already queued+pending (a prior sweep
-			// requeued it) and there was no live owning session to close. Do NOT
-			// increment the budget; just note it.
+			// requeued it), there was no live owning session to close, and no dangling
+			// blocker to clear. Do NOT increment the budget; just note it.
 			actions = append(actions, map[string]any{
 				"workflow_job_id": workflowJobID,
 				"job_id":          jobID,
@@ -706,20 +759,46 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			return nil, err
 		}
 		actions = append(actions, map[string]any{
-			"workflow_job_id":       workflowJobID,
-			"job_id":                jobID,
-			"action":                action,
-			"budget":                counterColumn,
-			"count":                 current + 1,
-			"limit":                 limit,
-			"repo_write":            repoWrite,
-			"stall_class":           stallClass,
-			"acted":                 true,
-			"stalled_owner_closed":  ownerClosed,
-			"stalled_owner_session": nullable(sessionID),
+			"workflow_job_id":            workflowJobID,
+			"job_id":                     jobID,
+			"action":                     action,
+			"budget":                     counterColumn,
+			"count":                      current + 1,
+			"limit":                      limit,
+			"repo_write":                 repoWrite,
+			"stall_class":                stallClass,
+			"acted":                      true,
+			"stalled_owner_closed":       ownerClosed,
+			"stalled_owner_session":      nullable(sessionID),
+			"dangling_blockers_resolved": blockersResolved,
 		})
 	}
 	return actions, nil
+}
+
+// jobHasOpenHumanAttentionBlocker reports whether the job has ANY open blocker
+// that genuinely requires a human (#373B guardrail). This is the precise inverse
+// of the autonomous-blocker set: a human_checkpoint (its job sits waiting_human)
+// or any escalation-class kind (ambiguous_goal, missing_authority,
+// recovery_exhausted, etc., per isEscalationClassBlocker) must keep the job for
+// the operator and must NEVER be reaped by recovery. It is evaluated per-job on
+// the open-blocker frontier so a session that posted session.escalate AND raised
+// a real human_checkpoint is protected, while one that merely went attention with
+// NO genuine human blocker (the #373B wedge) is reapable.
+func jobHasOpenHumanAttentionBlocker(ctx context.Context, tx db.TxRunner, repositoryID, jobID string) (bool, error) {
+	openBlockers, err := queryRows(ctx, tx, `
+		SELECT severity, blocker_kind
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	if err != nil {
+		return false, err
+	}
+	for _, blocker := range openBlockers {
+		if isEscalationClassBlocker(blocker) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // closeStalledOwningSession closes a still-active stalled session that OWNS a job

@@ -128,8 +128,20 @@ func TestSweepEscalatesBudgetExhaustedJobToNeedsOperator(t *testing.T) {
 		t.Fatalf("payload stuck_job missing: %q", got)
 	}
 	actions, ok := payload["suggested_operator_actions"].([]any)
-	if !ok || len(actions) != 3 {
-		t.Fatalf("suggested_operator_actions = %#v, want 3 entries", payload["suggested_operator_actions"])
+	if !ok || len(actions) == 0 {
+		t.Fatalf("suggested_operator_actions = %#v, want a non-empty list", payload["suggested_operator_actions"])
+	}
+	// #388: the guidance must name `escalation resolve` as a working re-dispatch
+	// path for a sessionless budget-exhausted job (it previously named only the
+	// non-working "re-drive the run" path).
+	namesEscalationResolve := false
+	for _, a := range actions {
+		if strings.Contains(fmt.Sprint(a), "escalation resolve") {
+			namesEscalationResolve = true
+		}
+	}
+	if !namesEscalationResolve {
+		t.Fatalf("suggested_operator_actions must name `escalation resolve` as a re-dispatch path; got %#v", actions)
 	}
 
 	// run_escalated_at stamped on the budget row (idempotency guard).

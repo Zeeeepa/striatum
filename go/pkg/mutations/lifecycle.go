@@ -1330,6 +1330,124 @@ func HandleCompleteWork(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	})
 }
 
+// resolveJobAutonomousBlockers is the shared selection + resolution loop behind
+// both the completion path (resolveAutonomousBlockersOnCompletion, #175/#304)
+// and the requeue path (resolveDanglingAutonomousBlockersOnRequeue, #373A). An
+// "autonomous" blocker is one that is neither a human_checkpoint nor an
+// escalation-class blocker — those require explicit human adjudication and are
+// NEVER touched here. The single point of selection (isEscalationClassBlocker)
+// guarantees the requeue and completion paths can never drift on which blockers
+// are safe to auto-resolve.
+//
+// resolveExhaustedMoot toggles the #207 (part C) carve-out: the completion path
+// passes true so a now-disproven recovery_exhausted escalation against the
+// completing job is also cleared; the requeue path passes false (a requeue does
+// not disprove an exhaustion — it IS one of the recovery actions an exhaustion
+// counts) so it only clears genuinely-autonomous, non-escalation blockers.
+//
+// Each resolved blocker emits eventType with the given reason (recovery_exhausted
+// gets exhaustedReason) and resolves any matching escalation_inbox row. It returns
+// whether a recovery_exhausted escalation was among the resolved set so the
+// completion caller can run its needs_operator restore.
+func resolveJobAutonomousBlockers(
+	ctx context.Context, runner any, repositoryID, runID, jobID, sessionID, now,
+	eventType, reasonAutonomous, exhaustedReason string, resolveExhaustedMoot bool,
+) (bool, error) {
+	tx, ok := runner.(interface {
+		Exec(context.Context, string, ...any) error
+	})
+	if !ok {
+		return false, fmt.Errorf("runner does not support exec")
+	}
+	openBlockers, err := queryRows(ctx, runner, `
+		SELECT blocker_id, severity, blocker_kind
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	if err != nil {
+		return false, err
+	}
+	resolvedRecoveryExhausted := false
+	for _, blocker := range openBlockers {
+		reason := reasonAutonomous
+		if isEscalationClassBlocker(blocker) {
+			// An escalation-class blocker (human_checkpoint and the genuinely-human
+			// kinds: ambiguous_goal, missing_authority, contradicting_decisions, etc.)
+			// always needs human adjudication and is left untouched. The ONLY exception
+			// is the completion path's #207 (part C) carve-out: a recovery_exhausted
+			// escalation is moot once the job itself completes a genuine attempt.
+			if !resolveExhaustedMoot || fmt.Sprint(blocker["blocker_kind"]) != recoveryExhaustedBlockerKind {
+				continue
+			}
+			reason = exhaustedReason
+			resolvedRecoveryExhausted = true
+		}
+		blockerID := fmt.Sprint(blocker["blocker_id"])
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.blockers
+			   SET state = 'resolved', resolved_at = $1
+			 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
+			return false, err
+		}
+		// Resolve a matching escalation_inbox row. Plain autonomous blockers
+		// normally have none (defensive), but a recovery_exhausted blocker DOES
+		// have one (escalateExhaustedJobs inserts it with the same id), so this is
+		// load-bearing for the #207 case.
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.escalation_inbox
+			   SET state = 'resolved', resolved_at = $1
+			 WHERE repository_id = $2 AND escalation_id = $3 AND state <> 'resolved'`, now, repositoryID, blockerID); err != nil {
+			return false, err
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, eventType, sessionID, jobID, nil, nil, nil, map[string]any{
+			"blocker_id":   blockerID,
+			"severity":     blocker["severity"],
+			"blocker_kind": blocker["blocker_kind"],
+			"reason":       reason,
+		}); err != nil {
+			return false, err
+		}
+	}
+	return resolvedRecoveryExhausted, nil
+}
+
+// resolveDanglingAutonomousBlockersOnRequeue resolves a job's open NON-escalation
+// autonomous blockers when the recovery decision tree requeues/transfers its
+// attempt (#373A). The repro: a codex diverger raised a severity='blocked',
+// is_escalation=false work.block of kind branch_contamination, then its session
+// exited unsealed; the decision tree requeued the attempt but left the blocker
+// open, so the requeued attempt could not proceed behind its own dangling
+// blocker. This mirrors the #304 completion-time resolution: the same selection
+// (isEscalationClassBlocker) is reused so a genuine human-attention blocker
+// (human_checkpoint / waiting_human / any escalation-class kind, INCLUDING a
+// recovery_exhausted escalation) is NEVER auto-resolved on requeue. Returns the
+// number of blockers resolved.
+func resolveDanglingAutonomousBlockersOnRequeue(ctx context.Context, runner any, repositoryID, runID, jobID, sessionID, now string) (int, error) {
+	before, err := queryRows(ctx, runner, `
+		SELECT blocker_id
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	if err != nil {
+		return 0, err
+	}
+	if len(before) == 0 {
+		return 0, nil
+	}
+	if _, err := resolveJobAutonomousBlockers(
+		ctx, runner, repositoryID, runID, jobID, sessionID, now,
+		"blocker.resolved_on_requeue", "job_requeued_same_attempt",
+		"", false); err != nil {
+		return 0, err
+	}
+	after, err := queryRows(ctx, runner, `
+		SELECT blocker_id
+		  FROM striatumd.blockers
+		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	if err != nil {
+		return 0, err
+	}
+	return len(before) - len(after), nil
+}
+
 // resolveAutonomousBlockersOnCompletion resolves the completing job's open
 // autonomous blockers (#175). An "autonomous" blocker is one that is neither a
 // human_checkpoint nor an escalation-class blocker (those require explicit human
@@ -1353,56 +1471,12 @@ func resolveAutonomousBlockersOnCompletion(ctx context.Context, runner any, repo
 	if !ok {
 		return fmt.Errorf("runner does not support exec")
 	}
-	openBlockers, err := queryRows(ctx, runner, `
-		SELECT blocker_id, severity, blocker_kind
-		  FROM striatumd.blockers
-		 WHERE repository_id = $1 AND job_id = $2 AND state = 'open'`, repositoryID, jobID)
+	resolvedRecoveryExhausted, err := resolveJobAutonomousBlockers(
+		ctx, runner, repositoryID, runID, jobID, sessionID, now,
+		"blocker.resolved_on_completion", "job_completed",
+		"recovery_exhausted_moot_after_job_completed", true)
 	if err != nil {
 		return err
-	}
-	resolvedRecoveryExhausted := false
-	for _, blocker := range openBlockers {
-		reason := "job_completed"
-		if isEscalationClassBlocker(blocker) {
-			// #207 (part C): a recovery_exhausted blocker means "autonomous recovery
-			// could not reclaim THIS job". When the same job subsequently completes a
-			// genuine attempt, that premise is moot — the recovery exhaustion was a
-			// false alarm the job itself just disproved — so auto-close ONLY this
-			// escalation-by-exhaustion blocker against the completing job. Every other
-			// escalation-class kind (human_checkpoint and the genuinely-human kinds:
-			// ambiguous_goal, missing_authority, contradicting_decisions, etc.) still
-			// needs human adjudication and is left untouched.
-			if fmt.Sprint(blocker["blocker_kind"]) != recoveryExhaustedBlockerKind {
-				continue
-			}
-			reason = "recovery_exhausted_moot_after_job_completed"
-			resolvedRecoveryExhausted = true
-		}
-		blockerID := fmt.Sprint(blocker["blocker_id"])
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.blockers
-			   SET state = 'resolved', resolved_at = $1
-			 WHERE repository_id = $2 AND blocker_id = $3`, now, repositoryID, blockerID); err != nil {
-			return err
-		}
-		// Resolve a matching escalation_inbox row. Plain autonomous blockers
-		// normally have none (defensive), but a recovery_exhausted blocker DOES
-		// have one (escalateExhaustedJobs inserts it with the same id), so this is
-		// load-bearing for the #207 case.
-		if err := tx.Exec(ctx, `
-			UPDATE striatumd.escalation_inbox
-			   SET state = 'resolved', resolved_at = $1
-			 WHERE repository_id = $2 AND escalation_id = $3 AND state <> 'resolved'`, now, repositoryID, blockerID); err != nil {
-			return err
-		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "blocker.resolved_on_completion", sessionID, jobID, nil, nil, nil, map[string]any{
-			"blocker_id":   blockerID,
-			"severity":     blocker["severity"],
-			"blocker_kind": blocker["blocker_kind"],
-			"reason":       reason,
-		}); err != nil {
-			return err
-		}
 	}
 
 	// #207 (part C): if we just cleared the completing job's moot recovery_exhausted
