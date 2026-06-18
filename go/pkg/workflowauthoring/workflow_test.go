@@ -139,17 +139,41 @@ func TestValidatePanelQuorum(t *testing.T) {
 		t.Fatalf("panel_role on non-review job error = %v", err)
 	}
 
-	// max_gating_abstentions: a non-negative whole number is valid; a negative one is
-	// rejected.
+	// max_gating_abstentions: zero (or absent) is valid without an opt-in; a negative
+	// one is rejected as non-whole.
 	workflow = validWorkflow()
-	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = 1
+	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = 0
 	if err := Validate(workflow); err != nil {
-		t.Fatalf("max_gating_abstentions=1 rejected: %v", err)
+		t.Fatalf("max_gating_abstentions=0 rejected: %v", err)
 	}
 	workflow = validWorkflow()
 	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = -1
 	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "non-negative whole number") {
 		t.Fatalf("negative max_gating_abstentions error = %v", err)
+	}
+
+	// D214 explicit opt-in: a non-zero budget WITHOUT allow_gating_abstentions is
+	// rejected so the dangerous budget is a fixture-diff-visible author choice.
+	workflow = validWorkflow()
+	workflow["jobs"].([]any)[1].(map[string]any)["max_gating_abstentions"] = 1
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "allow_gating_abstentions") {
+		t.Fatalf("budget>0 without opt-in error = %v", err)
+	}
+
+	// The same non-zero budget WITH allow_gating_abstentions: true is accepted.
+	workflow = validWorkflow()
+	review := workflow["jobs"].([]any)[1].(map[string]any)
+	review["max_gating_abstentions"] = 1
+	review["allow_gating_abstentions"] = true
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("budget>0 with opt-in rejected: %v", err)
+	}
+
+	// allow_gating_abstentions must be a boolean.
+	workflow = validWorkflow()
+	workflow["jobs"].([]any)[1].(map[string]any)["allow_gating_abstentions"] = "yes"
+	if err := Validate(workflow); err == nil || !strings.Contains(err.Error(), "allow_gating_abstentions must be a boolean") {
+		t.Fatalf("non-boolean allow_gating_abstentions error = %v", err)
 	}
 }
 
