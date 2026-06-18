@@ -1659,6 +1659,19 @@ func HandleAwaitPacket(ctx context.Context, runner db.Runner, envelope rpc.Envel
 			return question, nil
 		}
 
+		// RFC 0094 §1: a coordinator's await loop receives a post_dialog_hook
+		// packet emitted at conversation close, before its participants' context
+		// window is released, so it can fan out follow-up work while they are live.
+		// Delivered ahead of a conversation turn so a closing coordinator reacts
+		// promptly.
+		hookPacket, err := deliverPendingPostDialogHook(ctx, runner, repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if hookPacket != nil {
+			return hookPacket, nil
+		}
+
 		// RFC 0086: a participant's await loop also receives its round-robin
 		// conversation turn. Preference: a direct peer question (interrogation)
 		// over a group turn (conversation) over new work.
@@ -2011,6 +2024,57 @@ func deliverPendingInterrogationQuestion(ctx context.Context, runner db.Runner, 
 			"interrogation_id": interrogationID,
 			"message_id":       messageID,
 			"body":             body,
+		}, nil
+	})
+}
+
+// deliverPendingPostDialogHook returns the oldest pending RFC 0094 §1
+// post_dialog_hook packet addressed to this session (the coordinator named by a
+// conversation's post_dialog_hook.deliver_to) and marks it delivered (acked). It
+// returns nil when none is pending. Like interrogation-question delivery it rides
+// the existing queue_messages bus (kind='agent_message', state='pending') filtered
+// by target_session_id, so the hook adds no new delivery authority. The packet
+// carries the participant session ids + transcript_ref so the coordinator can fan
+// out follow-up work (e.g. interrogation.open) while the participants are live.
+func deliverPendingPostDialogHook(ctx context.Context, runner db.Runner, repositoryID, sessionID string) (map[string]any, error) {
+	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		rows, err := queryRows(ctx, tx, `
+			SELECT message_id, payload_json
+			  FROM striatumd.queue_messages
+			 WHERE repository_id = $1
+			   AND target_session_id = $2
+			   AND kind = 'agent_message'
+			   AND state = 'pending'
+			   AND payload_json->>'role' = 'post_dialog_hook'
+			 ORDER BY created_at ASC, message_id ASC
+			 LIMIT 1
+			 FOR UPDATE SKIP LOCKED`,
+			repositoryID, sessionID)
+		if err != nil {
+			return nil, err
+		}
+		if len(rows) == 0 {
+			return nil, nil
+		}
+		row := rows[0]
+		messageID := fmt.Sprint(row["message_id"])
+		payload := asMap(row["payload_json"])
+		now := nowString()
+		if err := tx.Exec(ctx, `
+			UPDATE striatumd.queue_messages
+			   SET state = 'acked', acked_at = $1, updated_at = $1
+			 WHERE repository_id = $2 AND message_id = $3`,
+			now, repositoryID, messageID); err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"type":                    "post_dialog_hook",
+			"status":                  "post_dialog_hook",
+			"message_id":              messageID,
+			"conversation_id":         payload["conversation_id"],
+			"packet_type":             payload["packet_type"],
+			"participant_session_ids": payload["participant_session_ids"],
+			"transcript_ref":          payload["transcript_ref"],
 		}, nil
 	})
 }

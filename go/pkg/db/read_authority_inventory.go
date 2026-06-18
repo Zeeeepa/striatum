@@ -51,17 +51,18 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 
 	// Sensitive broad SELECT surfaces. These are the tables a future #164 split
 	// should consider first for denial, projection, or row/column scoping.
-	"artifacts":                   ReadClassRuntimeSensitive,
-	"blockers":                    ReadClassRuntimeSensitive,
-	"client_capabilities":         ReadClassRuntimeSensitive,
-	"clients":                     ReadClassRuntimeSensitive,
-	"command_requests":            ReadClassRuntimeSensitive,
-	"conversations":               ReadClassRuntimeSensitive,
-	"cross_repo_run_repositories": ReadClassRuntimeSensitive,
-	"cross_repo_runs":             ReadClassRuntimeSensitive,
-	"daemon_supervisors":          ReadClassRuntimeSensitive,
-	"escalation_inbox":            ReadClassRuntimeSensitive,
-	"events":                      ReadClassRuntimeSensitive,
+	"artifacts":                      ReadClassRuntimeSensitive,
+	"blockers":                       ReadClassRuntimeSensitive,
+	"client_capabilities":            ReadClassRuntimeSensitive,
+	"clients":                        ReadClassRuntimeSensitive,
+	"command_requests":               ReadClassRuntimeSensitive,
+	"conversations":                  ReadClassRuntimeSensitive,
+	"conversation_post_dialog_hooks": ReadClassRuntimeSensitive,
+	"cross_repo_run_repositories":    ReadClassRuntimeSensitive,
+	"cross_repo_runs":                ReadClassRuntimeSensitive,
+	"daemon_supervisors":             ReadClassRuntimeSensitive,
+	"escalation_inbox":               ReadClassRuntimeSensitive,
+	"events":                         ReadClassRuntimeSensitive,
 	// fan-in sealed-barrier tables (RFC 0135 P1, migration 0029): the immutable
 	// freeze record and the attempt-addressed staging contributions the live-seal
 	// JOIN barrier SELECTs — coordination state, like leases/sessions/jobs.

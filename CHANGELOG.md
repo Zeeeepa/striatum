@@ -69,6 +69,30 @@
     `dissent_ledger` row, folded in from #339). `run.summary` gains a
     `quorum_dissent` block surfacing live dissent rows and open advisory holds so
     a quorum/advisory park is self-explaining before `checkpoint resolve`.
+- **RFC 0094 prerequisite mechanisms — work-packet type sequencing +
+  conversation `post_dialog_hook` (#402).** Two engine mechanisms that unblock
+  the deferred RFC 0094 collaboration shapes (`fog_of_war_review` /
+  `synaptic_prune`, built in a later slice), with no new daemon RPC method or
+  route.
+  - **Work-packet type sequencing (generator).** A phase may declare
+    `gate: {withhold_packet_types: [<type>...], until_verdict_clears:
+    <gate_job_id>}` so jobs of a withheld type are unreachable until a named
+    verdict job clears. It compiles to ordinary cross-phase dependency edges
+    (the daemon already gates jobs behind dependencies); `workflow validate`
+    rejects a gate whose gate job is missing, is not a verdict-emitting type, or
+    whose withheld-type jobs lack the dependency edge, and `workflow lint`
+    surfaces the sequencing as an info finding.
+  - **Conversation `post_dialog_hook` (daemon).** An optional declaration on
+    `conversation.open` (`{deliver_to, packet_type}`). On conversation close —
+    explicit or auto-close at `max_rounds` — the daemon emits exactly one work
+    packet to the coordinator session, carrying the participant session ids +
+    a transcript reference, inside the close transaction so it lands before any
+    participant teardown (emit-before-teardown). It reuses the existing
+    `queue_messages` delivery path and is the same "keep participants live
+    through a gate" mechanism RFC 0095 Phase 3 references for review panels.
+    Runtime migration 0034 persists the declaration in a sidecar table
+    (`conversation_post_dialog_hooks`, no FK into owner-held tables, its own
+    GRANT).
 
 ### Fixed
 
