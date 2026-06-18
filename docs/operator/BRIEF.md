@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-18_v2.34.0-release"
-supersedes: "brief_2026-06-16_reliability-reset-closeout"
+brief_id: "brief_2026-06-18_v2.34.1-release"
+supersedes: "brief_2026-06-18_v2.34.0-release"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,15 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-18 delta — v2.34.1 released
+
+**v2.34.1** is a docs/maintenance cut: docs-convention adoption (#406/#407/#408 —
+vendored `doc-convention-lint`, Phase 1 warn-only + Phase 2 dead-exhaust fold into
+`docs/records/` + `sanctioned_regions` overlay) + RFC-index reconciliation (#405).
+**No daemon code or behavior change** — RFC 0135 barrier stays opt-in/shadow (D206);
+owner bundle 0013 unapplied, go-live flips not done (handoff §2.A stays human-gated).
+Daemon rebuilt from this tag + restarted; `doctor` green.
 
 ## 2026-06-18 delta — v2.34.0 released
 
@@ -158,8 +167,9 @@ and the issues CLOSED. `doctor` stayed green throughout.
 
 ## State
 
-Latest release is **v2.34.0 (2026-06-18)** — see the top delta (six reliability/
-security fixes + the RFC 0135 sealed-barrier primitive, opt-in/shadow). The prior
+Latest release is **v2.34.1 (2026-06-18)** — a docs/maintenance cut (no code change;
+see the top delta). **v2.34.0 (2026-06-18)** packaged six reliability/security fixes +
+the RFC 0135 sealed-barrier primitive (opt-in/shadow). The earlier
 **v2.33.0 (2026-06-16)** tag at `564a8209` packaged the post-v2.32.0 landing set:
 doctor integrity legibility **P0+P1** (D204/D205, #300), **#290/D206** fan-in
 run-branch integration, **#296** codex push-lane loud-fallback, **#301/#307**
