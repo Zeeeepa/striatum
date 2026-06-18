@@ -1,6 +1,6 @@
 # RFC 0115: Precise token-usage telemetry for supervised agent-loop lanes
 
-Status: proposed
+Status: proposed — deferred (D226, closes #404): product-boundary-clean as proposed (local scrubbed JSONL, no hosted/DB telemetry), but low/med priority and dependent on dashboard-ingest; schedule when dashboard-ingest lands or telemetry becomes a priority
 Date: 2026-06-06
 Updated: 2026-06-07
 author: proposer-codex-gpt-5-001

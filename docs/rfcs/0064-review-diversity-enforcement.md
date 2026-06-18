@@ -1,7 +1,7 @@
 # RFC 0064: Workflow Risk Lint and Review Diversity Enforcement
 
 ## Status
-Accepted / implemented — durable accepted-risk persistence landed; authoring-helper lint polish tracked in #397
+Accepted / implemented (D220, closes #397) — durable accepted-risk persistence landed; the obsolete "Blocked Policy" clause is resolved and no further authoring-helper lint polish is planned
 
 ## Summary
 Architecture remediation Phase 7 added workflow risk linting, review-diversity
@@ -33,8 +33,9 @@ Derived from the STRIATUM Architecture Review and Remediation Plan (2026-05-16).
 > 0013 `workflow_accepted_risks` + the `workflow.accept_risk` /
 > `workflow.accepted_risks.list` RPCs and CLI. The product decision below (where
 > accepted-risk evidence lives durably) was answered: an append-only daemon-owned
-> table. The original text is retained for provenance; remaining authoring-helper
-> lint polish is tracked in #397.
+> table (runtime migration `go/pkg/db/sql/0013_workflow_accepted_risks.sql` + the
+> `workflow.accept_risk` RPC/CLI). The original text is retained for provenance;
+> per D220 (closes #397) no further authoring-helper lint polish is planned.
 
 Accepted lint-risk persistence is not implemented because the durable authority
 surface is undecided. `workflow lint` is currently a CLI-local authoring helper:

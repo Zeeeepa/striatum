@@ -1,8 +1,40 @@
 # RFC 0134: Executable verification gate and claim status-provenance
 
-Status: proposed
+Status: accepted-with-revisions (D227, closes #394) — see "Accepted form" below
 Date: 2026-06-17
 author: proposer-claude-opus-4-8
+
+## Accepted form (D227)
+
+RFC 0134 is accepted **with revisions**. The accepted architecture is
+**validate-not-execute**, and daemon-gate-path execution that inherits the
+lane's `process.run` / `write_scope` posture is explicitly **rejected** (it is
+a daemon-reach RCE/exfil surface against the PG socket, the runtime token, and
+other repos). The accepted shape, which re-scopes build issue #395:
+
+1. **Claim-status lattice first, no execution.** Ship `claim_ledger` with
+   `VERIFIED > ASSERTED > DESIGNED` as a first-class artifact — monotonic and
+   append-only at the daemon writer, demotable but never self-promotable, and
+   auto-decaying `VERIFIED → ASSERTED` when bound input hashes change. This half
+   is pure validation.
+2. **Verification runs off the gate path, in a disposable sandboxed lane.** Any
+   executable verification is its own job in a disposable sandboxed verifier
+   lane (reusing the lane-sandbox + supervisor-helper machinery); the completion
+   gate merely **reads** its durable receipt. A missing or wedged verify degrades
+   the claim to `ASSERTED` — it never blocks completion on engine liveness.
+3. **The daemon validates, never executes.** `checks[]` are content-addressed
+   against an operator-curated, git-tracked allowlist (a lane *names* but never
+   *authors* the executed bytes); the daemon only validates a tamper-evident
+   transcript receipt (argv + resolved binary hash + exit code + stdout digest +
+   cwd tree-sha) bound to the worktree tree-sha. `VERIFIED` (top rung) requires
+   **two** signals (sealed receipt + independent re-execution agreement); a lone
+   exit-0 earns only `ASSERTED`; timeout / envelope-violation / network-touch →
+   `INDETERMINATE`, never `VERIFIED`, with cgroup-enforced caps so a runaway
+   check kills its scope, not the daemon.
+
+Build order: lattice + ledger + provenance-lint first; sandboxed off-gate-path
+verifier second — **not** a daemon-gate-path executor.
+
 Context:
 - The **cam-analyzer dogfood** (`~/git/cam-analyzer`, a lane-produced product;
   review `CAM_ANALYZER_DEEP_ARCHITECTURE_REVIEW_CLAUDE_OPUS_4_8_2026-06-17.md`).

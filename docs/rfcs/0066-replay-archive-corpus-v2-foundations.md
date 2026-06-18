@@ -1,7 +1,7 @@
 # RFC 0066: Replay, Archive, and Corpus V2 Foundations
 
 ## Status
-Partially implemented
+Implemented (core) — the optional augmentation-reference fetch surface is deferred build-on-demand (D221, closes #398): reference-only/optional/local, augmentation-boundary regression required, no `import engram` and no `memory.*` capability.
 
 ## Summary
 Local replay/archive foundations have landed: corpus verification, run archive
