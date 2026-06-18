@@ -45,13 +45,44 @@ requires a bound receipt and a matching input digest), VERIFIED→ASSERTED
 auto-decay on bound-input change (`EffectiveClaimStatus`), and the
 daemon-writer cross-seal rules (`go/pkg/mutations/claim_ledger.go`,
 `enforceClaimLedgerLattice` — monotonic append-only `ledger_seal`, demotable
-but never self-promotable). **No engine execution, no `verify` job type that
-runs `checks[]`, and no wiring into the run-completion gate are in this slice**
-— the executable half (the sandboxed off-gate-path verifier lane that mints
-receipts, and the completion gate that merely *reads* them) is a later,
-separate slice. The "Goals" / "Proposal" §2–§3 / "Acceptance Criteria" below
-describe that deferred executable half and are **not** satisfied by this slice;
-only the lattice/ledger/lint (§1, §4) are.
+but never self-promotable).
+
+**Implementation status (executable slice, #395 — landed, validate-not-execute).**
+The off-gate-path executable half is now implemented per the Accepted form
+above (NOT the deferred §2–§3 daemon-gate-path executor, which D227 rejects):
+
+- **`verify` job type** — widened onto the owner-held `jobs_job_type_check`
+  via **owner bundle 0016** (`go/pkg/db/sql/owner/0016_verify_job_type.sql`,
+  `LatestOwnerBundleVersion = 16`). Per D215 the job_type CHECK is owner-held,
+  so this is an owner bundle (mirroring 0013), never a runtime migration.
+- **Disposable sandboxed verifier LANE** (`go/pkg/verifier`) — the lane-side
+  `striatum verifier run` command (`go/cmd/striatum/verifier.go`) resolves a
+  named check against an operator-curated, git-tracked, content-addressed
+  **allowlist** (`allowlist.go`: a workflow NAMES a check; it never AUTHORS the
+  bytes — an unknown id or a binary whose sha256 drifted from the pinned hash is
+  refused), runs it under the strictest available **sandbox envelope**
+  (`sandbox.go`: bubblewrap → systemd-run → unshare+ulimit → none, reporting an
+  honest resolved posture: no-network, no-new-privileges, read-only-except-scratch,
+  and cgroup/cpu/mem/wall-clock caps so a runaway check kills its own scope, not
+  the daemon), and mints a tamper-evident **`receipt.v1`** (`receipt.go`).
+- **Two-signal VERIFIED** — the check runs TWICE; VERIFIED requires the sealed
+  receipt PLUS the independent re-execution agreement under a **strict** sandbox
+  (`classifyResult` / `EffectiveStatusFromReceipt`). A lone exit-0 earns only
+  ASSERTED; a timeout / envelope-violation / non-strict posture / unstable
+  read-only tree is INDETERMINATE → ASSERTED, never VERIFIED.
+- **Gate READ (non-blocking)** — the run-completion gate
+  (`go/pkg/mutations/claim_verifier_gate.go`, wired into `maybeCompleteRun`)
+  loads the run's `claim_ledger` + the receipts its VERIFIED claims name and
+  records the EFFECTIVE claim status on the `run.completed` event. It is a PURE
+  READ: it executes nothing, adds NO failing gate, and a missing / wedged /
+  timed-out verify degrades the claim to ASSERTED — it NEVER blocks completion
+  on engine liveness.
+
+**The daemon NEVER executes a check.** The only command execution in the whole
+feature is in the verifier LANE (`striatum verifier run`), off the gate path;
+the daemon validates sealed receipts and curates the executed bytes, exactly as
+D227 binds. The §2–§3 daemon-run-`checks[]` design below is the REJECTED form
+and is retained only as the problem statement the Accepted form supersedes.
 
 Context:
 - The **cam-analyzer dogfood** (`~/git/cam-analyzer`, a lane-produced product;

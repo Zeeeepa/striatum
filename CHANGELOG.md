@@ -38,6 +38,35 @@
   the runtime-owned `job_recovery_state`; a deployment behind on it degrades safely
   to today's ungated escalation. The `recovery.budget_exhausted` event records
   `confidence_gated` / `cap_fired` so a gated escalation is auditable provenance.
+- **verification: executable verifier lane + receipt-reading completion gate
+  (RFC 0134 executable half / D227, #395).** The off-gate-path executable half
+  of the claim-status verification gate, built as **validate-not-execute** — the
+  daemon never runs a check; it validates sealed receipts and curates the bytes.
+  - A `verify` job type, widened onto the owner-held `jobs_job_type_check` via
+    **owner bundle 0016** (`go/pkg/db/sql/owner/0016_verify_job_type.sql`,
+    `LatestOwnerBundleVersion = 16`) — per D215 the job_type CHECK is owner-held,
+    so this is an owner bundle, never a runtime migration.
+  - A new `go/pkg/verifier` package + the lane-side `striatum verifier run`
+    command (`go/cmd/striatum/verifier.go`). It resolves a named check against an
+    operator-curated, git-tracked, **content-addressed allowlist** (a workflow
+    NAMES a check; it never AUTHORS the executed bytes — an unknown id or a binary
+    whose sha256 drifted from the pinned hash is refused), runs it under the
+    strictest available **sandbox envelope** (bubblewrap → systemd-run →
+    unshare+ulimit → none; no-network, no-new-privileges, read-only-except-scratch,
+    cgroup/cpu/mem/wall-clock caps with an honest resolved posture), and mints a
+    tamper-evident `receipt.v1` (argv + resolved binary sha256 + exit code +
+    stdout digest + cwd tree-sha + seal).
+  - **Two-signal VERIFIED**: the check runs twice; VERIFIED requires the sealed
+    receipt PLUS the independent re-execution agreement under a *strict* sandbox.
+    A lone exit-0 earns only ASSERTED; a timeout / envelope-violation / non-strict
+    posture is INDETERMINATE → ASSERTED, never VERIFIED.
+  - A **non-blocking run-completion gate READ**
+    (`go/pkg/mutations/claim_verifier_gate.go`, wired into `maybeCompleteRun`)
+    that loads the run's `claim_ledger` + the receipts its VERIFIED claims name
+    and records the effective claim status on the `run.completed` event. It is a
+    pure read: it executes nothing, adds no failing gate, and a missing / wedged /
+    timed-out verify degrades the claim to ASSERTED — it never blocks completion
+    on engine liveness. **No command execution is on the daemon's gate path.**
 - **liveness: transport-aware `probe_basis` classifier outputs (RFC 0131 Layer
   1 / 131-A, #334).** `sessionliveness.Classify()` now threads a
   `TransportType` (`pty_helper`/`pipe`/unknown, derived in `ActivityFromRow`

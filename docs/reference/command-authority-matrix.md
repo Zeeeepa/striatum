@@ -248,6 +248,7 @@ calling daemon RPC methods.
 | `workflow validate` | offline workflow JSON validation | no live state | local_file_authoring |
 | `workflow generate` | embedded catalog scaffold preview/write helper | no live state | local_file_authoring |
 | `workflow templates list` / `workflow templates show` | embedded workflow-template catalog reads | no live state | local_file_authoring |
+| `verifier run` | RFC 0134 / D227 lane-side executable verifier: resolves a content-addressed, operator-curated allowlist entry (`go/pkg/verifier`), runs the check TWICE under the strictest available sandbox (bubblewrap / systemd-run / unshare+ulimit, no-network + no-new-privileges + read-only-except-scratch + cgroup/cpu/mem/wall-clock caps), and mints a tamper-evident `receipt.v1`. It is the ONLY command in the feature that executes a check, and it runs INSIDE the disposable verifier lane — never on the daemon's gate path. No daemon RPC, no live state | no live state | local_verifier_lane |
 
 ## Immediate Findings
 

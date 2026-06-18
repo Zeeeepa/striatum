@@ -59,6 +59,19 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "codex" {
 		return runCodex(globals.CommandArgs[1:], stdout, stderr, globals.RepoPath)
 	}
+	// `striatum verifier run` is the LANE-SIDE entrypoint of the RFC 0134 / D227
+	// executable verification half: it runs a content-addressed, allowlisted
+	// check under a strict sandbox and mints a receipt. It performs command
+	// execution OFF the daemon's gate path (inside the disposable verifier lane),
+	// touches no daemon RPC state, and so dispatches as a local command before
+	// the daemon route — like scope-check and codex.
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "verifier" {
+		verifierArgs := globals.CommandArgs[1:]
+		if globals.JSONOutput && !containsFlag(verifierArgs, "--json") {
+			verifierArgs = append(verifierArgs, "--json")
+		}
+		return runVerifier(verifierArgs, stdout, stderr, globals.RepoPath)
+	}
 	if len(globals.CommandArgs) > 1 && globals.CommandArgs[0] == "run" && globals.CommandArgs[1] == "drive" {
 		driveArgs := append([]string(nil), globals.CommandArgs[2:]...)
 		if globals.JSONOutput && !containsFlag(driveArgs, "--json") {
@@ -153,7 +166,7 @@ func usage(out io.Writer) {
 		}
 	}
 	// Local commands handled before the daemon route (main.go run()).
-	for _, local := range []string{"scope-check", "codex", "daemon", "skills", "plugin"} {
+	for _, local := range []string{"scope-check", "codex", "verifier", "daemon", "skills", "plugin"} {
 		if subs[local] == nil {
 			subs[local] = map[string]bool{}
 		}
