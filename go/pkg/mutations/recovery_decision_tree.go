@@ -388,6 +388,10 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		if stallClass == "" {
 			stallClass = protocol
 		}
+		// RFC 0131 Layer 1: transport is a liveness-evidence OUTPUT this slice plumbs
+		// onto recovery.* events. result.ProbeBasis (see probeBasis() below) is the
+		// typed evidence basis; transport records which lane class produced it.
+		transport := activity.Transport
 
 		sessionID := fmt.Sprint(nullable(row["session_id"]))
 		sessionState := fmt.Sprint(nullable(row["session_state"]))
@@ -433,6 +437,30 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				deadProbed = true
 			}
 			return deadResult
+		}
+
+		// RFC 0131 Layer 1: resolve the typed probe_basis at event-emission time.
+		// Classify() stamps every stall deadline_elapsed_only (it has no oracle);
+		// a pty_helper lane whose supervised process the confirmedDead oracle
+		// positively judges dead is UPGRADED to pty_confirmed_dead. A pipe (or
+		// unknown-transport) lane has no PTY oracle, so its basis stays
+		// deadline_elapsed_only regardless of the probe. This is OUTPUT only — the
+		// confidence gate / escape-valve cap is RFC 0131 131-C, not this slice.
+		probeBasis := func() sessionliveness.ProbeBasis {
+			basis := result.ProbeBasis
+			// A dead/absent session (CASE 1) classifies as inactive, so Classify
+			// leaves ProbeBasis empty. Reaching a recovery ACTION means a
+			// deadline-based liveness decision was nonetheless made (the session is
+			// gone / its lease lapsed), so default an empty basis to
+			// deadline_elapsed_only before any oracle upgrade — keeping the recorded
+			// basis always meaningful rather than blank.
+			if basis == sessionliveness.ProbeBasisNone {
+				basis = sessionliveness.ProbeBasisDeadlineElapsedOnly
+			}
+			if confirmedDead() {
+				basis = sessionliveness.UpgradeProbeBasisConfirmedDead(transport, basis)
+			}
+			return basis
 		}
 
 		// #308(A): before choosing a requeue, an agent that engaged the work protocol
@@ -661,6 +689,12 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				"limit":              limit,
 				"stall_class":        stallClass,
 				"escalation_pending": true,
+				// RFC 0131 Layer 1: transport + typed probe_basis make every
+				// escalation record WHAT KIND of evidence it acted on — a genuine
+				// pty_confirmed_dead vs a deadline_elapsed_only that merely elapsed
+				// on a no-oracle (pipe) lane.
+				"transport":   transportPayloadValue(transport),
+				"probe_basis": string(probeBasis()),
 			}); eerr != nil {
 				return nil, eerr
 			}
@@ -673,6 +707,8 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				"limit":              limit,
 				"escalation_pending": true,
 				"acted":              false,
+				"transport":          transportPayloadValue(transport),
+				"probe_basis":        string(probeBasis()),
 			})
 			continue
 		}
@@ -771,6 +807,11 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			"stalled_owner_closed":       ownerClosed,
 			"stalled_owner_session":      nullable(sessionID),
 			"dangling_blockers_resolved": blockersResolved,
+			// RFC 0131 Layer 1: a requeue/transfer action records the same
+			// transport + typed probe_basis it acted on, so the action audit trail
+			// is as legible as the budget_exhausted event.
+			"transport":   transportPayloadValue(transport),
+			"probe_basis": string(probeBasis()),
 		})
 	}
 	return actions, nil
@@ -1097,6 +1138,18 @@ func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool 
 // would have a brand-new active lease).
 func leaseStaleActive(row map[string]any) bool {
 	return fmt.Sprint(nullable(row["lease_state"])) == "active"
+}
+
+// transportPayloadValue renders a TransportType for a recovery.* event payload
+// (RFC 0131 Layer 1). An unknown transport (no supervisor pointer metadata)
+// renders as a nil JSON field rather than an empty string, so a row whose
+// transport could not be determined carries an explicit null rather than a
+// misleading "".
+func transportPayloadValue(transport sessionliveness.TransportType) any {
+	if transport == sessionliveness.TransportUnknown {
+		return nil
+	}
+	return string(transport)
 }
 
 func sessionStateLabel(sessionID, sessionState string) string {
