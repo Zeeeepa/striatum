@@ -2,6 +2,7 @@ package mutations
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -80,6 +81,8 @@ func TestIsTransientDaemonLoadError(t *testing.T) {
 		want bool
 	}{
 		{"statement_timeout_57014", &pgconn.PgError{Code: "57014"}, true},
+		{"lock_timeout_55P03", &pgconn.PgError{Code: "55P03"}, true},
+		{"lock_timeout_55P03_wrapped", fmt.Errorf("append_event_row (sd): %w", &pgconn.PgError{Code: "55P03"}), true},
 		{"admin_shutdown_57P01", &pgconn.PgError{Code: "57P01"}, true},
 		{"crash_shutdown_57P02", &pgconn.PgError{Code: "57P02"}, true},
 		{"cannot_connect_now_57P03", &pgconn.PgError{Code: "57P03"}, true},

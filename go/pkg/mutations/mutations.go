@@ -473,6 +473,11 @@ func isDeadlockError(err error) bool {
 // canceled for exceeding statement_timeout.
 const statementTimeoutSQLState = "57014"
 
+// lockTimeoutSQLState is the Postgres SQLSTATE raised when a statement is
+// canceled for exceeding lock_timeout — it waited on a row/table lock longer than
+// the configured bound and was aborted before the lock was granted.
+const lockTimeoutSQLState = "55P03"
+
 // isTransientDaemonLoadError reports whether err is a transient, retry-safe
 // control-plane error caused by daemon/database load rather than a real failure
 // of the requested transition (#197). The canonical case is a statement timeout
@@ -485,13 +490,25 @@ const statementTimeoutSQLState = "57014"
 // admin_shutdown, 57P02 crash_shutdown, 57P03 cannot_connect_now) are likewise
 // transient — the connection was torn down under us, and the lane's await loop
 // should poll again rather than park.
+//
+// lock_timeout (SQLSTATE 55P03, #389 gap 1 / #383 item 3) joins them: under a
+// multi-run state-DB storm a lifecycle/event-write tx can wait on a contended
+// run-aggregate or event-chain-head lock longer than lock_timeout and be aborted
+// before the lock is granted. That is the same victim-side back-pressure as a
+// statement timeout — the requested transition was never refused, the writer just
+// lost a race for a busy lock — so it surfaced raw as `append_event_row (sd):
+// 55P03` and wedged the job (e.g. it consumed a max_attempts:1 job's only attempt,
+// or hard-failed run.prepare/start). Classifying it transient lets the bounded
+// retry wrappers (and the await/claim poll loop) re-attempt instead, self-healing
+// once the convoy clears and surfacing a legible "daemon under load" error only if
+// the bounded budget is exhausted.
 func isTransientDaemonLoadError(err error) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
 		return false
 	}
 	switch pgErr.Code {
-	case statementTimeoutSQLState, "57P01", "57P02", "57P03":
+	case statementTimeoutSQLState, lockTimeoutSQLState, "57P01", "57P02", "57P03":
 		return true
 	default:
 		return false
@@ -500,22 +517,35 @@ func isTransientDaemonLoadError(err error) bool {
 
 // withTxRetryOnDeadlock runs fn inside a transaction, retrying up to a small
 // bounded number of times when the transaction aborts with a Postgres deadlock
-// (SQLSTATE 40P01). The retry is intentionally tight — only the deadlock
-// SQLSTATE is retried, with a short backoff — so a genuine livelock surfaces a
-// clear error recommending a serial retry rather than spinning. Any non-
-// deadlock error (validation, transition refusal, etc.) is returned
-// immediately.
+// (SQLSTATE 40P01) or a transient daemon-load error (isTransientDaemonLoadError:
+// statement_timeout 57014, lock_timeout 55P03, or a class-57 connection
+// teardown). The retry is intentionally tight — only those retry-safe SQLSTATEs
+// are retried, with a short backoff — so a genuine livelock or sustained
+// back-pressure surfaces a clear error rather than spinning. Any other error
+// (validation, transition refusal, etc.) is returned immediately.
+//
+// The transient-load class is folded in here (#389 gap 1 / #383 item 3) so the
+// per-run lifecycle/event-write verbs routed through this wrapper —
+// artifact.publish/seal, review.submit, run.retry_job, the interrogation and
+// supervision-control mutations — self-heal a transient lock_timeout/statement
+// timeout the same way run.prepare does via withTxRetryOnTransientLoad, instead of
+// surfacing the raw SQLSTATE and wedging the job (e.g. consuming a max_attempts:1
+// job's only attempt). On exhaustion the surfaced error reflects the last cause:
+// a deadlock stays the serial-retry `invalid_transition`, a transient load
+// becomes the legible `daemon_under_load`.
 func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxRunner) (map[string]any, error)) (map[string]any, error) {
 	const maxAttempts = 3
 	const baseBackoff = 5 * time.Millisecond
+	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		result, err := withTx(ctx, runner, fn)
 		if err == nil {
 			return result, nil
 		}
-		if !isDeadlockError(err) {
+		if !isDeadlockError(err) && !isTransientDaemonLoadError(err) {
 			return nil, err
 		}
+		lastErr = err
 		if attempt == maxAttempts-1 {
 			break
 		}
@@ -524,6 +554,21 @@ func withTxRetryOnDeadlock(ctx context.Context, runner db.Runner, fn func(db.TxR
 			return nil, ctx.Err()
 		case <-time.After(baseBackoff * time.Duration(attempt+1)):
 		}
+	}
+	// Surface the error appropriate to the last cause: a transient daemon-load
+	// (lock/statement timeout, connection teardown) gets the legible
+	// `daemon_under_load`; a deadlock keeps the serial-retry guidance.
+	if isTransientDaemonLoadError(lastErr) {
+		var sqlstate string
+		var pgErr *pgconn.PgError
+		if errors.As(lastErr, &pgErr) {
+			sqlstate = pgErr.Code
+		}
+		return nil, rpc.NewError(
+			"daemon_under_load",
+			"daemon is under load and the operation timed out after retrying; retry shortly",
+			map[string]any{"sqlstate": sqlstate, "attempts": maxAttempts},
+		)
 	}
 	deadlockRetryExhaustedCounter.Add(1)
 	return nil, rpc.NewError(

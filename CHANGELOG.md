@@ -2,7 +2,22 @@
 
 ## Unreleased
 
-## v2.34.1 — 2026-06-18
+### Fixed
+
+- **daemon: retry transient `lock_timeout` (SQLSTATE 55P03) on the
+  lifecycle/event-write path.** Under multi-run state-DB contention a writer
+  that lost a race for a contended run-aggregate or event-chain-head lock could
+  be aborted at `lock_timeout` and surface the raw `append_event_row (sd):
+  55P03`, wedging the job (e.g. consuming a `max_attempts:1` job's only attempt,
+  or hard-failing `run.prepare`/`run.start`). 55P03 is now classified transient
+  alongside `statement_timeout` (57014) and the class-57 teardown codes, so the
+  bounded retry wrappers (`withTxRetryOnTransientLoad` for `run.prepare`,
+  `withTxRetryOnDeadlock` for `artifact.publish`/`review.submit`/`run.retry_job`/
+  interrogation/supervision-control) and the await/claim poll loop re-attempt
+  with backoff and self-heal once the convoy clears. If the bounded budget is
+  exhausted the verb surfaces the legible `daemon_under_load` error instead of
+  the raw SQLSTATE. Deadlock (40P01) handling is unchanged. Addresses #389
+  (gap 1) and #383 (item 3).
 
 ### Changed
 
