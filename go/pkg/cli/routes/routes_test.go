@@ -123,6 +123,67 @@ func TestRenderCommandGroupHelpEmptyForUnknownCommand(t *testing.T) {
 	}
 }
 
+// TestRunGroupHelpIncludesLocalDriveSubcommand (#383 item 5): `run drive` is
+// dispatched locally (no Route entry), so it was invisible in `run --help` even
+// though `run drive --help` worked — an asymmetry that hid the driver verb from
+// the run family. The group help must now list it.
+func TestRunGroupHelpIncludesLocalDriveSubcommand(t *testing.T) {
+	help := RenderCommandGroupHelp("run")
+	if help == "" {
+		t.Fatal("RenderCommandGroupHelp(run) returned empty")
+	}
+	for _, want := range []string{"usage: striatum run <subcommand>", "drive", "local operator loop", "start", "run.start", "resume", "run.resume"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("run group help missing %q:\n%s", want, help)
+		}
+	}
+	subs := SubcommandsFor("run")
+	found := false
+	for _, s := range subs {
+		if s == "drive" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("SubcommandsFor(run) must include the local `drive` subcommand; got %v", subs)
+	}
+}
+
+// TestRunStartHelpIsCurated (#383 item 5): `run start --help` used to print "this
+// verb does not have curated flag help yet". It must now render curated flag help
+// naming --run-id, --no-drive, and --allow-overlap, plus the resume/re-drive note.
+func TestRunStartHelpIsCurated(t *testing.T) {
+	route, _, ok := Lookup([]string{"run", "start"})
+	if !ok {
+		t.Fatalf("run start route not found")
+	}
+	help := route.RenderHelp()
+	if strings.Contains(help, "does not have curated flag help yet") {
+		t.Fatalf("run start help must be curated; got:\n%s", help)
+	}
+	for _, want := range []string{"usage: striatum run start", "<run-id>", "--no-drive", "--allow-overlap", "run drive --run-id", "auto_spawn scheduler"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("run start help missing %q:\n%s", want, help)
+		}
+	}
+}
+
+// TestRunResumeHelpExplainsDriveReArm (#383 item 1/5): `run resume --help` must
+// state that resume does NOT itself restart the driving loop and name the
+// daemon_auto_spawn vs operator_run_drive paths.
+func TestRunResumeHelpExplainsDriveReArm(t *testing.T) {
+	route, _, ok := Lookup([]string{"run", "resume"})
+	if !ok {
+		t.Fatalf("run resume route not found")
+	}
+	help := route.RenderHelp()
+	for _, want := range []string{"does NOT itself restart the driving loop", "daemon_auto_spawn", "operator_run_drive", "run drive --run-id", "next_action"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("run resume help missing %q:\n%s", want, help)
+		}
+	}
+}
+
 func TestRenderHelpEnumValues(t *testing.T) {
 	route, _, ok := Lookup([]string{"checkpoint", "resolve"})
 	if !ok {

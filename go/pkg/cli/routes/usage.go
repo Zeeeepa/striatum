@@ -102,6 +102,41 @@ var usageByGroup = map[string]Usage{
 			"why resolves the target_id and prints how it reached its current state; list runs with `striatum list runs` and find ids with `striatum status --run-id <id>`.",
 		},
 	},
+	"run_prepare": {
+		Params: []Param{
+			{Name: "workflow", Positional: true, Required: true, Help: "path to the workflow JSON to prepare a run from (also accepts --workflow-path)"},
+		},
+		Notes: []string{
+			"prepare freezes a workflow snapshot and creates a `ready` run; it does not start lanes. Start the prepared run with `striatum run start --run-id <id>`. To list runs use `striatum list runs`.",
+		},
+	},
+	"run_start": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "the prepared (`ready`) run to start; also accepts --run-id"},
+			{Name: "allow-overlap", Bool: true, Help: "permit starting despite an overlapping write_scope with another active run (RFC 0108 Phase 3); a same-branch collision is still refused"},
+			{Name: "no-drive", Bool: true, Help: "CLI-only: do not auto-launch the detached `run drive` driver after start (also: STRIATUM_RUN_DRIVE_AUTO=0)"},
+		},
+		Notes: []string{
+			"Unless --no-drive (or STRIATUM_RUN_DRIVE_AUTO=0) is set, a successful start auto-launches a detached `run drive` so the run reconciles to terminal with no operator in the loop. The transient driver does NOT survive a daemon/DB restart — after a `run pause` + restart + `run resume`, re-arm the driver with `striatum run drive --run-id <id>` unless the daemon auto_spawn scheduler is enabled for the run (run.resume reports which path applies).",
+		},
+	},
+	"run_pause": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "the active run to pause; also accepts --run-id"},
+			{Name: "reason", Help: "human-readable pause reason recorded on the run; defaults to operator_paused"},
+		},
+		Notes: []string{
+			"Pause holds the run: the auto_spawn scheduler launches no new lanes while paused_at is set. In-flight lanes are not killed. Resume with `striatum run resume --run-id <id>`.",
+		},
+	},
+	"run_resume": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "the paused run to resume; also accepts --run-id"},
+		},
+		Notes: []string{
+			"Resume only lifts the pause hold (clears paused_at) — it does NOT itself restart the driving loop. It returns a `drive` field naming which home re-drives the run: `daemon_auto_spawn` (the RFC 0122 scheduler re-adopts it automatically), or `operator_run_drive` / `auto_spawn_scheduler_disabled` (you must re-invoke `striatum run drive --run-id <id>`; the transient driver from `run start` does not survive a daemon/DB restart). The result's `next_action` is the exact command to run when one is required.",
+		},
+	},
 	"claim_next": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "active session that should claim the next eligible work packet"},
@@ -445,10 +480,25 @@ func generatedUsageFor(group string) Usage {
 	return usage
 }
 
+// localGroupSubcommands lists subcommands that are dispatched locally in
+// cmd/striatum (before the daemon route table) and therefore have no Route entry,
+// so the route-driven group help would otherwise omit them. #383 item 5: `run
+// drive` is the canonical case — it exists and `run drive --help` works, but it
+// was invisible in `run --help`, an asymmetry that hid the driver verb from the
+// run family. Each entry is the human description shown in the group help in
+// place of a daemon method (these verbs run a local loop, not a single RPC).
+var localGroupSubcommands = map[string]map[string]string{
+	"run": {
+		"drive": "local operator loop: register + supervise lanes as queued jobs unblock (no daemon method)",
+	},
+}
+
 // SubcommandsFor returns the sorted, non-deprecated subcommands registered for a
-// command group (e.g. "recovery" -> ["accept-quarantined", "auto", ...]). It
-// returns nil when the command has no subcommand-bearing routes, so callers can
-// distinguish a command group from a bare verb or an unknown command.
+// command group (e.g. "recovery" -> ["accept-quarantined", "auto", ...]),
+// including locally-dispatched subcommands (localGroupSubcommands) that have no
+// Route entry. It returns nil when the command has no subcommand-bearing routes
+// or local subcommands, so callers can distinguish a command group from a bare
+// verb or an unknown command.
 func SubcommandsFor(command string) []string {
 	seen := map[string]bool{}
 	subs := []string{}
@@ -461,6 +511,13 @@ func SubcommandsFor(command string) []string {
 		}
 		seen[route.Subcommand] = true
 		subs = append(subs, route.Subcommand)
+	}
+	for sub := range localGroupSubcommands[command] {
+		if seen[sub] {
+			continue
+		}
+		seen[sub] = true
+		subs = append(subs, sub)
 	}
 	sort.Strings(subs)
 	return subs
@@ -491,10 +548,18 @@ func RenderCommandGroupHelp(command string) string {
 	fmt.Fprintf(&b, "usage: striatum %s <subcommand> [flags]\n\n", command)
 	fmt.Fprintf(&b, "Subcommands (run `striatum %s <subcommand> --help` for a subcommand's flags):\n", command)
 	for _, sub := range subs {
-		route := methodBySub[sub]
-		line := fmt.Sprintf("  %-22s %s", sub, route.Method)
-		if route.RequiredCapability != "" {
-			line += "  (capability: " + route.RequiredCapability + ")"
+		route, isRoute := methodBySub[sub]
+		var line string
+		switch {
+		case isRoute:
+			line = fmt.Sprintf("  %-22s %s", sub, route.Method)
+			if route.RequiredCapability != "" {
+				line += "  (capability: " + route.RequiredCapability + ")"
+			}
+		default:
+			// Locally-dispatched subcommand (no daemon method) — render its
+			// description so the verb is discoverable in the group help.
+			line = fmt.Sprintf("  %-22s %s", sub, localGroupSubcommands[command][sub])
 		}
 		b.WriteString(line)
 		b.WriteString("\n")

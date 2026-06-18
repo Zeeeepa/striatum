@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -476,11 +477,105 @@ func HandleRunResume(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 			 WHERE repository_id = $1 AND run_id = $2`, repositoryID, runID); err != nil {
 			return nil, err
 		}
-		if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.resumed", nil, nil, nil, nil, nil, nil); err != nil {
+		// #383 item 1: clearing paused_at is necessary but not sufficient to make
+		// the run progress again. The driving loop is one of two homes: the daemon
+		// auto_spawn scheduler (RFC 0122, grant-gated + deployment opt-in) or the
+		// operator-side `run drive` loop. Resume itself starts neither — it only
+		// lifts the C5 pause hold. Classify which home will (or must) re-drive the
+		// resumed run and report it loudly so a resumed-but-undriven run is never a
+		// silent stall. The classification is read-only and adds no new RPC.
+		drive := resolveResumeDrivePlan(ctx, tx, repositoryID, runID)
+		payload := map[string]any{
+			"drive":         drive.Mode,
+			"drive_message": drive.Message,
+		}
+		if _, err := appendEvent(ctx, tx, repositoryID, runID, "run.resumed", nil, nil, nil, nil, nil, payload); err != nil {
 			return nil, err
 		}
-		return map[string]any{"run_id": runID, "state": state, "paused_at": nil, "status": "resumed"}, nil
+		result := map[string]any{
+			"run_id":        runID,
+			"state":         state,
+			"paused_at":     nil,
+			"status":        "resumed",
+			"drive":         drive.Mode,
+			"drive_message": drive.Message,
+		}
+		if drive.NextAction != "" {
+			result["next_action"] = drive.NextAction
+		}
+		return result, nil
 	})
+}
+
+// resumeDrivePlan describes how a just-resumed run will (or must) be re-driven.
+// It is the legibility half of the #383 item 1 fix: resume can re-arm the daemon
+// auto_spawn scheduler implicitly (the scheduler re-adopts every running,
+// non-paused run with an active grant on its next sweep), but it cannot recreate
+// the operator-side transient `run drive` loop — that lives in a systemd unit the
+// daemon does not own. So resume SAYS which path applies instead of returning a
+// bare {status:resumed} that hides an undriven run.
+type resumeDrivePlan struct {
+	// Mode is the machine-readable drive home: "daemon_auto_spawn" (the scheduler
+	// will re-adopt the run with no operator RPC), "operator_run_drive" (the
+	// operator must re-invoke `run drive`), or "auto_spawn_scheduler_disabled" (the
+	// run is grant-backed but the daemon scheduler is opt-OFF on this deployment,
+	// so `run drive` is still required until it is enabled).
+	Mode string
+	// Message is a one-line human explanation of Mode.
+	Message string
+	// NextAction is a copy-pasteable operator command when one is required, "" when
+	// the daemon will re-drive on its own.
+	NextAction string
+}
+
+// resolveResumeDrivePlan classifies the post-resume drive home for a run. It is
+// read-only: it inspects the run's active spawn-authorization grant and the
+// daemon's STRIATUM_AUTO_SPAWN_SCHEDULER deployment flag, and never spawns or
+// mutates anything. A grant exists only when the run's workflow opted a lane into
+// supervision.auto_spawn at run.start (captureSpawnAuthorizationGrant), so its
+// presence is the same signal the AutoSpawnSweep candidate query keys on.
+func resolveResumeDrivePlan(ctx context.Context, runner any, repositoryID, runID string) resumeDrivePlan {
+	driveHint := fmt.Sprintf("re-invoke the driver: striatum run drive --run-id %s", runID)
+	grant, err := loadActiveSpawnGrant(ctx, runner, repositoryID, runID)
+	if err != nil || grant == nil || grant.Expired {
+		// No live grant (or it could not be read / has expired): the auto_spawn
+		// scheduler will not adopt this run, so the operator-side `run drive` loop is
+		// the only driver. The transient driver started by `run start` does not
+		// survive a daemon/DB outage, so after a pause+restart it must be re-invoked.
+		return resumeDrivePlan{
+			Mode:       "operator_run_drive",
+			Message:    "run resumed; it has no active auto_spawn grant, so the daemon scheduler will not re-drive it. Resume only lifts the pause hold — re-invoke `run drive` to restart the driving loop (the transient driver from `run start` does not survive a daemon/DB restart).",
+			NextAction: driveHint,
+		}
+	}
+	if !autoSpawnSchedulerEnabled() {
+		// The run is grant-backed, but this deployment runs the daemon scheduler
+		// opt-OFF (STRIATUM_AUTO_SPAWN_SCHEDULER unset). Until it is enabled the
+		// operator-side `run drive` is still the driver.
+		return resumeDrivePlan{
+			Mode:       "auto_spawn_scheduler_disabled",
+			Message:    "run resumed; it holds an active auto_spawn grant, but the daemon auto_spawn scheduler is disabled on this deployment (STRIATUM_AUTO_SPAWN_SCHEDULER unset). Re-invoke `run drive` to restart the driving loop, or enable the scheduler to have the daemon re-adopt resumed runs automatically.",
+			NextAction: driveHint,
+		}
+	}
+	return resumeDrivePlan{
+		Mode:       "daemon_auto_spawn",
+		Message:    "run resumed; it holds an active auto_spawn grant and the daemon scheduler is enabled, so the scheduler will re-adopt and re-drive it on its next sweep with no operator RPC. No manual `run drive` is required.",
+		NextAction: "",
+	}
+}
+
+// autoSpawnSchedulerEnabled reports whether this daemon deployment runs the
+// RFC 0122 auto_spawn scheduler (STRIATUM_AUTO_SPAWN_SCHEDULER truthy). It mirrors
+// the envBool gate cmd/striatumd uses to decide whether to start the sweep, so the
+// resume drive classification reflects the live deployment rather than guessing.
+func autoSpawnSchedulerEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("STRIATUM_AUTO_SPAWN_SCHEDULER"))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func isTerminalRunState(state string) bool {

@@ -303,10 +303,16 @@ func lintWriteScopeRisk(workflow map[string]any, jobMap map[string]map[string]an
 			})
 		}
 		if lane != nil && laneIsAutonomousOrSupervised(lane) && lane["worktree_isolation"] != "per_job" && LaneAllowsSharedCheckoutRepoWrite(lane) {
+			// #383 item 4: surface the concurrency consequence at validate time so the
+			// gate agrees with `run start`. A shared-checkout repo-write lane passes
+			// validate, but run.start refuses it (concurrent_run_isolation_required)
+			// when another run is already active on the repo — the start-time gate and
+			// the validate-time gate must not silently disagree. Naming it here lets the
+			// author choose worktree_isolation: per_job before they hit the refusal.
 			*findings = append(*findings, map[string]any{
 				"rule":     "shared_checkout_repo_write_override",
 				"severity": "warning",
-				"message":  "repo-write job '" + jobID + "' uses supervised/agent-loop lane '" + laneID + "' in the shared checkout under allow_shared_checkout_repo_write; keep this for explicit interactive-human compatibility only",
+				"message":  "repo-write job '" + jobID + "' uses supervised/agent-loop lane '" + laneID + "' in the shared checkout under allow_shared_checkout_repo_write; keep this for explicit interactive-human compatibility only. This precludes concurrent runs: run.start will refuse this run (concurrent_run_isolation_required) while another run is active on the repo. Set worktree_isolation: per_job to run concurrently.",
 				"job_id":   jobID,
 				"lane_id":  laneID,
 			})

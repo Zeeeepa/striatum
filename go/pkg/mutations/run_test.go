@@ -244,6 +244,143 @@ func TestRunResumeCompletedRunGivesCompromiseGuidance(t *testing.T) {
 	}
 }
 
+// TestRunResumeReportsDaemonAutoSpawnDrive (#383 item 1): a paused auto_spawn run
+// resumed under an enabled daemon scheduler reports drive=daemon_auto_spawn and no
+// next_action — the scheduler re-adopts it, so no manual `run drive` is required.
+func TestRunResumeReportsDaemonAutoSpawnDrive(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, runID := "repo_resume_drive_daemon", "run_resume_drive_daemon"
+	startAutoSpawnRun(t, ctx, runner, repoID, runID, "client_owner_resume_daemon")
+	t.Setenv("STRIATUM_AUTO_SPAWN_SCHEDULER", "1")
+	if _, err := HandleRunPause(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID})); err != nil {
+		t.Fatalf("run.pause: %v", err)
+	}
+
+	result, err := HandleRunResume(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID}))
+	if err != nil {
+		t.Fatalf("run.resume: %v", err)
+	}
+	if result["status"] != "resumed" {
+		t.Fatalf("status = %v, want resumed", result["status"])
+	}
+	if result["drive"] != "daemon_auto_spawn" {
+		t.Fatalf("drive = %v, want daemon_auto_spawn", result["drive"])
+	}
+	if result["next_action"] != nil {
+		t.Fatalf("next_action = %v, want absent when the daemon re-drives", result["next_action"])
+	}
+	if msg, _ := result["drive_message"].(string); !strings.Contains(msg, "scheduler will re-adopt") {
+		t.Fatalf("drive_message = %q, want scheduler re-adoption note", msg)
+	}
+}
+
+// TestRunResumeReportsSchedulerDisabledDrive (#383 item 1): a paused auto_spawn run
+// resumed while the daemon scheduler is OFF reports
+// drive=auto_spawn_scheduler_disabled with a `run drive` next_action — the run has
+// a grant but nothing will re-drive it until the scheduler is enabled.
+func TestRunResumeReportsSchedulerDisabledDrive(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, runID := "repo_resume_drive_disabled", "run_resume_drive_disabled"
+	startAutoSpawnRun(t, ctx, runner, repoID, runID, "client_owner_resume_disabled")
+	t.Setenv("STRIATUM_AUTO_SPAWN_SCHEDULER", "")
+	if _, err := HandleRunPause(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID})); err != nil {
+		t.Fatalf("run.pause: %v", err)
+	}
+
+	result, err := HandleRunResume(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID}))
+	if err != nil {
+		t.Fatalf("run.resume: %v", err)
+	}
+	if result["drive"] != "auto_spawn_scheduler_disabled" {
+		t.Fatalf("drive = %v, want auto_spawn_scheduler_disabled", result["drive"])
+	}
+	next, _ := result["next_action"].(string)
+	if !strings.Contains(next, "run drive --run-id "+runID) {
+		t.Fatalf("next_action = %q, want a run drive re-invoke for %s", next, runID)
+	}
+}
+
+// TestRunResumeReportsOperatorRunDrive (#383 item 1): a paused run with NO
+// auto_spawn grant resumed reports drive=operator_run_drive with a `run drive`
+// next_action — the scheduler never adopts a grant-less run, so the operator-side
+// driver is the only home and resume says so explicitly.
+func TestRunResumeReportsOperatorRunDrive(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, runID := "repo_resume_drive_operator", "run_resume_drive_operator"
+	t.Setenv("STRIATUM_AUTO_SPAWN_SCHEDULER", "1") // even enabled, a grant-less run is operator-driven
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"author": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"capabilities": []any{"write"}}},
+		"jobs":        []any{map[string]any{"id": "author_draft", "type": "draft", "role_id": "author"}},
+	})
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs SET state='running', paused_at=now(), paused_reason='maint'
+		 WHERE repository_id=$1 AND run_id=$2`, repoID, runID); err != nil {
+		t.Fatalf("seed paused running run: %v", err)
+	}
+
+	result, err := HandleRunResume(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID}))
+	if err != nil {
+		t.Fatalf("run.resume: %v", err)
+	}
+	if result["drive"] != "operator_run_drive" {
+		t.Fatalf("drive = %v, want operator_run_drive", result["drive"])
+	}
+	next, _ := result["next_action"].(string)
+	if !strings.Contains(next, "run drive --run-id "+runID) {
+		t.Fatalf("next_action = %q, want a run drive re-invoke", next)
+	}
+}
+
+// TestSchedulerReAdoptsResumedRun (#383 item 1): the auto_spawn scheduler re-drives
+// a run that was paused and then resumed. After resume clears paused_at, the
+// scheduler's reconcile pass spawns the queued lane again with no manual
+// `run drive` — proving the daemon-auto_spawn re-arm path the resume result
+// advertises actually makes the run progress.
+func TestSchedulerReAdoptsResumedRun(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID, runID := "repo_sched_resume_readopt", "run_sched_resume_readopt"
+	startAutoSpawnRun(t, ctx, runner, repoID, runID, "client_owner_readopt")
+
+	// Pause holds: the scheduler launches nothing while paused.
+	if _, err := HandleRunPause(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID})); err != nil {
+		t.Fatalf("run.pause: %v", err)
+	}
+	pausedFake := &fakeSpawnExecutor{}
+	pausedResult, err := schedulerSpawnOnce(ctx, runner, repoID, runID, "test", pausedFake)
+	if err != nil {
+		t.Fatalf("schedulerSpawnOnce (paused): %v", err)
+	}
+	if pausedResult["status"] != "paused" || len(pausedFake.calls) != 0 {
+		t.Fatalf("paused sweep = %#v / %d spawns, want paused / 0", pausedResult, len(pausedFake.calls))
+	}
+
+	// Resume lifts the hold; the next sweep re-adopts and spawns the queued lane.
+	if _, err := HandleRunResume(ctx, runner, intgEnv(repoID, map[string]any{"run_id": runID})); err != nil {
+		t.Fatalf("run.resume: %v", err)
+	}
+	resumedFake := &fakeSpawnExecutor{}
+	resumedResult, err := schedulerSpawnOnce(ctx, runner, repoID, runID, "test", resumedFake)
+	if err != nil {
+		t.Fatalf("schedulerSpawnOnce (resumed): %v", err)
+	}
+	if resumedResult["status"] != "active" {
+		t.Fatalf("resumed sweep status = %v, want active", resumedResult["status"])
+	}
+	if len(resumedFake.calls) != 1 {
+		t.Fatalf("resumed sweep spawned %d lanes, want 1 (the scheduler re-drives a resumed run)", len(resumedFake.calls))
+	}
+	if resumedFake.calls[0].role != "author" || resumedFake.calls[0].lane != "codex" {
+		t.Fatalf("resumed spawn = %s/%s, want author/codex", resumedFake.calls[0].role, resumedFake.calls[0].lane)
+	}
+}
+
 func TestRunCancelClosesActiveLeasedSession(t *testing.T) {
 	ctx := context.Background()
 	runner := pgtest.Pool(t).Runner

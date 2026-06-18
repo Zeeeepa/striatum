@@ -191,6 +191,13 @@ func boolFlags(group string) map[string]bool {
 		return set("replace")
 	case "supervise_trajectory":
 		return set("tail")
+	case "run_start":
+		// #383 item 5: --allow-overlap (RFC 0108 Phase 3) is a daemon-parsed
+		// presence flag; --no-drive is a CLI-only presence flag stripped before the
+		// daemon route (stripNoDrive). Both are registered here so a value-less flag
+		// never swallows the run-id positional (#312) and the curated help's
+		// Bool: true flags stay consistent with the parser (TestBoolFlagsMatchUsageMetadata).
+		return set("allow_overlap", "no_drive")
 	default:
 		return nil
 	}
