@@ -1,14 +1,14 @@
 {
   "schema_version": "striatum.skills.manifest.v1",
-  "striatum_version": "2.33.0",
-  "generated_at": "2026-06-16T19:08:04Z",
+  "striatum_version": "2.34.1",
+  "generated_at": "2026-06-18T15:13:02Z",
   "profile": "generic",
   "namespace": "striatum-",
   "scope": "project",
   "files": [
     {
       "path": "striatum-STRIATUM_AGENT_GUIDE.md",
-      "sha256": "6d08cbfd4194f7d0b6d3fde750a4c69a4bd3efbfe684abfa17ddddb4f397c818",
+      "sha256": "60ce24cd982d8f26aeadbb54a06767f85a766ad6042108002e4c7ce13796f135",
       "template": "generic/STRIATUM_AGENT_GUIDE.md.tmpl",
       "template_sha256": "a5c146c5d8d25f0efd2cda269978daf3eb2cfe5ae198ffd5ea63a015aae7bd38"
     }

@@ -1,44 +1,44 @@
 {
   "schema_version": "striatum.skills.manifest.v1",
-  "striatum_version": "2.33.0",
-  "generated_at": "2026-06-16T19:08:04Z",
+  "striatum_version": "2.34.1",
+  "generated_at": "2026-06-18T15:13:02Z",
   "profile": "agy",
   "namespace": "striatum-",
   "scope": "project",
   "files": [
     {
       "path": ".agy/skills/striatum-claim-loop/SKILL.md",
-      "sha256": "c32a6b1da02b86c7c5d04ec28329857a9f8fe5a22f971656292a7b5d9534f958",
+      "sha256": "04708d34c2138208f4b1f5bfc378afe3037368c44b72937a500af4ec2f3ba89e",
       "template": "claude_code/claim-loop.md.tmpl",
       "template_sha256": "480f05e74b4f33221e2acf62f68be3d9d41fa710fc57685a0746c9dd35d143ff"
     },
     {
       "path": ".agy/skills/striatum-mcp/SKILL.md",
-      "sha256": "20f4f16883162a5d5ba4078fc437885b0f9fb988d66ccacd35bbdf145147565c",
+      "sha256": "eac0e435a10cbdf92933c1f159b8f06b562e3af13820b45d5f582d16d4d2b555",
       "template": "claude_code/mcp.md.tmpl",
       "template_sha256": "2c50e45404457b4271c0427d50620921387d091596f8fe2fbd4166a74e31980b"
     },
     {
       "path": ".agy/skills/striatum-recover/SKILL.md",
-      "sha256": "bf09d778acf4d5ae3c1bf184b16323de259e65292929834dbd1f6022f2f76b11",
+      "sha256": "bd4eea557f742dd8af058f8a7ff22ad2a3d257f3441885d431c38d7572999051",
       "template": "claude_code/recover.md.tmpl",
       "template_sha256": "5c68b735d6e946e7f352e660e9035409fc61a373e38f5a0cf8647c4ee0033038"
     },
     {
       "path": ".agy/skills/striatum-scaffold/SKILL.md",
-      "sha256": "723875c6b5b02c3a78aad61e8ada4ff0fe5c663e833206f88eba85a45d736500",
+      "sha256": "1abbdf924287ebda587d03d315df5540123fd93d2a626c5d9e2bf0dbc5236e45",
       "template": "claude_code/scaffold.md.tmpl",
       "template_sha256": "3f2e4e98e2f96b2571cce9dfd7cbeb29f51d7d83d6ffbc35966e91fe6e397e2c"
     },
     {
       "path": ".agy/skills/striatum-supervise/SKILL.md",
-      "sha256": "22eeeb2d5a4e82ab3ece8780d302c6f4cb1b1f7647c3806ca85ea870ef85f8ca",
+      "sha256": "c6a97852057ec939cbe9b480050e85f600575d9054eeacc776d47649913d2e25",
       "template": "claude_code/supervise.md.tmpl",
       "template_sha256": "f9e624acabde718167d4548a58f9bf8e33e35acb6bfa50d11e869212ab241ed9"
     },
     {
       "path": ".agy/skills/striatum-workflow/SKILL.md",
-      "sha256": "d801ac035704df8f0f691a4974e7e89b74ce40abffd7ca4cf7045b548de33e78",
+      "sha256": "b6b893b847bd3e79edca81ae1b83f3b9d0b83545a3c367ffbd040900e9ff3ad8",
       "template": "claude_code/workflow.md.tmpl",
       "template_sha256": "a829885d76e7a377a81c6f306478cf02c2b5efe6cfcddb10b8f8bbb1a409f107"
     }
