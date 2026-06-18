@@ -4,7 +4,7 @@
 # --warn-only arg) at migration Phase 4, once the tree is structurally migrated.
 repos:
   - repo: https://github.com/halbritt/doc-convention-lint
-    rev: 03781e40506355cc5414ed97f65729fbda34c926
+    rev: 2fe9a5f8ee23744ccee1d272dc99ac74be8e9ff8
     hooks:
       - id: doc-convention
         args: [--warn-only]
