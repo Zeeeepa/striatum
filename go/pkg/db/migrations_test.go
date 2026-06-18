@@ -685,6 +685,41 @@ func TestMigration33ReapsTerminalRunSupervisors(t *testing.T) {
 	}
 }
 
+// TestMigration37ResolvesTerminalRunBlockers (#420): the backfill resolves every
+// still-open blocker on an already-terminal run (plus the escalation_inbox mirror),
+// and is pure DML (no owner-table DDL), so striatumd_rw applies it cleanly.
+func TestMigration37ResolvesTerminalRunBlockers(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 37 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 37 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"UPDATE striatumd.blockers",
+		"UPDATE striatumd.escalation_inbox",
+		"r.state IN ('completed', 'failed', 'canceled')",
+		"b.state = 'open'",
+		"state = 'resolved'",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 37 missing %q", needle)
+		}
+	}
+	if violations := runtimeMigrationOwnerDDLViolations(*migration); len(violations) > 0 {
+		t.Fatalf("migration 37 must be pure DML, found owner DDL: %v", violations)
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")

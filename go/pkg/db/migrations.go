@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 36
+	LatestDaemonDBVersion = 37
 	MigrationLockKey      = 332933
 )
 
@@ -65,6 +65,7 @@ func Migrations() ([]Migration, error) {
 		33: "reap supervisors stranded on terminal runs (#417)",
 		34: "conversation post_dialog_hook declaration (RFC 0094 §1 / RFC 0095 Phase 3 / #402)",
 		35: "confidence-gated pipe-lane escalation state (RFC 0131 131-C / #336)",
+		37: "resolve blockers stranded open on terminal runs (#420)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {
