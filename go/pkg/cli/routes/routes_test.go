@@ -96,6 +96,33 @@ func TestRenderHelpListsRequiredAndOptional(t *testing.T) {
 	}
 }
 
+// TestRenderCommandGroupHelpListsRecoverySubcommands (#389 gap 3): `recovery`
+// carries only subcommands, so it misses Lookup and used to error
+// "unknown command: recovery". The command-group help must list the recovery
+// verb family (including the non-obvious reseal / resolve-blocker recovery path).
+func TestRenderCommandGroupHelpListsRecoverySubcommands(t *testing.T) {
+	help := RenderCommandGroupHelp("recovery")
+	if help == "" {
+		t.Fatal("RenderCommandGroupHelp(recovery) returned empty; recovery has subcommands")
+	}
+	for _, want := range []string{
+		"usage: striatum recovery <subcommand>",
+		"reseal", "recovery.reseal",
+		"resolve-blocker", "complete-stalled", "requeue-stale",
+		"(capability: recovery)",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("recovery group help missing %q:\n%s", want, help)
+		}
+	}
+}
+
+func TestRenderCommandGroupHelpEmptyForUnknownCommand(t *testing.T) {
+	if got := RenderCommandGroupHelp("definitely-not-a-command"); got != "" {
+		t.Fatalf("RenderCommandGroupHelp(unknown) = %q, want empty", got)
+	}
+}
+
 func TestRenderHelpEnumValues(t *testing.T) {
 	route, _, ok := Lookup([]string{"checkpoint", "resolve"})
 	if !ok {

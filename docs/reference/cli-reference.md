@@ -575,9 +575,62 @@ striatum recovery cancel-job
 striatum recovery invalidate-job
 striatum recovery process-reconcile
 striatum recovery resume
+striatum recovery reseal
+striatum recovery complete-stalled
+striatum recovery accept-quarantined
+striatum recovery resolve-blocker
+striatum recovery prune-debris
+striatum recovery quarantine-lane
 striatum checkpoint resolve
 striatum override-verdict
 ```
+
+`recovery --help` (and bare `striatum recovery`) lists the full recovery
+verb family above; run `striatum recovery <subcommand> --help` for a
+subcommand's flags. Each `recovery` verb requires the `recovery` capability.
+All recovery verbs are diagnostic/compatibility clients of the same
+daemon boundary — they route remediation back through the daemon's own
+state machine and never hand-finish a wedged lane (see `AGENTS.md`,
+"Do not paste over a broken runner").
+
+### Recovery verb family (when each applies)
+
+The `recovery` verbs are the legitimate way to unstick a wedged lane or run.
+The non-obvious entry point is the **"lane finished but the seal failed"**
+path: a transient `artifact.publish` / seal failure (e.g. a DB lock timeout,
+`SQLSTATE 55P03`, under concurrent runs) can leave the work *done and durable
+on disk* but the job in state `blocked`, not requeued. `run retry-job` refuses
+(it would exceed `max_attempts`), and `run drive` cannot launch a `blocked`
+job — it now reports `cannot advance <job> (cannot_advance_blocked): …` instead
+of idling silently. The fix is:
+
+```text
+striatum recovery reseal --run-id <run-id> --job-id <job-id>
+```
+
+`recovery reseal` moves the job `blocked -> queued` on the SAME attempt so the
+driver re-claims and re-seals the already-durable artifact; it does not consume
+a retry.
+
+- `recovery reseal <run-id> <job-id>` — re-seal a job whose lane finished but
+  whose seal/publish failed transiently; `blocked -> queued`, same attempt.
+- `recovery resolve-blocker <blocker-id>` — close a dangling non-escalation,
+  non-checkpoint blocker that no completion path cleared.
+- `recovery complete-stalled <run-id> <job-id>` — finalize a
+  recovery-exhausted job from its already-durable published artifacts when the
+  lane is dead and the work is complete.
+- `recovery accept-quarantined <run-id> <job-id>` — resolve a quarantined job's
+  blocker and mark it canceled-by-operator.
+- `recovery prune-debris <run-id>` — tombstone a terminal-debris run's
+  unrecoverable artifact debris so `doctor` reports `ok` again.
+- `recovery quarantine-lane <run-id> <job-id>` — snapshot a terminal run's
+  dirty lane worktree to a durable quarantine ref, then clean the worktree.
+
+`striatum doctor` surfaces this wedge family directly: a non-terminal job in
+`running` / `claimed` / `stale_lease` / `blocked` with **no live session** and
+no recent progress is reported as a `job_stuck_no_live_session` warning naming
+the recovery verb to run. The warning is advisory (it does not flip `doctor`
+to a hard red) so it tolerates normal in-flight latency.
 
 `run graph --run-id <id> [--format mermaid|json|dot|ascii]`
 renders the workflow graph for an existing run with each node

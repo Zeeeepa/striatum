@@ -387,6 +387,18 @@ func (d *Driver) launchQueued(ctx context.Context, jobs []map[string]any, workfl
 				Result:  "ambiguous_lane",
 				Message: "cannot resolve lane for queued job; register manually",
 			}))
+		case runreconcile.LaunchUnadvanceable:
+			// #389 gap 2: a non-terminal job the driver can neither launch nor track
+			// (canonically a `blocked` job from a transient publish/seal failure) is
+			// otherwise invisible — the driver would emit nothing and idle silently
+			// while the run cannot progress. Surface it LOUDLY with the remediation
+			// so the operator (or operator-model) is not left guessing. The driver
+			// does NOT auto-recover; that stays an explicit operator `recovery` verb.
+			actions = append(actions, d.jobAction("cannot_advance", decision.Job, Action{
+				Role:    decision.Role,
+				Result:  "cannot_advance_" + decision.State,
+				Message: decision.Remediation,
+			}))
 		case runreconcile.LaunchAdoptExisting:
 			d.launched[decision.Slot] = decision.SessionID
 			actions = append(actions, d.jobAction("adopt", decision.Job, Action{
@@ -581,6 +593,11 @@ func (d *Driver) emit(action Action) {
 		_, _ = fmt.Fprintf(d.options.Stdout, "run %s -> %s\n", d.options.RunID, action.Result)
 	case "skip":
 		_, _ = fmt.Fprintf(d.options.Stderr, "skip %s: %s\n", action.WorkflowJobID, action.Message)
+	case "cannot_advance":
+		// #389 gap 2: never let a stuck run look like a quiet, healthy run. Emit a
+		// loud, named warning to stderr (parallel to `skip`) so the operator sees
+		// the un-advanceable job and its remediation instead of an empty log.
+		_, _ = fmt.Fprintf(d.options.Stderr, "cannot advance %s (%s): %s\n", action.WorkflowJobID, action.Result, action.Message)
 	default:
 		_, _ = fmt.Fprintf(d.options.Stdout, "%s %s/%s %s attempt %d -> %s\n",
 			action.Action, action.Role, action.Lane, action.WorkflowJobID, action.Attempt, action.Result)

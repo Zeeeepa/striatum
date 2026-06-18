@@ -138,6 +138,54 @@ func TestRunDriveAdoptsExistingSessions(t *testing.T) {
 	}
 }
 
+// TestRunDriveSurfacesBlockedJobInsteadOfIdling (#389 gap 2): a run whose only
+// non-terminal job is `blocked` (a transient publish/seal failure left it stuck)
+// must produce a VISIBLE "cannot advance" action naming the remediation — not an
+// empty, silent reconcile. It must not launch or register anything.
+func TestRunDriveSurfacesBlockedJobInsteadOfIdling(t *testing.T) {
+	ctx := context.Background()
+	fake := newFakeDrive()
+	fake.jobs = []map[string]any{job("job_design", "design_codex", "designer", "codex", "blocked", 1)}
+	driver := testDriver(fake)
+
+	actions, _, terminal, err := driver.ReconcileOnce(ctx)
+	if err != nil {
+		t.Fatalf("reconcile: %v", err)
+	}
+	if terminal {
+		t.Fatalf("a run with a blocked job is not terminal")
+	}
+	// Silent idle is the bug: there must be at least one action, and it must be
+	// the loud cannot-advance signal.
+	idx := actionIndex(actions, "cannot_advance")
+	if idx < 0 {
+		t.Fatalf("expected a 'cannot_advance' action for the blocked job, got %#v", actions)
+	}
+	signal := actions[idx]
+	if signal.WorkflowJobID != "design_codex" || signal.Result != "cannot_advance_blocked" {
+		t.Fatalf("cannot_advance action = %#v, want design_codex / cannot_advance_blocked", signal)
+	}
+	if !strings.Contains(signal.Message, "recovery reseal") {
+		t.Fatalf("cannot_advance message = %q, want it to name `recovery reseal`", signal.Message)
+	}
+	// The driver must NOT try to launch or register a blocked job.
+	if got := fake.count("session.register"); got != 0 {
+		t.Fatalf("session.register calls = %d, want 0 for a blocked job", got)
+	}
+	if got := fake.count("supervise.start"); got != 0 {
+		t.Fatalf("supervise.start calls = %d, want 0 for a blocked job", got)
+	}
+
+	// The signal also reaches stderr (operator-visible), not just the action list.
+	var stdout, stderr bytes.Buffer
+	driver.options.Stdout = &stdout
+	driver.options.Stderr = &stderr
+	driver.emit(signal)
+	if !strings.Contains(stderr.String(), "cannot advance design_codex") {
+		t.Fatalf("emit did not write the cannot-advance warning to stderr: %q", stderr.String())
+	}
+}
+
 func TestRunDriveClosesCompletedLanesBeforeFreshReviewer(t *testing.T) {
 	ctx := context.Background()
 	fake := newFakeDrive()

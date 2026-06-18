@@ -241,6 +241,16 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	problems = append(problems, recoveryCursorProblems...)
 	problemRecords = append(problemRecords, recoveryCursorRecords...)
 
+	// #373/#388/#389: surface the wedge family the recovery_sweep_cursor check
+	// could not see — a non-terminal job with NO live session and no recent
+	// progress yields 0 claimable jobs (a sessionless running job, or a blocked
+	// job) so doctor stayed green while the run deadlocked. This is a WARNING (not
+	// a hard red): it must tolerate normal in-flight latency and never re-red a
+	// green baseline on a healthy actively-running job.
+	stuckJobBlock, stuckJobWarnings, stuckJobWarningRecords := doctorStuckJobsNoLiveSession(ctx, runner, repositoryID, time.Now().UTC())
+	warnings = append(warnings, stuckJobWarnings...)
+	warningRecords = append(warningRecords, stuckJobWarningRecords...)
+
 	result := map[string]any{
 		"ok":                           len(problems) == 0,
 		"schema_version":               schemaVersion,
@@ -262,6 +272,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"artifact_anchor_integrity":    artifactAnchorBlock,
 		"barrier_integrity":            barrierBlock,
 		"recovery_sweep_cursor":        recoveryCursorBlock,
+		"job_stuck_no_live_session":    stuckJobBlock,
 		"skills":                       skillsBlock,
 		"blob":                         blobBlock,
 	}

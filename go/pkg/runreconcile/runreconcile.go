@@ -49,6 +49,15 @@ const (
 	// LaunchRegisterFresh: no adoptable session exists; the caller must register
 	// a fresh session for the slot and start its supervisor.
 	LaunchRegisterFresh
+	// LaunchUnadvanceable: the job is non-terminal but the driver cannot advance
+	// it this pass — it is neither queued (so PlanLaunch will not launch it) nor
+	// in-flight on a live lane (so the launched-tracking / recovery paths do not
+	// own it). The canonical case is a `blocked` job left by a transient
+	// publish/seal failure (#389 gap 2): without this decision the driver simply
+	// emits nothing and idles silently while the run makes no progress. The
+	// caller surfaces it as a VISIBLE "cannot advance" signal naming the
+	// remediation; the predicate never auto-recovers it.
+	LaunchUnadvanceable
 )
 
 // LaunchDecision is the predicate's verdict for one queued job. The caller maps
@@ -61,6 +70,12 @@ type LaunchDecision struct {
 	Lane      string
 	Kind      LaunchKind
 	SessionID string // populated only for LaunchAdoptExisting
+	// State is the job's current state. Populated for LaunchUnadvanceable so the
+	// caller can name the stuck state in the operator-facing signal.
+	State string
+	// Remediation is a one-line, copy-pasteable hint naming the verb(s) that
+	// unstick the job. Populated for LaunchUnadvanceable.
+	Remediation string
 }
 
 // PlanLaunch decides, for every queued job not already launched, what the driver
@@ -125,7 +140,25 @@ func PlanLaunch(jobs []map[string]any, workflow map[string]any, sessions []map[s
 
 	decisions := []LaunchDecision{}
 	for _, job := range SortedJobs(jobs) {
-		if StringValue(job["state"]) != "queued" {
+		state := StringValue(job["state"])
+		if state != "queued" {
+			// #389 gap 2: a non-terminal job the driver can neither launch (not
+			// queued) nor track as in-flight (no live lane) — canonically a
+			// `blocked` job left by a transient publish/seal failure — is otherwise
+			// invisible: the loop just `continue`s and the driver emits nothing,
+			// idling silently while the run cannot progress. Emit a visible
+			// "cannot advance" decision naming the remediation. This is a SIGNAL,
+			// not a launch: it consumes no cap budget and never auto-recovers.
+			if UnadvanceableJobState(state) {
+				decisions = append(decisions, LaunchDecision{
+					Job:         job,
+					Slot:        JobSlot(job),
+					Role:        StringValue(job["role_id"]),
+					Kind:        LaunchUnadvanceable,
+					State:       state,
+					Remediation: UnadvanceableRemediation(state),
+				})
+			}
 			continue
 		}
 		slot := JobSlot(job)
@@ -189,6 +222,40 @@ var inFlightJobStates = map[string]bool{
 	"claimed":     true,
 	"running":     true,
 	"stale_lease": true,
+}
+
+// unadvanceableJobStates is the set of non-terminal job states the driver can
+// neither launch (PlanLaunch only launches `queued`) nor own as in-flight work
+// (those are handled by launched-tracking + the daemon recovery sweep). A job in
+// one of these states blocks the run with no operator-facing signal unless the
+// driver explicitly surfaces it (#389 gap 2). Today the only such state is
+// `blocked`; `waiting_human` is a deliberate operator hand-off that flips the
+// RUN to a drive-terminal state, so it is intentionally excluded.
+var unadvanceableJobStates = map[string]bool{
+	"blocked": true,
+}
+
+// UnadvanceableJobState reports whether a job in this state is non-terminal yet
+// un-launchable and not in-flight — i.e. the driver cannot advance it and must
+// surface it instead of idling silently.
+func UnadvanceableJobState(state string) bool {
+	return unadvanceableJobStates[state]
+}
+
+// UnadvanceableRemediation returns the one-line, copy-pasteable hint naming the
+// recovery verb(s) that unstick a job in the given state. It is purely advisory
+// legibility — it changes no behavior and triggers no auto-recovery.
+func UnadvanceableRemediation(state string) string {
+	switch state {
+	case "blocked":
+		// The canonical #389 path: a transient publish/seal failure left the work
+		// done-and-durable on disk but the job `blocked`. `recovery reseal` moves
+		// it blocked -> queued on the same attempt; `recovery resolve-blocker`
+		// clears a dangling blocker that no completion path cleared.
+		return "job is blocked and cannot be driven; run `striatum recovery reseal --run-id <run> --job-id <job>` (lane finished but the seal failed) or `striatum recovery resolve-blocker <blocker-id>`"
+	default:
+		return "job is " + state + " and cannot be driven; inspect with `striatum doctor` / `striatum why` and recover via the `striatum recovery` verbs"
+	}
 }
 
 // MaxActiveJobs reads the workflow's top-level parallelism.max_active_jobs cap.

@@ -117,6 +117,23 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 	route, consumed, ok := routes.Lookup(globals.CommandArgs)
 	if !ok {
 		if len(globals.CommandArgs) > 0 {
+			// #389 gap 3: a command group that carries only subcommands (e.g.
+			// `recovery`) misses Lookup when typed bare or with --help, and used to
+			// fall through to "unknown command: recovery", leaving the recovery verb
+			// family undiscoverable. Render the subcommand list instead. `--help`
+			// prints to stdout (exit 0); a bare group with no subcommand is a usage
+			// error printed to stderr (exit 2).
+			command := globals.CommandArgs[0]
+			rest := globals.CommandArgs[1:]
+			if groupHelp := routes.RenderCommandGroupHelp(command); groupHelp != "" &&
+				(len(rest) == 0 || requestsHelp(rest)) {
+				if requestsHelp(rest) {
+					_, _ = fmt.Fprint(stdout, groupHelp)
+					return 0
+				}
+				_, _ = fmt.Fprint(stderr, groupHelp)
+				return 2
+			}
 			_, _ = fmt.Fprintf(stderr, "unknown command: %s\n", strings.Join(globals.CommandArgs, " "))
 			if suggestion := suggestCommand(globals.CommandArgs); suggestion != "" {
 				_, _ = fmt.Fprintf(stderr, "did you mean: striatum %s\n", suggestion)
