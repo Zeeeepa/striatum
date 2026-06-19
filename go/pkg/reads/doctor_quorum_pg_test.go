@@ -310,6 +310,44 @@ func TestDoctorDissentLedgerCompletenessFires(t *testing.T) {
 	}
 }
 
+// TestDoctorDissentLedgerCompletenessSilentOnTerminalRun is the #443 fix: the check
+// fires on a LIVE run with a missing dissent_ledger row, but goes SILENT once the run
+// is terminal. A terminal run has no live seat to recover/transfer (so the absent
+// forward-write token is moot), and every run that reached needs_revision before
+// migration 0032 has a verdict but no ledger row by construction.
+func TestDoctorDissentLedgerCompletenessSilentOnTerminalRun(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	repoID := "repo_qdoc_ledger_term"
+	runID := "run_qdoc_ledger_term"
+	seedQuorumDoctorRepoRun(t, ctx, runner, repoID, runID, panelSnapshot("gate", map[string]string{
+		"rev_g": "gating",
+	}))
+	seedQuorumDoctorJob(t, ctx, runner, repoID, runID, "job_gate", "gate", "synthesis", "blocked", 1)
+	seedQuorumDoctorJob(t, ctx, runner, repoID, runID, "job_g", "rev_g", "review", "completed", 1)
+	seedQuorumDoctorDep(t, ctx, runner, repoID, "job_gate", "job_g")
+	seedQuorumDoctorSession(t, ctx, runner, repoID, runID, "sess_g")
+	seedQuorumDoctorVerdict(t, ctx, runner, repoID, runID, "v_g", "job_g", "sess_g", "needs_revision")
+
+	// Live run: the check fires (the setup is a genuine positive, so the test is
+	// not vacuous).
+	_, problems, _, _, _ := doctorQuorumIntegrity(ctx, runner, repoID)
+	if !hasQuorumProblem(problems, "dissent_ledger_incomplete.rev_g") {
+		t.Fatalf("expected dissent_ledger_incomplete on the LIVE run, got: %v", problems)
+	}
+
+	// Terminal run: the check goes silent (#443).
+	if err := runner.Exec(ctx, `UPDATE striatumd.runs SET state='canceled' WHERE repository_id=$1 AND run_id=$2`, repoID, runID); err != nil {
+		t.Fatalf("cancel run: %v", err)
+	}
+	_, problems2, _, _, _ := doctorQuorumIntegrity(ctx, runner, repoID)
+	if hasQuorumProblem(problems2, "dissent_ledger_incomplete.rev_g") {
+		t.Fatalf("dissent_ledger_incomplete must be silent on a terminal run, got: %v", problems2)
+	}
+}
+
 // TestRunSummaryQuorumDissentLegibility asserts run.summary surfaces the live dissent
 // rows and open advisory holds so a quorum/advisory park is self-explaining before
 // checkpoint resolve (#342 finalize-decision legibility).

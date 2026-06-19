@@ -542,7 +542,18 @@ func doctorDissentLedgerCompleteness(ctx context.Context, runner any, repository
 		  FROM striatumd.verdicts v
 		  JOIN striatumd.jobs j
 		    ON j.repository_id = v.repository_id AND j.job_id = v.job_id
+		  JOIN striatumd.runs r
+		    ON r.repository_id = v.repository_id AND r.run_id = v.run_id
 		 WHERE v.repository_id = $1
+		   -- #443: a TERMINAL run has no live seat to recover or transfer, so a
+		   -- missing dissent_ledger row on it is moot, not an actionable integrity
+		   -- gap. The dissent ledger only arrived in migration 0032 (RFC 0135 P4),
+		   -- so every run that reached needs_revision/reject before that has a
+		   -- verdict but no ledger row by construction; without this scope the check
+		   -- reds doctor on ~25 historical/pre-0032 terminal runs. Mirrors the
+		   -- terminal-run scoping the artifact (D204) and status-blocker (#419)
+		   -- checks already apply. The check stays load-bearing for LIVE barriers.
+		   AND r.state NOT IN `+statusTerminalRunStatesSQL+`
 		   AND v.verdict IN ('needs_revision','reject')
 		   AND v.superseded_by_decision_id IS NULL
 		   AND j.attempt = (
