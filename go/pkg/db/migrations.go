@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 39
+	LatestDaemonDBVersion = 40
 	MigrationLockKey      = 332933
 )
 
@@ -68,6 +68,7 @@ func Migrations() ([]Migration, error) {
 		37: "resolve blockers stranded open on terminal runs (#420)",
 		38: "durable buffer for no-reader supervised_push packets (FMA-006 / #456)",
 		39: "opt-in terminal-gap tolerance for a strict fan-in with a provably-dead required seat (RFC 0138 / #453)",
+		40: "drop `state` from non-partial idx_process_supervisor_pointers_run to cut HOT-defeating index churn (RFC 0139 Direction 2 / #421)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {
