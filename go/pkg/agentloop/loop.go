@@ -484,17 +484,15 @@ func activeLeaseIDFromStatus(status map[string]any) string {
 // tool-call-less local work never ages into wedged_no_tool_progress and keeps its
 // attested byline. No active lease => no keepalive (nothing to keep alive).
 //
-// It reuses the daemon-receiver gating (STRIATUM_AGENT_LOOP_DAEMON_RECEIVER and
-// the codex carve-out) so it never races a lane that drives its own MCP loop, and
-// is disabled by STRIATUM_AGENT_LOOP_KEEPALIVE_MS=0.
-func startLocalWorkKeepalive(ctx context.Context, cfg runConfig, adapter string, stderr io.Writer) {
-	if daemonReceiverDisabled(cfg.Env, adapter) || cfg.RepositoryID == "" || cfg.SessionID == "" {
+// Unlike the PTY-side daemon receiver, this stays enabled for Codex lanes: the
+// supervised process owns the session token and can safely send lease-scoped
+// heartbeats without racing Codex's foreground work.await_packet loop.
+// STRIATUM_AGENT_LOOP_KEEPALIVE_MS=0 is the explicit off switch.
+func startLocalWorkKeepalive(ctx context.Context, cfg runConfig, _ string, stderr io.Writer) {
+	if localWorkKeepaliveDisabled(cfg) {
 		return
 	}
 	interval := localWorkKeepaliveInterval()
-	if interval <= 0 {
-		return
-	}
 	clientCfg := rpcclient.Config{
 		SocketPath: cfg.SocketPath,
 		Token:      cfg.Token.Token,
@@ -539,6 +537,10 @@ func startLocalWorkKeepalive(ctx context.Context, cfg runConfig, adapter string,
 			}
 		}
 	}()
+}
+
+func localWorkKeepaliveDisabled(cfg runConfig) bool {
+	return cfg.RepositoryID == "" || cfg.SessionID == "" || localWorkKeepaliveInterval() <= 0
 }
 
 // mcpRotationPollInterval is how often the #323 watcher re-reads the runtime

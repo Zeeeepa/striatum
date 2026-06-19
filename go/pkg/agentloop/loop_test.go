@@ -271,6 +271,17 @@ func TestLocalWorkKeepaliveInterval(t *testing.T) {
 	})
 }
 
+func TestLocalWorkKeepaliveStaysEnabledForCodexReceiverCarveout(t *testing.T) {
+	t.Setenv("STRIATUM_AGENT_LOOP_KEEPALIVE_MS", "5000")
+	if !daemonReceiverDisabled(nil, "codex") {
+		t.Fatalf("codex should keep the PTY-side daemon receiver disabled by default")
+	}
+	cfg := runConfig{RepositoryID: "repo_1", SessionID: "sess_1"}
+	if localWorkKeepaliveDisabled(cfg) {
+		t.Fatalf("local_work keepalive must stay enabled for codex lanes even when the daemon receiver is disabled")
+	}
+}
+
 func TestDaemonReceiverDisabledEnv(t *testing.T) {
 	if daemonReceiverDisabled([]string{"STRIATUM_AGENT_LOOP_DAEMON_RECEIVER=on"}, "codex") {
 		t.Fatalf("receiver should stay enabled for on")
