@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -392,11 +393,12 @@ func runRunDrive(args []string, stdout io.Writer, stderr io.Writer, globals lead
 		repositoryID = envLookup(os.Environ(), "STRIATUM_REPOSITORY_ID")
 	}
 	if repositoryID == "" {
-		if repoRoot == "" {
-			if cwd, err := os.Getwd(); err == nil {
-				repoRoot = cwd
-			}
+		resolvedRoot, err := clientRepoRoot(repoRoot)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, err.Error())
+			return 1
 		}
+		repoRoot = resolvedRoot
 		resolved, err := client.Invoke(ctx, "repo.resolve", map[string]any{"path": repoRoot})
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, err.Error())
@@ -455,6 +457,20 @@ func parseDriveInterval(value string) (time.Duration, error) {
 		return 0, fmt.Errorf("--interval must be a positive duration or seconds value")
 	}
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func clientRepoRoot(repoRoot string) (string, error) {
+	if repoRoot == "" {
+		var err error
+		repoRoot, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
+	}
+	if filepath.IsAbs(repoRoot) {
+		return filepath.Clean(repoRoot), nil
+	}
+	return filepath.Abs(repoRoot)
 }
 
 func printRunDriveHelp(out io.Writer) {
