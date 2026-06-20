@@ -1,0 +1,18 @@
+# HELP striatum_metrics_snapshot_age_seconds Seconds since the metrics snapshot was folded at the recovery sweep tick.
+# TYPE striatum_metrics_snapshot_age_seconds gauge
+striatum_metrics_snapshot_age_seconds 12.000000
+# HELP striatum_stranded_supervisors Supervisors attached to terminal runs; the phantom-supervisor storm signal.
+# TYPE striatum_stranded_supervisors gauge
+striatum_stranded_supervisors 3
+# HELP striatum_runs Run count grouped by lifecycle state; unknown states bucket to other.
+# TYPE striatum_runs gauge
+striatum_runs{state="blocked"} 1
+striatum_runs{state="canceled"} 0
+striatum_runs{state="completed"} 4
+striatum_runs{state="compromised"} 0
+striatum_runs{state="failed"} 0
+striatum_runs{state="needs_branch_confirmation"} 0
+striatum_runs{state="needs_operator"} 1
+striatum_runs{state="ready"} 0
+striatum_runs{state="running"} 2
+striatum_runs{state="other"} 1

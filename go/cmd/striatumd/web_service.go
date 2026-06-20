@@ -48,16 +48,24 @@ func newWebServiceHandler(rpcServer *rpc.Server, opts webServiceOptions) http.Ha
 }
 
 // newDaemonHTTPHandler multiplexes the daemon's single loopback HTTP listener
-// between the MCP JSON-RPC/SSE handler and the Go web service. Requests whose
-// path is /mcp or under /mcp/ (the MCP endpoint, its SSE stream, and the
-// message channel) go to the MCP handler unchanged; everything else (/v1/...,
-// /run, /, /static/..., /workflow-templates, /workflows/...) goes to the web
-// service. The MCP path is left byte-for-byte identical so there is no MCP
-// behavior change; both handlers enforce their own loopback-host + bearer auth.
-func newDaemonHTTPHandler(mcpHandler http.Handler, webHandler http.Handler) http.Handler {
+// between the MCP JSON-RPC/SSE handler, the RFC 0137 Prometheus exporter, and
+// the Go web service. Requests whose path is /mcp or under /mcp/ (the MCP
+// endpoint, its SSE stream, and the message channel) go to the MCP handler
+// unchanged; an exact /metrics request goes to the exporter (a Load -> render ->
+// write path that issues no PG query and takes no shared mutex); everything else
+// (/v1/..., /run, /, /static/..., /workflow-templates, /workflows/...) goes to
+// the web service. The MCP path is left byte-for-byte identical so there is no
+// MCP behavior change; each handler enforces its own loopback-host + bearer auth,
+// and metricsHandler binds on this same existing loopback listener (no new
+// public listener). A nil metricsHandler falls through to the web service.
+func newDaemonHTTPHandler(mcpHandler http.Handler, webHandler http.Handler, metricsHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isMCPPath(r.URL.Path) {
 			mcpHandler.ServeHTTP(w, r)
+			return
+		}
+		if metricsHandler != nil && r.URL.Path == "/metrics" {
+			metricsHandler.ServeHTTP(w, r)
 			return
 		}
 		webHandler.ServeHTTP(w, r)
