@@ -109,12 +109,14 @@ Terminal `accepted/implemented` rows (≈110, e.g. 0001–0040 core, 0043–0093
 - *Deciding fact:* those exact extras shipped under **D240(d)** (`decision-log.md:36`, PR #487) and **#402 is CLOSED (2026-06-19T22:42)**. Code present: `go/pkg/artifactcontracts/collaboration_ledger.go`, `adjudicator_reliability_test.go`, `go/pkg/mutations/constraint_discharge_gate_test.go`, `go/pkg/workflowgenerate/shapes_fog_synaptic.go`.
 - *Evidence tier:* history-traced (closed issue) + static-implementation-traced. *Confidence:* high.
 - *Smallest next step:* update the index row + RFC header to "implemented (D234 shapes + D240 extras); graduate `experimental`→`supported` pending an RFC 0105 fixture." The *only* genuinely-remaining piece is the support-tier graduation fixture.
+- *Post-audit update (2026-06-20, at merge):* **Remediated in this change.** The RFC 0094 file header was already current; the stale `docs/rfcs/README.md` index row was reconciled to it (extras landed, #402 closed; graduation fixture remains).
 
 **RSA-004 — RFC 0137 (striatumd Prometheus exporter): `revise`/record (legibility).**
 - *Standing:* in-flight design-run, parked. The index jumps `0136`→`0138` with **no 0137 row and no explanatory note**; no `docs/rfcs/0137-*.md` on `main`.
 - *Deciding fact:* `docs/operator/workflows/rfc-0137-design/` (a falsification-gate design-run packet) exists; branches `rfc/0137-striatumd-prometheus-exporter` and `striatum/rfc-0137-design` carry a fully-drafted spec revised "per falsification-gate design run"; the run reached `needs_revision`.
 - *Evidence tier:* static + history. *Confidence:* high on the gap; medium on the precise branch state.
 - *Smallest next step:* add a placeholder index row — `0137 | proposed (design-run on branch `rfc/0137-…`, needs_revision) | striatumd Prometheus exporter` — so the hole is legible, *or* land/decline it through review. A reserved number silently missing from the index is exactly the rot this audit guards against.
+- *Post-audit update (2026-06-20, at merge):* **Resolved on `main` independently of this audit.** RFC 0137 was merged via PR #450 (commit `e3148f19`) concurrent with this run — `docs/rfcs/0137-striatumd-prometheus-exporter.md` now exists and the index carries a 0137 row (status `proposed`). The legibility gap is closed; no further action.
 
 **RSA-005 — #354 / RFC 0135 (shared `(entity, seal)` barrier fold): `defer` (gated) — the strategic consolidation.**
 - *Standing:* partially folded. The shared predicate exists (`go/pkg/.../barrier_predicate.go`, guard `TestBarrierPredicateHasNoRefCount`); P4 (quorum) + P6 (run.integrate) flipped live behind kill switches, P5 (revision) already live (`review_generation` *is* the seal), P1/P2 (fan-in deferred-join + recoverable assembly) **stay shadow** (D233, `decision-log.md:43`; corroborated by the operator BRIEF: "owner bundle 0013 unapplied, go-live flips not done").
