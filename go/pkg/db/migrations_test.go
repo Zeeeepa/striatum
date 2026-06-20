@@ -952,6 +952,105 @@ func TestMigration38SupervisorBufferedPacketsIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+func TestMigration41EventChainSegmentsIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 41 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 41 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.event_chain_segments",
+		"PRIMARY KEY (repository_id, segment_id)",
+		"CHECK (state IN ('open', 'sealed', 'purged'))",
+		"uq_event_chain_segments_one_open_per_repo",
+		"event_chain_segments_sealed_no_update",
+		"event_chain_segments_no_delete",
+		"GRANT SELECT, INSERT, UPDATE ON striatumd.event_chain_segments TO striatumd_rw",
+		"REVOKE DELETE ON striatumd.event_chain_segments FROM striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 41 missing %q", needle)
+		}
+	}
+	// D215 / RFC 0136: a runtime ledger carries NO foreign key into owner-held
+	// events, and no owner-table DDL. Its only REFERENCES is the repositories FK
+	// (the standard runtime-table parent, applied as the owner role at bootstrap
+	// like every other runtime CREATE TABLE), so we forbid the specific
+	// owner-append-only-table references rather than the bare word REFERENCES.
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.events",
+		"REFERENCES striatumd.audit_log",
+		"REFERENCES striatumd.audit_segments",
+		"FOREIGN KEY (repository_id, last_event_id)",
+		"FOREIGN KEY (repository_id, first_event_id)",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 41 must not contain %q (owner-table dependency / future-runtime-DDL guard); integrity is enforced in Go", forbidden)
+		}
+	}
+	if violations := runtimeMigrationOwnerDDLViolations(*migration, runtimeOwnedTablesAlterable(t)); len(violations) > 0 {
+		t.Fatalf("migration 41 must not carry owner DDL, found: %v", violations)
+	}
+}
+
+// TestMigration42VerifierAttestationsIsOwnershipSafe checks the RFC 0141 / D243 /
+// #482 daemon-owned attestation table is CREATE-only (runtime-role owned),
+// grants the runtime role its DML, and carries no owner-held-table DDL or FK —
+// the same ownership-safety contract every runtime migration must hold.
+func TestMigration42VerifierAttestationsIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 42 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 42 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.verifier_attestations",
+		"uq_striatumd_verifier_attestations_active",
+		"WHERE revoked_at IS NULL",
+		"GRANT SELECT, INSERT, UPDATE ON striatumd.verifier_attestations TO striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 42 missing %q", needle)
+		}
+	}
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.repositories",
+		"REFERENCES striatumd.principals",
+		"FOREIGN KEY",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 42 must not contain %q (owner-table dependency / future-runtime-DDL guard); integrity is enforced in Go", forbidden)
+		}
+	}
+	if violations := runtimeMigrationOwnerDDLViolations(*migration, runtimeOwnedTablesAlterable(t)); len(violations) > 0 {
+		t.Fatalf("migration 42 must not carry owner DDL, found: %v", violations)
+	}
+}
+
 func TestApplyMigrationsRecordsVersion(t *testing.T) {
 	runner := &fakeRunner{scalars: map[string]string{}}
 	version, err := ApplyMigrations(context.Background(), runner, "test")
