@@ -233,6 +233,64 @@ func TestJobStateAdvanceSetExcludesNonJobEvents(t *testing.T) {
 	}
 }
 
+// TestLeaseTransitionTargetDistinguishesStaleLease is the unit regression for
+// prior-review F1: the lease_transitions fold must render a repo-write stale-lease
+// expiry (the RFC 0137 primary stale-lease storm signal) as a DISTINCT
+// to="stale_lease" series rather than collapsing it into ordinary to="expired".
+// It pins the (to, reason) derivation at the source-of-truth helper the collector
+// SQL feeds, then proves on the rendered wire surface that the two expiries stay
+// distinct. The behavioral half — that the real recovery expiry path stamps
+// job_state="stale_lease" on the durable event the fold reads — lives in package
+// mutations as TestStaleLeaseExpiryRendersDistinctTransition (it needs a live DB).
+func TestLeaseTransitionTargetDistinguishesStaleLease(t *testing.T) {
+	cases := []struct {
+		name       string
+		eventType  string
+		reason     string
+		jobState   string
+		wantTo     string
+		wantReason string
+	}{
+		{"released keeps its payload reason", "lease.released", "operator_transfer", "", "released", "operator_transfer"},
+		{"repo-write expiry parks in stale_lease", "lease.expired", "", "stale_lease", "stale_lease", "expired"},
+		{"ordinary expiry re-queues the job", "lease.expired", "", "queued", "expired", "expired"},
+		{"expiry with no job_state is plain expiry", "lease.expired", "", "", "expired", "expired"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			to, reason := leaseTransitionTarget(tc.eventType, tc.reason, tc.jobState)
+			if to != tc.wantTo {
+				t.Errorf("to = %q, want %q", to, tc.wantTo)
+			}
+			if reason != tc.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+
+	// End-to-end through Build + render: a stale-lease expiry and an ordinary
+	// expiry (both with the lease.expired raw reason "expired") must produce two
+	// DISTINCT series — to="stale_lease" and to="expired" — both with the bucketed
+	// reason "expiry", never collapsed onto one line and never falling into the
+	// "other" reason bucket.
+	staleTo, staleReason := leaseTransitionTarget("lease.expired", "", "stale_lease")
+	plainTo, plainReason := leaseTransitionTarget("lease.expired", "", "queued")
+	snap := Build(SnapshotInput{BuiltAt: sentinelBuiltAt, LeaseTransitionCounts: []LeaseTransitionCount{
+		{Transition: LeaseTransition{From: "active", To: staleTo, Reason: staleReason}, Count: 1},
+		{Transition: LeaseTransition{From: "active", To: plainTo, Reason: plainReason}, Count: 1},
+	}})
+	body := renderToString(t, snap)
+	if !strings.Contains(body, `striatum_lease_transitions_total{from="active",to="stale_lease",reason="expiry"} 1`) {
+		t.Errorf("stale-lease expiry did not render a distinct to=\"stale_lease\" series:\n%s", body)
+	}
+	if !strings.Contains(body, `striatum_lease_transitions_total{from="active",to="expired",reason="expiry"} 1`) {
+		t.Errorf("ordinary expiry did not render to=\"expired\":\n%s", body)
+	}
+	if strings.Contains(body, `to="expired",reason="other"`) {
+		t.Errorf("expiry fell into the generic \"other\" reason bucket:\n%s", body)
+	}
+}
+
 // TestLeaseReasonBucketingIsBounded confirms unknown lease reasons collapse to
 // the reserved "other" bucket so the reason label cannot grow cardinality.
 func TestLeaseReasonBucketingIsBounded(t *testing.T) {

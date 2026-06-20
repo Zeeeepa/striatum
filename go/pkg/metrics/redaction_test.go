@@ -93,6 +93,11 @@ func sentinelLeaseTransitions() []LeaseTransition {
 		{From: "active", To: "released", Reason: "completed"},
 		{From: "active", To: "released", Reason: "recovery_transfer"},
 		{From: "active", To: "expired", Reason: "expired"},
+		// A repo-write stale-lease expiry — the RFC stale-lease storm signal —
+		// renders as a DISTINCT to="stale_lease" series (prior-review F1). It is a
+		// closed-enum value with no slash/sha/argv/byline shape, so the golden +
+		// forbidden-content regex prove the now-live render path stays redacted.
+		{From: "active", To: "stale_lease", Reason: "expired"},
 	}
 }
 

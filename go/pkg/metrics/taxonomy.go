@@ -272,6 +272,35 @@ func bucketLeaseReason(reason string) string {
 	return leaseReasonOther
 }
 
+// leaseTransitionTarget derives the closed-enum `to` state and the RAW transition
+// reason for a durable lease.* event the lease_transitions fold sees. Leases only
+// ever transition out of 'active', so `from` is fixed by the caller; this decides
+// the destination state and the reason that addLeaseTransition then buckets.
+//
+//   - lease.released targets the 'released' state and keeps its payload reason.
+//   - lease.expired normally targets 'expired'. BUT a repo-write lane whose lease
+//     expires is parked in stale_lease limbo, not re-queued: the expiry path stamps
+//     job_state="stale_lease" on the event (go/pkg/mutations/recovery.go) while the
+//     lease row goes to 'expired'. That stale-lease parking is the RFC 0137 primary
+//     stale-lease storm signal, so it must render as a DISTINCT to="stale_lease"
+//     series an operator can alert on — collapsing it into to="expired" (the prior
+//     behavior) made the signal unobservable and left the stale_lease enum member
+//     dead (prior-review F1). A non-repo-write expiry (job re-queued) stays
+//     to="expired" so ordinary expiry remains distinct.
+//   - lease.expired carries no `reason` payload field, but its lease row's
+//     release_reason is literally 'expired' (recovery.go), so the reason is pinned
+//     to "expired" (which buckets to "expiry") rather than falling into the generic
+//     "other" bucket the empty reason would otherwise hit.
+func leaseTransitionTarget(eventType, reason, jobState string) (to string, transitionReason string) {
+	if eventType == "lease.expired" {
+		if jobState == "stale_lease" {
+			return "stale_lease", "expired"
+		}
+		return "expired", "expired"
+	}
+	return "released", reason
+}
+
 // leaseHandoffReasons is the CLOSED set of lease.released reasons that mean the
 // lane's hold was cleanly HANDED OFF to a fresh session (a supersession or an
 // operator/recovery transfer) rather than completed or failed. A lease.released

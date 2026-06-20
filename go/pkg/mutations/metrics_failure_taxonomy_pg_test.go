@@ -169,6 +169,46 @@ func TestApoptosisHandoffAndDrainFoldedFromDurableEvents(t *testing.T) {
 	}
 }
 
+// TestStaleLeaseExpiryRendersDistinctTransition is the prior-review F1 regression:
+// striatum_lease_transitions_total must expose the RFC 0137 stale-lease storm
+// signal as a DISTINCT to="stale_lease" series, not collapse it into ordinary
+// to="expired". It seeds the two durable lease.expired payload shapes the real
+// expiry path writes (recovery.go) — a repo-write lane parked in stale_lease, and a
+// non-repo-write lane re-queued — folds the real collector, and asserts both
+// transitions render distinctly with the bucketed "expiry" reason (never the
+// generic "other" bucket an empty reason would otherwise hit).
+func TestStaleLeaseExpiryRendersDistinctTransition(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_stale_lease_transition"
+	runID := "run_" + repoID
+
+	intgSeedRepo(t, ctx, runner, repoID)
+	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{"workflow_id": "wf"})
+
+	now := time.Now().UTC()
+	// A repo-write lane whose lease expired into stale_lease limbo: the expiry path
+	// stamps job_state="stale_lease" on the durable lease.expired event while the
+	// lease row goes to 'expired' (recovery.go) — the stale-lease storm signal.
+	seedRunEventWithPayload(t, ctx, runner, repoID, runID, "lease.expired",
+		map[string]any{"job_state": "stale_lease", "message_state": "blocked"}, now)
+	// A non-repo-write lane re-queued on expiry — must stay a DISTINCT to="expired".
+	seedRunEventWithPayload(t, ctx, runner, repoID, runID, "lease.expired",
+		map[string]any{"job_state": "queued", "message_state": "pending"}, now)
+
+	body := foldAndRenderMetrics(t, ctx, runner, now)
+	requireMetricLine(t, body, `striatum_lease_transitions_total{from="active",to="stale_lease",reason="expiry"} 1`)
+	requireMetricLine(t, body, `striatum_lease_transitions_total{from="active",to="expired",reason="expiry"} 1`)
+	// The stale signal must not have collapsed into expired, and neither expiry may
+	// fall into the generic "other" reason bucket.
+	if strings.Contains(body, `to="expired",reason="expiry"} 2`) {
+		t.Errorf("stale-lease expiry collapsed into ordinary to=\"expired\":\n%s", body)
+	}
+	if strings.Contains(body, `reason="other"`) {
+		t.Errorf("a lease.expired transition fell into the generic \"other\" reason bucket:\n%s", body)
+	}
+}
+
 // seedRunEventWithPayload inserts a durable event carrying a JSON payload at a
 // chosen time — the payload-bearing companion to seedRunEventAt.
 func seedRunEventWithPayload(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, eventType string, payload map[string]any, at time.Time) {

@@ -197,34 +197,41 @@ func (c *Collector) lifecycleEventCounts(ctx context.Context) ([]EventCount, err
 
 // leaseTransitionCounts folds the lease_transitions counter from the durable
 // lease.released / lease.expired events. Leases transition out of 'active', so
-// from is fixed to active and to is derived from the event type; the raw reason
-// is bucketed to the closed category enum by the fold. Only the bucketed reason
-// reaches the wire.
+// from is fixed to active and the (to, reason) pair is derived by
+// leaseTransitionTarget; the raw reason is then bucketed to the closed category
+// enum by the fold. Only the bucketed reason reaches the wire.
+//
+// job_state is projected ONLY for lease.expired (a CASE guards it) so the fold can
+// distinguish a repo-write stale-lease expiry (job parked in stale_lease — the RFC
+// 0137 primary stale-lease storm signal) from an ordinary expiry; without it the
+// stale signal collapsed into to="expired" and was unobservable (prior-review F1).
+// The CASE keeps the closed-enum job_state off the lease.released rows so it never
+// widens cardinality there, and job_state is itself a closed lifecycle-state enum,
+// never an id.
 func (c *Collector) leaseTransitionCounts(ctx context.Context) ([]LeaseTransitionCount, error) {
 	rows, err := c.runner.Query(ctx, `
 		SELECT event_type,
 		       COALESCE(payload_json->>'reason','') AS reason,
+		       COALESCE(CASE WHEN event_type = 'lease.expired'
+		                     THEN payload_json->>'job_state' END, '') AS job_state,
 		       COUNT(*)::bigint AS n
 		  FROM striatumd.events
 		 WHERE event_type IN ('lease.released', 'lease.expired')
-		 GROUP BY 1, 2`)
+		 GROUP BY 1, 2, 3`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []LeaseTransitionCount{}
 	for rows.Next() {
-		var eventType, reason string
+		var eventType, reason, jobState string
 		var n int64
-		if err := rows.Scan(&eventType, &reason, &n); err != nil {
+		if err := rows.Scan(&eventType, &reason, &jobState, &n); err != nil {
 			return nil, err
 		}
-		to := "released"
-		if eventType == "lease.expired" {
-			to = "expired"
-		}
+		to, transitionReason := leaseTransitionTarget(eventType, reason, jobState)
 		out = append(out, LeaseTransitionCount{
-			Transition: LeaseTransition{From: "active", To: to, Reason: reason},
+			Transition: LeaseTransition{From: "active", To: to, Reason: transitionReason},
 			Count:      int(n),
 		})
 	}

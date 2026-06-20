@@ -36,6 +36,7 @@ striatum_liveness_deadline_events_total{reason="recovered"} 1
 striatum_lease_transitions_total{from="active",to="expired",reason="expiry"} 1
 striatum_lease_transitions_total{from="active",to="released",reason="completion"} 1
 striatum_lease_transitions_total{from="active",to="released",reason="recovery_transfer"} 1
+striatum_lease_transitions_total{from="active",to="stale_lease",reason="expiry"} 1
 # HELP striatum_run_wedge_age_seconds Age in seconds since a non-terminal run last advanced a job state.
 # TYPE striatum_run_wedge_age_seconds histogram
 striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="60"} 1
