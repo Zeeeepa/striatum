@@ -12,6 +12,36 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-20 delta — #515 builtin verifier verifies a nested Go module (merged + CLI deployed)
+
+The RFC 0134/0141 **builtin verifier** could not mint a passing receipt for
+striatum's OWN repo. The three bugs #515 named (multi-main `go build -o`,
+newer-toolchain offline, worktree `git fsck`) were **already fixed by #494**;
+the live cause was different — the verifier ran `go build|vet|test ./...` from
+`--cwd` (repo root) but striatum's Go module lives in `go/`, so every go builtin
+failed `directory prefix . does not contain main module`. Fix **PR #528 (merged
+`9e1b6475`, closes #515)**: `goModuleDir` runs go-* checks in the module dir while
+still binding the WHOLE worktree read-only (so module tests reading `../../VERSION`
+resolve and git discovery works); conservative — absent/ambiguous trees fall back to
+cwd and fail legibly, never guess. The receipt seals `working_subdir`. A red
+`verifier run` now also surfaces a bounded `stderr_tail` (the meta-fix for the
+blind hand-repro that misdiagnosed #515). **Result:** all four builtins now mint
+passing **ASSERTED** receipts against a clean `main`, run from the repo root
+(go-* show `workdir=go`). Bugfix to D239's impl — no migration, no D-number.
+
+**Red `main` fixed en route — PR #529 (merged `d26a9619`).** `main` was red for
+EVERY PR since #522 changed `daemon install` to refuse (exit 1) when a system unit
+exists but left #514's `TestDaemonInstallRespectsExistingSystemUnit` asserting the
+old exit-0 contract; a one-test sync unblocked the whole repo.
+
+**Deployed CLI-only.** The fix is lane-side; `striatumd` only READS receipts
+(ignores `working_subdir`, never recomputes the seal), so the installed
+`~/.local/bin/striatum` (v2.34.1, from `9e1b6475`) was updated WITHOUT touching
+`striatumd` — no daemon restart, the live RFC 0137 dogfood untouched, and the
+post-#522 daemon-install refusal sidestepped. Prior CLI backed up at
+`~/.local/bin/striatum.bak-pre515`. All work done in isolated `/tmp` worktrees off
+`origin/main`; `doctor ok`, `main` green.
+
 ## 2026-06-18 delta — v2.34.1 released
 
 **v2.34.1** is a docs/maintenance cut: docs-convention adoption (#406/#407/#408 —
@@ -86,56 +116,13 @@ older #212/#263-#267 text is historical only.
 
 ## 2026-06-16 delta — #300 P1 LANDED + DEPLOYED (doctor artifact problems → 0, D205)
 
-The open **P1 of #300** (flagged in the delta below) is done and live.
-
-- **D205 landed + deployed.** `striatum doctor`'s artifact-integrity check now
-  takes its 42 residual historical-loss problems to **`problem_count: 0`** via
-  three additive rules (read-only `go/pkg/reads/`): **(A)** default-branch
-  *history* awareness → clean; **(B)** `artifact_superseded_on_default_branch`
-  warning (path live on default tip, content revised pre-merge); **(C)**
-  `artifact_acknowledged_loss` warning from a curated, **sha-bound** baseline
-  (`docs/operator/doctor-acknowledged-loss.json`, schema
-  `striatum.doctor.acknowledged_loss.v1`). An unlisted genuine loss still reds
-  `ok` (load-bearing safety, tested both ways). Daemon redeployed — running pid's
-  `/proc/<pid>/exe` embeds git sha `f0c29f67`, NOT `(deleted)`; live doctor shows
-  the artifact block `problem_count: 0`, `acknowledged_loss_status: loaded`, with
-  16 `artifact_acknowledged_loss` + 12 `artifact_superseded_on_default_branch`
-  warnings.
-- **The real split was 14 / 12 / 16, not the handoff's 27 / 15.** By *content
-  sha* (not path presence): 14 recoverable via history (Rule A), 12 superseded
-  (Rule B), 16 genuinely path-gone (Rule C baseline). The 16 are immaterial early
-  dogfood drafts (`docs/issues/22-27` handoffs, `agy-loop-smoke`, `f42`/`f44`
-  driver handoffs, `interrogating-panel`, `rfc-0088-p1` verify, `rfc-0098`
-  handoff, `ace-graduation` drafts, `docs/dogfood/058` synthesis). This is the
-  "acknowledge" half of the #303 acknowledge/prune tier; a record-prune verb
-  remains #303's domain.
-- **Built via the `doctor-integrity-legibility-p1` dogfood** (`run_d6134a8a`,
-  `code_change` single claude lane, `publish_source_changes`), operator-gated
-  (build, CI lint `0 issues`, full `pkg/reads` tests incl. both safety
-  sub-cases). The apply lane hit **#289 again** (`agent_exited_unsealed` →
-  `recovery_exhausted`); finalized through the daemon with `recovery
-  complete-stalled` — and the **#292 lease-timing gap recurred**: the apply lease
-  did not time-expire for ~31 min (a requeue renewed it), so `complete-stalled`
-  refused until then. Reinforces that follow-up (a way to finalize a confirmed-dead
-  unsealed lane without waiting out the renewed lease).
-- **`doctor ok=True, problem_count=0` — fully green (first time).** The 4
-  NON-#300 problems above were the **#290** (`run_a016c955`) and **#296**
-  (`run_685ae8f4`) `divergent_ideation` runs wedged at their final job (same #289
-  pattern). The runs' owner (this operator pack) gave them go-ahead, drove both
-  to completion, and **finalized both via `recovery complete-stalled`** (→
-  `completed`, `IDEATION_SYNTHESIS.md` `readback_verified`); that cleared the 4
-  residual problems, so global doctor is now green. Both runs produced full
-  option-sets (pushed branches `origin/striatum/issue-290-parallel-fanin` /
-  `issue-296-codex-mcp-injection`; headlines commented on #290/#296). Landing
-  the artifacts to `main` is deferred behind #299 (base-drift → `run integrate`
-  non-FF). The recovery defect itself is filed as **#308** (bug, ready-for-agent):
-  the autonomous sweep should auto-finalize an `agent_exited_unsealed` job whose
-  artifacts are reconstructable, instead of escalating to `needs_operator`. See
-  [[project_292_complete_stalled]].
-- **Open operator decisions (not blockers):** version bump / tag for D204+D205
-  (per the release convention) — deferred to the operator. (The earlier
-  "clean up the 4 residual #290/#296 problems" decision is RESOLVED — doctor is
-  green.)
+Historical (superseded — doctor is green now). `striatum doctor`'s artifact check
+took its 42 residual historical-loss problems to `problem_count: 0` via three
+additive read-only rules (D205): default-branch history awareness, an
+`artifact_superseded_on_default_branch` warning, and a sha-bound
+`artifact_acknowledged_loss` baseline (`docs/operator/doctor-acknowledged-loss.json`);
+an unlisted genuine loss still reds `ok`. Detail in CHANGELOG `v2.33.0`, D204/D205,
+and [[project_doctor_integrity_legibility]].
 
 ## 2026-06-16 delta — #296 + #290 IMPLEMENTED + DEPLOYED (the two design picks)
 
