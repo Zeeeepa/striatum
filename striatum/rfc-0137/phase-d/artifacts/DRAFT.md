@@ -1,6 +1,6 @@
 # RFC 0137 Phase D — multi-tenant hardening, consent, alert rules (DRAFT)
 
-author: author-author-002
+author: author-author-003
 
 Phase D is the **final** phase of RFC 0137. It builds on the landed Phase A read
 path (snapshot / render / `/metrics`), the Phase B failure-mode taxonomy
