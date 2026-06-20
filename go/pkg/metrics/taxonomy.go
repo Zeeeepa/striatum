@@ -83,15 +83,6 @@ func ApoptosisReasons() []ApoptosisReason {
 	return out
 }
 
-func isApoptosisReason(r ApoptosisReason) bool {
-	for _, c := range apoptosisDomain {
-		if c == r {
-			return true
-		}
-	}
-	return false
-}
-
 // NecrosisReason is the CONFIRMED-DEAD set ONLY. This domain is anchored to the
 // real mutations constants (TestNecrosisDomainMatchesConfirmedDeadConstants):
 //

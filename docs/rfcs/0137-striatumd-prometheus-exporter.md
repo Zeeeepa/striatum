@@ -1,6 +1,6 @@
 # RFC 0137 — `striatumd` Prometheus Exporter
 
-**Status:** proposed
+**Status:** implemented (D247)
 **Scope:** Daemon observability / operational metrics surface (local-first)
 
 > Design space explored with the `/adhd` divergent-ideation skill (5 cognitive
