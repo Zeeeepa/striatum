@@ -1,0 +1,194 @@
+{
+  "branch": {
+    "allow_dirty": true,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc0137-phase-a"
+  },
+  "context_docs": [
+    {"path": "docs/rfcs/0137-striatumd-prometheus-exporter.md", "required": true},
+    {"path": "ARCHITECTURE.md", "required": false}
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "review",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "on": "completed",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "on": "completed",
+      "to": "apply"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "draft",
+          "path": "striatum/rfc-0137/phase-a/artifacts/DRAFT.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Produce the starter artifact for this workflow.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Draft starter artifact",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "striatum/rfc-0137/phase-a/artifacts/",
+          "go/pkg/metrics/",
+          "go/cmd/striatumd/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "striatum/rfc-0137/phase-a/artifacts/review/REVIEW.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the draft and record a finding.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "striatum/rfc-0137/phase-a/artifacts/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "summary",
+          "path": "striatum/rfc-0137/phase-a/artifacts/SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Apply the accepted review findings.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Apply the accepted review",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "striatum/rfc-0137/phase-a/artifacts/",
+          "go/pkg/metrics/",
+          "go/cmd/striatumd/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      }
+    }
+  },
+  "name": "rfc0137-phase-a",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc0137-phase-a",
+  "workflow_version": "2026-06-20"
+}
