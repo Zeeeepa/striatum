@@ -1,6 +1,6 @@
 # RFC 0137 Phase B — failure-mode taxonomy (apoptosis/necrosis + lifecycle emit)
 
-author: author-author-001
+author: author-author-002
 
 Phase B of RFC 0137 (`striatumd` Prometheus exporter) is implemented and green,
 built on top of the landed Phase A read-path skeleton. It adds the
@@ -76,8 +76,8 @@ imports `metrics`:
 
 | metrics enum value | anchored source constant | location |
 | --- | --- | --- |
-| `NecrosisAgentPIDDead = "agent_pid_dead"` | `stallClassAgentPIDDead` | `go/pkg/mutations/recovery_decision_tree.go:152` |
-| `NecrosisAgentExitedUnsealed = "agent_exited_unsealed"` | `stallClassAgentExitedUnsealed` | `go/pkg/mutations/recovery_decision_tree.go:158` |
+| `NecrosisAgentPIDDead = "agent_pid_dead"` | `stallClassAgentPIDDead` | `go/pkg/mutations/recovery_decision_tree.go:153` |
+| `NecrosisAgentExitedUnsealed = "agent_exited_unsealed"` | `stallClassAgentExitedUnsealed` | `go/pkg/mutations/recovery_decision_tree.go:159` |
 | `NecrosisRecoveryExhausted = "recovery_exhausted"` | `recoveryExhaustedBlockerKind` | `go/pkg/mutations/recovery_escalation.go:15` |
 
 The guardrail builds its expected set from the **real constants** (not string
