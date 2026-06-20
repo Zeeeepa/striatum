@@ -162,6 +162,11 @@ func main() {
 	var runner db.Runner
 	var authorizer rpc.Authorizer
 	var webServiceToken string
+	// RFC 0137 Phase D: the per-daemon authority secret (RFC 0110) doubles as the
+	// HMAC salt for the per-repo metrics surrogate, so a bucket is stable on-box but
+	// unlinkable off-box. Captured here from the bootstrap block below so it is in
+	// scope when the metrics collector is built.
+	var metricsSurrogateSecret string
 	config := db.ResolveConfig(postgresURL)
 	// RFC 0039 V1.6 F2 (dogfood-047 codex finding): the daemon must
 	// refuse to bind a socket without a configured Postgres URL.
@@ -255,6 +260,7 @@ func main() {
 		}
 		recorder = &db.AuditRecorder{Runner: pool.Runner, DaemonVersion: daemonVersion}
 		authorizer = &rpc.PostgresAuthorizer{Runner: pool.Runner, Clock: time.Now, AuthoritySecret: authResult.Secret}
+		metricsSurrogateSecret = authResult.Secret
 	}
 
 	server := rpc.NewServer()
@@ -304,9 +310,10 @@ func main() {
 	// here is non-fatal. The runner concretely implements metrics.Querier (the
 	// same Query surface the recovery sweep uses); the fallback keeps the daemon
 	// booting with an empty exporter if it ever does not.
-	metricsCollector := metrics.NewCollector(nil)
+	metricsSurrogate := metrics.NewSurrogate(metricsSurrogateSecret)
+	metricsCollector := metrics.NewCollectorWithSurrogate(nil, metricsSurrogate)
 	if q, ok := runner.(metrics.Querier); ok {
-		metricsCollector = metrics.NewCollector(q)
+		metricsCollector = metrics.NewCollectorWithSurrogate(q, metricsSurrogate)
 		if err := metricsCollector.Refresh(ctx, time.Now().UTC()); err != nil {
 			log.Printf("striatumd-go initial metrics fold failed; /metrics serves last-good once the sweep tick refreshes it: %v", err)
 		}
@@ -321,7 +328,12 @@ func main() {
 		_ = listener.Close()
 		fatalf("metrics allowlist verification failed: %v", err)
 	}
-	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken), metricsCollector.Handler())
+	// RFC 0137 Phase D: when /metrics is reachable beyond loopback, filter it to
+	// the repos the bearer's RFC 0043 capability authorizes. Loopback stays
+	// default-open (Phase A). newScopedMetricsHandler reuses the same authorizer
+	// that gates RPC, never a parallel ACL.
+	scopedMetricsHandler := newScopedMetricsHandler(metricsCollector.Handler(), authorizer)
+	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken), scopedMetricsHandler)
 	if err != nil {
 		_ = listener.Close()
 		fatalf("start MCP HTTP/SSE server: %v", err)

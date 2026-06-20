@@ -1,0 +1,102 @@
+# RFC 0137 Phase D — version-controlled Prometheus ALERTING rules, committed next
+# to the exporter. Each maps a striatumd failure class to a pageable signal. Every
+# metric referenced below is a family the registry exports (enforced by
+# TestPrometheusRulesReferenceRegisteredMetrics) so a rule can never reference a
+# series the exporter does not emit. The five RFC-mandated alerts — NecrosisRate,
+# DoctorRed, WedgeAgeTail, LivenessMarginCollapse, SupervisorOriginFlood — lead;
+# the staleness/tick/conservation alerts close the OQ1/OQ2 loop.
+groups:
+  - name: striatum_alerts
+    rules:
+      # Any sustained confirmed-dead rate is uncontrolled death — page.
+      - alert: NecrosisRate
+        expr: sum (rate(striatum_necrosis_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "striatumd necrosis (confirmed-dead terminations) rate is nonzero"
+          description: "Uncontrolled death is occurring; inspect necrosis_total by origin/reason."
+
+      # A red doctor is a stop-and-fix integrity condition, not a manual CLI run.
+      - alert: DoctorRed
+        expr: max (striatum_doctor_problems) > 0
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "striatum doctor reports open integrity problems"
+          description: "One or more doctor checks are failing; see doctor_problems by class."
+
+      # A wedged run: the wedge-age p99 tail crossing one hour.
+      - alert: WedgeAgeTail
+        expr: histogram_quantile(0.99, sum by (le, origin) (rate(striatum_run_wedge_age_seconds_bucket[5m]))) > 3600
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd run wedge-age p99 exceeds 1h"
+          description: "A non-terminal run has not advanced a job state in over an hour."
+
+      # Liveness margins collapsing toward zero forewarn liveness misses.
+      - alert: LivenessMarginCollapse
+        expr: histogram_quantile(0.05, sum by (le, origin) (rate(striatum_liveness_deadline_margin_seconds_bucket[5m]))) < 60
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd liveness-deadline margin p05 below 60s"
+          description: "The low tail of liveness margin is collapsing; misses (then necrosis) are imminent."
+
+      # The #417 phantom-supervisor storm: a stranded-supervisor pileup and/or a
+      # flood of supervisor-origin lifecycle churn.
+      - alert: SupervisorOriginFlood
+        expr: (striatum_stranded_supervisors > 50) or (sum (rate(striatum_apoptosis_total{origin="supervisor"}[5m])) > 5)
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "striatumd supervisor-origin flood (phantom-supervisor storm signal)"
+          description: "Stranded supervisors or supervisor-origin churn is spiking; reconcile storm risk (#417)."
+
+      # OQ1: a stale snapshot means the reconcile loop may be wedged while scrapers
+      # serve last-good numbers.
+      - alert: MetricsSnapshotStale
+        expr: striatum_metrics_snapshot_age_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd metrics snapshot is stale (>5m)"
+          description: "The sweep tick has not refolded metrics; the reconcile loop may be wedged."
+
+      # OQ1: the fold itself is erroring (publish-on-errored-tick made this visible).
+      - alert: MetricsTickErrored
+        expr: striatum_metrics_tick_status{status="error"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd metrics fold tick is erroring"
+          description: "A load-bearing metrics fold failed; numbers are carried-forward last-good."
+
+      # OQ2: the lifecycle-balance "second doctor" — a terminal transition vanished
+      # from both apoptosis and necrosis, a provable runner blind spot.
+      - alert: LifecycleBalanceNonzero
+        expr: striatum_lifecycle_balance > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd lifecycle-balance is nonzero (conservation-law violation)"
+          description: "A terminal transition was unaccounted for in apoptosis or necrosis; investigate the blind spot."
+
+      # The cardinality budget clipped a family — silent dimension loss made loud.
+      - alert: MetricsCardinalityClipped
+        expr: sum (increase(striatum_metrics_cardinality_clipped_total[1h])) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "striatumd metrics series budget clipped a family"
+          description: "A per-family series budget collapsed distinct label tuples onto the other bucket."

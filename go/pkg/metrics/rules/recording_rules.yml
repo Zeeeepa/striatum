@@ -1,0 +1,32 @@
+# RFC 0137 Phase D — version-controlled Prometheus RECORDING rules, committed next
+# to the exporter. These pre-aggregate the high-cardinality counters/histograms the
+# alerting rules and operator dashboards read, so the expensive rate()/quantile()
+# math runs once per evaluation interval rather than per query. Every series these
+# rules read is a family the striatumd registry actually exports (enforced by
+# TestPrometheusRulesReferenceRegisteredMetrics); the recorded outputs use the
+# Prometheus `level:metric:operation` colon namespace so they never collide with a
+# raw exported metric name.
+groups:
+  - name: striatum_recording
+    rules:
+      # Confirmed-dead rate by origin/reason — the spine of the necrosis alert.
+      - record: striatum:necrosis:rate5m
+        expr: sum by (origin, reason) (rate(striatum_necrosis_total[5m]))
+
+      # Healthy programmed self-termination rate — the apoptosis baseline the
+      # supervisor-flood alert compares against.
+      - record: striatum:apoptosis:rate5m
+        expr: sum by (origin, reason) (rate(striatum_apoptosis_total[5m]))
+
+      # Stale-lease parking rate — the primary stale-lease storm signal.
+      - record: striatum:lease_stale:rate5m
+        expr: sum (rate(striatum_lease_transitions_total{to="stale_lease"}[5m]))
+
+      # p99 wedge age per origin — the wedged-run tail.
+      - record: striatum:run_wedge_age:p99
+        expr: histogram_quantile(0.99, sum by (le, origin) (rate(striatum_run_wedge_age_seconds_bucket[5m])))
+
+      # p05 liveness-deadline margin per origin — the low tail sliding toward zero
+      # forewarns liveness misses before they become necrosis.
+      - record: striatum:liveness_margin:p05
+        expr: histogram_quantile(0.05, sum by (le, origin) (rate(striatum_liveness_deadline_margin_seconds_bucket[5m])))

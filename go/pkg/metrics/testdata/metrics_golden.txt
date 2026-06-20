@@ -70,3 +70,20 @@ striatum_doctor_problems{class="dissent_ledger_incomplete"} 1
 striatum_doctor_problems{class="recovery_sweep_cursor_wedged"} 2
 # HELP striatum_metrics_cardinality_clipped_total Distinct label tuples collapsed to the other bucket by the per family series budget.
 # TYPE striatum_metrics_cardinality_clipped_total counter
+# HELP striatum_metrics_tick_status Status of the sweep tick that folded the current snapshot; one of ok, partial, error.
+# TYPE striatum_metrics_tick_status gauge
+striatum_metrics_tick_status{status="error"} 0
+striatum_metrics_tick_status{status="ok"} 1
+striatum_metrics_tick_status{status="partial"} 0
+# HELP striatum_lifecycle_balance Terminal transitions unaccounted for in apoptosis or necrosis; a nonzero value is a runner blind spot.
+# TYPE striatum_lifecycle_balance gauge
+striatum_lifecycle_balance 1
+# HELP striatum_metrics_repo_consent Per-repo provenance-metrics consent state by salted bucket; 1 when consented, 0 otherwise.
+# TYPE striatum_metrics_repo_consent gauge
+striatum_metrics_repo_consent{bucket="19"} 0
+striatum_metrics_repo_consent{bucket="7"} 1
+# HELP striatum_repo_runs Per-repo run count by salted bucket and lifecycle state; consent-gated provenance family.
+# TYPE striatum_repo_runs gauge
+striatum_repo_runs{bucket="7",state="completed"} 5
+striatum_repo_runs{bucket="7",state="other"} 1
+striatum_repo_runs{bucket="7",state="running"} 2

@@ -159,5 +159,14 @@ func DefaultRegistry() *Registry {
 	r.MustRegister(Family{Name: metricLivenessMargin, Type: TypeHistogram, Classification: ClassificationOperational, Labels: []string{"origin"}})
 	r.MustRegister(Family{Name: metricDoctorProblems, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"class"}})
 	r.MustRegister(Family{Name: metricCardinalityClipped, Type: TypeCounter, Classification: ClassificationOperational, Labels: []string{"family"}})
+	// Phase D. tick_status and lifecycle_balance are repo-aggregate Operational
+	// signals. repo_consent carries the salted bucket but stays Operational — it
+	// exposes only the single consent bit so the ABSENCE of provenance is
+	// scrapeable. repo_runs is the first Provenance family: it carries a per-repo-
+	// linkable surrogate and so is consent-gated per repo.
+	r.MustRegister(Family{Name: metricTickStatus, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"status"}})
+	r.MustRegister(Family{Name: metricLifecycleBalance, Type: TypeGauge, Classification: ClassificationOperational})
+	r.MustRegister(Family{Name: metricRepoConsent, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"bucket"}})
+	r.MustRegister(Family{Name: metricRepoRuns, Type: TypeGauge, Classification: ClassificationProvenance, Labels: []string{"bucket", "state"}})
 	return r
 }

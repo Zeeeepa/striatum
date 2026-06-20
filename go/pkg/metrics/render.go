@@ -10,6 +10,11 @@ import (
 // 0.0.4) the /metrics handler sets.
 const scrapeContentType = "text/plain; version=0.0.4; charset=utf-8"
 
+// ScrapeContentType exposes the Prometheus exposition content type so an external
+// handler (the capability-scoped wrapper in the daemon) sets the identical header
+// as the in-package Handler.
+func ScrapeContentType() string { return scrapeContentType }
+
 // Metric names. Underscore-only identifiers; no value or label below is ever
 // interpolated from a repo/run/session identifier, a path, a branch, a sha, a
 // prompt, or a byline — only aggregate counts/timings, closed enums, and the
@@ -29,13 +34,31 @@ const (
 	// Phase C contract families.
 	metricDoctorProblems     = "striatum_doctor_problems"
 	metricCardinalityClipped = "striatum_metrics_cardinality_clipped_total"
+	// Phase D families.
+	metricTickStatus       = "striatum_metrics_tick_status"
+	metricLifecycleBalance = "striatum_lifecycle_balance"
+	metricRepoConsent      = "striatum_metrics_repo_consent"
+	metricRepoRuns         = "striatum_repo_runs"
 )
 
-// WriteText renders the snapshot as Prometheus text exposition. The output is
-// deterministic — fixed metric order, closed enums emitted in sorted order, and
-// observed label-tuples sorted — so it is byte-stable for the golden redaction
-// test.
+// WriteText renders the FULL snapshot as Prometheus text exposition — the
+// loopback / default-open surface (Phase A). The output is deterministic — fixed
+// metric order, closed enums emitted in sorted order, and observed label-tuples
+// sorted — so it is byte-stable for the golden redaction test.
 func (s *Snapshot) WriteText(w io.Writer, now time.Time) error {
+	return s.WriteTextScoped(w, now, nil)
+}
+
+// WriteTextScoped renders the snapshot, filtering the per-repo families
+// (striatum_metrics_repo_consent and striatum_repo_runs, the only families
+// carrying the salted `bucket` surrogate) to the buckets a capability-scoped
+// scraper is authorized for (Phase D deliverable #1). A nil `allowed` set is the
+// loopback / default-open case: every bucket is rendered. A non-nil set renders a
+// per-repo series only when its bucket is present — so a tailnet scraper holding
+// only repo-A's token never sees repo-B's surrogate buckets — while every
+// repo-aggregate Operational family is always rendered in full. The output stays
+// deterministic and byte-stable for the chosen scope.
+func (s *Snapshot) WriteTextScoped(w io.Writer, now time.Time, allowed map[string]bool) error {
 	bw := &errWriter{w: w}
 
 	// Phase A seed metrics.
@@ -66,7 +89,89 @@ func (s *Snapshot) WriteText(w io.Writer, now time.Time) error {
 	s.writeDoctorProblems(bw)
 	s.writeCardinalityClipped(bw)
 
+	// Phase D families. tick_status and lifecycle_balance are repo-aggregate
+	// Operational signals and are always rendered; the per-repo families are
+	// filtered to the authorized bucket set.
+	s.writeTickStatus(bw)
+	s.writeLifecycleBalance(bw)
+	s.writeRepoConsent(bw, allowed)
+	s.writeRepoRuns(bw, allowed)
+
 	return bw.err
+}
+
+// bucketAllowed reports whether a per-repo series for `bucket` may be rendered for
+// this scope. A nil allowed set is the loopback / default-open case (everything
+// visible); otherwise only buckets the bearer is authorized for pass.
+func bucketAllowed(allowed map[string]bool, bucket string) bool {
+	if allowed == nil {
+		return true
+	}
+	return allowed[bucket]
+}
+
+// writeTickStatus renders the sweep-tick status SLI (Phase D deliverable #3). The
+// full closed enum is emitted every scrape — 1 for the active status, 0 for the
+// others — so a flip to partial/error is immediately alertable and never waits for
+// a new series to appear. Combined with publish-on-errored-tick (the collector
+// republishes a carried-forward snapshot stamped error rather than silently
+// serving last-good), a wedged reconcile loop is directly visible.
+func (s *Snapshot) writeTickStatus(bw *errWriter) {
+	active := normalizeTickStatus(s.tickStatus)
+	bw.line("# HELP " + metricTickStatus + " Status of the sweep tick that folded the current snapshot; one of ok, partial, error.")
+	bw.line("# TYPE " + metricTickStatus + " gauge")
+	for _, status := range tickStatusDomain {
+		value := 0
+		if status == active {
+			value = 1
+		}
+		bw.line(metricTickStatus + `{status="` + string(status) + `"} ` + strconv.Itoa(value))
+	}
+}
+
+// writeLifecycleBalance renders the OQ2 lifecycle-balance "second doctor" gauge:
+// the count of terminal transitions that declared a death the fold could account
+// for in NEITHER lifecycle counter. A persistent nonzero value is a provable
+// runner blind spot (a confirmed-dead transition vanishing from apoptosis AND
+// necrosis) and is directly alertable; it stays zero in healthy operation.
+func (s *Snapshot) writeLifecycleBalance(bw *errWriter) {
+	bw.line("# HELP " + metricLifecycleBalance + " Terminal transitions unaccounted for in apoptosis or necrosis; a nonzero value is a runner blind spot.")
+	bw.line("# TYPE " + metricLifecycleBalance + " gauge")
+	bw.line(metricLifecycleBalance + " " + strconv.Itoa(s.unaccountedTerminal))
+}
+
+// writeRepoConsent renders the per-repo consent gauge (Phase D deliverable #2).
+// One series per active repo's salted bucket carries the consent state (0|1) so
+// the ABSENCE of provenance series is itself a scrapeable fact rather than
+// ambiguous. Only buckets in the authorized scope are rendered (the per-repo
+// surrogate must not leak across a capability boundary). HELP/TYPE are always
+// emitted so an empty scope still produces a well-formed family.
+func (s *Snapshot) writeRepoConsent(bw *errWriter, allowed map[string]bool) {
+	bw.line("# HELP " + metricRepoConsent + " Per-repo provenance-metrics consent state by salted bucket; 1 when consented, 0 otherwise.")
+	bw.line("# TYPE " + metricRepoConsent + " gauge")
+	for _, bucket := range sortedStringKeys(s.repoConsent) {
+		if !bucketAllowed(allowed, bucket) {
+			continue
+		}
+		bw.line(metricRepoConsent + `{bucket="` + bucket + `"} ` + strconv.Itoa(s.repoConsent[bucket]))
+	}
+}
+
+// writeRepoRuns renders the per-repo (Provenance) run-state gauge. It exists only
+// for repos that set the per-repo consent flag (consent gating at fold time), and
+// is further filtered to the authorized bucket set here. Both gates compose: a
+// series appears only when the repo consented AND the scraper is authorized for
+// that repo's bucket. The `state` label is the same closed run-state enum as the
+// global striatum_runs gauge, so cardinality is bounded by buckets * states.
+func (s *Snapshot) writeRepoRuns(bw *errWriter, allowed map[string]bool) {
+	bw.line("# HELP " + metricRepoRuns + " Per-repo run count by salted bucket and lifecycle state; consent-gated provenance family.")
+	bw.line("# TYPE " + metricRepoRuns + " gauge")
+	for _, k := range sortedBucketStates(s.repoRuns) {
+		if !bucketAllowed(allowed, k.bucket) {
+			continue
+		}
+		bw.line(metricRepoRuns + `{bucket="` + k.bucket + `",state="` + k.state + `"} ` + strconv.Itoa(s.repoRuns[k]))
+	}
 }
 
 // writeApoptosis renders the healthy programmed self-termination counter. Only
