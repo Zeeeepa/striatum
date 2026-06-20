@@ -1,190 +1,227 @@
 # RFC 0137 Phase B — failure-mode taxonomy (apoptosis/necrosis + lifecycle emit)
 
-author: author-author-002
+author: author-author-001
 
 Phase B of RFC 0137 (`striatumd` Prometheus exporter) is implemented and green,
 built on top of the landed Phase A read-path skeleton. It adds the
-failure-mode-shaped metric taxonomy: a closed-enum `Origin` / `*Reason` vocabulary
-pinned to the real recovery constants by a union guardrail test, the
-apoptosis/necrosis spine, the F-A6 reversible-liveness counter, lease-transition
-counts, and the wedge-age / liveness-margin histograms. Every counter is folded
-from the **durable `striatumd.events` ledger** at the sweep tick, so the numbers
-are transaction-safe and restart-consistent by construction. Phase C and Phase D
-were deliberately **not** implemented.
+failure-mode-shaped taxonomy — the apoptosis/necrosis spine, the F-A6 reversible
+liveness counter, lease-transition counts, and the wedge-age / liveness-margin
+histograms — folded from the durable `striatumd.events` ledger at the sweep tick
+so the counters are transaction-safe and restart-consistent by construction.
+Phase C and Phase D were deliberately **not** implemented.
+
+This is a re-attempt: a prior draft on this branch failed review (`needs_revision`)
+on three source-grounded findings. **All three are fixed and proven green against
+a real PostgreSQL**, not just asserted. The fixes are summarized first because
+they were the gate.
+
+## Prior-review findings → fix (the gate)
+
+### F1 — `run_wedge_age_seconds` reset on unrelated run events → FIXED
+
+The wedge-age fold measured `now − MAX(events.created_at)` across **every** event
+for a non-terminal run. The recovery sweep records a run-scoped
+`daemon.recovery_sweep` event every tick (`recovery.go:1358`), so a wedged run
+looked freshly active and the age stayed low exactly when it should grow.
+
+Fix (`collector.go`): the histogram is now derived from **job-state-advance
+evidence only** — a closed `jobStateAdvanceEventTypes` set (`job.*` lifecycle
+transitions) filtered in SQL via `e.event_type = ANY($3)`. `daemon.recovery_sweep`,
+`lease.heartbeat`, and every other non-job event are excluded. The closed set is
+the single source of truth shared by the SQL filter and the in-process
+`isJobStateAdvanceEvent` predicate.
+
+> **Latent bug also fixed.** Repairing this exposed that the pre-existing
+> `nonTerminalRunStates` was a `[]any`, which **pgx cannot encode as a Postgres
+> array** — so `runWedgeAges` had been silently erroring (its error is swallowed
+> by the best-effort Phase B fold) and the wedge family never populated at all.
+> Both array params are now `[]string` (the codebase idiom, e.g. `claim.go:425`,
+> `supervision_control.go:925`). The behavioral test below would have stayed empty
+> under the old binding; it now produces a real observation.
+
+Regression coverage: `TestRunWedgeAgeCountsOnlyJobStateAdvances` (pg, behavioral)
+seeds a 90-min-old `job.queued` and a 30-s-old `daemon.recovery_sweep` and proves
+the age reflects the old job event (`le="60"`/`le="3600"` buckets stay empty),
+plus `TestJobStateAdvanceSetExcludesNonJobEvents` (unit) pins the set excludes
+`daemon.recovery_sweep`.
+
+### F2 — `lease_handoff` / `supervisor_drained` were decorative → FIXED
+
+Both apoptosis reasons were in the enum but `classifyLifecycleEvent` never
+produced them. They are now wired to their real durable events:
+
+- **`lease_handoff` ← `lease.released`** carrying a handoff (`lifecycle.go:311`
+  emits `reason="superseded"`; `lifecycle.go:983` emits `reason` + `transfer`).
+  A release is a handoff when `transfer=true` or its reason ∈
+  `{superseded, recovery_transfer, operator_transfer}`. A completion/expiry
+  release is **not** a handoff (completion is already counted via `job.completed`;
+  expiry surfaces in `lease_transitions`) — so `lease_handoff` stays a
+  healthy-handoff signal, not a generic release tally.
+- **`supervisor_drained` ← `supervisor.stopped`** (`supervision_control.go:631`
+  for an operator/clean stop; `mutations.go:1681` for the reconcile-sweep reaping
+  a terminal-run supervisor — the `helper_events.drained` drain path's durable
+  termination event). A supervisor stop is a programmed drain of the supervisor's
+  own lifecycle → apoptosis, origin `supervisor`.
+
+The collector SQL (`lifecycleEventCounts`) now selects both event types and, for
+`lease.released` only (guarded by a `CASE` so a free-text `supervisor.stopped`
+reason never widens cardinality), the `reason`/`transfer` payload fields. None of
+these reach the wire — render emits only the closed origin/reason enum.
+
+Coverage: `TestApoptosisReasonsAreAllProducedFromRealEventTypes` (unit) folds one
+event of each real type and then asserts the **entire** closed apoptosis enum is
+covered — a future hollow reason fails here. `TestApoptosisHandoffAndDrainFoldedFromDurableEvents`
+(pg, behavioral) proves the collector SQL itself folds a real `lease.released`
+(transfer) and `supervisor.stopped` into the metric while a plain `completed`
+release does not.
+
+### F3 — F-A6 test was a tautology → FIXED
+
+The old `TestLivenessMissCanRecoverWithoutNecrosis` folded two hand-written
+`LifecycleEvent` literals. It is now a **behavioral** test in package `mutations`
+that drives the REAL emit path: it seeds an active-but-stalled session, calls the
+real `refreshRunLiveness` to classify a stall and emit
+`session.liveness_deadline_missed` (`recovery.go:1229`), makes the session's
+protocol activity fresh, calls `refreshRunLiveness` again to emit
+`session.liveness_recovered` (`recovery.go:1244`), then folds the **real**
+`metrics.Collector` and asserts on the wire surface that the liveness counter
+moved on both halves while `striatum_necrosis_total` shows **no series at all**.
+The metrics-package unit `TestLivenessFoldRoutesReversiblePairOutsideNecrosis`
+keeps the fast routing check.
 
 ## Mechanism chosen for tx-safe, restart-consistent counters — and why
 
-I chose **fold-from-durable-events at the sweep tick** (RFC 0137 §"Design
-guidance", the *preferred* option), not in-memory post-commit atomics.
+**Fold-from-durable-events at the sweep tick** (RFC 0137 §"Design guidance", the
+*preferred* option), not in-memory post-commit atomics.
 
-- **Why it is tx-safe.** The counters are derived read-model values computed from
-  the append-only `striatumd.events` table (its `events_no_update` /
-  `events_no_delete` triggers make it immutable). A lifecycle transaction that
-  rolls back never inserted its event, so it can never over-count; the count only
-  ever reflects events that actually committed. There is no post-commit ordering
-  hazard to get wrong inside the delicate recovery `withTx`.
-- **Why it is restart-consistent.** The counter is re-derived from durable
-  history on every tick, so a daemon restart resumes at the true cumulative value
-  rather than silently resetting to zero. (Prometheus tolerates counter resets,
-  but we avoid them anyway.)
-- **Why it dodges the import cycle.** The derivation lives entirely inside
-  `go/pkg/metrics` (`Collector.lifecycleEventCounts` etc.), which reads events via
-  the existing `Querier`. `metrics` never imports `mutations`. The one place
-  `mutations` must cooperate — tagging the ambiguous `session.closed` event — uses
-  the **sanctioned `mutations` → `metrics` direction** (it imports the tag
-  constants), which is acyclic because `metrics` only depends on `sessionliveness`
-  (a leaf) and `pgx`.
-- **Cost.** The fold issues a fixed, small number of `GROUP BY` aggregates at the
-  ~60s tick cadence, never on the scrape path, so it preserves Phase A's O(1)
-  lock-disjoint scrape. The event aggregate is filtered to the seven lifecycle
-  event types and grouped, so it returns one row per distinct classification, not
-  one row per event. (A future optimization could cursor the aggregate to avoid
-  re-scanning all history each tick; it is unnecessary for correctness because the
-  fold is idempotent and monotone.)
+- **Tx-safe.** Counters are derived from the append-only `striatumd.events` table.
+  A lifecycle transaction that rolls back never inserted its event, so it can
+  never over-count; the count only reflects committed events. No post-commit
+  ordering hazard inside the delicate recovery `withTx`.
+- **Restart-consistent.** The counter is re-derived from durable history every
+  tick, so a daemon restart resumes at the true cumulative value rather than
+  resetting to zero. (Prometheus tolerates resets; we avoid them anyway.)
+- **No import cycle.** Derivation lives entirely in `go/pkg/metrics` reading
+  events via the existing `Querier`; `metrics` never imports `mutations`. The one
+  cooperating edit on the `mutations` side — the `closeStalledOwningSession`
+  `lifecycle_metric` site tag and the necrosis-domain guardrail — uses the
+  sanctioned `mutations → metrics` direction (proven acyclic by `go build ./...`).
+- **Cost.** Fixed, small `GROUP BY` aggregates at the ~60 s tick, never on the
+  scrape path, preserving Phase A's O(1) lock-disjoint scrape.
 
 ### Tagging apoptosis vs necrosis "at the site"
 
 Apoptosis and necrosis share the same terminal DB transition, so the split is
-decided at the durable event each path writes (`classifyLifecycleEvent`):
+decided from the durable event each path writes (`classifyLifecycleEvent`):
 
-- **Apoptosis** is read from the *unambiguous healthy-termination event types* the
-  terminator already emits: `run.completed` → `run_completed`, `job.completed` →
-  `job_succeeded`, and a clean `session.closed` → `session_closed_clean`. The
-  terminator declaring intent IS the tag.
-- **Necrosis** is read from intentional tags the recovery/liveness paths write
-  when they detect an *unannounced* exit:
-  - `closeStalledOwningSession` (`recovery_decision_tree.go`) now stamps an
-    explicit `lifecycle_metric` tag on its `session.closed` event — `necrosis` for
-    a confirmed-dead stall class, `recovery_transfer` for an honest-stall transfer.
-    This is **load-bearing**: without it a recovery transfer-close of a
-    *still-alive but stalled* lane would be miscounted as a clean apoptosis. The
-    tag is computed by `isNecrosisStallClass`, the single source of truth.
-  - `recovery_exhausted` is read from the `blocker_kind` the `run.escalated` /
-    `recovery.job_quarantined` events already carry — that field is itself the
-    intentional escalation tag, so no new edit was needed there.
+- **Apoptosis** reads unambiguous healthy-termination event types the terminator
+  already emits: `run.completed`→`run_completed`, `job.completed`→`job_succeeded`,
+  clean `session.closed`→`session_closed_clean`, `supervisor.stopped`→
+  `supervisor_drained`, and a handoff `lease.released`→`lease_handoff`.
+- **Necrosis** reads intentional tags the recovery/liveness paths write for an
+  *unannounced* exit: the `closeStalledOwningSession` `lifecycle_metric` tag
+  (`recovery_decision_tree.go:1435`, necrosis for a confirmed-dead stall class,
+  `recovery_transfer` for an honest-stall transfer that the fold skips) and the
+  `recovery_exhausted` blocker kind on `run.escalated` / `recovery.job_quarantined`.
 
-The `mutations` edit is additive payload only (one function, `closeStalledOwningSession`)
-and changes no recovery behavior.
+The `mutations` source already carried the necrosis site-tag and the union
+guardrail from the prior attempt (the review did not fault them); this slice adds
+no new `mutations` source edits — only the new behavioral test file — keeping the
+delicate recovery code untouched.
 
 ## Enum → source-constant anchoring
 
-New closed Go enums live in `go/pkg/metrics/taxonomy.go` (they did not exist as
-source constants before). The **necrosis domain is pinned to EXACTLY the
-confirmed-dead set** by `TestNecrosisDomainMatchesConfirmedDeadConstants`, which
-lives in package `mutations` (where the unexported constants are visible) and
-imports `metrics`:
+The necrosis domain is pinned to EXACTLY the confirmed-dead set by
+`TestNecrosisDomainMatchesConfirmedDeadConstants` (package `mutations`, where the
+unexported constants are visible; imports `metrics`), built from the real
+constants so renaming a value or adding a class breaks the build:
 
 | metrics enum value | anchored source constant | location |
 | --- | --- | --- |
-| `NecrosisAgentPIDDead = "agent_pid_dead"` | `stallClassAgentPIDDead` | `go/pkg/mutations/recovery_decision_tree.go:153` |
-| `NecrosisAgentExitedUnsealed = "agent_exited_unsealed"` | `stallClassAgentExitedUnsealed` | `go/pkg/mutations/recovery_decision_tree.go:159` |
-| `NecrosisRecoveryExhausted = "recovery_exhausted"` | `recoveryExhaustedBlockerKind` | `go/pkg/mutations/recovery_escalation.go:15` |
+| `NecrosisAgentPIDDead = "agent_pid_dead"` | `stallClassAgentPIDDead` | `recovery_decision_tree.go:153` |
+| `NecrosisAgentExitedUnsealed = "agent_exited_unsealed"` | `stallClassAgentExitedUnsealed` | `recovery_decision_tree.go:159` |
+| `NecrosisRecoveryExhausted = "recovery_exhausted"` | `recoveryExhaustedBlockerKind` | `recovery_escalation.go:15` |
 
-The guardrail builds its expected set from the **real constants** (not string
-literals), so renaming a constant's value, adding a stall class to necrosis, or
-letting `liveness_deadline_missed` re-enter all break the build. The apoptosis
-reasons (`run_completed`, `job_succeeded`, `lease_handoff`, `supervisor_drained`,
-`session_closed_clean`) and the liveness reasons (`deadline_missed`, `recovered`)
-are the closed enums from the RFC §3 taxonomy table.
+Apoptosis reasons map to real event types (F2): `run_completed`←`run.completed`,
+`job_succeeded`←`job.completed`, `session_closed_clean`←clean `session.closed`,
+`lease_handoff`←handoff `lease.released`, `supervisor_drained`←`supervisor.stopped`.
+The liveness reasons (`deadline_missed`, `recovered`) are the closed F-A6 enum.
 
 ## How F-A6 is enforced
 
 `liveness_deadline_missed` is a **reversible** pre-death observation
-(`session.liveness_deadline_missed` / `session.liveness_recovered` at
-`recovery.go:1229` / `:1244`; the recover path proves it is not death). It is
-enforced out of necrosis three ways:
-
-1. **Domain exclusion.** `liveness_deadline_missed` is not a `NecrosisReason`; the
-   guardrail test asserts it is absent from the necrosis domain.
-2. **Routing.** `classifyLifecycleEvent` maps both liveness event types to
-   `ClassLiveness`, which folds into `striatum_liveness_deadline_events_total`
-   (its own family, with the full closed reason enum always rendered) — never into
-   `striatum_necrosis_total`.
-3. **Executable proof.** `TestLivenessMissCanRecoverWithoutNecrosis` drives
-   `active → liveness_deadline_missed → liveness_recovered` and asserts the
-   liveness counter moved on both halves while `necrosis_total` AND `apoptosis_total`
-   stayed at zero (the reversible pair is outside the conservation law). It checks
-   both the in-memory snapshot and the rendered wire surface (no liveness reason
-   ever appears as a necrosis label).
+(`session.liveness_recovered` proves it is not death). It is kept out of necrosis
+three ways: (1) domain exclusion — it is not a `NecrosisReason`, asserted absent
+by the guardrail; (2) routing — `classifyLifecycleEvent` maps both liveness event
+types to `ClassLiveness` → `striatum_liveness_deadline_events_total`, never
+necrosis; (3) executable behavioral proof — `TestLivenessMissCanRecoverWithoutNecrosis`
+drives the real `active → deadline_missed → recovered` path and asserts the
+liveness counter moved while `necrosis_total` rendered no series.
 
 ## Acceptance criteria → proving test
 
-| Phase B criterion | Proving test |
+| Criterion | Proving test |
 | --- | --- |
-| Each family exists with closed-enum labels pinned to source constants; cardinality cannot grow with run/job count | `TestNecrosisDomainMatchesConfirmedDeadConstants` (necrosis domain == source constants); `TestLeaseReasonBucketingIsBounded` (unknown reasons/states bucket to `other`); render emits only closed enums / bucketed labels |
-| **F-A6**: a recoverable liveness miss moves the liveness counter, never necrosis | `TestLivenessMissCanRecoverWithoutNecrosis` (`pkg/metrics`) |
-| Necrosis fold is real (F-A6 zero is not vacuous) | `TestNecrosisIsCountedFromTaggedSiteEvents` — tagged dead-close + recovery_exhausted move `necrosis_total` to 4 |
-| Apoptosis/necrosis tagged at the lifecycle site | `TestRecoveryTransferCloseIsNotApoptosis` + `TestApoptosisClassifiedFromHealthyEventTypes`; the `closeStalledOwningSession` `lifecycle_metric` tag |
-| Exfiltration contract still holds with the new families | `TestMetricsRedactionGoldenAndForbiddenContent` — golden now exercises every Phase B family; the forbidden-content regexes (40-hex, paths, `--flag=`, slash shapes, `author:`) still pass (no raw id reaches a label) |
-| Scrape stays O(1), zero-DB-query, lock-disjoint (Phase A regression guard) | `TestScrapeIssuesZeroQueries`, `TestConcurrentScrapesSeeIdenticalSnapshot` |
+| Each family exists with closed-enum labels pinned to source constants; cardinality cannot grow with run/job count | `TestNecrosisDomainMatchesConfirmedDeadConstants`; `TestLeaseReasonBucketingIsBounded`; golden render emits only closed enums |
+| **No apoptosis reason is hollow** (req. 1 / F2) | `TestApoptosisReasonsAreAllProducedFromRealEventTypes` (unit, full-enum coverage) + `TestApoptosisHandoffAndDrainFoldedFromDurableEvents` (pg) |
+| **Wedge age from real job-state advance only** (req. 2 / F1) | `TestRunWedgeAgeCountsOnlyJobStateAdvances` (pg, behavioral) + `TestJobStateAdvanceSetExcludesNonJobEvents` (unit) |
+| **F-A6 behavioral** (req. 3 / F3) | `TestLivenessMissCanRecoverWithoutNecrosis` (pg, drives the real refresh) + `TestLivenessFoldRoutesReversiblePairOutsideNecrosis` (unit) |
+| Necrosis fold is real (F-A6 zero is not vacuous) | `TestNecrosisIsCountedFromTaggedSiteEvents`; `TestApoptosisHandoffAndDrainFoldedFromDurableEvents` (necrosis stays empty on healthy events) |
+| Apoptosis/necrosis tagged at the lifecycle site | `TestRecoveryTransferCloseIsNotApoptosis`; `TestApoptosisClassifiedFromHealthyEventTypes` |
+| Exfiltration contract holds with the new families | `TestMetricsRedactionGoldenAndForbiddenContent` (golden now exercises `lease_handoff`/`supervisor_drained`; forbidden-regex still green) |
+| Scrape stays O(1), zero-DB-query, lock-disjoint | `TestScrapeIssuesZeroQueries`; `TestConcurrentScrapesSeeIdenticalSnapshot` |
 
 ## Files touched
 
-New:
-
-| File | What it does |
+| File | Change |
 | --- | --- |
-| `go/pkg/metrics/taxonomy.go` | Closed `Origin` / `ApoptosisReason` / `NecrosisReason` / `LivenessDeadlineReason` enums + domain accessors; the lease state/reason bucketing; the `lifecycle_metric` tag vocabulary; `classifyLifecycleEvent` (the single apoptosis/necrosis split point). |
-| `go/pkg/metrics/taxonomy_test.go` | F-A6 test + non-vacuous necrosis test + transfer-vs-clean test + apoptosis-by-type test + lease bucketing test. |
-| `go/pkg/mutations/necrosis_domain_metrics_test.go` | The union guardrail anchoring the necrosis domain to the real constants. |
-
-Modified:
-
-| File | What changed |
-| --- | --- |
-| `go/pkg/metrics/snapshot.go` | `SnapshotInput` + `Build` (richer constructor; `BuildSnapshot` retained as the Phase A wrapper); the six Phase B fold maps; weighted `addEvent` / `addLeaseTransition`; fixed-bucket `histogram`; deterministic sort helpers. |
-| `go/pkg/metrics/render.go` | Renders the six Phase B families (counters observed-sorted; the liveness family emits the full closed enum; histograms per origin with cumulative `_bucket`/`_sum`/`_count`). Help text stays free of slashes / `--flag=` / `author:` / 40-hex. |
-| `go/pkg/metrics/collector.go` | Best-effort tick folds: `lifecycleEventCounts`, `leaseTransitionCounts`, `runWedgeAges`, `livenessMargins`. Phase B fold errors degrade a single family to empty rather than blocking the Phase A surface. Margin deadline is read from `sessionliveness.DefaultPolicy` (anchored, not hardcoded). |
-| `go/pkg/metrics/redaction_test.go` | The golden now exercises every Phase B family (events/lease/wedge/margin sentinels). |
-| `go/pkg/metrics/testdata/metrics_golden.txt` | Regenerated deliberately for the new families; forbidden-content regex re-verified green. |
-| `go/pkg/mutations/recovery_decision_tree.go` | `isNecrosisStallClass` helper + the additive `lifecycle_metric` site tag on `closeStalledOwningSession`'s `session.closed` event; `metrics` import. |
+| `go/pkg/metrics/taxonomy.go` | `LifecycleEvent` gains `LeaseReason`/`LeaseTransfer`; `leaseHandoffReasons` closed set; `classifyLifecycleEvent` wires `supervisor.stopped`→`supervisor_drained` and handoff `lease.released`→`lease_handoff`. |
+| `go/pkg/metrics/collector.go` | `lifecycleEventCounts` folds `lease.released`/`supervisor.stopped` (lease payload guarded by `CASE`); `jobStateAdvanceEventTypes` closed set + `isJobStateAdvanceEvent`; `runWedgeAges` filters to job-state advances; `nonTerminalRunStates` / arrays are now `[]string` (pgx-encodable). |
+| `go/pkg/metrics/redaction_test.go` | Sentinel events add a handoff `lease.released`, a completion `lease.released` (must NOT count), and a `supervisor.stopped`. |
+| `go/pkg/metrics/testdata/metrics_golden.txt` | Regenerated for the two new apoptosis series; forbidden-content regex re-verified. |
+| `go/pkg/metrics/taxonomy_test.go` | F2 non-hollow + handoff-vs-completion + F1 set-membership tests; old tautological F-A6 test renamed to the unit routing test. |
+| `go/pkg/mutations/metrics_failure_taxonomy_pg_test.go` | **New.** Behavioral pg tests: F-A6 (`TestLivenessMissCanRecoverWithoutNecrosis`), wedge-age (F1), handoff/drain fold (F2). No `mutations` source edits. |
 
 ## New families (RFC §3)
 
-- `striatum_apoptosis_total{origin,reason}` — counter
+- `striatum_apoptosis_total{origin,reason}` — counter (all 5 reasons now non-hollow)
 - `striatum_necrosis_total{origin,reason}` — counter (confirmed-dead only)
 - `striatum_lease_transitions_total{from,to,reason}` — counter
 - `striatum_liveness_deadline_events_total{reason}` — counter (F-A6 home)
-- `striatum_run_wedge_age_seconds{origin}` — histogram
+- `striatum_run_wedge_age_seconds{origin}` — histogram (job-state-advance evidence)
 - `striatum_liveness_deadline_margin_seconds{origin}` — histogram
 
 ## Verification commands and results
 
-Run from the per-job worktree's `go/` directory on run branch
-`striatum/rfc0137-phase-b`.
+Run from the per-job worktree `go/` directory on `striatum/rfc0137-phase-b`. The
+behavioral pg tests are gated on `STRIATUM_PG_TEST_URL` (skip cleanly without it,
+like every integration test in `pkg/mutations`); they were run for real against a
+throwaway local PostgreSQL 17 cluster.
 
-- `make -C go build` → **PASS** (exit 0; striatum, striatumd, supervisor-helper).
-- `go build ./...` → **PASS** (exit 0) — confirms no `metrics`↔`mutations` import cycle.
-- `go test ./pkg/metrics/... -v` → **PASS** (8 tests):
-  `TestMetricsRedactionGoldenAndForbiddenContent`, `TestScrapeIssuesZeroQueries`,
-  `TestConcurrentScrapesSeeIdenticalSnapshot`,
+- `make -C go build` → **PASS** (striatum, striatumd, supervisor-helper).
+- `go build ./...` → **PASS** — confirms no `metrics`↔`mutations` import cycle.
+- `go vet ./pkg/metrics/... ./pkg/mutations/...` → **PASS** (clean).
+- `go test ./pkg/metrics/...` → **PASS** (11 tests incl. golden, scrape O(1)/zero-query, F2/F1 units).
+- `go test ./cmd/striatumd` → **PASS** (Phase A `/metrics` wiring still routes).
+- `go test ./pkg/mutations/...` (with `STRIATUM_PG_TEST_URL` set) → all pass
+  **except** the pre-existing, environment-dependent `TestSpawnRunAsSpecResolvesLaneUser`
+  (`spawn_grant_test.go`, wants host lane user `striatum-lane`) — unrelated to this
+  change and the same failure the prior reviewer recorded. The four taxonomy
+  tests pass for real:
   `TestLivenessMissCanRecoverWithoutNecrosis`,
-  `TestNecrosisIsCountedFromTaggedSiteEvents`,
-  `TestRecoveryTransferCloseIsNotApoptosis`,
-  `TestApoptosisClassifiedFromHealthyEventTypes`, `TestLeaseReasonBucketingIsBounded`.
-- `go test ./pkg/mutations/...` → `TestNecrosisDomainMatchesConfirmedDeadConstants`
-  **PASS**. The suite's only failure is the pre-existing, environment-dependent
-  `TestSpawnRunAsSpecResolvesLaneUser` (lane-user `striatum-lane` resolution),
-  which **fails identically at the run base commit** before this change — it is
-  not introduced here and is unrelated to RFC 0137 (the Phase A summary recorded
-  the same pre-existing `pkg/mutations` failure).
-- `go test ./cmd/striatumd` → **PASS** (the Phase A `/metrics` wiring still
-  compiles and routes).
-- `go vet ./pkg/metrics/... ./pkg/mutations/...` → clean.
+  `TestRunWedgeAgeCountsOnlyJobStateAdvances`,
+  `TestApoptosisHandoffAndDrainFoldedFromDurableEvents`,
+  `TestNecrosisDomainMatchesConfirmedDeadConstants`.
 
 ## Scope confirmation — Phase C / Phase D NOT implemented
 
-This slice is Phase B only. Explicitly **not** built:
-
-- **Phase C** — no `Classification` taxonomy / `Register()` refusal of
-  `Forbidden` families, no per-family series budget / `cardinality_clipped_total`,
-  no boot-time `metrics_allowlist.json` hash check, no `doctor_problems{class}`
-  collector, no `TestDoctorClassRejectsDynamicIdentifiers`.
-- **Phase D** — no capability-scoped `/metrics` filtering, no
-  `metrics_repo_consent` gauge, no `tick_status` publish-on-errored-tick, no
-  bundled Prometheus recording/alerting rules, no cold DB-projection tier.
-
-The bind stays loopback-only (inherited from Phase A; no new listener). The
+Explicitly **not** built: **Phase C** — no `Classification` taxonomy / `Register()`
+refusal of `Forbidden`, no per-family series budget / `cardinality_clipped_total`,
+no boot-time `metrics_allowlist.json` hash check, no `doctor_problems{class}`
+collector, no `TestDoctorClassRejectsDynamicIdentifiers`. **Phase D** — no
+capability-scoped `/metrics` filtering, no `metrics_repo_consent` gauge, no
+`tick_status` publish-on-errored-tick, no bundled Prometheus rules, no cold
+DB-projection tier. The bind stays loopback-only (inherited from Phase A). The
 cardinality/privacy contract for the new labels is upheld by closed enums and the
 golden + forbidden-regex redaction test; the *enforced* Classification/allowlist
 machinery is Phase C as designed.
