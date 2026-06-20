@@ -16,3 +16,50 @@ striatum_runs{state="needs_operator"} 1
 striatum_runs{state="ready"} 0
 striatum_runs{state="running"} 2
 striatum_runs{state="other"} 1
+# HELP striatum_apoptosis_total Healthy programmed self-terminations by origin and reason.
+# TYPE striatum_apoptosis_total counter
+striatum_apoptosis_total{origin="daemon-core",reason="run_completed"} 1
+striatum_apoptosis_total{origin="lane",reason="job_succeeded"} 2
+striatum_apoptosis_total{origin="lane",reason="lease_handoff"} 1
+striatum_apoptosis_total{origin="lane",reason="session_closed_clean"} 1
+striatum_apoptosis_total{origin="supervisor",reason="supervisor_drained"} 1
+# HELP striatum_necrosis_total Confirmed-dead uncontrolled terminations by origin and reason; any nonzero rate is alertable.
+# TYPE striatum_necrosis_total counter
+striatum_necrosis_total{origin="reconcile-sweep",reason="agent_pid_dead"} 1
+striatum_necrosis_total{origin="reconcile-sweep",reason="recovery_exhausted"} 1
+# HELP striatum_liveness_deadline_events_total Reversible liveness-deadline observations; excluded from necrosis by design.
+# TYPE striatum_liveness_deadline_events_total counter
+striatum_liveness_deadline_events_total{reason="deadline_missed"} 1
+striatum_liveness_deadline_events_total{reason="recovered"} 1
+# HELP striatum_lease_transitions_total Lease state transitions by from, to and bucketed reason.
+# TYPE striatum_lease_transitions_total counter
+striatum_lease_transitions_total{from="active",to="expired",reason="expiry"} 1
+striatum_lease_transitions_total{from="active",to="released",reason="completion"} 1
+striatum_lease_transitions_total{from="active",to="released",reason="recovery_transfer"} 1
+striatum_lease_transitions_total{from="active",to="stale_lease",reason="expiry"} 1
+# HELP striatum_run_wedge_age_seconds Age in seconds since a non-terminal run last advanced a job state.
+# TYPE striatum_run_wedge_age_seconds histogram
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="60"} 1
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="300"} 1
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="900"} 1
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="1800"} 2
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="3600"} 2
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="7200"} 2
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="21600"} 2
+striatum_run_wedge_age_seconds_bucket{origin="daemon-core",le="+Inf"} 2
+striatum_run_wedge_age_seconds_sum{origin="daemon-core"} 1242
+striatum_run_wedge_age_seconds_count{origin="daemon-core"} 2
+# HELP striatum_liveness_deadline_margin_seconds Seconds of margin to the nearest liveness deadline; negative once elapsed.
+# TYPE striatum_liveness_deadline_margin_seconds histogram
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="-1800"} 0
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="-300"} 0
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="-60"} 0
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="0"} 1
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="60"} 1
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="300"} 2
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="900"} 2
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="1800"} 2
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="3600"} 2
+striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="+Inf"} 2
+striatum_liveness_deadline_margin_seconds_sum{origin="lane"} 75
+striatum_liveness_deadline_margin_seconds_count{origin="lane"} 2

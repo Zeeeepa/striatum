@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/metrics"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	gosupervisor "github.com/halbritt/striatum/go/pkg/supervisor"
@@ -157,6 +158,19 @@ const (
 	// distinct, inspect-the-worktree remediation (#289).
 	stallClassAgentExitedUnsealed = "agent_exited_unsealed"
 )
+
+// isNecrosisStallClass reports whether a recovery stall class is a CONFIRMED-DEAD
+// class — the necrosis set the RFC 0137 Phase B exporter counts. It is the single
+// source of truth for "necrosis at the site": closeStalledOwningSession uses it
+// to tag the durable session.closed event, and the metrics necrosis domain is
+// pinned to exactly {agent_pid_dead, agent_exited_unsealed, recovery_exhausted}
+// by TestNecrosisDomainMatchesConfirmedDeadConstants. recovery_exhausted is a
+// blocker kind (not a stall class), so it is necrosis-tagged at its own
+// escalation site (run.escalated / recovery.job_quarantined carry blocker_kind),
+// not here.
+func isNecrosisStallClass(stallClass string) bool {
+	return stallClass == stallClassAgentPIDDead || stallClass == stallClassAgentExitedUnsealed
+}
 
 // recoveryPolicyFromWorkflow reads the recovery budgets from a workflow JSON
 // map. Honors the documented RFC 0020 `max_total_requeues_per_job` as the
@@ -643,7 +657,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		       s.last_work_release_at, s.last_work_complete_at, s.last_work_heartbeat_at,
 		       s.last_session_ready_at, s.last_session_heartbeat_at,
 		       s.last_session_question_at, s.last_session_escalate_at,
-		       s.last_pty_activity_at, ` + db.SessionPipeReadProjection(ctx, tx, "s") + `,
+		       s.last_pty_activity_at, `+db.SessionPipeReadProjection(ctx, tx, "s")+`,
 		       s.last_tool_call_started_at,
 		       s.last_tool_call_finished_at,
 		       s.liveness_stall_class, s.liveness_stall_since,
@@ -1404,12 +1418,26 @@ func closeStalledOwningSession(ctx context.Context, tx db.TxRunner, repositoryID
 		now, closeReason, repositoryID, sessionID); err != nil {
 		return false, err
 	}
-	if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.closed", sessionID, jobID, nil, nil, nil, map[string]any{
+	closePayload := map[string]any{
 		"session_id":  sessionID,
 		"reason":      closeReason,
 		"source":      "recovery_decision_tree",
 		"stall_class": stallClass,
-	}); err != nil {
+	}
+	// RFC 0137 Phase B (deliverable #4): tag the lifecycle-metric class AT THE
+	// SITE so the exporter's sweep-tick fold can split apoptosis (clean programmed
+	// closes) from necrosis (confirmed-dead closes) without re-deriving intent
+	// downstream. A confirmed-dead stall class is necrosis; any other recovery
+	// close here is an honest-stall transfer — neither a clean apoptosis nor a
+	// death — so it is tagged distinctly and the fold excludes it from both
+	// counters (it surfaces in lease_transitions instead). This additive payload
+	// key changes no recovery behavior.
+	if isNecrosisStallClass(stallClass) {
+		closePayload[metrics.LifecycleTagKey] = metrics.LifecycleTagNecrosis
+	} else {
+		closePayload[metrics.LifecycleTagKey] = metrics.LifecycleTagRecoveryTransfer
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.closed", sessionID, jobID, nil, nil, nil, closePayload); err != nil {
 		return false, err
 	}
 	return true, nil

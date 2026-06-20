@@ -63,9 +63,69 @@ func sentinelRuns() []RunObservation {
 	}
 }
 
+// sentinelEvents exercises every Phase B failure-mode family in the golden: the
+// apoptosis/necrosis split, the F-A6 liveness pair, and the recovery-transfer
+// close the tag must exclude from both counters. The event fields are all
+// closed-enum classification tags — there is nothing sensitive to leak — but
+// they prove the families render deterministically with no forbidden content.
+func sentinelEvents() []LifecycleEvent {
+	return []LifecycleEvent{
+		{EventType: "run.completed"},
+		{EventType: "job.completed"},
+		{EventType: "job.completed"},
+		{EventType: "session.closed"}, // clean -> apoptosis session_closed_clean
+		{EventType: "session.closed", LifecycleTag: LifecycleTagNecrosis, StallClass: string(NecrosisAgentPIDDead)},
+		{EventType: "session.closed", LifecycleTag: LifecycleTagRecoveryTransfer, StallClass: "agent_protocol_idle_stall"}, // skipped
+		{EventType: "run.escalated", BlockerKind: string(NecrosisRecoveryExhausted)},
+		{EventType: "session.liveness_deadline_missed"},
+		{EventType: "session.liveness_recovered"},
+		// Handoff release -> apoptosis lease_handoff (origin lane); a plain
+		// completion release is NOT a handoff and renders no series.
+		{EventType: "lease.released", LeaseTransfer: true, LeaseReason: "operator_transfer"},
+		{EventType: "lease.released", LeaseReason: "completed"},
+		// Supervisor drain/stop -> apoptosis supervisor_drained (origin supervisor).
+		{EventType: "supervisor.stopped"},
+	}
+}
+
+func sentinelLeaseTransitions() []LeaseTransition {
+	return []LeaseTransition{
+		{From: "active", To: "released", Reason: "completed"},
+		{From: "active", To: "released", Reason: "recovery_transfer"},
+		{From: "active", To: "expired", Reason: "expired"},
+		// A repo-write stale-lease expiry — the RFC stale-lease storm signal —
+		// renders as a DISTINCT to="stale_lease" series (prior-review F1). It is a
+		// closed-enum value with no slash/sha/argv/byline shape, so the golden +
+		// forbidden-content regex prove the now-live render path stays redacted.
+		{From: "active", To: "stale_lease", Reason: "expired"},
+	}
+}
+
+func sentinelWedgeAges() []WedgeObservation {
+	return []WedgeObservation{
+		{Origin: OriginDaemonCore, AgeSeconds: 42},
+		{Origin: OriginDaemonCore, AgeSeconds: 1200},
+	}
+}
+
+func sentinelMargins() []MarginObservation {
+	return []MarginObservation{
+		{Origin: OriginLane, MarginSeconds: 120},
+		{Origin: OriginLane, MarginSeconds: -45},
+	}
+}
+
 func renderSentinelSnapshot(t *testing.T) []byte {
 	t.Helper()
-	snap := BuildSnapshot(sentinelBuiltAt, sentinelRuns(), 3)
+	snap := Build(SnapshotInput{
+		BuiltAt:             sentinelBuiltAt,
+		Runs:                sentinelRuns(),
+		StrandedSupervisors: 3,
+		Events:              sentinelEvents(),
+		LeaseTransitions:    sentinelLeaseTransitions(),
+		WedgeAges:           sentinelWedgeAges(),
+		LivenessMargins:     sentinelMargins(),
+	})
 	var buf bytes.Buffer
 	if err := snap.WriteText(&buf, sentinelNow); err != nil {
 		t.Fatalf("WriteText: %v", err)

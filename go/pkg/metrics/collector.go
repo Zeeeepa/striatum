@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -41,10 +42,17 @@ func NewCollector(runner Querier) *Collector {
 // never become the per-scrape self-DoS the RFC warns against. The caller folds
 // once per tick and treats any error as non-fatal (metrics are observational —
 // the last-good snapshot keeps serving).
+//
+// The Phase A folds (run-state counts, stranded supervisors) are load-bearing
+// and abort the refresh on error. The Phase B folds (the failure-mode families)
+// are BEST-EFFORT: a Phase B query error degrades that one family to empty for
+// this snapshot rather than blocking the whole surface, so a taxonomy fold bug
+// can never take down the Phase A operational gauges.
 func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 	if c.runner == nil {
 		return fmt.Errorf("metrics fold requires a daemon runner")
 	}
+	at := now.UTC()
 	rawCounts, err := c.runStateCounts(ctx)
 	if err != nil {
 		return fmt.Errorf("fold run-state counts: %w", err)
@@ -53,7 +61,19 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 	if err != nil {
 		return fmt.Errorf("fold stranded-supervisor count: %w", err)
 	}
-	Publish(newSnapshot(now.UTC(), rawCounts, stranded))
+
+	in := SnapshotInput{
+		BuiltAt:             at,
+		RawRunStateCounts:   rawCounts,
+		StrandedSupervisors: stranded,
+	}
+	// Phase B: best-effort. Errors leave the corresponding family empty.
+	in.EventCounts, _ = c.lifecycleEventCounts(ctx)
+	in.LeaseTransitionCounts, _ = c.leaseTransitionCounts(ctx)
+	in.WedgeAges, _ = c.runWedgeAges(ctx, at)
+	in.LivenessMargins, _ = c.livenessMargins(ctx, at)
+
+	Publish(Build(in))
 	return nil
 }
 
@@ -111,6 +131,238 @@ func (c *Collector) strandedSupervisorCount(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	return int(count), nil
+}
+
+// lifecycleEventCounts folds the apoptosis / necrosis / liveness counters from
+// the DURABLE striatumd.events ledger. It selects ONLY the closed-enum
+// classification fields (event_type and the stall_class / blocker_kind /
+// lifecycle_metric payload tags) — never a run/job/session id, lane, role, path,
+// or any free text — and GROUP BYs so it transfers one row per distinct
+// classification, not one per event. Folding from the immutable append-only
+// ledger is what makes the counters tx-safe (a rolled-back lifecycle transaction
+// never wrote the event) and restart-consistent (the counter is re-derived from
+// durable history, not reset to zero) — RFC 0137 §"Design guidance".
+func (c *Collector) lifecycleEventCounts(ctx context.Context) ([]EventCount, error) {
+	// lease.released and supervisor.stopped feed the previously-hollow apoptosis
+	// reasons (lease_handoff / supervisor_drained). The lease handoff decision needs
+	// the lease.released payload reason/transfer, so they are projected — but ONLY
+	// for lease.released (a CASE guards them) so a free-text supervisor.stopped
+	// reason never widens the GROUP BY into per-supervisor cardinality. None of
+	// these columns reach the wire: render emits only the closed origin/reason enum.
+	rows, err := c.runner.Query(ctx, `
+		SELECT event_type,
+		       COALESCE(payload_json->>'stall_class','')      AS stall_class,
+		       COALESCE(payload_json->>'blocker_kind','')     AS blocker_kind,
+		       COALESCE(payload_json->>'lifecycle_metric','') AS lifecycle_metric,
+		       COALESCE(CASE WHEN event_type = 'lease.released'
+		                     THEN payload_json->>'reason' END, '')   AS lease_reason,
+		       COALESCE(CASE WHEN event_type = 'lease.released'
+		                     THEN payload_json->>'transfer' END, '') AS lease_transfer,
+		       COUNT(*)::bigint AS n
+		  FROM striatumd.events
+		 WHERE event_type IN (
+		       'run.completed', 'job.completed', 'session.closed',
+		       'session.liveness_deadline_missed', 'session.liveness_recovered',
+		       'run.escalated', 'recovery.job_quarantined',
+		       'lease.released', 'supervisor.stopped')
+		 GROUP BY 1, 2, 3, 4, 5, 6`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []EventCount{}
+	for rows.Next() {
+		var eventType, stallClass, blockerKind, lifecycleTag, leaseReason, leaseTransfer string
+		var n int64
+		if err := rows.Scan(&eventType, &stallClass, &blockerKind, &lifecycleTag, &leaseReason, &leaseTransfer, &n); err != nil {
+			return nil, err
+		}
+		out = append(out, EventCount{
+			Event: LifecycleEvent{
+				EventType:     eventType,
+				StallClass:    stallClass,
+				BlockerKind:   blockerKind,
+				LifecycleTag:  lifecycleTag,
+				LeaseReason:   leaseReason,
+				LeaseTransfer: leaseTransfer == "true",
+			},
+			Count: int(n),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// leaseTransitionCounts folds the lease_transitions counter from the durable
+// lease.released / lease.expired events. Leases transition out of 'active', so
+// from is fixed to active and the (to, reason) pair is derived by
+// leaseTransitionTarget; the raw reason is then bucketed to the closed category
+// enum by the fold. Only the bucketed reason reaches the wire.
+//
+// job_state is projected ONLY for lease.expired (a CASE guards it) so the fold can
+// distinguish a repo-write stale-lease expiry (job parked in stale_lease — the RFC
+// 0137 primary stale-lease storm signal) from an ordinary expiry; without it the
+// stale signal collapsed into to="expired" and was unobservable (prior-review F1).
+// The CASE keeps the closed-enum job_state off the lease.released rows so it never
+// widens cardinality there, and job_state is itself a closed lifecycle-state enum,
+// never an id.
+func (c *Collector) leaseTransitionCounts(ctx context.Context) ([]LeaseTransitionCount, error) {
+	rows, err := c.runner.Query(ctx, `
+		SELECT event_type,
+		       COALESCE(payload_json->>'reason','') AS reason,
+		       COALESCE(CASE WHEN event_type = 'lease.expired'
+		                     THEN payload_json->>'job_state' END, '') AS job_state,
+		       COUNT(*)::bigint AS n
+		  FROM striatumd.events
+		 WHERE event_type IN ('lease.released', 'lease.expired')
+		 GROUP BY 1, 2, 3`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []LeaseTransitionCount{}
+	for rows.Next() {
+		var eventType, reason, jobState string
+		var n int64
+		if err := rows.Scan(&eventType, &reason, &jobState, &n); err != nil {
+			return nil, err
+		}
+		to, transitionReason := leaseTransitionTarget(eventType, reason, jobState)
+		out = append(out, LeaseTransitionCount{
+			Transition: LeaseTransition{From: "active", To: to, Reason: transitionReason},
+			Count:      int(n),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// nonTerminalRunStates is the set of run states that can be "wedged" — a run that
+// has not advanced a job state in a while. Terminal runs (completed/failed/
+// canceled/compromised) cannot wedge, so they are excluded. It is a []string so
+// pgx encodes it as text[] for the ANY($) filter (the codebase idiom; a []any
+// does not encode to a Postgres array).
+var nonTerminalRunStates = []string{"running", "ready", "blocked", "needs_operator", "needs_branch_confirmation"}
+
+// jobStateAdvanceEventTypes is the CLOSED set of durable event types that mark a
+// job changing lifecycle state — the only evidence of forward progress the
+// wedge-age signal is allowed to reset on. Run-scoped or keepalive events that
+// keep arriving while jobs stay stuck are DELIBERATELY excluded: most importantly
+// daemon.recovery_sweep, which the recovery sweep records on the run every tick,
+// and lease.heartbeat. Counting any event (the prior behavior) let those make a
+// wedged run look freshly active, so striatum_run_wedge_age_seconds stayed low
+// exactly when it should grow (prior-review F1). A new job event type must be
+// added here deliberately; isJobStateAdvanceEvent and the SQL ANY($) filter share
+// this single source of truth.
+var jobStateAdvanceEventTypes = []string{
+	"job.created",
+	"job.queued",
+	"job.completed",
+	"job.failed",
+	"job.blocked",
+	"job.canceled",
+	"job.retried",
+	"job.auto_finalized",
+	"job.commits_anchored",
+	"job.source_changes_published",
+	"job.in_scope_paths_stranded",
+}
+
+// isJobStateAdvanceEvent reports whether an event type counts as a job-state
+// advance for the wedge-age signal. It is the in-process mirror of the SQL filter
+// and the regression guard (a non-job event such as daemon.recovery_sweep must
+// return false).
+func isJobStateAdvanceEvent(eventType string) bool {
+	for _, t := range jobStateAdvanceEventTypes {
+		if t == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+// runWedgeAges observes, per non-terminal run, the seconds since that run last
+// advanced a JOB state — the wedge-age signal. The age is measured from the most
+// recent job-state-advance event only (jobStateAdvanceEventTypes); run-scoped and
+// keepalive events are excluded so a wedged run's age keeps growing instead of
+// being reset by the next sweep tick (prior-review F1). Origin is daemon-core
+// (runs are the daemon's own aggregate). It is bounded by the number of
+// non-terminal runs, never the event history.
+func (c *Collector) runWedgeAges(ctx context.Context, now time.Time) ([]WedgeObservation, error) {
+	rows, err := c.runner.Query(ctx, `
+		SELECT EXTRACT(EPOCH FROM ($1::timestamptz - MAX(e.created_at)))::float8 AS wedge_seconds
+		  FROM striatumd.runs r
+		  JOIN striatumd.events e
+		    ON e.repository_id = r.repository_id AND e.run_id = r.run_id
+		 WHERE r.state = ANY($2)
+		   AND e.event_type = ANY($3)
+		 GROUP BY r.repository_id, r.run_id`, now, nonTerminalRunStates, jobStateAdvanceEventTypes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WedgeObservation{}
+	for rows.Next() {
+		var ageSeconds float64
+		if err := rows.Scan(&ageSeconds); err != nil {
+			return nil, err
+		}
+		if ageSeconds < 0 {
+			ageSeconds = 0
+		}
+		out = append(out, WedgeObservation{Origin: OriginDaemonCore, AgeSeconds: ageSeconds})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// livenessMargins observes, per active lane session holding an active lease, the
+// seconds of margin to the lease-heartbeat deadline — the operationally central
+// liveness deadline for a working lane. Margin = (LeaseHeartbeatSeconds +
+// LeaseHeartbeatSlack) - elapsed-since-last-heartbeat; it goes negative once the
+// deadline has elapsed (a reversible pre-death state, F-A6). The deadline is read
+// from sessionliveness.DefaultPolicy so the margin stays anchored to the real
+// liveness policy rather than a hardcoded constant. Origin is lane.
+func (c *Collector) livenessMargins(ctx context.Context, now time.Time) ([]MarginObservation, error) {
+	policy := sessionliveness.DefaultPolicy()
+	deadline := float64(policy.LeaseHeartbeatSeconds + policy.LeaseHeartbeatSlack)
+	rows, err := c.runner.Query(ctx, `
+		SELECT EXTRACT(EPOCH FROM ($1::timestamptz - GREATEST(
+		         s.last_work_heartbeat_at, al.last_heartbeat_at, al.acquired_at)))::float8 AS elapsed
+		  FROM striatumd.sessions s
+		  JOIN LATERAL (
+		    SELECT al.last_heartbeat_at, al.acquired_at
+		      FROM striatumd.leases al
+		     WHERE al.repository_id = s.repository_id
+		       AND al.owner_session_id = s.session_id
+		       AND al.state = 'active'
+		     ORDER BY al.acquired_at DESC
+		     LIMIT 1
+		  ) al ON true
+		 WHERE s.state = 'active'
+		   AND GREATEST(s.last_work_heartbeat_at, al.last_heartbeat_at, al.acquired_at) IS NOT NULL`, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []MarginObservation{}
+	for rows.Next() {
+		var elapsed float64
+		if err := rows.Scan(&elapsed); err != nil {
+			return nil, err
+		}
+		out = append(out, MarginObservation{Origin: OriginLane, MarginSeconds: deadline - elapsed})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Handler returns the /metrics scrape handler. It does exactly Load -> render ->
