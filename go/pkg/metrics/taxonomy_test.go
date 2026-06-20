@@ -34,14 +34,16 @@ func renderToString(t *testing.T, s *Snapshot) string {
 	return buf.String()
 }
 
-// TestLivenessMissCanRecoverWithoutNecrosis is the RFC 0137 F-A6 contract: it
-// drives a session through active -> liveness_deadline_missed ->
-// liveness_recovered (the EXACT durable event types refreshRunLiveness emits at
-// recovery.go:1229 / :1244) and asserts the reversible miss moved
-// striatum_liveness_deadline_events_total but NEVER striatum_necrosis_total. A
-// recoverable stall is a pre-death observation, not death — so it must stay out
-// of the apoptosis/necrosis conservation law entirely.
-func TestLivenessMissCanRecoverWithoutNecrosis(t *testing.T) {
+// TestLivenessFoldRoutesReversiblePairOutsideNecrosis is the unit half of the
+// RFC 0137 F-A6 contract: given the EXACT durable event types refreshRunLiveness
+// emits (session.liveness_deadline_missed / session.liveness_recovered), the fold
+// routes both to striatum_liveness_deadline_events_total and NEVER to
+// striatum_necrosis_total. The behavioral half — that the real liveness refresh
+// path actually produces those events from an active -> deadline_missed ->
+// recovered transition — lives in package mutations as
+// TestLivenessMissCanRecoverWithoutNecrosis (it needs the unexported
+// refreshRunLiveness and a live DB, so it cannot import-cycle through here).
+func TestLivenessFoldRoutesReversiblePairOutsideNecrosis(t *testing.T) {
 	events := []LifecycleEvent{
 		{EventType: "session.liveness_deadline_missed"},
 		{EventType: "session.liveness_recovered"},
@@ -149,6 +151,85 @@ func TestApoptosisClassifiedFromHealthyEventTypes(t *testing.T) {
 	}
 	if totalNecrosis(snap) != 0 {
 		t.Errorf("healthy terminations produced necrosis: %v", snap.necrosis)
+	}
+}
+
+// TestApoptosisReasonsAreAllProducedFromRealEventTypes pins the RFC 0137 Phase B
+// completeness requirement that NO apoptosis reason is decorative: every value in
+// the closed enum must be produced by folding the real durable event type it is
+// wired to (prior-review F2 rejected lease_handoff and supervisor_drained as
+// reasons the fold could never increment). It folds one event of each real type
+// and then asserts the closed enum is fully covered — a future reason added
+// without an emit site fails here.
+func TestApoptosisReasonsAreAllProducedFromRealEventTypes(t *testing.T) {
+	cases := []struct {
+		name   string
+		event  LifecycleEvent
+		origin Origin
+		reason ApoptosisReason
+	}{
+		{"run.completed", LifecycleEvent{EventType: "run.completed"}, OriginDaemonCore, ApoptosisRunCompleted},
+		{"job.completed", LifecycleEvent{EventType: "job.completed"}, OriginLane, ApoptosisJobSucceeded},
+		{"session.closed (clean)", LifecycleEvent{EventType: "session.closed"}, OriginLane, ApoptosisSessionClosedClean},
+		{"lease.released (handoff)", LifecycleEvent{EventType: "lease.released", LeaseTransfer: true}, OriginLane, ApoptosisLeaseHandoff},
+		{"supervisor.stopped", LifecycleEvent{EventType: "supervisor.stopped"}, OriginSupervisor, ApoptosisSupervisorDrained},
+	}
+	covered := map[ApoptosisReason]bool{}
+	for _, tc := range cases {
+		snap := Build(SnapshotInput{BuiltAt: sentinelBuiltAt, Events: []LifecycleEvent{tc.event}})
+		if got := snap.apoptosis[originReason{tc.origin, string(tc.reason)}]; got != 1 {
+			t.Errorf("%s: apoptosis{%s,%s} = %d, want 1 (reason is hollow — its real event type does not produce it)",
+				tc.name, tc.origin, tc.reason, got)
+		}
+		covered[tc.reason] = true
+	}
+	for _, r := range ApoptosisReasons() {
+		if !covered[r] {
+			t.Errorf("apoptosis reason %q is in the closed enum but no real event type produces it (hollow)", r)
+		}
+	}
+}
+
+// TestLeaseReleaseHandoffExcludesCompletionReleases proves lease_handoff counts
+// only genuine handoffs (transfer / supersession), not the far more common
+// completion or blocked releases — so the reason stays a healthy-handoff signal
+// rather than a generic lease.released tally.
+func TestLeaseReleaseHandoffExcludesCompletionReleases(t *testing.T) {
+	handoff := Build(SnapshotInput{BuiltAt: sentinelBuiltAt, Events: []LifecycleEvent{
+		{EventType: "lease.released", LeaseReason: "superseded"},
+		{EventType: "lease.released", LeaseTransfer: true, LeaseReason: "operator_transfer"},
+	}})
+	if got := handoff.apoptosis[originReason{OriginLane, string(ApoptosisLeaseHandoff)}]; got != 2 {
+		t.Errorf("lease_handoff = %d, want 2 (supersession + transfer)", got)
+	}
+	notHandoff := Build(SnapshotInput{BuiltAt: sentinelBuiltAt, Events: []LifecycleEvent{
+		{EventType: "lease.released", LeaseReason: "completed"},
+		{EventType: "lease.released", LeaseReason: "blocked"},
+	}})
+	if got := totalApoptosis(notHandoff); got != 0 {
+		t.Errorf("completion/blocked lease.released counted as handoff apoptosis (%d); only transfers/supersessions are handoffs", got)
+	}
+}
+
+// TestJobStateAdvanceSetExcludesNonJobEvents is the unit regression for
+// prior-review F1: the wedge-age evidence set must EXCLUDE daemon.recovery_sweep
+// (which fires every sweep tick on a wedged run) and every other non-job event,
+// and include the real job-state transitions. It pins the exact bug — a
+// recovery-sweep tick counting as "progress" — at the source-of-truth set the SQL
+// filter and the in-process predicate share.
+func TestJobStateAdvanceSetExcludesNonJobEvents(t *testing.T) {
+	for _, nonJob := range []string{
+		"daemon.recovery_sweep", "lease.heartbeat", "run.completed",
+		"session.liveness_recovered", "supervisor.stopped", "lease.released",
+	} {
+		if isJobStateAdvanceEvent(nonJob) {
+			t.Errorf("%q must NOT count as a job-state advance (it can fire while jobs stay stuck)", nonJob)
+		}
+	}
+	for _, jobEv := range []string{"job.created", "job.queued", "job.completed", "job.failed", "job.retried"} {
+		if !isJobStateAdvanceEvent(jobEv) {
+			t.Errorf("%q must count as a job-state advance", jobEv)
+		}
 	}
 }
 

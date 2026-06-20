@@ -143,35 +143,48 @@ func (c *Collector) strandedSupervisorCount(ctx context.Context) (int, error) {
 // never wrote the event) and restart-consistent (the counter is re-derived from
 // durable history, not reset to zero) — RFC 0137 §"Design guidance".
 func (c *Collector) lifecycleEventCounts(ctx context.Context) ([]EventCount, error) {
+	// lease.released and supervisor.stopped feed the previously-hollow apoptosis
+	// reasons (lease_handoff / supervisor_drained). The lease handoff decision needs
+	// the lease.released payload reason/transfer, so they are projected — but ONLY
+	// for lease.released (a CASE guards them) so a free-text supervisor.stopped
+	// reason never widens the GROUP BY into per-supervisor cardinality. None of
+	// these columns reach the wire: render emits only the closed origin/reason enum.
 	rows, err := c.runner.Query(ctx, `
 		SELECT event_type,
 		       COALESCE(payload_json->>'stall_class','')      AS stall_class,
 		       COALESCE(payload_json->>'blocker_kind','')     AS blocker_kind,
 		       COALESCE(payload_json->>'lifecycle_metric','') AS lifecycle_metric,
+		       COALESCE(CASE WHEN event_type = 'lease.released'
+		                     THEN payload_json->>'reason' END, '')   AS lease_reason,
+		       COALESCE(CASE WHEN event_type = 'lease.released'
+		                     THEN payload_json->>'transfer' END, '') AS lease_transfer,
 		       COUNT(*)::bigint AS n
 		  FROM striatumd.events
 		 WHERE event_type IN (
 		       'run.completed', 'job.completed', 'session.closed',
 		       'session.liveness_deadline_missed', 'session.liveness_recovered',
-		       'run.escalated', 'recovery.job_quarantined')
-		 GROUP BY 1, 2, 3, 4`)
+		       'run.escalated', 'recovery.job_quarantined',
+		       'lease.released', 'supervisor.stopped')
+		 GROUP BY 1, 2, 3, 4, 5, 6`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []EventCount{}
 	for rows.Next() {
-		var eventType, stallClass, blockerKind, lifecycleTag string
+		var eventType, stallClass, blockerKind, lifecycleTag, leaseReason, leaseTransfer string
 		var n int64
-		if err := rows.Scan(&eventType, &stallClass, &blockerKind, &lifecycleTag, &n); err != nil {
+		if err := rows.Scan(&eventType, &stallClass, &blockerKind, &lifecycleTag, &leaseReason, &leaseTransfer, &n); err != nil {
 			return nil, err
 		}
 		out = append(out, EventCount{
 			Event: LifecycleEvent{
-				EventType:    eventType,
-				StallClass:   stallClass,
-				BlockerKind:  blockerKind,
-				LifecycleTag: lifecycleTag,
+				EventType:     eventType,
+				StallClass:    stallClass,
+				BlockerKind:   blockerKind,
+				LifecycleTag:  lifecycleTag,
+				LeaseReason:   leaseReason,
+				LeaseTransfer: leaseTransfer == "true",
 			},
 			Count: int(n),
 		})
@@ -223,21 +236,64 @@ func (c *Collector) leaseTransitionCounts(ctx context.Context) ([]LeaseTransitio
 
 // nonTerminalRunStates is the set of run states that can be "wedged" — a run that
 // has not advanced a job state in a while. Terminal runs (completed/failed/
-// canceled/compromised) cannot wedge, so they are excluded.
-var nonTerminalRunStates = []any{"running", "ready", "blocked", "needs_operator", "needs_branch_confirmation"}
+// canceled/compromised) cannot wedge, so they are excluded. It is a []string so
+// pgx encodes it as text[] for the ANY($) filter (the codebase idiom; a []any
+// does not encode to a Postgres array).
+var nonTerminalRunStates = []string{"running", "ready", "blocked", "needs_operator", "needs_branch_confirmation"}
 
-// runWedgeAges observes, per non-terminal run, the seconds since its most recent
-// durable event (its last state advance) — the wedge-age signal. Origin is
-// daemon-core (runs are the daemon's own aggregate). It is bounded by the number
-// of non-terminal runs, never the event history.
+// jobStateAdvanceEventTypes is the CLOSED set of durable event types that mark a
+// job changing lifecycle state — the only evidence of forward progress the
+// wedge-age signal is allowed to reset on. Run-scoped or keepalive events that
+// keep arriving while jobs stay stuck are DELIBERATELY excluded: most importantly
+// daemon.recovery_sweep, which the recovery sweep records on the run every tick,
+// and lease.heartbeat. Counting any event (the prior behavior) let those make a
+// wedged run look freshly active, so striatum_run_wedge_age_seconds stayed low
+// exactly when it should grow (prior-review F1). A new job event type must be
+// added here deliberately; isJobStateAdvanceEvent and the SQL ANY($) filter share
+// this single source of truth.
+var jobStateAdvanceEventTypes = []string{
+	"job.created",
+	"job.queued",
+	"job.completed",
+	"job.failed",
+	"job.blocked",
+	"job.canceled",
+	"job.retried",
+	"job.auto_finalized",
+	"job.commits_anchored",
+	"job.source_changes_published",
+	"job.in_scope_paths_stranded",
+}
+
+// isJobStateAdvanceEvent reports whether an event type counts as a job-state
+// advance for the wedge-age signal. It is the in-process mirror of the SQL filter
+// and the regression guard (a non-job event such as daemon.recovery_sweep must
+// return false).
+func isJobStateAdvanceEvent(eventType string) bool {
+	for _, t := range jobStateAdvanceEventTypes {
+		if t == eventType {
+			return true
+		}
+	}
+	return false
+}
+
+// runWedgeAges observes, per non-terminal run, the seconds since that run last
+// advanced a JOB state — the wedge-age signal. The age is measured from the most
+// recent job-state-advance event only (jobStateAdvanceEventTypes); run-scoped and
+// keepalive events are excluded so a wedged run's age keeps growing instead of
+// being reset by the next sweep tick (prior-review F1). Origin is daemon-core
+// (runs are the daemon's own aggregate). It is bounded by the number of
+// non-terminal runs, never the event history.
 func (c *Collector) runWedgeAges(ctx context.Context, now time.Time) ([]WedgeObservation, error) {
 	rows, err := c.runner.Query(ctx, `
 		SELECT EXTRACT(EPOCH FROM ($1::timestamptz - MAX(e.created_at)))::float8 AS wedge_seconds
 		  FROM striatumd.runs r
 		  JOIN striatumd.events e
 		    ON e.repository_id = r.repository_id AND e.run_id = r.run_id
-		 WHERE r.state = ANY($2::text[])
-		 GROUP BY r.repository_id, r.run_id`, now, nonTerminalRunStates)
+		 WHERE r.state = ANY($2)
+		   AND e.event_type = ANY($3)
+		 GROUP BY r.repository_id, r.run_id`, now, nonTerminalRunStates, jobStateAdvanceEventTypes)
 	if err != nil {
 		return nil, err
 	}

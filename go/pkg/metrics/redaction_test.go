@@ -79,6 +79,12 @@ func sentinelEvents() []LifecycleEvent {
 		{EventType: "run.escalated", BlockerKind: string(NecrosisRecoveryExhausted)},
 		{EventType: "session.liveness_deadline_missed"},
 		{EventType: "session.liveness_recovered"},
+		// Handoff release -> apoptosis lease_handoff (origin lane); a plain
+		// completion release is NOT a handoff and renders no series.
+		{EventType: "lease.released", LeaseTransfer: true, LeaseReason: "operator_transfer"},
+		{EventType: "lease.released", LeaseReason: "completed"},
+		// Supervisor drain/stop -> apoptosis supervisor_drained (origin supervisor).
+		{EventType: "supervisor.stopped"},
 	}
 }
 

@@ -20,7 +20,9 @@ striatum_runs{state="other"} 1
 # TYPE striatum_apoptosis_total counter
 striatum_apoptosis_total{origin="daemon-core",reason="run_completed"} 1
 striatum_apoptosis_total{origin="lane",reason="job_succeeded"} 2
+striatum_apoptosis_total{origin="lane",reason="lease_handoff"} 1
 striatum_apoptosis_total{origin="lane",reason="session_closed_clean"} 1
+striatum_apoptosis_total{origin="supervisor",reason="supervisor_drained"} 1
 # HELP striatum_necrosis_total Confirmed-dead uncontrolled terminations by origin and reason; any nonzero rate is alertable.
 # TYPE striatum_necrosis_total counter
 striatum_necrosis_total{origin="reconcile-sweep",reason="agent_pid_dead"} 1

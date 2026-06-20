@@ -203,6 +203,12 @@ type LifecycleEvent struct {
 	StallClass   string // payload stall_class (confirmed-dead classification)
 	BlockerKind  string // payload blocker_kind (recovery_exhausted)
 	LifecycleTag string // payload lifecycle_metric tag (stamped at the site)
+	// LeaseReason / LeaseTransfer are read from a lease.released payload only and
+	// decide whether that release is a clean HANDOFF (apoptosis lease_handoff) or
+	// a completion/expiry release the lifecycle fold skips. They stay empty/false
+	// for every other event type.
+	LeaseReason   string // lease.released payload reason
+	LeaseTransfer bool   // lease.released payload transfer flag
 }
 
 // leaseStateDomain is the closed enum for the lease_transitions from/to labels
@@ -266,6 +272,26 @@ func bucketLeaseReason(reason string) string {
 	return leaseReasonOther
 }
 
+// leaseHandoffReasons is the CLOSED set of lease.released reasons that mean the
+// lane's hold was cleanly HANDED OFF to a fresh session (a supersession or an
+// operator/recovery transfer) rather than completed or failed. A lease.released
+// carrying one of these — or the payload transfer flag — is the durable source
+// for the apoptosis lease_handoff reason: the emit sites are the superseding
+// close (lifecycle.go releasing a displaced session's lease with
+// reason="superseded") and the --transfer release (lifecycle.go, transfer=true).
+// A completion/expiry release is NOT a handoff (completion is already counted via
+// job.completed; expiry surfaces in lease_transitions), so it is excluded here so
+// lease_handoff stays a healthy-handoff signal rather than a generic release tally.
+var leaseHandoffReasons = map[string]bool{
+	"superseded":        true,
+	"recovery_transfer": true,
+	"operator_transfer": true,
+}
+
+func isLeaseHandoffReason(reason string) bool {
+	return leaseHandoffReasons[reason]
+}
+
 // classifyLifecycleEvent maps a durable event to its (class, origin, reason)
 // metric coordinates. ok=false (ClassSkip) means the event is not a
 // lifecycle/liveness signal this fold counts. This is the SINGLE point where the
@@ -294,6 +320,24 @@ func classifyLifecycleEvent(ev LifecycleEvent) (LifecycleClass, Origin, string, 
 			return ClassSkip, "", "", false
 		}
 		return ClassApoptosis, OriginLane, string(ApoptosisSessionClosedClean), true
+	case "supervisor.stopped":
+		// A supervisor stop is a programmed drain/termination of the supervisor's
+		// own lifecycle (operator stop OR the reconcile sweep reaping a terminal-run
+		// supervisor) — healthy apoptosis, origin supervisor. This wires the
+		// previously-hollow supervisor_drained reason to its real durable event
+		// (mutations.go / supervision_control.go emit "supervisor.stopped").
+		return ClassApoptosis, OriginSupervisor, string(ApoptosisSupervisorDrained), true
+	case "lease.released":
+		// A handoff release (operator/recovery --transfer, or a supersession) is a
+		// clean programmed release of the lane's hold so a fresh session can pick the
+		// work up — apoptosis lease_handoff. This wires the previously-hollow
+		// lease_handoff reason to its real durable event (lifecycle.go emits
+		// "lease.released" carrying reason / transfer). A completion or expiry
+		// release is not a handoff and is skipped here.
+		if ev.LeaseTransfer || isLeaseHandoffReason(ev.LeaseReason) {
+			return ClassApoptosis, OriginLane, string(ApoptosisLeaseHandoff), true
+		}
+		return ClassSkip, "", "", false
 	case "session.liveness_deadline_missed":
 		// F-A6: a reversible pre-death observation — liveness counter, never necrosis.
 		return ClassLiveness, OriginLane, string(LivenessDeadlineMissed), true
