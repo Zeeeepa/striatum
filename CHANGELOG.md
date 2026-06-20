@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+### Security
+
+- **RFC 0141 graduated experimental→supported: gate-side, daemon-authoritative
+  attestation enforcement, fail-closed (D243, #482).** Closes the documented
+  forge-able gap — at experimental tier the PINNED→VERIFIABLE attestation hinge was
+  enforced only at the `striatum verifier attest` VERB level (it refused a
+  lane/session context and wrote a per-host `allowlist.pins.<fp>.attest.json`
+  sidecar), and the run-completion gate never re-verified it, so a non-compliant lane
+  could forge that sidecar, join→VERIFIABLE, run the real pinned external check under
+  a strict two-signal envelope, author the claim VERIFIED, and the daemon gate would
+  honor it. Now:
+  - **Daemon-owned PG attestation store** (migration **0041**,
+    `striatumd.verifier_attestations`, partial unique index on the active
+    `(repository_id, check_id, binary_sha256)`) is the authoritative live state; the
+    repo-file sidecar is now a cache/projection that still drives the lane-side
+    intent⋈pins⋈attest join, not the trust source.
+  - **Operator-token RPC `verifier.attest`** (CapabilityAdmin) mints the row and
+    REFUSES any session-bound capability token (`capability_denied`) — the
+    daemon-enforced equivalent of the verb's session-context refusal, now backed by
+    the DB session_id flag (RFC 0096 V2 / #135). The `verifier attest` verb dispatches
+    it to record the authoritative row; an unreachable daemon/no-token/unregistered
+    repo degrades to a LOUD warning (sidecar cache only, NOT gate-authoritative), but
+    a daemon refusal fails the verb closed.
+  - **The run-completion gate** (`evaluateRunClaimVerification`) now refuses VERIFIED
+    for an external (non-builtin) claim whose backing receipt
+    `(check_id, binary_sha256)` lacks an un-revoked attestation row for the run's
+    repository — fail-closed to ASSERTED (basis `attestation_missing`); a re-pin of
+    different bytes or a revoked blessing silently invalidates it. D227 preserved: the
+    gate reads PG rows + sealed bytes and executes nothing.
+  - **Negative-control rigor is now mandatory:** `ParseIntent` rejects a
+    `negative_control` that omits `mutation_of` (the mutation-of-a-paired-passing-
+    fixture form).
+
 ### Fixed
 
 - **RFC 0141 `verifier run` builtins are now actually runnable end-to-end** (the
@@ -21,6 +54,67 @@
 
 ### Added
 
+- **RFC 0136 P1 — event-chain segment sealing (#387, D242).** Generalizes the
+  `audit_segments` "seal + boundary-hash + retention_state" model to the
+  per-repository event chain so an event partition can be SEALED and
+  proven-continuous BEFORE any future partition DROP (the chain-safe retention
+  boundary P2/P4 depend on). New **runtime** migration
+  `0041_event_chain_segments.sql` adds the per-`repository_id`
+  `striatumd.event_chain_segments` ledger (append-only via refuse-triggers,
+  explicit `striatumd_rw` GRANT + `REVOKE DELETE`, **no FK into owner-held
+  `events`** — integrity enforced in Go per D215). New `pkg/mutations`
+  `SealEventChainSegment` closes the open segment with its first/last event +
+  hash boundaries and opens a chained successor (cross-segment hash witnesses for
+  seam continuity), with the boundary referential-integrity check in Go. New
+  doctor invariant `event_chain_segment_seam_unproven`
+  (`go/pkg/reads/doctor_event_chain_segment.go`) reds when a sealed segment lacks
+  its boundary hashes or its seam witnesses do not link to its predecessor.
+  Corrects the RFC's stale P2/P3 owner-bundle reference `0016`→`0020`. P2–P5 are
+  NOT implemented; #387 stays open as their tracker. No owner-bundle, RPC, or
+  daemon restart.
+- **RFC 0042 run-list workflow identity in the Go SSE dashboard (D224, #400).**
+  The `status` read now folds a curated `workflow_name` onto every run row
+  (`workflow_snapshots.workflow_id`, suffixed `@ <workflow_version>` when a
+  version is recorded) via a left join, so the live web dashboard can tell which
+  workflow a run belongs to. The selected-run card renders a `Workflow:` line and
+  the sidebar run list shows + filters on the workflow name (HTML-escaped). The
+  raw snapshot columns are folded away, leaving one stable field. A clickable
+  per-workflow link is not added — no stable per-workflow route exists yet — and
+  is noted as residual future work in the RFC.
+- **RFC 0133 `barrier_assembly` dispatcher + staging-at-completion landed in
+  shadow (#354, D246).** Completes the implementation of the fan-in leg of the
+  `(entity, seal)` barrier fold: the previously dead-code fan-in barrier machinery
+  (`recordFaninFreezePoint`/`stageFaninContribution`/`runBarrierAssembly` + the
+  two-phase journal + doctor checks) now has two production seams — a
+  staging-at-completion hook (`stageFaninContributionAtCompletion`, additive to and
+  never replacing the legacy per-completion merge) and the `barrier_assembly` job
+  dispatcher (`DispatchBarrierAssembly`, the sole production caller of
+  `runBarrierAssembly`, locking the run + asserting readiness + owner-bundle-0013
+  permission). Both gate on a NEW opt-in flag **`STRIATUM_BARRIER_FANIN` (default
+  OFF / shadow)**, so **default behavior is unchanged** (the D206 per-completion
+  merge stays the sole fan-in path). A new end-to-end equivalence fixture
+  (`TestFaninAssemblyDispatchSameFinalTreeAsPerCompletion`) proves the wired
+  stage→dispatch→assemble path produces the byte-identical run-branch tree the
+  legacy per-completion merge produces; a shadow-default no-op fixture proves the
+  flag-off path stages nothing and refuses dispatch. No new migration or owner
+  bundle (owner bundle 0013 already exists — applying it is an operator deploy
+  step). #354 stays open: the go-live flip and wiring `recordFaninFreezePoint` into
+  a live fan-out remain.
+- **RFC 0096 / #87 lane-isolation gate disposition (D244).** The residual
+  host-isolation-gate ambiguity is resolved: the green gate
+  (`make lane-isolation-check`, the RFC 0110 `T-LANE-ISOLATION-NEG` negative
+  control) is **operator-provisioned hardening**, surfaced via a **conditional
+  CI job** rather than made mandatory-in-CI (a stock runner cannot have the
+  PG-less lane OS user, passwordless `sudo -n -u`, and `pg_hba` reject rules the
+  gate requires). New `make lane-isolation-check-ci`
+  (`scripts/check_lane_isolation_ci.sh`) and a `lane-isolation-gate` job in
+  `.github/workflows/ci.yml` that runs the real negative control only when the
+  host advertises provisioning via `STRIATUM_LANE_ISOLATION_HOST=1` and
+  otherwise **skips loudly** (exit 0, printing that the gate did NOT run) so a
+  green CI never falsely implies the isolation gate ran; once a host claims
+  provisioning, a missing probe URL / lane user / sudo rule is a loud failure,
+  not a silent skip. RFC 0096 re-statused `partially implemented`→`implemented`;
+  `docs/how-to/lane-sandbox.md` documents the guard variable.
 - **RFC 0094 adjudicator-reliability extras (#402, D240, PR #487).** The
   `collaboration_ledger` contract gains the residual adjudication shape deferred by
   PR #432: a **Check-B correspondence rubric** (per-`challenge`
@@ -66,6 +160,17 @@
 
 ### Changed
 
+- **Docs/grooming (D245, RSA-007 currency pass): RFC 0061/0062/0069/0070
+  re-statused to `implemented (residual: optional polish)`.** Their load-bearing
+  daemon/web/service boundary has shipped (daemon-first web routes + `/v1/invoke`,
+  the real escalation inbox, PG-only daemon-global surfaces, the daemon-client
+  boundary); the recorded `partially`/`mostly implemented` statuses understated
+  delivered work. The promote was gated on a verifying grep for any live
+  registry/Python fallback in error paths, which came back clean (no `CLI_ROUTES`
+  identifier, no Python runtime tree — retired under RFC 0078, only parity-comment
+  and token/wake-timeout `fallback` mentions). RFC headers, the
+  `docs/rfcs/README.md` index, and the decision log updated; each named remainder
+  is kept documented as optional polish. Docs-only.
 - **RFC 0134 (executable verification gate + claim status-provenance) graduated to
   `implemented` (D237).** Both build halves were already on `main` under D227's
   validate-not-execute accepted form (the daemon NEVER executes a check; the

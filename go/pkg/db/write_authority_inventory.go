@@ -80,6 +80,14 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"cross_repo_runs":                ClassRuntimeDML,
 	"daemon_supervisors":             ClassRuntimeDML,
 	"escalation_inbox":               ClassRuntimeDML,
+	// event_chain_segments (RFC 0136 P1, migration 0041): the per-repository
+	// event chain-segment seal ledger. The sealing path (pkg/mutations
+	// SealEventChainSegment) INSERTs the successor open segment and UPDATEs the
+	// open segment's boundaries; a sealed/purged row is frozen and DELETE is
+	// denied — append-only via refuse-triggers + a SELECT/INSERT/UPDATE-only grant
+	// (DELETE revoked), the same shape as fanin_freeze_points / audit_segments,
+	// NOT an SD-gated surface (a plain refuse-trigger, not assert_daemon_authority).
+	"event_chain_segments":           ClassRuntimeDML,
 	// fanin_freeze_points (RFC 0135 P1, migration 0029): the immutable fan-in
 	// freeze record. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger
 	// + the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as
@@ -118,7 +126,12 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// DML, not an append-only provenance surface.
 	"supervisor_buffered_packets": ClassRuntimeDML,
 	"trajectory_segments":         ClassRuntimeDML,
-	"verdicts":                    ClassRuntimeDML,
+	// verifier_attestations (RFC 0141 / D243 / #482, migration 0041): the
+	// daemon-owned operator attestation store the run-completion gate consults. The
+	// verifier.attest RPC INSERTs a row and UPDATEs (refresh/revoke) it. Live trust
+	// state, direct runtime DML — not an append-only provenance surface.
+	"verifier_attestations": ClassRuntimeDML,
+	"verdicts":              ClassRuntimeDML,
 	"work_packets":                ClassRuntimeDML,
 	"workflow_accepted_risks":     ClassRuntimeDML,
 	"workflow_snapshots":          ClassRuntimeDML,
