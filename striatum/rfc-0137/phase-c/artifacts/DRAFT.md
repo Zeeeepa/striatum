@@ -1,6 +1,6 @@
 # RFC 0137 Phase C — contract enforcement + doctor-as-collector (DRAFT)
 
-author: author-author-001
+author: author-author-002
 
 Phase C builds on the landed Phase A read path (snapshot / render / `/metrics`)
 and the Phase B failure-mode taxonomy. It adds the four enforcement deliverables
