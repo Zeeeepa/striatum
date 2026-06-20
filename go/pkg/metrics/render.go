@@ -26,6 +26,9 @@ const (
 	metricLivenessEvents = "striatum_liveness_deadline_events_total"
 	metricWedgeAge       = "striatum_run_wedge_age_seconds"
 	metricLivenessMargin = "striatum_liveness_deadline_margin_seconds"
+	// Phase C contract families.
+	metricDoctorProblems     = "striatum_doctor_problems"
+	metricCardinalityClipped = "striatum_metrics_cardinality_clipped_total"
 )
 
 // WriteText renders the snapshot as Prometheus text exposition. The output is
@@ -58,6 +61,10 @@ func (s *Snapshot) WriteText(w io.Writer, now time.Time) error {
 	s.writeLeaseTransitions(bw)
 	s.writeWedgeAge(bw)
 	s.writeLivenessMargin(bw)
+
+	// Phase C contract families.
+	s.writeDoctorProblems(bw)
+	s.writeCardinalityClipped(bw)
 
 	return bw.err
 }
@@ -117,6 +124,31 @@ func (s *Snapshot) writeLivenessMargin(bw *errWriter) {
 	bw.line("# HELP " + metricLivenessMargin + " Seconds of margin to the nearest liveness deadline; negative once elapsed.")
 	bw.line("# TYPE " + metricLivenessMargin + " histogram")
 	writeHistogramFamily(bw, metricLivenessMargin, s.livenessMargin)
+}
+
+// writeDoctorProblems renders the open-doctor-integrity-problems gauge. The
+// `class` label is ONLY ever a static problem-record check code (F-A8); the fold
+// never reads the dynamic-id `problems` strings, so no run/gate/supervisor id can
+// appear here. HELP/TYPE are always emitted so absence is distinguishable from a
+// genuine zero; only observed classes (sorted) carry a value, and the series
+// budget bounds them at doctorProblemsSeriesBudget+1.
+func (s *Snapshot) writeDoctorProblems(bw *errWriter) {
+	bw.line("# HELP " + metricDoctorProblems + " Open doctor integrity problems grouped by static check class.")
+	bw.line("# TYPE " + metricDoctorProblems + " gauge")
+	for _, class := range sortedStringKeys(s.doctorProblems) {
+		bw.line(metricDoctorProblems + `{class="` + class + `"} ` + strconv.Itoa(s.doctorProblems[class]))
+	}
+}
+
+// writeCardinalityClipped renders the per-family series-budget clip counter — the
+// number of distinct label-tuples collapsed onto the reserved `other` bucket. A
+// nonzero value is itself alertable (silent dimension loss is made visible).
+func (s *Snapshot) writeCardinalityClipped(bw *errWriter) {
+	bw.line("# HELP " + metricCardinalityClipped + " Distinct label tuples collapsed to the other bucket by the per family series budget.")
+	bw.line("# TYPE " + metricCardinalityClipped + " counter")
+	for _, family := range sortedStringKeys(s.cardinalityClipped) {
+		bw.line(metricCardinalityClipped + `{family="` + family + `"} ` + strconv.Itoa(s.cardinalityClipped[family]))
+	}
 }
 
 // writeHistogramFamily renders a per-origin histogram family in deterministic

@@ -115,16 +115,31 @@ func sentinelMargins() []MarginObservation {
 	}
 }
 
+// sentinelDoctorRecords plants every sensitive provenance class onto doctor
+// problem records, whose ONLY wire-eligible field is the static `check` code. The
+// id-bearing fields (run_id, gate_id, byline) reuse the sentinel literals, so the
+// golden + forbidden-content regex prove the Phase C doctor_problems fold copies
+// only the static class onto the wire (F-A8) and leaks no dynamic id.
+func sentinelDoctorRecords() []map[string]any {
+	return []map[string]any{
+		{"check": "recovery_sweep_cursor_wedged", "run_id": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+		{"check": "recovery_sweep_cursor_wedged", "run_id": "/home/halbritt/git/secret-target-repo"},
+		{"check": "dissent_ledger_incomplete", "gate_id": "feature/leak-sentinel-branch"},
+		{"check": "artifact_anchor_hash_mismatch", "byline": "author: leaker-model-007"},
+	}
+}
+
 func renderSentinelSnapshot(t *testing.T) []byte {
 	t.Helper()
 	snap := Build(SnapshotInput{
-		BuiltAt:             sentinelBuiltAt,
-		Runs:                sentinelRuns(),
-		StrandedSupervisors: 3,
-		Events:              sentinelEvents(),
-		LeaseTransitions:    sentinelLeaseTransitions(),
-		WedgeAges:           sentinelWedgeAges(),
-		LivenessMargins:     sentinelMargins(),
+		BuiltAt:              sentinelBuiltAt,
+		Runs:                 sentinelRuns(),
+		StrandedSupervisors:  3,
+		Events:               sentinelEvents(),
+		LeaseTransitions:     sentinelLeaseTransitions(),
+		WedgeAges:            sentinelWedgeAges(),
+		LivenessMargins:      sentinelMargins(),
+		DoctorProblemRecords: sentinelDoctorRecords(),
 	})
 	var buf bytes.Buffer
 	if err := snap.WriteText(&buf, sentinelNow); err != nil {

@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/reads"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/sessionliveness"
 	"github.com/jackc/pgx/v5"
 )
@@ -73,8 +76,84 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 	in.WedgeAges, _ = c.runWedgeAges(ctx, at)
 	in.LivenessMargins, _ = c.livenessMargins(ctx, at)
 
+	// Phase C: doctor_problems is folded HERE, on the bounded sweep cadence, never
+	// on the scrape path. It is best-effort like the Phase B families: a doctor
+	// error degrades the gauge to empty for this snapshot rather than failing the
+	// whole surface.
+	in.DoctorProblemRecords = c.doctorProblemRecords(ctx)
+
 	Publish(Build(in))
 	return nil
+}
+
+// doctorFoldTimeout bounds the per-repository doctor evaluation folded into a
+// sweep tick so a slow check (supervisor probe, skills filesystem scan) can never
+// stall the recovery sweep that drives the fold.
+const doctorFoldTimeout = 15 * time.Second
+
+// doctorProblemRecords runs the doctor checks per active repository on the sweep
+// cadence and returns the aggregated STATIC problem records for the
+// doctor_problems gauge. It is best-effort: a missing db.Runner surface, a repo
+// enumeration error, or a per-repo doctor error degrades to fewer (or no) records
+// rather than failing the snapshot. Only result["problem_records"] is read — the
+// dynamic-id `problems` strings are never consulted (F-A8); the `class` derivation
+// itself lives in foldDoctorProblemRecords.
+func (c *Collector) doctorProblemRecords(ctx context.Context) []map[string]any {
+	dr, ok := c.runner.(db.Runner)
+	if !ok {
+		return nil
+	}
+	repos, err := c.activeRepositoryIDs(ctx)
+	if err != nil {
+		return nil
+	}
+	var records []map[string]any
+	for _, repoID := range repos {
+		repoCtx, cancel := context.WithTimeout(ctx, doctorFoldTimeout)
+		result, derr := reads.HandleDoctor(repoCtx, dr, rpc.Envelope{
+			Params: map[string]any{
+				"repository_id": repoID,
+				// verbose=true is what populates result["problem_records"]; the
+				// non-verbose `problems` summary strings are deliberately ignored.
+				"verbose": true,
+			},
+		})
+		cancel()
+		if derr != nil {
+			continue
+		}
+		records = append(records, extractDoctorProblemRecords(result)...)
+	}
+	return records
+}
+
+// activeRepositoryIDs lists the distinct non-removed repositories the daemon
+// serves, so the doctor fold evaluates each one. It selects only the
+// repository_id key — no repo path, branch, or other provenance column.
+func (c *Collector) activeRepositoryIDs(ctx context.Context) ([]string, error) {
+	rows, err := c.runner.Query(ctx, `
+		SELECT DISTINCT repository_id
+		  FROM striatumd.repositories
+		 WHERE state <> 'removed'
+		 ORDER BY repository_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var repoID string
+		if err := rows.Scan(&repoID); err != nil {
+			return nil, err
+		}
+		if repoID != "" {
+			out = append(out, repoID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // runStateCounts aggregates runs by lifecycle state across the daemon-owned DB.

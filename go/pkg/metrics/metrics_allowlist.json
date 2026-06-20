@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "sha256": "78b89687e846ca38f96f0254b095cb04153bca4abf2bd48e93976efd24aa1abd",
+  "families": [
+    {
+      "name": "striatum_apoptosis_total",
+      "type": "counter",
+      "classification": "operational",
+      "labels": [
+        "origin",
+        "reason"
+      ]
+    },
+    {
+      "name": "striatum_doctor_problems",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "class"
+      ]
+    },
+    {
+      "name": "striatum_lease_transitions_total",
+      "type": "counter",
+      "classification": "operational",
+      "labels": [
+        "from",
+        "reason",
+        "to"
+      ]
+    },
+    {
+      "name": "striatum_liveness_deadline_events_total",
+      "type": "counter",
+      "classification": "operational",
+      "labels": [
+        "reason"
+      ]
+    },
+    {
+      "name": "striatum_liveness_deadline_margin_seconds",
+      "type": "histogram",
+      "classification": "operational",
+      "labels": [
+        "origin"
+      ]
+    },
+    {
+      "name": "striatum_metrics_cardinality_clipped_total",
+      "type": "counter",
+      "classification": "operational",
+      "labels": [
+        "family"
+      ]
+    },
+    {
+      "name": "striatum_metrics_snapshot_age_seconds",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": []
+    },
+    {
+      "name": "striatum_necrosis_total",
+      "type": "counter",
+      "classification": "operational",
+      "labels": [
+        "origin",
+        "reason"
+      ]
+    },
+    {
+      "name": "striatum_run_wedge_age_seconds",
+      "type": "histogram",
+      "classification": "operational",
+      "labels": [
+        "origin"
+      ]
+    },
+    {
+      "name": "striatum_runs",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "state"
+      ]
+    },
+    {
+      "name": "striatum_stranded_supervisors",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": []
+    }
+  ]
+}
