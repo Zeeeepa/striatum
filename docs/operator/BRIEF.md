@@ -280,8 +280,15 @@ regression references, not open work.
   state, no telemetry/transcript capture without a product decision.
 - Trust only returned JSON; verify every state-changer with a read;
   state-changing calls sequential.
-- `make install` does NOT restart the daemon — `systemctl --user restart
-  striatumd`, then verify the running `/proc/<pid>/exe` sha.
+- The daemon runs as the **system** unit (`/etc/systemd/system/striatumd.service`);
+  restart with `sudo systemctl restart striatumd` (NOT `--user`). `make install`
+  does NOT restart it; build from a clean worktree off `origin/main` (not the
+  contended shared tree), then verify the running `/proc/<pid>/exe` sha.
+- **The user-scope `striatumd.service` is masked/removed — do NOT recreate it via
+  `striatum daemon install`.** It lacks the owner-DB env (`STRIATUM_OWNER_DB_URL`
+  …) so it crash-loops on `daemon_pg_owner_bootstrap_failed` and conflicts with
+  the system unit (recurring daemon-down incidents). Fix the install path before
+  un-masking — see #509.
 - CI always runs pgtests; check `gh run list` before assuming green.
   Reproduce lint locally with golangci-lint v2.12.2 (pinned in
   `go/Makefile`; absent binary = invisible red).
