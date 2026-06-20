@@ -22,11 +22,15 @@ groups:
       - record: striatum:lease_stale:rate5m
         expr: sum (rate(striatum_lease_transitions_total{to="stale_lease"}[5m]))
 
-      # p99 wedge age per origin — the wedged-run tail.
+      # p99 wedge age per origin — the wedged-run tail. The wedge-age histogram is a
+      # per-tick gauge histogram (rebuilt each fold), so histogram_quantile reads its
+      # buckets directly — no rate(), which would mis-handle the snapshot's rise-and-
+      # fall as counter resets.
       - record: striatum:run_wedge_age:p99
-        expr: histogram_quantile(0.99, sum by (le, origin) (rate(striatum_run_wedge_age_seconds_bucket[5m])))
+        expr: histogram_quantile(0.99, sum by (le, origin) (striatum_run_wedge_age_seconds_bucket))
 
       # p05 liveness-deadline margin per origin — the low tail sliding toward zero
-      # forewarns liveness misses before they become necrosis.
+      # forewarns liveness misses before they become necrosis. Also a per-tick gauge
+      # histogram, so its buckets are read directly, not through rate().
       - record: striatum:liveness_margin:p05
-        expr: histogram_quantile(0.05, sum by (le, origin) (rate(striatum_liveness_deadline_margin_seconds_bucket[5m])))
+        expr: histogram_quantile(0.05, sum by (le, origin) (striatum_liveness_deadline_margin_seconds_bucket))

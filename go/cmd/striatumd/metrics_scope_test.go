@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -90,6 +91,63 @@ func TestScopedMetricsRemoteFiltersByCapability(t *testing.T) {
 	}
 }
 
+// TestScopedMetricsIsolatesCollidingReposByRepoID is the deliverable #1
+// load-bearing privacy proof end-to-end through the RFC 0043 authorizer: TWO
+// distinct repositories deliberately collide into the SAME salted surrogate bucket,
+// and a repo-A-scoped token must see ONLY repo-A's series — never the colliding
+// repo-B's. The handler authorizes by REAL repository_id, so the collision is
+// isolated; an implementation that filtered on the lossy bucket (the prior defect)
+// would merge repo-B's count into repo-A's view here.
+func TestScopedMetricsIsolatesCollidingReposByRepoID(t *testing.T) {
+	// Find two repository_ids that collide into one bucket under a fixed daemon
+	// secret — the lossy-surrogate case the capability boundary must survive.
+	surrogate := metrics.NewSurrogate("collision-fixture-secret")
+	const repoA = "repo_collision_a"
+	bucketA := surrogate.Bucket(repoA)
+	repoB := ""
+	for i := 0; i < 1000000; i++ {
+		cand := fmt.Sprintf("repo_collision_b_%d", i)
+		if surrogate.Bucket(cand) == bucketA {
+			repoB = cand
+			break
+		}
+	}
+	if repoB == "" {
+		t.Fatalf("could not find a colliding repository_id for bucket %s", bucketA)
+	}
+
+	// Both repos consent; repo-A has 2 running, repo-B 7 — distinct so a leak shows
+	// up as a merged total.
+	metrics.Publish(metrics.Build(metrics.SnapshotInput{
+		StrandedSupervisors: 1,
+		RepoMetrics: []metrics.RepoMetric{
+			{RepoID: repoA, Bucket: bucketA, Consented: true, RunStates: map[string]int{"running": 2}},
+			{RepoID: repoB, Bucket: bucketA, Consented: true, RunStates: map[string]int{"running": 7}},
+		},
+	}))
+
+	authz, token := readScopedToken(repoA)
+	h := newScopedMetricsHandler(metrics.NewCollector(nil).Handler(), authz)
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.RemoteAddr = "100.85.100.81:40010" // tailnet, non-loopback
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("scoped collision scrape status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	body := rr.Body.String()
+	want := fmt.Sprintf(`striatum_repo_runs{bucket="%s",state="running"} 2`, bucketA)
+	if !strings.Contains(body, want) {
+		t.Errorf("repo-A's own count missing under shared bucket %s:\n%s", bucketA, body)
+	}
+	leak := fmt.Sprintf(`striatum_repo_runs{bucket="%s",state="running"} 9`, bucketA)
+	if strings.Contains(body, leak) {
+		t.Errorf("colliding repo-B merged into repo-A's scoped bucket %s (cross-repo leak):\n%s", bucketA, body)
+	}
+}
+
 // TestScopedMetricsRemoteRequiresBearer asserts a non-loopback scrape without a
 // bearer is rejected (401), and a bearer that authorizes none of the served repos
 // is rejected (403) — fail closed beyond loopback.
@@ -123,12 +181,12 @@ func TestScopedMetricsRemoteRequiresBearer(t *testing.T) {
 // TestRequestIsLoopback covers the peer-address classifier's fail-closed behavior.
 func TestRequestIsLoopback(t *testing.T) {
 	cases := map[string]bool{
-		"127.0.0.1:1234":      true,
-		"[::1]:1234":          true,
-		"100.85.100.81:1234":  false,
-		"192.168.1.92:1234":   false,
-		"":                    false,
-		"garbage":             false,
+		"127.0.0.1:1234":     true,
+		"[::1]:1234":         true,
+		"100.85.100.81:1234": false,
+		"192.168.1.92:1234":  false,
+		"":                   false,
+		"garbage":            false,
 	}
 	for addr, want := range cases {
 		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)

@@ -15,15 +15,18 @@ import (
 // served in FULL exactly as Phase A (the wrapped handler does a pure Load ->
 // render -> write with zero DB queries). A scrape from beyond loopback must
 // present a bearer whose RFC 0043 per-repo `read` capability authorizes at least
-// one served repository; the response is then filtered to the salted surrogate
-// buckets of the repositories that token authorizes, so a tailnet scraper holding
-// only repo-A's token never sees repo-B's buckets. The repo-aggregate Operational
-// families are always rendered.
+// one served repository; the response is then filtered to the per-repo series of
+// the repositories that token authorizes, identified by their REAL repository_id,
+// so a tailnet scraper holding only repo-A's token never sees repo-B's series —
+// even when repo-A and repo-B happen to collide into the same salted surrogate
+// bucket (the bucket is intentionally lossy; filtering on it would leak a colliding
+// repo). The repo-aggregate Operational families are always rendered.
 //
 // This REUSES the same rpc.Authorizer that gates RPC — it never invents a parallel
-// ACL. The per-repo -> bucket mapping is read from the already-published snapshot
-// (Snapshot.RepoBuckets), so the filtered path performs only RFC 0043
-// authorization lookups (the same cost as one RPC auth), never a metrics re-fold.
+// ACL. The authorized repository_ids are resolved from the already-published
+// snapshot (Snapshot.RepoIDs), so the filtered path performs only RFC 0043
+// authorization lookups (the same cost as one RPC auth per served repo, and a token
+// authorizes few), never a metrics re-fold.
 func newScopedMetricsHandler(full http.Handler, authorizer rpc.Authorizer) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Default-open on loopback (Phase A). The peer address (RemoteAddr), not the
@@ -43,7 +46,7 @@ func newScopedMetricsHandler(full http.Handler, authorizer rpc.Authorizer) http.
 		if snap == nil {
 			snap = &metrics.Snapshot{}
 		}
-		allowed := authorizedBuckets(authorizer, token, snap.RepoBuckets())
+		allowed := authorizedRepos(authorizer, token, snap.RepoIDs())
 		if len(allowed) == 0 {
 			// A valid bearer authorizes at least one served repository; none here
 			// means the token carries no read capability for any repo this daemon
@@ -56,22 +59,25 @@ func newScopedMetricsHandler(full http.Handler, authorizer rpc.Authorizer) http.
 	})
 }
 
-// authorizedBuckets resolves the set of surrogate buckets a token may see by
-// asking the SAME authorizer that gates RPC whether the token holds the `read`
-// capability for each repository the snapshot folded. A repo the token is
-// authorized for contributes its bucket to the allowed set. A daemon-global read
-// grant authorizes every repo (so it sees all buckets); a repo-scoped token
-// authorizes only its own.
-func authorizedBuckets(authorizer rpc.Authorizer, token string, repoBuckets map[string]string) map[string]bool {
+// authorizedRepos resolves the set of repositories a token may see by asking the
+// SAME authorizer that gates RPC whether the token holds the `read` capability for
+// each repository the snapshot folded. Filtering is keyed by REAL repository_id —
+// never the lossy salted bucket — so two repositories that collide into one
+// surrogate bucket stay isolated: a repo-A token authorizes repo-A only, and the
+// render emits repo-A's series under the shared bucket WITHOUT a colliding repo-B's
+// data (RFC 0137 §4). A daemon-global read grant authorizes every repo; a
+// repo-scoped token authorizes only its own. A token authorizes few repos, so
+// resolving by id keeps cardinality fine.
+func authorizedRepos(authorizer rpc.Authorizer, token string, repoIDs []string) map[string]bool {
 	allowed := map[string]bool{}
 	if authorizer == nil {
 		return allowed
 	}
 	readCap := rpc.CapabilityRead
-	for repoID, bucket := range repoBuckets {
+	for _, repoID := range repoIDs {
 		ac := authorizer.Authorize(&readCap, repoID, token)
 		if ac.Decision == "allowed" {
-			allowed[bucket] = true
+			allowed[repoID] = true
 		}
 	}
 	return allowed

@@ -16,9 +16,13 @@ package metrics
 // dimension. Two repositories can collide onto one bucket (a birthday collision at
 // ~sqrt(K)); that is an ACCEPTED property — the surrogate is deliberately lossy,
 // because exposing a reversible/unique repo identifier is the larger harm. A
-// collision only ever merges two repos' aggregate counts under one bucket (and, in
-// the capability-scoped path, could let a repo-A token also see a colliding repo's
-// bucket); it never widens cardinality or leaks an id.
+// collision only ever merges two repos' aggregate counts under one bucket in the
+// UNSCOPED / loopback view (which already sees every repo). It does NOT leak across
+// a capability boundary: the capability-scoped path filters by the REAL
+// repository_id BEFORE the bucket label is applied (snapshot.go aggregateRepoRuns /
+// aggregateRepoConsent + metrics_scope.go authorizedRepos), so a repo-A token sees
+// repo-A's series alone even when a colliding repo-B shares its bucket. The bucket
+// never widens cardinality or leaks an id.
 
 import (
 	"crypto/hmac"

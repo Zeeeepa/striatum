@@ -50,15 +50,18 @@ func (s *Snapshot) WriteText(w io.Writer, now time.Time) error {
 }
 
 // WriteTextScoped renders the snapshot, filtering the per-repo families
-// (striatum_metrics_repo_consent and striatum_repo_runs, the only families
-// carrying the salted `bucket` surrogate) to the buckets a capability-scoped
-// scraper is authorized for (Phase D deliverable #1). A nil `allowed` set is the
-// loopback / default-open case: every bucket is rendered. A non-nil set renders a
-// per-repo series only when its bucket is present — so a tailnet scraper holding
-// only repo-A's token never sees repo-B's surrogate buckets — while every
-// repo-aggregate Operational family is always rendered in full. The output stays
-// deterministic and byte-stable for the chosen scope.
-func (s *Snapshot) WriteTextScoped(w io.Writer, now time.Time, allowed map[string]bool) error {
+// (striatum_metrics_repo_consent and striatum_repo_runs, the only families carrying
+// the salted `bucket` surrogate) to the repositories a capability-scoped scraper is
+// authorized for (Phase D deliverable #1). `allowedRepos` is keyed by REAL
+// repository_id: a nil set is the loopback / default-open case (every repo
+// rendered); a non-nil set includes a per-repo series only when its repository_id is
+// authorized. The filter is applied on the repository_id BEFORE the per-repo data is
+// aggregated under its salted bucket, so two repos that collide into one surrogate
+// bucket stay isolated — a tailnet scraper holding only repo-A's token sees repo-A's
+// series alone, never a colliding repo-B's (RFC 0137 §4). Every repo-aggregate
+// Operational family is always rendered in full. The output stays deterministic and
+// byte-stable for the chosen scope.
+func (s *Snapshot) WriteTextScoped(w io.Writer, now time.Time, allowedRepos map[string]bool) error {
 	bw := &errWriter{w: w}
 
 	// Phase A seed metrics.
@@ -91,23 +94,14 @@ func (s *Snapshot) WriteTextScoped(w io.Writer, now time.Time, allowed map[strin
 
 	// Phase D families. tick_status and lifecycle_balance are repo-aggregate
 	// Operational signals and are always rendered; the per-repo families are
-	// filtered to the authorized bucket set.
+	// filtered to the authorized repositories (by real repository_id) before their
+	// salted bucket is rendered.
 	s.writeTickStatus(bw)
 	s.writeLifecycleBalance(bw)
-	s.writeRepoConsent(bw, allowed)
-	s.writeRepoRuns(bw, allowed)
+	s.writeRepoConsent(bw, allowedRepos)
+	s.writeRepoRuns(bw, allowedRepos)
 
 	return bw.err
-}
-
-// bucketAllowed reports whether a per-repo series for `bucket` may be rendered for
-// this scope. A nil allowed set is the loopback / default-open case (everything
-// visible); otherwise only buckets the bearer is authorized for pass.
-func bucketAllowed(allowed map[string]bool, bucket string) bool {
-	if allowed == nil {
-		return true
-	}
-	return allowed[bucket]
 }
 
 // writeTickStatus renders the sweep-tick status SLI (Phase D deliverable #3). The
@@ -143,34 +137,34 @@ func (s *Snapshot) writeLifecycleBalance(bw *errWriter) {
 // writeRepoConsent renders the per-repo consent gauge (Phase D deliverable #2).
 // One series per active repo's salted bucket carries the consent state (0|1) so
 // the ABSENCE of provenance series is itself a scrapeable fact rather than
-// ambiguous. Only buckets in the authorized scope are rendered (the per-repo
-// surrogate must not leak across a capability boundary). HELP/TYPE are always
-// emitted so an empty scope still produces a well-formed family.
-func (s *Snapshot) writeRepoConsent(bw *errWriter, allowed map[string]bool) {
+// ambiguous. The gauge is aggregated from the retained per-repo entries over only
+// the authorized repositories (by real repository_id) BEFORE the bucket label is
+// applied, so the per-repo surrogate cannot leak a colliding repo across a
+// capability boundary. HELP/TYPE are always emitted so an empty scope still
+// produces a well-formed family.
+func (s *Snapshot) writeRepoConsent(bw *errWriter, allowedRepos map[string]bool) {
 	bw.line("# HELP " + metricRepoConsent + " Per-repo provenance-metrics consent state by salted bucket; 1 when consented, 0 otherwise.")
 	bw.line("# TYPE " + metricRepoConsent + " gauge")
-	for _, bucket := range sortedStringKeys(s.repoConsent) {
-		if !bucketAllowed(allowed, bucket) {
-			continue
-		}
-		bw.line(metricRepoConsent + `{bucket="` + bucket + `"} ` + strconv.Itoa(s.repoConsent[bucket]))
+	consent := s.aggregateRepoConsent(allowedRepos)
+	for _, bucket := range sortedStringKeys(consent) {
+		bw.line(metricRepoConsent + `{bucket="` + bucket + `"} ` + strconv.Itoa(consent[bucket]))
 	}
 }
 
 // writeRepoRuns renders the per-repo (Provenance) run-state gauge. It exists only
-// for repos that set the per-repo consent flag (consent gating at fold time), and
-// is further filtered to the authorized bucket set here. Both gates compose: a
-// series appears only when the repo consented AND the scraper is authorized for
-// that repo's bucket. The `state` label is the same closed run-state enum as the
-// global striatum_runs gauge, so cardinality is bounded by buckets * states.
-func (s *Snapshot) writeRepoRuns(bw *errWriter, allowed map[string]bool) {
+// for repos that set the per-repo consent flag (the consent gate), and is further
+// filtered to the authorized repositories here. Both gates compose: a series appears
+// only when the repo consented AND the scraper is authorized for that repository.
+// The aggregation by bucket happens AFTER the repository_id filter, so a colliding
+// repo outside the scope never merges its counts into an authorized repo's bucket.
+// The `state` label is the same closed run-state enum as the global striatum_runs
+// gauge, so cardinality is bounded by buckets * states.
+func (s *Snapshot) writeRepoRuns(bw *errWriter, allowedRepos map[string]bool) {
 	bw.line("# HELP " + metricRepoRuns + " Per-repo run count by salted bucket and lifecycle state; consent-gated provenance family.")
 	bw.line("# TYPE " + metricRepoRuns + " gauge")
-	for _, k := range sortedBucketStates(s.repoRuns) {
-		if !bucketAllowed(allowed, k.bucket) {
-			continue
-		}
-		bw.line(metricRepoRuns + `{bucket="` + k.bucket + `",state="` + k.state + `"} ` + strconv.Itoa(s.repoRuns[k]))
+	runs := s.aggregateRepoRuns(allowedRepos)
+	for _, k := range sortedBucketStates(runs) {
+		bw.line(metricRepoRuns + `{bucket="` + k.bucket + `",state="` + k.state + `"} ` + strconv.Itoa(runs[k]))
 	}
 }
 

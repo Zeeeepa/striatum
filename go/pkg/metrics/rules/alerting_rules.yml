@@ -28,9 +28,13 @@ groups:
           summary: "striatum doctor reports open integrity problems"
           description: "One or more doctor checks are failing; see doctor_problems by class."
 
-      # A wedged run: the wedge-age p99 tail crossing one hour.
+      # A wedged run: the wedge-age p99 tail crossing one hour. The wedge-age
+      # histogram is a per-tick GAUGE histogram (rebuilt each fold from the currently
+      # non-terminal runs), so histogram_quantile reads its buckets DIRECTLY — never
+      # through rate(), which would mis-handle the snapshot's natural rise-and-fall as
+      # counter resets.
       - alert: WedgeAgeTail
-        expr: histogram_quantile(0.99, sum by (le, origin) (rate(striatum_run_wedge_age_seconds_bucket[5m]))) > 3600
+        expr: histogram_quantile(0.99, sum by (le, origin) (striatum_run_wedge_age_seconds_bucket)) > 3600
         for: 10m
         labels:
           severity: warning
@@ -38,9 +42,12 @@ groups:
           summary: "striatumd run wedge-age p99 exceeds 1h"
           description: "A non-terminal run has not advanced a job state in over an hour."
 
-      # Liveness margins collapsing toward zero forewarn liveness misses.
+      # Liveness margins collapsing toward zero forewarn liveness misses. The margin
+      # histogram is likewise a per-tick gauge histogram (rebuilt from the active
+      # sessions each fold), so its buckets are read directly by histogram_quantile,
+      # not through rate().
       - alert: LivenessMarginCollapse
-        expr: histogram_quantile(0.05, sum by (le, origin) (rate(striatum_liveness_deadline_margin_seconds_bucket[5m]))) < 60
+        expr: histogram_quantile(0.05, sum by (le, origin) (striatum_liveness_deadline_margin_seconds_bucket)) < 60
         for: 5m
         labels:
           severity: warning
@@ -92,8 +99,12 @@ groups:
           description: "A terminal transition was unaccounted for in apoptosis or necrosis; investigate the blind spot."
 
       # The cardinality budget clipped a family — silent dimension loss made loud.
+      # Despite the `_total` suffix, this series is a per-tick SNAPSHOT (the count of
+      # tuples clipped in the current fold, recomputed each tick), so it is read with
+      # max_over_time / direct comparison, never increase() — which would treat a tick
+      # that clips fewer tuples than the last as a counter reset.
       - alert: MetricsCardinalityClipped
-        expr: sum (increase(striatum_metrics_cardinality_clipped_total[1h])) > 0
+        expr: sum (max_over_time(striatum_metrics_cardinality_clipped_total[1h])) > 0
         for: 5m
         labels:
           severity: warning

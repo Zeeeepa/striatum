@@ -72,7 +72,7 @@ func TestSurrogateDeterministicBounded(t *testing.T) {
 // TestConsentGatesProvenanceFamily is the deliverable #2 proof: a repo without
 // consent emits no Provenance (repo_runs) series but DOES emit
 // metrics_repo_consent{...}=0; a repo with consent emits both. The consent gate is
-// enforced at fold time.
+// enforced at fold time and proven on the rendered wire body.
 func TestConsentGatesProvenanceFamily(t *testing.T) {
 	snap := Build(SnapshotInput{
 		BuiltAt: sentinelBuiltAt,
@@ -82,27 +82,34 @@ func TestConsentGatesProvenanceFamily(t *testing.T) {
 		},
 	})
 
-	if got := snap.repoConsent["3"]; got != 1 {
-		t.Errorf("consented bucket 3: consent gauge = %d, want 1", got)
+	var buf bytes.Buffer
+	if err := snap.WriteText(&buf, sentinelNow); err != nil {
+		t.Fatalf("WriteText: %v", err)
 	}
-	if got := snap.repoConsent["9"]; got != 0 {
-		t.Errorf("un-consented bucket 9: consent gauge = %d, want 0", got)
+	body := buf.String()
+
+	// Consent gauge present for BOTH repos (its absence is scrapeable): 1 for the
+	// consented repo, 0 for the dark one.
+	if !strings.Contains(body, `striatum_metrics_repo_consent{bucket="3"} 1`) {
+		t.Errorf("consented bucket 3 consent gauge missing or !=1:\n%s", body)
 	}
-	if got := snap.repoRuns[bucketState{bucket: "3", state: "running"}]; got != 2 {
-		t.Errorf("consented bucket 3 repo_runs running = %d, want 2", got)
+	if !strings.Contains(body, `striatum_metrics_repo_consent{bucket="9"} 0`) {
+		t.Errorf("un-consented bucket 9 consent gauge missing or !=0:\n%s", body)
 	}
-	for k := range snap.repoRuns {
-		if k.bucket == "9" {
-			t.Errorf("un-consented bucket 9 leaked a repo_runs series %v; consent gate failed", k)
-		}
+	// Provenance repo_runs present ONLY for the consented repo.
+	if !strings.Contains(body, `striatum_repo_runs{bucket="3",state="running"} 2`) {
+		t.Errorf("consented bucket 3 repo_runs series missing:\n%s", body)
+	}
+	if strings.Contains(body, `striatum_repo_runs{bucket="9"`) {
+		t.Errorf("un-consented bucket 9 leaked a repo_runs series; consent gate failed:\n%s", body)
 	}
 }
 
 // TestScopedRenderHidesForeignBuckets is the deliverable #1 proof: a
-// capability-scoped render (a non-nil allowed set) shows only the authorized
+// capability-scoped render (a non-nil allowed-repo set) shows only the authorized
 // repo's per-repo buckets while every repo-aggregate Operational family stays
 // fully visible — a tailnet scraper holding only repo-A's token never sees
-// repo-B's surrogate buckets.
+// repo-B's surrogate buckets. The allowed set is keyed by REAL repository_id.
 func TestScopedRenderHidesForeignBuckets(t *testing.T) {
 	snap := Build(SnapshotInput{
 		BuiltAt:             sentinelBuiltAt,
@@ -114,7 +121,7 @@ func TestScopedRenderHidesForeignBuckets(t *testing.T) {
 	})
 
 	var buf bytes.Buffer
-	if err := snap.WriteTextScoped(&buf, sentinelNow, map[string]bool{"3": true}); err != nil {
+	if err := snap.WriteTextScoped(&buf, sentinelNow, map[string]bool{"repo_a": true}); err != nil {
 		t.Fatalf("WriteTextScoped: %v", err)
 	}
 	body := buf.String()
@@ -146,6 +153,53 @@ func TestScopedRenderHidesForeignBuckets(t *testing.T) {
 	}
 }
 
+// TestScopedRenderIsolatesCollidingRepos is the load-bearing privacy proof and the
+// fix for the prior-review defect: two DISTINCT repositories are deliberately mapped
+// to the SAME salted surrogate bucket (the lossy-collision case). Filtering on the
+// bucket — the earlier defect — would let a repo-A-scoped token also match the
+// colliding repo-B's series; filtering on the real repository_id keeps them exactly
+// isolated. The scoped render must show repo-A's count ALONE, never the merged total,
+// while the unscoped (loopback) render merges them — acceptable, since loopback sees
+// every repo anyway.
+func TestScopedRenderIsolatesCollidingRepos(t *testing.T) {
+	const sharedBucket = "5"
+	snap := Build(SnapshotInput{
+		BuiltAt: sentinelBuiltAt,
+		RepoMetrics: []RepoMetric{
+			{RepoID: "repo_a", Bucket: sharedBucket, Consented: true, RunStates: map[string]int{"running": 2}},
+			{RepoID: "repo_b", Bucket: sharedBucket, Consented: true, RunStates: map[string]int{"running": 7}},
+		},
+	})
+
+	var buf bytes.Buffer
+	if err := snap.WriteTextScoped(&buf, sentinelNow, map[string]bool{"repo_a": true}); err != nil {
+		t.Fatalf("WriteTextScoped: %v", err)
+	}
+	body := buf.String()
+
+	// repo-A's count appears under the shared bucket — and it is repo-A's count
+	// ALONE (2), never the merged 2+7=9 a colliding repo-B would add.
+	if !strings.Contains(body, `striatum_repo_runs{bucket="5",state="running"} 2`) {
+		t.Errorf("repo-A's own bucket-5 run gauge missing (or merged with repo-B):\n%s", body)
+	}
+	if strings.Contains(body, `striatum_repo_runs{bucket="5",state="running"} 9`) {
+		t.Errorf("colliding repo-B's count merged into repo-A's scoped bucket (cross-repo leak):\n%s", body)
+	}
+	// Exactly one repo_runs series for the shared bucket — repo-B contributed none.
+	if n := strings.Count(body, `striatum_repo_runs{bucket="5",`); n != 1 {
+		t.Errorf("expected exactly 1 repo_runs series for the shared bucket, got %d:\n%s", n, body)
+	}
+
+	// The full (loopback) render merges both colliding repos under the shared bucket.
+	var full bytes.Buffer
+	if err := snap.WriteText(&full, sentinelNow); err != nil {
+		t.Fatalf("WriteText: %v", err)
+	}
+	if !strings.Contains(full.String(), `striatum_repo_runs{bucket="5",state="running"} 9`) {
+		t.Errorf("loopback aggregate should merge colliding repos (2+7=9):\n%s", full.String())
+	}
+}
+
 // TestLifecycleBalanceCountsUnaccountedTerminal proves the OQ2 lifecycle-balance
 // gauge increments for a terminal transition that declared a death the fold could
 // not classify (a necrosis-tagged session.closed with an out-of-domain
@@ -153,7 +207,7 @@ func TestScopedRenderHidesForeignBuckets(t *testing.T) {
 func TestLifecycleBalanceCountsUnaccountedTerminal(t *testing.T) {
 	clean := Build(SnapshotInput{Events: []LifecycleEvent{
 		{EventType: "session.closed"}, // clean apoptosis
-		{EventType: "session.closed", LifecycleTag: LifecycleTagRecoveryTransfer}, // intentional skip
+		{EventType: "session.closed", LifecycleTag: LifecycleTagRecoveryTransfer},                                   // intentional skip
 		{EventType: "session.closed", LifecycleTag: LifecycleTagNecrosis, StallClass: string(NecrosisAgentPIDDead)}, // accounted necrosis
 	}})
 	if clean.unaccountedTerminal != 0 {
