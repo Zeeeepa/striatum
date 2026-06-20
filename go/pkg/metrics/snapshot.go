@@ -116,6 +116,12 @@ type SnapshotInput struct {
 	LeaseTransitionCounts []LeaseTransitionCount
 	WedgeAges             []WedgeObservation
 	LivenessMargins       []MarginObservation
+	// DoctorProblemRecords are the STATIC problem records the doctor checks
+	// emitted (each carries a static `check` field), folded into the Phase C
+	// doctor_problems{class} gauge. Only the `check` field reaches the wire — see
+	// foldDoctorProblemRecords (F-A8). The collector aggregates them across
+	// active repositories at the sweep tick.
+	DoctorProblemRecords []map[string]any
 }
 
 // EventCount is a GROUP BY (event coordinates -> count) row from the live fold.
@@ -192,6 +198,13 @@ type Snapshot struct {
 	leaseTransitions map[leaseTriple]int
 	runWedgeAge      map[Origin]*histogram
 	livenessMargin   map[Origin]*histogram
+
+	// Phase C contract families. doctorProblems counts open doctor integrity
+	// problems by their STATIC check class (F-A8); cardinalityClipped reports, per
+	// family, how many distinct label-tuples the series budget collapsed onto the
+	// reserved `other` bucket this tick.
+	doctorProblems     map[string]int
+	cardinalityClipped map[string]int
 }
 
 // BuildSnapshot is the Phase A constructor: it folds run observations and the
@@ -240,6 +253,8 @@ func Build(in SnapshotInput) *Snapshot {
 		leaseTransitions:    map[leaseTriple]int{},
 		runWedgeAge:         map[Origin]*histogram{},
 		livenessMargin:      map[Origin]*histogram{},
+		doctorProblems:      map[string]int{},
+		cardinalityClipped:  map[string]int{},
 	}
 
 	for _, ev := range in.Events {
@@ -280,6 +295,15 @@ func Build(in SnapshotInput) *Snapshot {
 			snap.livenessMargin[origin] = h
 		}
 		h.observe(m.MarginSeconds)
+	}
+
+	// Phase C: fold doctor_problems from the STATIC problem-record check codes and
+	// enforce the per-family series budget. A clip is recorded under the family's
+	// stable id so striatum_metrics_cardinality_clipped_total{family} surfaces the
+	// silent dimension loss.
+	snap.doctorProblems = foldDoctorProblemRecords(in.DoctorProblemRecords)
+	if clipped := applySeriesBudget(snap.doctorProblems, doctorProblemsSeriesBudget, seriesClassOther); clipped > 0 {
+		snap.cardinalityClipped[clipFamilyDoctorProblems] = clipped
 	}
 
 	return snap
@@ -372,6 +396,18 @@ func sortedLeaseTriples(m map[leaseTriple]int) []leaseTriple {
 		}
 		return keys[i].reason < keys[j].reason
 	})
+	return keys
+}
+
+// sortedStringKeys returns the keys of a string-keyed counter map in sorted
+// order so the rendered body is byte-stable (used by doctor_problems and the
+// cardinality-clip counter).
+func sortedStringKeys(m map[string]int) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	return keys
 }
 

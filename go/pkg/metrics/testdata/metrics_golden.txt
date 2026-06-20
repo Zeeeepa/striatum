@@ -63,3 +63,10 @@ striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="3600"} 2
 striatum_liveness_deadline_margin_seconds_bucket{origin="lane",le="+Inf"} 2
 striatum_liveness_deadline_margin_seconds_sum{origin="lane"} 75
 striatum_liveness_deadline_margin_seconds_count{origin="lane"} 2
+# HELP striatum_doctor_problems Open doctor integrity problems grouped by static check class.
+# TYPE striatum_doctor_problems gauge
+striatum_doctor_problems{class="artifact_anchor_hash_mismatch"} 1
+striatum_doctor_problems{class="dissent_ledger_incomplete"} 1
+striatum_doctor_problems{class="recovery_sweep_cursor_wedged"} 2
+# HELP striatum_metrics_cardinality_clipped_total Distinct label tuples collapsed to the other bucket by the per family series budget.
+# TYPE striatum_metrics_cardinality_clipped_total counter

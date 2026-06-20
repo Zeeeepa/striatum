@@ -313,6 +313,14 @@ func main() {
 	} else {
 		log.Printf("striatumd-go runner does not support metrics fold queries; /metrics serves an empty surface")
 	}
+	// RFC 0137 Phase C: fail closed BEFORE the /metrics listener binds if the live
+	// family/label set has drifted from the checked-in metrics_allowlist.json.
+	// Adding a label is a deliberate, diff-reviewed manifest edit; an un-reviewed
+	// series must never reach the wire.
+	if err := metrics.VerifyAllowlist(); err != nil {
+		_ = listener.Close()
+		fatalf("metrics allowlist verification failed: %v", err)
+	}
 	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken), metricsCollector.Handler())
 	if err != nil {
 		_ = listener.Close()
