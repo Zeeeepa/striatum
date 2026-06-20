@@ -26,17 +26,42 @@ type Querier interface {
 // Collector folds and publishes the metrics snapshot from the recovery-sweep
 // tick and serves it on /metrics. It holds the daemon runner solely for the
 // tick-time fold (Refresh); the scrape path (Handler) reads the published atomic
-// pointer and never touches the runner.
+// pointer and never touches the runner. surrogate maps each repository_id to its
+// salted bucket at fold time (Phase D) so a raw repository_id never reaches the
+// wire.
 type Collector struct {
-	runner Querier
+	runner    Querier
+	surrogate *Surrogate
 }
 
 // NewCollector builds a collector over the daemon runner. A nil runner yields a
 // collector whose Refresh is a no-op error and whose Handler serves an empty but
 // valid surface — used by call sites (and tests) that only exercise the scrape
-// path.
+// path. The surrogate defaults to an empty-secret (unsalted-but-deterministic)
+// mapping; production wiring uses NewCollectorWithSurrogate with the per-daemon
+// authority secret.
 func NewCollector(runner Querier) *Collector {
 	return &Collector{runner: runner}
+}
+
+// NewCollectorWithSurrogate builds a collector that maps repository_ids to salted
+// surrogate buckets with the supplied Surrogate (the per-daemon RFC 0110 authority
+// secret in production). This is the Phase D constructor the daemon uses so the
+// per-repo families and the consent gauge carry an unlinkable bucket rather than a
+// raw id.
+func NewCollectorWithSurrogate(runner Querier, surrogate *Surrogate) *Collector {
+	return &Collector{runner: runner, surrogate: surrogate}
+}
+
+// ensureSurrogate lazily installs an empty-secret surrogate if none was supplied,
+// so the per-repo fold always produces deterministic distinct buckets even when a
+// collector is built without one (tests, pre-authority boot). Called only from the
+// serial fold path, so no locking is needed.
+func (c *Collector) ensureSurrogate() *Surrogate {
+	if c.surrogate == nil {
+		c.surrogate = NewSurrogate("")
+	}
+	return c.surrogate
 }
 
 // Refresh folds a fresh snapshot from the daemon DB and publishes it. It runs at
@@ -56,12 +81,18 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 		return fmt.Errorf("metrics fold requires a daemon runner")
 	}
 	at := now.UTC()
+	// Phase D / OQ1 publish-on-errored-tick: a load-bearing Phase A fold failure
+	// must not silently keep serving last-good numbers. Republish the carried-
+	// forward last-good snapshot stamped tick_status=error so the failed tick is
+	// directly visible (snapshot_age keeps climbing, tick_status flips to error).
 	rawCounts, err := c.runStateCounts(ctx)
 	if err != nil {
+		Publish(erroredTickSnapshot(Load()))
 		return fmt.Errorf("fold run-state counts: %w", err)
 	}
 	stranded, err := c.strandedSupervisorCount(ctx)
 	if err != nil {
+		Publish(erroredTickSnapshot(Load()))
 		return fmt.Errorf("fold stranded-supervisor count: %w", err)
 	}
 
@@ -70,11 +101,31 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 		RawRunStateCounts:   rawCounts,
 		StrandedSupervisors: stranded,
 	}
-	// Phase B: best-effort. Errors leave the corresponding family empty.
-	in.EventCounts, _ = c.lifecycleEventCounts(ctx)
-	in.LeaseTransitionCounts, _ = c.leaseTransitionCounts(ctx)
-	in.WedgeAges, _ = c.runWedgeAges(ctx, at)
-	in.LivenessMargins, _ = c.livenessMargins(ctx, at)
+	// Phase B/D: best-effort folds. An error leaves the corresponding family empty
+	// AND degrades the tick to partial, so a single failing taxonomy/per-repo query
+	// is visible via tick_status without failing the whole surface.
+	partial := false
+	var ferr error
+	if in.EventCounts, ferr = c.lifecycleEventCounts(ctx); ferr != nil {
+		partial = true
+	}
+	if in.LeaseTransitionCounts, ferr = c.leaseTransitionCounts(ctx); ferr != nil {
+		partial = true
+	}
+	if in.WedgeAges, ferr = c.runWedgeAges(ctx, at); ferr != nil {
+		partial = true
+	}
+	if in.LivenessMargins, ferr = c.livenessMargins(ctx, at); ferr != nil {
+		partial = true
+	}
+	// Phase D: per-repo consent + run-state fold (the consent gauge and the
+	// consent-gated Provenance family). Best-effort like the taxonomy folds.
+	repoMetrics, rerr := c.repoMetrics(ctx)
+	if rerr != nil {
+		partial = true
+	} else {
+		in.RepoMetrics = repoMetrics
+	}
 
 	// Phase C: doctor_problems is folded HERE, on the bounded sweep cadence, never
 	// on the scrape path. It is best-effort like the Phase B families: a doctor
@@ -82,8 +133,123 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 	// whole surface.
 	in.DoctorProblemRecords = c.doctorProblemRecords(ctx)
 
+	if partial {
+		in.TickStatus = TickPartial
+	} else {
+		in.TickStatus = TickOK
+	}
+
 	Publish(Build(in))
 	return nil
+}
+
+// repoMetrics folds the Phase D per-repository observations: the active
+// repositories with their per-repo consent flag and their run-state counts. The
+// repository_id is mapped to its salted surrogate bucket here, so Build (and
+// everything downstream of it) sees only the bucket — never the raw id. It is
+// best-effort: an error degrades the per-repo families to empty for this tick and
+// flips tick_status to partial.
+func (c *Collector) repoMetrics(ctx context.Context) ([]RepoMetric, error) {
+	surrogate := c.ensureSurrogate()
+	consent, order, err := c.repoConsentFlags(ctx)
+	if err != nil {
+		return nil, err
+	}
+	runStates, err := c.repoRunStateCounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RepoMetric, 0, len(order))
+	for _, repoID := range order {
+		out = append(out, RepoMetric{
+			RepoID:    repoID,
+			Bucket:    surrogate.Bucket(repoID),
+			Consented: consent[repoID],
+			RunStates: runStates[repoID],
+		})
+	}
+	return out, nil
+}
+
+// metricsConsentSettingKey is the repositories.settings_json key that records the
+// per-repo product-decision consent for Provenance-classified metric families
+// (RFC 0137 Phase D deliverable #2). Persisting it in the existing per-repo
+// settings column keeps the consent durable in the daemon-owned DB with the
+// smallest possible schema footprint (no new table/migration). A repo defaults to
+// NO consent (Provenance families default OFF per repo) when the key is absent.
+const metricsConsentSettingKey = "metrics_provenance_consent"
+
+// repoConsentFlags reads the active repositories and their per-repo Provenance
+// consent flag from striatumd.repositories.settings_json. It returns the consent
+// map plus the repositories in a stable id order so the fold is deterministic. It
+// selects ONLY repository_id and the single consent setting — no repo path,
+// branch, or other provenance column reaches the fold.
+func (c *Collector) repoConsentFlags(ctx context.Context) (map[string]bool, []string, error) {
+	rows, err := c.runner.Query(ctx, `
+		SELECT repository_id,
+		       COALESCE(settings_json->>'`+metricsConsentSettingKey+`', '') AS consent
+		  FROM striatumd.repositories
+		 WHERE state <> 'removed'
+		 ORDER BY repository_id`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	consent := map[string]bool{}
+	order := []string{}
+	for rows.Next() {
+		var repoID, flag string
+		if err := rows.Scan(&repoID, &flag); err != nil {
+			return nil, nil, err
+		}
+		if repoID == "" {
+			continue
+		}
+		consent[repoID] = flag == "true" || flag == "1"
+		order = append(order, repoID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return consent, order, nil
+}
+
+// repoRunStateCounts aggregates runs by (repository_id, state) for the per-repo
+// Provenance run gauge. It selects only the repository_id and the closed-enum
+// state — never a repo path, branch, sha, prompt, or byline — so the only
+// repo-linkable value is the surrogate bucket the caller derives from
+// repository_id. Cardinality is bounded by repos * states, independent of run
+// history.
+func (c *Collector) repoRunStateCounts(ctx context.Context) (map[string]map[string]int, error) {
+	rows, err := c.runner.Query(ctx, `
+		SELECT repository_id, state, COUNT(*)::bigint
+		  FROM striatumd.runs
+		 GROUP BY repository_id, state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string]int{}
+	for rows.Next() {
+		var repoID, state string
+		var n int64
+		if err := rows.Scan(&repoID, &state, &n); err != nil {
+			return nil, err
+		}
+		if repoID == "" {
+			continue
+		}
+		byState := out[repoID]
+		if byState == nil {
+			byState = map[string]int{}
+			out[repoID] = byState
+		}
+		byState[state] += int(n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // doctorFoldTimeout bounds the per-repository doctor evaluation folded into a

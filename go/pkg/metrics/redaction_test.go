@@ -31,6 +31,7 @@ var sentinelLiterals = []string{
 	"/var/lib/striatum/exotic-leak-path",
 	"LEAK_SENTINEL",
 	"leaker-model",
+	"repo_LEAK_SENTINEL_raw_repository_id",
 }
 
 // forbiddenShapes catch a leaked *value* under an already-allowed label name —
@@ -85,6 +86,33 @@ func sentinelEvents() []LifecycleEvent {
 		{EventType: "lease.released", LeaseReason: "completed"},
 		// Supervisor drain/stop -> apoptosis supervisor_drained (origin supervisor).
 		{EventType: "supervisor.stopped"},
+		// OQ2 lifecycle-balance: a session.closed that DECLARES a death (necrosis
+		// tag) but carries a stall_class outside the closed necrosis domain — a
+		// confirmed-dead transition the fold can account for in neither counter, so
+		// it increments striatum_lifecycle_balance (the "second doctor").
+		{EventType: "session.closed", LifecycleTag: LifecycleTagNecrosis, StallClass: "unknown_bogus_stall_class"},
+	}
+}
+
+// sentinelRepoMetrics plants the per-repo Phase D families. The raw repository_id
+// is a sentinel that must NEVER reach the wire (only the salted bucket may); one
+// repo consents (so its repo_runs series render) and one does not (so it emits
+// only metrics_repo_consent{...}=0 and no provenance series), proving the consent
+// gate at fold time and that the surrogate, not the id, is what is exposed.
+func sentinelRepoMetrics() []RepoMetric {
+	return []RepoMetric{
+		{
+			RepoID:    "repo_LEAK_SENTINEL_raw_repository_id",
+			Bucket:    "7",
+			Consented: true,
+			RunStates: map[string]int{"running": 2, "completed": 5, "exotic_unmapped_state": 1},
+		},
+		{
+			RepoID:    "repo_unconsented_sentinel",
+			Bucket:    "19",
+			Consented: false,
+			RunStates: map[string]int{"running": 3},
+		},
 	}
 }
 
@@ -140,6 +168,7 @@ func renderSentinelSnapshot(t *testing.T) []byte {
 		WedgeAges:            sentinelWedgeAges(),
 		LivenessMargins:      sentinelMargins(),
 		DoctorProblemRecords: sentinelDoctorRecords(),
+		RepoMetrics:          sentinelRepoMetrics(),
 	})
 	var buf bytes.Buffer
 	if err := snap.WriteText(&buf, sentinelNow); err != nil {

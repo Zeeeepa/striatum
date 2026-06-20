@@ -122,6 +122,55 @@ type SnapshotInput struct {
 	// foldDoctorProblemRecords (F-A8). The collector aggregates them across
 	// active repositories at the sweep tick.
 	DoctorProblemRecords []map[string]any
+	// RepoMetrics are the Phase D per-repository observations, one per active
+	// repository. Each carries the repository_id (sensitive — used only to map an
+	// authorized repo to its bucket in the capability-scoped handler, NEVER
+	// rendered), its salted surrogate bucket (the only repo-linkable value that
+	// reaches the wire), the per-repo product-decision consent flag, and the
+	// repo's run-state counts. The collector computes Bucket via the Surrogate
+	// before Build, so Build stays a pure, DB-free fold the unit tests drive
+	// directly.
+	RepoMetrics []RepoMetric
+	// TickStatus records whether the sweep-tick fold that produced this snapshot
+	// completed cleanly (Phase D deliverable #3). The empty value renders as ok so
+	// a hand-built snapshot (tests, the pre-first-fold zero value) is well-formed.
+	TickStatus TickStatus
+}
+
+// RepoMetric is one active repository's Phase D observation. RepoID is the raw
+// daemon repository_id — it is NEVER rendered; only Bucket (the salted surrogate)
+// reaches the wire. Consented gates the Provenance per-repo families; RunStates is
+// the repo's run count by lifecycle state (the per-repo Provenance signal).
+type RepoMetric struct {
+	RepoID    string
+	Bucket    string
+	Consented bool
+	RunStates map[string]int
+}
+
+// repoSeriesEntry is one active repository's RETAINED Phase D observation, kept in
+// the snapshot keyed by its real repository_id. bucket is the salted surrogate (the
+// only repo-linkable value that may reach the wire); consent is the per-repo
+// product-decision flag (0|1); runStates is the repo's run count by bucketed
+// lifecycle state, folded ONLY when the repo consented (the Provenance consent gate
+// at fold time). The real repository_id is the map key, never a field that renders.
+//
+// Retaining per-repo (not pre-merging into bucket-keyed maps) is the load-bearing
+// privacy fix: capability-scope filtering runs on the real repository_id BEFORE the
+// lossy bucket label is applied, so two repositories that collide into one surrogate
+// bucket stay isolated across the capability boundary (RFC 0137 §4). Pre-merging by
+// bucket — an earlier revision's defect — would let a repo-A token also match a
+// colliding repo-B's series.
+type repoSeriesEntry struct {
+	bucket    string
+	consent   int
+	runStates map[string]int
+}
+
+// bucketState keys the per-repo run-state gauge map (the Provenance family).
+type bucketState struct {
+	bucket string
+	state  string
 }
 
 // EventCount is a GROUP BY (event coordinates -> count) row from the live fold.
@@ -205,6 +254,20 @@ type Snapshot struct {
 	// reserved `other` bucket this tick.
 	doctorProblems     map[string]int
 	cardinalityClipped map[string]int
+
+	// Phase D multi-tenant families. repoSeries retains each active repository's
+	// observation keyed by its REAL repository_id (never rendered); the per-bucket
+	// consent gauge and the consent-gated per-repo run gauge are aggregated from it
+	// at RENDER time, over only the repos the caller is authorized for — so the
+	// capability-scope filter runs on the real repository_id BEFORE the lossy bucket
+	// label is applied and a colliding repo can never leak across the boundary (RFC
+	// 0137 §4). tickStatus is this fold's ok|partial|error status. unaccountedTerminal
+	// is the OQ2 lifecycle-balance gauge: terminal transitions that declared a death
+	// the fold could not account for as apoptosis or necrosis (a provable runner
+	// blind spot) — a "second doctor" that should stay zero.
+	repoSeries          map[string]*repoSeriesEntry
+	tickStatus          TickStatus
+	unaccountedTerminal int
 }
 
 // BuildSnapshot is the Phase A constructor: it folds run observations and the
@@ -255,6 +318,8 @@ func Build(in SnapshotInput) *Snapshot {
 		livenessMargin:      map[Origin]*histogram{},
 		doctorProblems:      map[string]int{},
 		cardinalityClipped:  map[string]int{},
+		repoSeries:          map[string]*repoSeriesEntry{},
+		tickStatus:          normalizeTickStatus(in.TickStatus),
 	}
 
 	for _, ev := range in.Events {
@@ -306,7 +371,104 @@ func Build(in SnapshotInput) *Snapshot {
 		snap.cardinalityClipped[clipFamilyDoctorProblems] = clipped
 	}
 
+	// Phase D: fold the per-repo consent gauge and the consent-gated per-repo
+	// Provenance family.
+	for _, rm := range in.RepoMetrics {
+		snap.addRepoMetric(rm)
+	}
+
 	return snap
+}
+
+// addRepoMetric RETAINS one active repository's Phase D observation keyed by its
+// real repository_id. The consent flag is recorded for EVERY active repo (so the
+// gauge's ABSENCE is a scrapeable fact), and the per-repo run-state counts are
+// folded ONLY when the repo consented — the Provenance consent gate at fold time.
+// The raw repository_id is the retention key and is never rendered; the salted
+// bucket becomes a wire label only at render time, AFTER capability-scope filtering.
+//
+// A repo with an empty id cannot be capability-scoped (no token can authorize it),
+// so it is skipped rather than folded into an unfilterable per-repo series; the live
+// fold never yields one. A repeated repository_id keeps its first bucket (the
+// surrogate is deterministic, so a repo always maps to the same bucket) and OR-folds
+// its consent/run states.
+func (s *Snapshot) addRepoMetric(rm RepoMetric) {
+	if rm.RepoID == "" {
+		return
+	}
+	entry := s.repoSeries[rm.RepoID]
+	if entry == nil {
+		entry = &repoSeriesEntry{bucket: rm.Bucket}
+		s.repoSeries[rm.RepoID] = entry
+	}
+	if !rm.Consented {
+		return
+	}
+	entry.consent = 1
+	for state, n := range rm.RunStates {
+		if n == 0 {
+			continue
+		}
+		if entry.runStates == nil {
+			entry.runStates = map[string]int{}
+		}
+		entry.runStates[bucketRunState(state)] += n
+	}
+}
+
+// repoIncluded reports whether a repository's per-repo series may be rendered for
+// this scope. A nil allowed set is the loopback / default-open aggregate view (every
+// repo included); a non-nil set is the capability-scoped view, where only the repos
+// the bearer is authorized for — by REAL repository_id — are included. This is the
+// filter that runs BEFORE the lossy bucket label is applied.
+func repoIncluded(allowed map[string]bool, repoID string) bool {
+	if allowed == nil {
+		return true
+	}
+	return allowed[repoID]
+}
+
+// aggregateRepoConsent folds the retained per-repo consent flags into the wire's
+// per-bucket consent gauge, over only the repos in scope. Aggregation by bucket
+// happens AFTER the repo_id filter, so a colliding repo outside the scope never
+// contributes. On a bucket collision the consented state wins (a consented repo is
+// never masked by a colliding un-consented one).
+func (s *Snapshot) aggregateRepoConsent(allowed map[string]bool) map[string]int {
+	out := map[string]int{}
+	for repoID, entry := range s.repoSeries {
+		if !repoIncluded(allowed, repoID) {
+			continue
+		}
+		if existing, ok := out[entry.bucket]; !ok || entry.consent > existing {
+			out[entry.bucket] = entry.consent
+		}
+	}
+	return out
+}
+
+// aggregateRepoRuns folds the retained per-repo run-state counts into the wire's
+// per-(bucket,state) Provenance gauge, over only the repos in scope and only those
+// that consented. Like the consent gauge, the bucket label is applied AFTER the
+// repo_id filter, so a colliding repo outside the scope never merges its counts into
+// an authorized repo's bucket — the cross-repo leak the salted-bucket lossiness
+// would otherwise create.
+func (s *Snapshot) aggregateRepoRuns(allowed map[string]bool) map[bucketState]int {
+	out := map[bucketState]int{}
+	for repoID, entry := range s.repoSeries {
+		if !repoIncluded(allowed, repoID) {
+			continue
+		}
+		if entry.consent == 0 {
+			continue
+		}
+		for state, n := range entry.runStates {
+			if n == 0 {
+				continue
+			}
+			out[bucketState{bucket: entry.bucket, state: state}] += n
+		}
+	}
+	return out
 }
 
 // addEvent classifies one durable event and folds `weight` into its failure-mode
@@ -317,6 +479,16 @@ func (s *Snapshot) addEvent(ev LifecycleEvent, weight int) {
 	}
 	class, origin, reason, ok := classifyLifecycleEvent(ev)
 	if !ok {
+		// OQ2 lifecycle-balance: an event that DECLARED a death (a necrosis-tagged
+		// session.closed) but whose stall_class is not in the closed necrosis domain
+		// is a confirmed-dead transition the fold could account for in NEITHER
+		// counter — a provable runner blind spot. It increments the lifecycle-balance
+		// gauge (the "second doctor"). Intentional skips (recovery_transfer closes,
+		// non-handoff lease releases, non-exhausted escalations) are NOT blind spots
+		// and never move the gauge.
+		if isUnaccountedTerminal(ev) {
+			s.unaccountedTerminal += weight
+		}
 		return
 	}
 	switch class {
@@ -363,6 +535,51 @@ func (s *Snapshot) runStateCount(state string) int {
 		return 0
 	}
 	return s.runStates[state]
+}
+
+// TickStatus reports whether the fold that produced this snapshot completed
+// cleanly. The zero value normalizes to ok.
+func (s *Snapshot) TickStatus() TickStatus { return normalizeTickStatus(s.tickStatus) }
+
+// RepoIDs returns the active repositories this snapshot folded, in sorted order.
+// The capability-scoped handler asks the RFC 0043 authorizer about each one and
+// renders the per-repo families only for the repos the bearer is authorized for —
+// filtering on the REAL repository_id, never the lossy bucket, so a colliding repo's
+// series can never leak across the capability boundary. The ids are used ONLY for
+// authorization and are NEVER written to the wire.
+func (s *Snapshot) RepoIDs() []string {
+	out := make([]string, 0, len(s.repoSeries))
+	for repoID := range s.repoSeries {
+		out = append(out, repoID)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// bucketRunState buckets a raw run state to the closed run-state enum (or the
+// reserved other bucket), so the per-repo Provenance family's `state` label
+// cannot grow cardinality any more than the global striatum_runs gauge can.
+func bucketRunState(state string) string {
+	if isCanonicalRunState(state) {
+		return state
+	}
+	return stateOther
+}
+
+// sortedBucketStates returns the per-repo run-state keys in deterministic
+// (bucket, state) order so the rendered body is byte-stable.
+func sortedBucketStates(m map[bucketState]int) []bucketState {
+	keys := make([]bucketState, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].bucket != keys[j].bucket {
+			return keys[i].bucket < keys[j].bucket
+		}
+		return keys[i].state < keys[j].state
+	})
+	return keys
 }
 
 // sortedOriginReasons returns the keys of an apoptosis/necrosis counter map in a

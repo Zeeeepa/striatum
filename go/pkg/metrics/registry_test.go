@@ -51,20 +51,49 @@ func TestRegisterRefusesUnknownClassificationAndDuplicate(t *testing.T) {
 }
 
 // TestDefaultRegistryIsOperationalAndStable asserts the live registry carries no
-// Provenance/Forbidden family in Phase C and that Hash() is deterministic — the
-// property the boot check and the guardrail test both rely on.
+// Forbidden family, that every family is Operational OR Provenance, that the only
+// Provenance (consent-gated) family is the per-repo run gauge — and that it
+// carries the salted `bucket` surrogate — and that Hash() is deterministic, the
+// property the boot check and the guardrail test both rely on. Phase D introduces
+// the first Provenance family (striatum_repo_runs); every other family stays
+// Operational.
 func TestDefaultRegistryIsOperationalAndStable(t *testing.T) {
 	r := DefaultRegistry()
 	specs := r.Specs()
 	if len(specs) == 0 {
 		t.Fatalf("DefaultRegistry is empty")
 	}
+	provenance := map[string]Family{}
 	for _, f := range specs {
-		if f.Classification != ClassificationOperational {
-			t.Errorf("Phase C family %q is %q; want operational", f.Name, f.Classification)
+		switch f.Classification {
+		case ClassificationOperational:
+		case ClassificationProvenance:
+			provenance[f.Name] = f
+		default:
+			t.Errorf("family %q has classification %q; want operational or provenance (never forbidden)", f.Name, f.Classification)
 		}
 		if !strings.HasPrefix(f.Name, "striatum_") {
 			t.Errorf("family %q does not use the striatum_ prefix", f.Name)
+		}
+	}
+	// The Provenance set is exactly the per-repo run gauge, and it must carry the
+	// salted bucket surrogate — a Provenance family that did not would be a
+	// repo-aggregate signal miscategorized as consent-gated.
+	if len(provenance) != 1 {
+		t.Errorf("expected exactly one Provenance family, got %d: %v", len(provenance), provenance)
+	}
+	repoRuns, ok := provenance[metricRepoRuns]
+	if !ok {
+		t.Errorf("expected %q to be the Provenance family", metricRepoRuns)
+	} else {
+		hasBucket := false
+		for _, l := range repoRuns.Labels {
+			if l == "bucket" {
+				hasBucket = true
+			}
+		}
+		if !hasBucket {
+			t.Errorf("Provenance family %q must carry the salted bucket label; labels=%v", metricRepoRuns, repoRuns.Labels)
 		}
 	}
 	if h1, h2 := r.Hash(), DefaultRegistry().Hash(); h1 != h2 {

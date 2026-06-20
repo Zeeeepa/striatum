@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sha256": "78b89687e846ca38f96f0254b095cb04153bca4abf2bd48e93976efd24aa1abd",
+  "sha256": "8ab426474bc21f45999fd080629fcffbfd652f1885f5936868283571b5933ff9",
   "families": [
     {
       "name": "striatum_apoptosis_total",
@@ -30,6 +30,12 @@
       ]
     },
     {
+      "name": "striatum_lifecycle_balance",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": []
+    },
+    {
       "name": "striatum_liveness_deadline_events_total",
       "type": "counter",
       "classification": "operational",
@@ -54,10 +60,26 @@
       ]
     },
     {
+      "name": "striatum_metrics_repo_consent",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "bucket"
+      ]
+    },
+    {
       "name": "striatum_metrics_snapshot_age_seconds",
       "type": "gauge",
       "classification": "operational",
       "labels": []
+    },
+    {
+      "name": "striatum_metrics_tick_status",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "status"
+      ]
     },
     {
       "name": "striatum_necrosis_total",
@@ -66,6 +88,15 @@
       "labels": [
         "origin",
         "reason"
+      ]
+    },
+    {
+      "name": "striatum_repo_runs",
+      "type": "gauge",
+      "classification": "provenance",
+      "labels": [
+        "bucket",
+        "state"
       ]
     },
     {
