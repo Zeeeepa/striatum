@@ -54,7 +54,7 @@ func TestRecoverySchedulerRecoversAndCancelsOnPanic(t *testing.T) {
 		log.SetFlags(0)
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		done := startRecoveryScheduler(ctx, cancel, panicQueryRunner{}, 0.01, optionalIntFlag{Provided: true, Value: 1})
+		done := startRecoveryScheduler(ctx, cancel, panicQueryRunner{}, nil, 0.01, optionalIntFlag{Provided: true, Value: 1})
 		select {
 		case err := <-done:
 			// New contract: the scheduler recovers the panic and returns an error on done.

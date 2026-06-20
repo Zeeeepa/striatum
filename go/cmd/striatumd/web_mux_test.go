@@ -28,7 +28,7 @@ func TestDaemonHTTPHandlerRoutesMCPAndWeb(t *testing.T) {
 		AllowMutations: false,
 		WebEnabled:     true,
 	})
-	mux := newDaemonHTTPHandler(mcpHandler, webHandler)
+	mux := newDaemonHTTPHandler(mcpHandler, webHandler, nil)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -88,7 +88,7 @@ func TestDaemonWebFailsClosedWithDenyToken(t *testing.T) {
 	fixture := webtest.NewFixture()
 	mcpHandler := mcp.NewHTTPHandler(mcp.Service{RPC: fixture.Server, Authorizer: rpc.AllowAllAuthorizer{}})
 	webHandler := newWebServiceHandler(fixture.Server, resolveWebServiceOptions(randomDenyToken()))
-	server := httptest.NewServer(newDaemonHTTPHandler(mcpHandler, webHandler))
+	server := httptest.NewServer(newDaemonHTTPHandler(mcpHandler, webHandler, nil))
 	defer server.Close()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, server.URL+"/v1/health", nil)
@@ -102,6 +102,38 @@ func TestDaemonWebFailsClosedWithDenyToken(t *testing.T) {
 	body := readAll(t, resp)
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("web must fail closed (401) with a deny token and no bearer; got %d: %s", resp.StatusCode, body)
+	}
+}
+
+// TestDaemonHTTPHandlerRoutesMetrics asserts the single loopback listener
+// dispatches an exact /metrics request to the RFC 0137 Prometheus exporter (not
+// the web service), and that a nil exporter falls through to the web service so
+// the route is purely additive.
+func TestDaemonHTTPHandlerRoutesMetrics(t *testing.T) {
+	const sentinel = "striatum_metrics_test_sentinel 1\n"
+	metricsHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, sentinel)
+	})
+	webHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot) // a distinctive "web service saw it" marker
+	})
+	mcpHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		t.Error("/metrics must not route to the MCP handler")
+	})
+
+	mux := newDaemonHTTPHandler(mcpHandler, webHandler, metricsHandler)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rr.Code != http.StatusOK || rr.Body.String() != sentinel {
+		t.Fatalf("/metrics did not route to the exporter: code=%d body=%q", rr.Code, rr.Body.String())
+	}
+
+	// Nil exporter: /metrics falls through to the web service (HTTP 418 marker).
+	muxNil := newDaemonHTTPHandler(mcpHandler, webHandler, nil)
+	rrNil := httptest.NewRecorder()
+	muxNil.ServeHTTP(rrNil, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if rrNil.Code != http.StatusTeapot {
+		t.Fatalf("nil exporter: /metrics should fall through to the web service, got code=%d", rrNil.Code)
 	}
 }
 

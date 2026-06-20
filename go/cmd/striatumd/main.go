@@ -29,6 +29,7 @@ import (
 	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mcp"
+	"github.com/halbritt/striatum/go/pkg/metrics"
 	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/reads"
 	recoverypkg "github.com/halbritt/striatum/go/pkg/recovery"
@@ -296,7 +297,23 @@ func main() {
 		fatalf("listen on %s: %v", socketPath, err)
 	}
 	log.Printf("striatumd-go listening on %s", socketPath)
-	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken))
+	// RFC 0137 Phase A: the Prometheus exporter. The collector folds its snapshot
+	// from the recovery-sweep tick (below) and serves /metrics on this same
+	// loopback listener. A best-effort initial fold gives /metrics live data
+	// before the first tick; the handler tolerates a nil snapshot, so a failure
+	// here is non-fatal. The runner concretely implements metrics.Querier (the
+	// same Query surface the recovery sweep uses); the fallback keeps the daemon
+	// booting with an empty exporter if it ever does not.
+	metricsCollector := metrics.NewCollector(nil)
+	if q, ok := runner.(metrics.Querier); ok {
+		metricsCollector = metrics.NewCollector(q)
+		if err := metricsCollector.Refresh(ctx, time.Now().UTC()); err != nil {
+			log.Printf("striatumd-go initial metrics fold failed; /metrics serves last-good once the sweep tick refreshes it: %v", err)
+		}
+	} else {
+		log.Printf("striatumd-go runner does not support metrics fold queries; /metrics serves an empty surface")
+	}
+	stopMCPHTTP, err := startMCPHTTPServer(ctx, cancel, mcpHTTPAddr, server, authorizer, runner, resolveWebServiceOptions(webServiceToken), metricsCollector.Handler())
 	if err != nil {
 		_ = listener.Close()
 		fatalf("start MCP HTTP/SSE server: %v", err)
@@ -328,7 +345,7 @@ func main() {
 		}
 		fatalf("grant lane access to daemon socket: %v", err)
 	}
-	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, sweepIntervalSeconds, maxSweeps)
+	schedulerErr := startRecoveryScheduler(ctx, cancel, runner, metricsCollector, sweepIntervalSeconds, maxSweeps)
 	var autoSpawnErr <-chan error
 	if autoSpawnScheduler {
 		log.Printf("striatumd-go auto_spawn scheduler enabled (RFC 0122); sweeping every %.0fs", autoSpawnIntervalSeconds)
@@ -366,7 +383,7 @@ func main() {
 	}
 }
 
-func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner, webOpts webServiceOptions) (func(), error) {
+func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner, webOpts webServiceOptions, metricsHandler http.Handler) (func(), error) {
 	value := strings.TrimSpace(addr)
 	if value == "" {
 		value = "127.0.0.1:0"
@@ -410,10 +427,10 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 	})
 	webHandler := newWebServiceHandler(rpcServer, webOpts)
 	httpServer := &http.Server{
-		Handler:           newDaemonHTTPHandler(mcpHandler, webHandler),
+		Handler:           newDaemonHTTPHandler(mcpHandler, webHandler, metricsHandler),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	log.Printf("striatumd-go MCP HTTP/SSE listening on %s (web service mounted at /v1)", endpoint)
+	log.Printf("striatumd-go MCP HTTP/SSE listening on %s (web service mounted at /v1, Prometheus exporter at /metrics)", endpoint)
 	log.Printf("striatumd-go MCP endpoint file %s", endpointPath)
 	log.Printf("striatumd-go discovery file %s", discoveryPath)
 	if bootEpochPath != "" {
@@ -749,7 +766,7 @@ func writeOwnerOnlyTextFile(path string, content string) error {
 	return os.Rename(tmpName, path)
 }
 
-func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runner db.Runner, sweepIntervalSeconds float64, maxSweepsFlag optionalIntFlag) <-chan error {
+func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runner db.Runner, metricsCollector *metrics.Collector, sweepIntervalSeconds float64, maxSweepsFlag optionalIntFlag) <-chan error {
 	done := make(chan error, 1)
 	var maxSweeps *int
 	if maxSweepsFlag.Provided {
@@ -757,6 +774,28 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 		maxSweeps = &value
 	}
 	interval := time.Duration(sweepIntervalSeconds * float64(time.Second))
+	// RFC 0137 Phase A: fold + publish the metrics snapshot once per resident
+	// recovery-sweep tick, reusing the existing cadence (the snapshot is built
+	// off the hot path here, never on the scrape path). Metrics are
+	// observational, so a fold error must never fail the recovery sweep: log it
+	// and keep serving the last-good snapshot. The fold is skipped while the
+	// daemon is shutting down (ctx canceled).
+	innerSweep := recoverypkg.ActiveRunSweep{
+		Runner: runner,
+		Author: "striatumd-go",
+	}.SweepOnce
+	sweepOnce := innerSweep
+	if metricsCollector != nil {
+		sweepOnce = func(sweepCtx context.Context) (map[string]any, error) {
+			result, sweepErr := innerSweep(sweepCtx)
+			if sweepCtx.Err() == nil {
+				if foldErr := metricsCollector.Refresh(sweepCtx, time.Now().UTC()); foldErr != nil {
+					log.Printf("striatumd-go metrics snapshot fold failed; serving last-good snapshot: %v", foldErr)
+				}
+			}
+			return result, sweepErr
+		}
+	}
 	go func() {
 		// Per-run sweep panics are converted to degraded-cursor errors inside the
 		// sweep loop (recovery/sweep.go runPerRunSweep), so one poison run no longer
@@ -775,10 +814,7 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 		result, err := recoverypkg.RunScheduler(ctx, recoverypkg.SchedulerOptions{
 			Interval:  interval,
 			MaxSweeps: maxSweeps,
-			SweepOnce: recoverypkg.ActiveRunSweep{
-				Runner: runner,
-				Author: "striatumd-go",
-			}.SweepOnce,
+			SweepOnce: sweepOnce,
 			OnSweepError: func(err error) {
 				log.Printf("recovery scheduler sweep failed; backing off until next interval: %v", err)
 			},
