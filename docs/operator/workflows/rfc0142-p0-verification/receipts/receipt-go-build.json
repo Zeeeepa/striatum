@@ -1,0 +1,24 @@
+---
+schema_version: "striatum.receipt.v1"
+artifact_kind: "receipt"
+check_id: "builtin:go-build"
+argv: ["/home/halbritt/.local/bin/go", "build", "-o", "/tmp/verifier-scratch-980490500/gobuild-out", "./..."]
+binary_sha256: "828c23df6ad53159a6c964c186622d5d1fba8a01a840136b74b08a7a0759a0ab"
+exit_code: 1
+stdout_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+cwd_tree_sha: "a24fa03f0fde1dbe57d817b197f8daf1806c1b3b9d5895aa48301fa2b3b9ca54"
+seal_digest: "8a35ce1a3a34c76f454f47a674369ae077c9608887da730313521ca0994e0dfb"
+created_at: "2026-06-21T17:55:41Z"
+---
+
+# Verifier receipt
+
+- check_id: `builtin:go-build`
+- exit_code: `1`
+- sandbox_mechanism: `bubblewrap`
+- sandbox_strict: `true`
+- independent_reexecution_agreement: `true`
+- builtin_id: `builtin:go-build`
+- striatum_version: `unknown`
+- negative_control_void: `false`
+- working_subdir: `go`
