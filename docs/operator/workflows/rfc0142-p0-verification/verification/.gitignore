@@ -1,0 +1,4 @@
+# RFC 0141: per-host verifier pins + attestations are observed/operator-minted,
+# host-local, and never committed. The committed policy is allowlist.intent.json.
+allowlist.pins.*.json
+allowlist.pins.*.attest.json

@@ -1,0 +1,306 @@
+{
+  "allowlist_status": "FILLED",
+  "allow_same_model_review_pairing": true,
+  "allow_same_model_review_pairing_rationale": "verify is an OBJECTIVE builtin check (striatum verifier run; receipts come from engine exit codes, not model judgment), so a same-model adjudicator gating claims-vs-receipts cannot rubber-stamp a shared opinion. Only claude + agy are available this session (codex auth dead); keeping both verify and adjudicate on claude is the strongest objective pairing.",
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/vg_rfc0142_p0"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc0142-p0-verification/SEED.md",
+      "required": true
+    },
+    {
+      "path": "go/pkg/pgtest/two_role.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/db/two_role_pg_test.go",
+      "required": true
+    },
+    {
+      "path": "AGENTS.md",
+      "required": false
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "build"
+    }
+  ],
+  "edges": [
+    {
+      "from": "build",
+      "on": "completed",
+      "to": "verify"
+    },
+    {
+      "from": "verify",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_verified"
+    },
+    {
+      "from": "commit_verified",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "intent_path": "docs/operator/workflows/rfc0142-p0-verification/verification/allowlist.intent.json",
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "claim_ledger",
+          "logical_name": "claim_ledger",
+          "path": "docs/operator/artifacts/vg_rfc0142_p0/build/CLAIM_LEDGER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "build",
+      "lane_id": "author",
+      "objective": "Build the slice and publish a claim ledger. Every capability claim carries a status (VERIFIED|ASSERTED|DESIGNED) and an id the verify step can reference. Anything above DESIGNED names the check that substantiates it. Deferral is allowed but must appear as a DESIGNED row, never hidden in prose.",
+      "phase_id": "verify",
+      "role_id": "builder",
+      "task_prompt": {
+        "path": "prompts/claim_build.md"
+      },
+      "title": "Build slice and publish claim ledger",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/vg_rfc0142_p0/build/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "receipt",
+          "logical_name": "verification_receipts",
+          "path": "docs/operator/artifacts/vg_rfc0142_p0/verify/RECEIPTS.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "verify",
+      "lane_id": "reviewer",
+      "objective": "Run `striatum verifier run` against the sanctioned checks (the builtin go-test/vet/build/anchor checks need zero operator JSON; external checks come from verification/allowlist.intent.json once pinned). Mint a receipt per check from the engine's exit codes — never from prose. Publish the receipts; a builtin receipt caps at ASSERTED, VERIFIED is reserved for an operator-pinned-and-attested external check.",
+      "phase_id": "verify",
+      "role_id": "verifier",
+      "task_prompt": {
+        "path": "prompts/verify_run.md"
+      },
+      "title": "Run sanctioned checks and mint receipts",
+      "type": "verify",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/vg_rfc0142_p0/verify/"
+        ],
+        "forbidden_paths": [
+          ".striatum/",
+          "docs/operator/workflows/rfc0142-p0-verification/verification/allowlist.intent.json"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/vg_rfc0142_p0/adjudicate/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "reviewer",
+      "objective": "Read the claim ledger and the minted receipts and publish the collaboration ledger verdict. Rule: if ANY claim is stated above the status its receipt earns — VERIFIED with a missing/RED receipt, or completion language over an ASSERTED/DESIGNED row — record verdict needs_revision and name the offending claims. Otherwise accept.",
+      "phase_id": "verify",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate.md"
+      },
+      "title": "Adjudicate claims against receipts",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/vg_rfc0142_p0/adjudicate/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "verified_release",
+          "path": "docs/operator/artifacts/vg_rfc0142_p0/commit/release/VERIFIED_RELEASE.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_verified",
+      "lane_id": "author",
+      "objective": "Publish the cleared release only after the collaboration ledger records an accepting verdict. Stamp every claim with its EARNED status and the receipt of record; no completion language survives above the receipted status.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/commit_verified.md"
+      },
+      "title": "Commit receipt-cleared release",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/vg_rfc0142_p0/commit/release/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/vg_rfc0142_p0/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared verification gate: which claims shipped at which earned status (VERIFIED|ASSERTED|DESIGNED), and the receipts of record. Do not re-run the checks; this is the closing record.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/final_summary.md"
+      },
+      "title": "Finalize verification run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/vg_rfc0142_p0/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "vg_rfc0142_p0",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Build with a claim ledger, run the sanctioned checks to mint receipts, adjudicate claims against receipts.",
+      "id": "verify",
+      "name": "Verify",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Publish only the receipt-cleared release, every claim stamped with its earned status.",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "builder": {
+      "definition_path": "roles/builder.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "verifier": {
+      "definition_path": "roles/verifier.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "vg_rfc0142_p0",
+  "workflow_version": "2026-06-21"
+}
