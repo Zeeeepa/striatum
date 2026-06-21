@@ -12,6 +12,34 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-21 delta — RFC 0142 P0 built + verified via a 3-stage self-host dogfood (PR #553; runner defect #551)
+
+Drove **RFC 0142** (safe-by-construction DB-change deployment, proposed PR #538)
+through Striatum's own runner in three chained stages:
+
+- **Stage 1 — design committee** (`falsification_gate`, claude holder/adjudicator +
+  **agy/gemini** falsifiers; codex auth dead this session). Genuine cross-model
+  falsification hardened the P0 spec into 5 verification-gated binding constraints
+  (C1 escape-proof LOGIN role / C2 bootstrap ownership fidelity for 0038-0042 /
+  C3 non-superuser bootstrap / C4 isolation self-check / C5 search_path), verdict
+  `accept_with_findings`. Output preserved at
+  `docs/operator/workflows/rfc0142-design-falsification/committee-output/`.
+- **Stage 2 — `code_change` run** (draft→review→apply, `accept_with_findings`) built
+  P0: `pgtest.TwoRole` + the `42501` red oracle + green control, test-harness only.
+- **Stage 3 — verifier**: `striatum verifier run` minted passing sealed **ASSERTED**
+  receipts (go-build/go-vet/go-test) under strict bwrap; the PG-backed two-role suite
+  **passes live, 8/8, under a non-superuser owner DSN — the #442/D248 `42501`
+  reproduces.** → **PR #553** (additive safety net; gated on RFC 0142 acceptance).
+
+**Runner defect surfaced + filed: #551** — a `falsification_gate`
+`collaboration_ledger` published via `artifact.publish`+`review.verdict` was
+registered (verdict captured, gate cleared) but **never git-anchored to the run
+branch**; the downstream `commit_proposal` correctly escalated a `human_checkpoint`
+rather than fabricate a blind proposal. Stage 1 was banked (RFC 0137 precedent) and
+its output recovered to main. Also cleared **43 pre-existing doctor orphans** (old
+terminal runs) via `worktree anchor` + 2 acknowledged-loss baseline entries — doctor
+green throughout. Refreshed expired `striatum-lane` claude creds.
+
 ## 2026-06-21 delta — lane-perms ACL cluster: #537/#539 FIXED, #512 → RFC 0143 (PR pending)
 
 Committee-run permission cluster surfaced by the prompt-committee dogfood:
