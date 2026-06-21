@@ -34,6 +34,25 @@
 
 ### Fixed
 
+- **`striatum repo add --init` now provisions the committee POSIX ACLs on
+  clone/worktree-registered repos, so `review_only_artifact` lanes can publish
+  and lane-written committee provenance stays operator-manageable without `sudo`
+  (#537, #539).** When lanes run as a non-owner OS user (`STRIATUM_LANE_OS_USER`,
+  the PG-less lane sandbox), `repo add --init` (and `repo.init`) now apply
+  `setfacl -R -m u:<lane>:rwx -m d:u:<lane>:rwx -m d:u:<owner>:rwx` to the repo
+  tree and `.striatum/worktrees` — the same ACL convention repos set up before
+  the convention already carry. The lane access + inheritable lane default fix
+  the `review_only_artifact` lane that relies on the ambient repo ACL for its
+  staging path (#537, previously failing `agent_exited_unsealed`); the
+  inheritable **owner** default means committee/provenance dirs the lane later
+  creates stay manageable by the daemon (it can `decision record` into them) and
+  the operator (landing needs no `sudo chown`) (#539). Best-effort and
+  idempotent: a strict no-op for owner-run lanes / a missing lane user / a
+  platform without `setfacl`, and a provisioning failure is surfaced in the
+  result (`committee_acl_provisioned` / `committee_acl_error`) rather than
+  blocking registration. No new RPC method and no widening of who can read any
+  daemon capability token; this only extends an accepted target-repository
+  filesystem convention to a path that lacked it.
 - **driver self-heal: the detached `run drive` auto-driver survives a daemon
   restart instead of abandoning a live run, and is re-armed after an escalation
   resolve (#513, #505, #261).** A daemon restart briefly drops the unix socket;
