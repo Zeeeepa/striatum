@@ -1,0 +1,218 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/cc_rfc0142_p0"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc0142-p0-impl/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/workflows/rfc0142-design-falsification/committee-output/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/workflows/rfc0142-design-falsification/committee-output/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "AGENTS.md",
+      "required": true
+    },
+    {
+      "path": "go/pkg/pgtest/pgtest.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/db/migrations_test.go",
+      "required": false
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "review",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "on": "completed",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "on": "completed",
+      "to": "apply"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "draft",
+          "path": "docs/operator/artifacts/cc_rfc0142_p0/DRAFT.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Produce the starter artifact for this workflow.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Draft starter artifact",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/cc_rfc0142_p0/",
+          "go/pkg/pgtest/",
+          "go/pkg/db/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/cc_rfc0142_p0/review/REVIEW.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the draft and record a finding.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/cc_rfc0142_p0/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "summary",
+          "path": "docs/operator/artifacts/cc_rfc0142_p0/SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Apply the accepted review findings.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Apply the accepted review",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/cc_rfc0142_p0/",
+          "go/pkg/pgtest/",
+          "go/pkg/db/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      }
+    }
+  },
+  "name": "cc_rfc0142_p0",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "cc_rfc0142_p0",
+  "workflow_version": "2026-06-21"
+}
