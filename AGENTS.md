@@ -150,6 +150,38 @@ Examples live under `examples`. Historical execution prompts live under
   `docs/operator/BRIEF.md`, and fix the runner (or escalate) before continuing. A
   red `doctor` is a stop-and-fix condition, not a thing to route around: do not
   launch or continue dogfoods on top of accumulating integrity problems.
+- **Keep the shared checkout clean and current — no dirty trees, no stale
+  branches, no merge hell.** A registered target repository's primary checkout
+  (this repo at its canonical path included) is shared by the operator, by AFK
+  lanes, and by other concurrent agents. Treat it as a clean view of
+  `origin/main`, never a scratchpad. The four rules below are one policy:
+  - *Sync before you touch source.* `git fetch`, then fast-forward `main` to
+    `origin/main` (or rebase your branch onto freshly-fetched `origin/main`)
+    before editing. Never start work on a `main` that is behind `origin/main`;
+    a checkout that silently drifts dozens of commits behind is merge hell
+    waiting to surface as a conflict.
+  - *Isolate concurrent work.* Make every change on a short-lived feature
+    branch, and whenever another agent or lane may hold the primary checkout,
+    work in an isolated `git worktree` cut from freshly-fetched `origin/main`.
+    Do not co-edit the shared tree: uncommitted work there gets swept,
+    clobbered, or superseded by the next agent, and two agents editing one tree
+    is how merge hell starts. Confirm no other session has its cwd in the tree
+    (e.g. another agent's `git status`/open edits) before a `reset`, `stash`,
+    `clean`, or fast-forward that rewrites files under them; if one does,
+    snapshot first (below) and surface it rather than sweeping their work.
+  - *End every turn clean.* Commit and push your branch, or revert it; never
+    hand the next session uncommitted changes, untracked deliverables, or a
+    behind-by-N `main`. If you must pause mid-change — or must clear someone
+    else's dirty tree — snapshot the full state (tracked + untracked) to a
+    named branch (e.g. `backup/<topic>-<YYYY-MM-DD>`), not the working tree,
+    and say so, so nothing is destroyed and everything is recoverable.
+  - *Reports are not repository litter.* Audits, triage dumps, reconcile
+    notes, and other scratch output belong outside the tracked tree (or under
+    an ignored scratch path), never as untracked `*.md` files at the repo root
+    (see "Do not commit `.striatum/`, caches, transcripts, or private
+    diagnostics" above). Reviewed work must also reach `main` and have its
+    branch deleted without lingering — a stranded branch is a dirty tree
+    deferred (see "Do not strand pushed branches" above).
 
 ## Historical Prompts
 
