@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-18_v2.34.1-release"
-supersedes: "brief_2026-06-18_v2.34.0-release"
+brief_id: "brief_2026-06-22_v2.35.0-release"
+supersedes: "brief_2026-06-18_v2.34.1-release"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,17 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-22 delta — v2.35.0 released
+
+**v2.35.0 (2026-06-22)** — large feature-wave cut: 207 commits since v2.34.1
+(20 feat / 48 fix), ~12 RFC graduations incl. 0128 P0 (cross-repo write-scope
+guardrail), 0135 (barrier cutover), 0136 P1, 0137 (Prometheus exporter), 0141
+(gate attestation), 0142 P0–P3 (safe DB-change deployment), 0163/0164. Process:
+**no GitHub PRs** — `main` via daemon run-integration or direct sync-guarded
+commit (AGENTS.md); + shared-checkout hygiene policy. RFC 0128 P0 re-landed via a
+daemon `code_change` run (#575), not a hand-merge; release gated on green CI after
+the `schema_state` authority-inventory fix (#570).
 
 ## 2026-06-21 delta — RFC 0142 P0 built + verified via a 3-stage self-host dogfood (PR #553; runner defect #551)
 
@@ -99,35 +110,12 @@ post-#522 daemon-install refusal sidestepped. Prior CLI backed up at
 `~/.local/bin/striatum.bak-pre515`. All work done in isolated `/tmp` worktrees off
 `origin/main`; `doctor ok`, `main` green.
 
-## 2026-06-18 delta — v2.34.1 released
+## 2026-06-18 deltas — v2.34.1 / v2.34.0 (superseded; see CHANGELOG)
 
-**v2.34.1** is a docs/maintenance cut: docs-convention adoption (#406/#407/#408 —
-vendored `doc-convention-lint`, Phase 1 warn-only + Phase 2 dead-exhaust fold into
-`docs/records/` + `sanctioned_regions` overlay) + RFC-index reconciliation (#405).
-**No daemon code or behavior change** — RFC 0135 barrier stays opt-in/shadow (D206);
-owner bundle 0013 unapplied, go-live flips not done (handoff §2.A stays human-gated).
-Daemon rebuilt from this tag + restarted; `doctor` green.
-
-## 2026-06-18 delta — v2.34.0 released
-
-**v2.34.0** packages six deployed reliability/security fixes plus the RFC 0135
-sealed-barrier primitive. Fixes (merged, daemon redeployed, `doctor` green, issues
-closed): #355 recovery-reconcile convoy (SQLSTATE 57014, pre-tx oracle), #356
-untested-spine tests + `escalation.resolve` run-lock, #357 dead-code deletion
-(~1280 LOC, supervisor liveness twin), #358 boundary/security batch (`seenRequests`
-DoS cap, CLI read deadline, RFC 0111 suggestions, FIFO delivered-lie, CSP, blob
-flag), #363 `supervise.rebridge` on-contract + registry-guard blind-spot, #359b
-docs/index. This closes most of the 2026-06-11 deep-review P0/P1 work-list (untested
-spine, deletion pass, conformance honesty, truth mechanization, boundary hygiene).
-
-**RFC 0135 (D214/D215/D216)** — the unified `(entity, seal)` sealed-expectation
-barrier across fan-in / quorum / 0095-revision / 0108-integrate — is fully
-IMPLEMENTED (P0–P6; migrations 0029–0032 + owner bundle 0013) but **opt-in/shadow:
-D206 stays the default, ZERO behavior change**. Go-live (apply owner bundle 0013 +
-flip each gate to consume the primitive) is DEFERRED. Remaining: P4b (#341/#342),
-#343, ready-for-human #361/#362/#364, #372. See the RFC 0135 slice plan and
-`/tmp/striatum-handoff-rfc0135-remaining.md`. A concurrent session landed perf-
-observability latches (#375–#381) alongside.
+**v2.34.1** docs/maintenance cut (#405–#408). **v2.34.0** six reliability/security
+fixes (#355–#363) + the RFC 0135 `(entity, seal)` sealed-barrier primitive (P0–P6,
+migrations 0029–0032 + owner bundle 0013), shipped opt-in/shadow and since cut over
+live (RFC 0135 graduation rolled into v2.35.0).
 
 ## 2026-06-17 delta — #311 P0 per-job quarantine (D209)
 
@@ -211,8 +199,10 @@ and the issues CLOSED. `doctor` stayed green throughout.
 
 ## State
 
-Latest release is **v2.34.1 (2026-06-18)** — a docs/maintenance cut (no code change;
-see the top delta). **v2.34.0 (2026-06-18)** packaged six reliability/security fixes +
+Latest release is **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
+since v2.34.1; ~12 RFC graduations incl. 0142 P0–P3; see the top delta).
+**v2.34.1 (2026-06-18)** was a docs/maintenance cut (no code change). **v2.34.0
+(2026-06-18)** packaged six reliability/security fixes +
 the RFC 0135 sealed-barrier primitive (opt-in/shadow). The earlier
 **v2.33.0 (2026-06-16)** tag at `564a8209` packaged the post-v2.32.0 landing set:
 doctor integrity legibility **P0+P1** (D204/D205, #300), **#290/D206** fan-in
