@@ -44,10 +44,13 @@ type Options struct {
 	// `run drive` used purely as a terminal-state waiter) sets this true.
 	ForceConcurrent bool
 	// ReconnectBudget bounds how long an invoke retries a transient
-	// `daemon_unreachable` error before giving up (#513). A daemon restart drops
-	// the socket for a few seconds; without this the next invoke exits the driver
-	// (status=11) and abandons a live, resumable run. Zero selects the default
-	// (30s); a negative value disables reconnect (fail fast, prior behavior).
+	// `daemon_unreachable` error before giving up (#513, #580). A daemon restart
+	// drops the socket — not "for a few seconds" but for as long as the restart
+	// takes: a `make install`/owner-ddl + restart, or a slow boot, was observed at
+	// ~90-100s. The budget must outlast a realistic restart so a single restart is
+	// absorbed without the process ever exiting (the systemd Restart= backstop only
+	// covers a process that DID exit during the outage). Zero selects the default
+	// (180s); a negative value disables reconnect (fail fast, prior behavior).
 	ReconnectBudget time.Duration
 	// ReconnectStep is the initial backoff between reconnect attempts; it doubles
 	// up to ReconnectMaxStep. Zero selects the default (250ms).
@@ -174,7 +177,9 @@ func New(invoker Invoker, options Options) *Driver {
 		options.ProviderAuthGate = "auto"
 	}
 	if options.ReconnectBudget == 0 {
-		options.ReconnectBudget = 30 * time.Second
+		// #580: outlast a realistic daemon restart (~90-100s observed) so the
+		// original driver process reconnects instead of exiting status=11.
+		options.ReconnectBudget = 180 * time.Second
 	}
 	if options.ReconnectStep <= 0 {
 		options.ReconnectStep = 250 * time.Millisecond

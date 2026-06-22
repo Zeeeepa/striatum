@@ -207,17 +207,22 @@ func driverUnitArgs(unit, bin string, l driverLaunch) []string {
 		"--unit=" + unit,
 		"--description=striatum run drive for " + l.RunID,
 		"--collect", // garbage-collect the transient unit once it exits
-		// #513: self-heal a driver that exits non-zero (canonically status=11 when
-		// the daemon socket briefly disappears during a daemon restart, before the
+		// #513/#580: self-heal a driver that exits non-zero (canonically status=11
+		// when the daemon socket disappears during a daemon restart, before the
 		// in-loop reconnect-with-backoff would catch it — e.g. a crash on the very
-		// first invoke). Restart on failure with a short delay so the run is not
-		// abandoned until an operator notices. A clean exit (terminal state) is
-		// status=0 and is NOT restarted. StartLimit* bound the restart loop so a
-		// genuinely broken launch does not thrash forever.
+		// first invoke of a process systemd started DURING the outage). Restart on
+		// failure with a short delay so the run is not abandoned. A clean exit
+		// (terminal state) is status=0 and is NOT restarted. The StartLimit window
+		// must outlast a realistic daemon restart: a restart was observed leaving
+		// the socket gone for ~112s (the daemon's own boot reconcile, not the stop),
+		// and the prior 10 bursts x 2s (~20s) gave up mid-restart so systemd
+		// permanently disabled the unit ("Start request repeated too quickly").
+		// 120 bursts x 3s within a 600s window rides out a multi-minute restart
+		// while still eventually giving up on a genuinely broken launch.
 		"--property=Restart=on-failure",
-		"--property=RestartSec=2s",
-		"--property=StartLimitIntervalSec=120s",
-		"--property=StartLimitBurst=10",
+		"--property=RestartSec=3s",
+		"--property=StartLimitIntervalSec=600s",
+		"--property=StartLimitBurst=120",
 		// #556: a DETERMINISTIC provider-auth preflight refusal exits with the
 		// dedicated, non-restartable rundrive.ProviderAuthRefusalExitCode. Without
 		// this exclusion, Restart=on-failure (#513, for TRANSIENT socket-drops)

@@ -290,9 +290,9 @@ func TestDriverUnitArgsCarriesRestartOnFailure(t *testing.T) {
 	joined := strings.Join(args, " ")
 	for _, want := range []string{
 		"--property=Restart=on-failure",
-		"--property=RestartSec=2s",
-		"--property=StartLimitIntervalSec=120s",
-		"--property=StartLimitBurst=10",
+		"--property=RestartSec=3s",
+		"--property=StartLimitIntervalSec=600s",
+		"--property=StartLimitBurst=120",
 		// #556: a deterministic provider-auth refusal exits with the dedicated
 		// non-restartable code, which must be excluded from Restart=on-failure so
 		// it does not crash-loop to the StartLimitBurst rate-limit.
