@@ -836,8 +836,23 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repo
 			return outputWorkflowValidateError(stdout, stderr, jsonOutput, "cwd_error", err, 1)
 		}
 	}
-	workflow, _, err := workflowauthoring.LoadFile(repoRoot, paths[0])
+	// Parse without structural validation first so the RFC 0128 P0 (D196)
+	// cross-repo guardrail can run BEFORE generic structural errors and own the
+	// exit-7 contract for a write-scope that reaches outside the registered repo.
+	workflow, _, err := workflowauthoring.LoadFileUnvalidated(repoRoot, paths[0])
 	if err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_invalid", err, 8)
+	}
+	// RFC 0128 P0 (D196): the single-repo run is the invariant. Refuse, with a
+	// structured error (exit 7) naming the offending path, any lane write-scope
+	// that resolves outside the registered repository root — never silently
+	// narrow it. Cross-repo outcomes are achieved by decomposition, not by
+	// widening one run's write scope.
+	if err := workflowauthoring.RefuseCrossRepoWriteScope(workflow); err != nil {
+		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "cross_repo_write_scope", err, 7)
+	}
+	// Structural validation (phases, edges, lanes, paths) — exit 8.
+	if err := workflowauthoring.Validate(workflow); err != nil {
 		return outputWorkflowValidateError(stdout, stderr, jsonOutput, "workflow_invalid", err, 8)
 	}
 	// Retired one-shot agent commands are hard refusals. They cannot run the
@@ -860,14 +875,22 @@ func runWorkflowValidate(args []string, stdout io.Writer, stderr io.Writer, repo
 	if tb := verifier.EvaluateAllowlistTemplate(repoRoot, workflow); tb != nil {
 		return outputWorkflowValidateError(stdout, stderr, jsonOutput, tb.Reason, fmt.Errorf("%s", tb.Message), 8)
 	}
+	// RFC 0128 P0 (D196): a free-text prompt field that names a foreign repo
+	// (org/repo slug or out-of-repo path token) is a non-fatal WARNING — surface
+	// the cross-repo intent before a lane spawns rather than letting it hide.
+	warnings := workflowauthoring.ForeignRepoReachWarnings(workflow, filepath.Base(repoRoot))
 	if jsonOutput {
-		return writeJSON(stdout, map[string]any{
-			"ok": true,
-			"data": map[string]any{
-				"valid":       true,
-				"workflow_id": workflow["workflow_id"],
-			},
-		}, stderr)
+		data := map[string]any{
+			"valid":       true,
+			"workflow_id": workflow["workflow_id"],
+		}
+		if len(warnings) > 0 {
+			data["warnings"] = warnings
+		}
+		return writeJSON(stdout, map[string]any{"ok": true, "data": data}, stderr)
+	}
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintf(stderr, "warning: %s\n", warning["message"])
 	}
 	_, _ = fmt.Fprintln(stdout, "valid")
 	return 0

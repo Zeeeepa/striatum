@@ -119,7 +119,39 @@ func LoadFile(repoRoot string, workflowPath string) (map[string]any, string, err
 	return workflow, sourcePath, nil
 }
 
+// LoadFileUnvalidated resolves and parses a workflow file into a map WITHOUT
+// running structural Validate. It exists for `workflow validate` so the RFC
+// 0128 cross-repo guardrail (RefuseCrossRepoWriteScope, exit 7) can run BEFORE
+// generic structural validation (exit 8) and win the exit-code race for a
+// write-scope that reaches outside the registered repository root.
+func LoadFileUnvalidated(repoRoot string, workflowPath string) (map[string]any, string, error) {
+	path, sourcePath, err := ResolveWorkflowPath(repoRoot, workflowPath)
+	if err != nil {
+		return nil, "", err
+	}
+	workflow, err := LoadUnvalidated(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return workflow, sourcePath, nil
+}
+
 func Load(path string) (map[string]any, error) {
+	workflow, err := LoadUnvalidated(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := Validate(workflow); err != nil {
+		return nil, err
+	}
+	return workflow, nil
+}
+
+// LoadUnvalidated parses a workflow file into a map (JSON shape + duplicate-key
+// checks) without running structural Validate. Callers that need a validated
+// workflow should use Load; the unvalidated form is for guardrails that must
+// inspect the raw declared shape before structural validation rejects it.
+func LoadUnvalidated(path string) (map[string]any, error) {
 	suffix := strings.ToLower(filepath.Ext(path))
 	if suffix == ".yaml" || suffix == ".yml" {
 		return nil, &Error{Message: "workflow config must be JSON, not YAML"}
@@ -153,9 +185,6 @@ func Load(path string) (map[string]any, error) {
 	}
 	if workflow == nil {
 		return nil, &Error{Message: fmt.Sprintf("workflow file is not valid JSON: %s: expected a JSON object", path)}
-	}
-	if err := Validate(workflow); err != nil {
-		return nil, err
 	}
 	return workflow, nil
 }
