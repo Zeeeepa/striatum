@@ -107,11 +107,11 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	// verifier_attestations (RFC 0141 / D243 / #482): sensitive trust state the
 	// run-completion gate SELECTs to decide whether an external claim may reach
 	// VERIFIED — like verdicts/spawn_authorization_grants.
-	"verifier_attestations": ReadClassRuntimeSensitive,
-	"verdicts":              ReadClassRuntimeSensitive,
-	"work_packets":                ReadClassRuntimeSensitive,
-	"workflow_accepted_risks":     ReadClassRuntimeSensitive,
-	"workflow_snapshots":          ReadClassRuntimeSensitive,
+	"verifier_attestations":   ReadClassRuntimeSensitive,
+	"verdicts":                ReadClassRuntimeSensitive,
+	"work_packets":            ReadClassRuntimeSensitive,
+	"workflow_accepted_risks": ReadClassRuntimeSensitive,
+	"workflow_snapshots":      ReadClassRuntimeSensitive,
 
 	// Operational metadata and chain pointers. Still selected by the runtime
 	// role in the current broad posture; not a private-read-denial claim.
@@ -128,12 +128,17 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	// witnesses + retention_state). Operational chain metadata the runtime role
 	// SELECTs to seal and to prove continuity — like audit_segments /
 	// repo_event_chain_heads, not a sensitive prose surface.
-	"event_chain_segments":           ReadClassRuntimeOperational,
-	"repo_event_chain_heads":         ReadClassRuntimeOperational,
-	"repo_migrations":                ReadClassRuntimeOperational,
-	"rpc_methods":                    ReadClassRuntimeOperational,
-	"schema_meta":                    ReadClassRuntimeOperational,
-	"schema_migrations":              ReadClassRuntimeOperational,
+	"event_chain_segments":   ReadClassRuntimeOperational,
+	"repo_event_chain_heads": ReadClassRuntimeOperational,
+	"repo_migrations":        ReadClassRuntimeOperational,
+	"rpc_methods":            ReadClassRuntimeOperational,
+	"schema_meta":            ReadClassRuntimeOperational,
+	"schema_migrations":      ReadClassRuntimeOperational,
+	// schema_state (RFC 0142 P3, migration 0043): the runtime-owned schema
+	// fingerprint singleton the daemon SELECTs on boot (db.LiveFingerprint) to
+	// detect migration / owner-bundle drift, and self-records on a successful
+	// migrate — operational metadata, like schema_meta / schema_migrations.
+	"schema_state": ReadClassRuntimeOperational,
 }
 
 // ClassifyReadTable returns the read-authority classification of a striatumd.*

@@ -41,6 +41,11 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"schema_migrations":    ClassOwnerOnly,
 	"repo_migrations":      ClassOwnerOnly,
 	"daemon_meta":          ClassOwnerOnly,
+	// schema_state (RFC 0142 P3, migration 0043): UNLIKE the owner-only migration
+	// bookkeeping above, the runtime role self-records the schema fingerprint here
+	// on a successful migrate (GRANT SELECT/INSERT/UPDATE to striatumd_rw) — direct
+	// runtime DML, not owner-only.
+	"schema_state": ClassRuntimeDML,
 
 	// Live coordination + durable state: direct runtime DML retained for now.
 	// audit_chain_head / repo_event_chain_heads are the chain head pointers the
@@ -87,7 +92,7 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// denied — append-only via refuse-triggers + a SELECT/INSERT/UPDATE-only grant
 	// (DELETE revoked), the same shape as fanin_freeze_points / audit_segments,
 	// NOT an SD-gated surface (a plain refuse-trigger, not assert_daemon_authority).
-	"event_chain_segments":           ClassRuntimeDML,
+	"event_chain_segments": ClassRuntimeDML,
 	// fanin_freeze_points (RFC 0135 P1, migration 0029): the immutable fan-in
 	// freeze record. Runtime-writable INSERT but APPEND-ONLY via a refuse-trigger
 	// + the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as
@@ -130,11 +135,11 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// daemon-owned operator attestation store the run-completion gate consults. The
 	// verifier.attest RPC INSERTs a row and UPDATEs (refresh/revoke) it. Live trust
 	// state, direct runtime DML — not an append-only provenance surface.
-	"verifier_attestations": ClassRuntimeDML,
-	"verdicts":              ClassRuntimeDML,
-	"work_packets":                ClassRuntimeDML,
-	"workflow_accepted_risks":     ClassRuntimeDML,
-	"workflow_snapshots":          ClassRuntimeDML,
+	"verifier_attestations":   ClassRuntimeDML,
+	"verdicts":                ClassRuntimeDML,
+	"work_packets":            ClassRuntimeDML,
+	"workflow_accepted_risks": ClassRuntimeDML,
+	"workflow_snapshots":      ClassRuntimeDML,
 }
 
 // ClassifyTable returns the write-authority classification of a striatumd.*
