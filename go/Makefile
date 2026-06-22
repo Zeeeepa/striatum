@@ -92,10 +92,15 @@ check: verify vet lint check-tests
 # in lockstep with this -run filter: the seat-tier guard fails if a supported seat
 # is not actually executed here (#358). Each fixture skips cleanly when its CLI is
 # absent, so a host missing codex still runs the agy gates.
+#
+# -timeout 30m (matching the other test targets): in CI the two agy fixtures each
+# burn ~240s waiting for agy's interactive Google-OAuth login picker before they
+# skip cleanly, so the default 10m go-test timeout was killing the hermetic codex
+# fixture mid-run (panic: test timed out) and false-failing the release gate.
 installed-cli-check:
 	@test -n "$$STRIATUM_PG_TEST_URL" || { echo "STRIATUM_PG_TEST_URL is required for installed-cli-check" >&2; exit 1; }
 	@command -v agy >/dev/null || { echo "agy is required on PATH for installed-cli-check" >&2; exit 1; }
-	STRIATUM_P3_INSTALLED_CLI=1 go test ./pkg/adapterconformance -run '^TestInstalledCLISeat(AgyTwoTurn|AgyRestartWhileLeased|CodexTwoTurn)$$' -count=1 -v
+	STRIATUM_P3_INSTALLED_CLI=1 go test -timeout 30m ./pkg/adapterconformance -run '^TestInstalledCLISeat(AgyTwoTurn|AgyRestartWhileLeased|CodexTwoTurn)$$' -count=1 -v
 
 clean:
 	rm -rf bin coverage.out
