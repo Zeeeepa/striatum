@@ -20,7 +20,7 @@ silently stopped succeeding.
 
 The gap is observability, not behavior. There is no alert in
 `halbritt/proximal` →
-`observability/prometheus/prometheus/rules/striatum-alerting.rules.yml` for
+`observability/prometheus/rules/striatum-alerting.rules.yml` for
 lane-auth health (today's striatum rules cover necrosis rate, doctor-red,
 wedge-age, liveness-margin collapse, supervisor-origin flood, and metrics-loop
 health — not auth). Auth failure currently only surfaces at point-of-use: the
