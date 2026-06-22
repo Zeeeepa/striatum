@@ -1,9 +1,25 @@
 # RFC 0162: Lane auth silent-failure observability (detect absence-of-success)
 
-Status: proposed
+Status: accepted (MVP implemented — D259; live game-day pending)
 Date: 2026-06-22
 Context: [#569](https://github.com/halbritt/striatum/issues/569); RFC 0091 (lane-health / liveness classification), RFC 0131 (transport-aware liveness confidence), RFC 0137 (striatumd Prometheus exporter), RFC 0143 (lane credential survival across boot-epoch rotation)
 author: proposer-claude-opus-4-8
+
+> **Implementation status (2026-06-22, D259).** Design hardened via a
+> `falsification_gate` committee (cycle-2 findings F1/F2 folded into the committed
+> `docs/operator/artifacts/rfc-0162-design/commit/proposal/PROPOSAL.md` — the
+> authoritative spec, which supersedes the sketch below where they differ). The
+> **MVP (PROPOSAL build-order steps 1–5) is implemented + verified + banked to
+> `main` @ `418bd1d6`**: backbone roster + per-lane `striatum_lane_auth_expected`
+> census (label-preserving `unless on(lane)`); a **fail-closed** credential-resolver
+> contract (F2) → `striatum_lane_cred_resolver_mismatch`; a Layer-1 expiry sampler →
+> `…_cred_seconds_to_expiry`/`…_age`/`…_sample_present` (OAuth; non-codex `api_key`
+> is census-covered only — an explicit accepted risk); a **codex-scoped** Layer-3
+> `lane.auth_success` heartbeat; doctor reconciliation; and 8 families in the RFC
+> 0137 exporter. The six alert rules are vendored to `halbritt/proximal` @ `87458e9`.
+> **Deferred follow-up:** Layer 2 (active prober / non-codex *positive* validity).
+> **Remaining acceptance gate:** the live **game-day fire test** (install the rules
+> to `/etc/prometheus` after striatumd is rebuilt, then prove each alert fires).
 
 ## Problem
 
