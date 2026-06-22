@@ -1,7 +1,7 @@
 {
   "branch": {
     "allow_dirty": false,
-    "mode": "confirm",
+    "mode": "auto",
     "suggested_name": "striatum/rfc0128-p0-crossrepo-guardrail"
   },
   "context_docs": [],
