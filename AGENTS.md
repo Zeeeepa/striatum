@@ -120,10 +120,13 @@ Examples live under `examples`. Historical execution prompts live under
 - Avoid hardcoded home-directory absolute paths in tracked docs and
   fixtures; use repository-relative paths, environment variables, or
   generalized `~/` paths when a path shape matters.
-- **Do not strand pushed branches.** Lane work lands on feature branches and
-  reaches `main` through review — but completed, reviewed work must not sit
-  unmerged. Merge it (or get it merged) promptly; if a blocker prevents the
-  merge (e.g. missing push/merge credentials), record the concrete blocker
+- **Do not strand pushed branches.** Source reaches `main` two ways only: the
+  daemon's run-integration for lane work (reviewed in-band by the workflow's
+  reviewer lanes and verdicts), or a direct, sync-guarded commit to `main` for
+  operator changes. **Not GitHub pull requests** — GitHub is the issue tracker
+  only, never the merge mechanism; do not open PRs to land work. Completed work
+  must not sit unmerged on a feature branch: integrate it promptly; if a blocker
+  prevents it (e.g. missing push/merge credentials), record the concrete blocker
   rather than leaving the branch silently stranded.
 - **Do not leave stale docs.** The product-boundary rule above ("if a doc claim
   disagrees with current source behavior, fix the doc") also covers state docs:
@@ -179,7 +182,7 @@ Examples live under `examples`. Historical execution prompts live under
     notes, and other scratch output belong outside the tracked tree (or under
     an ignored scratch path), never as untracked `*.md` files at the repo root
     (see "Do not commit `.striatum/`, caches, transcripts, or private
-    diagnostics" above). Reviewed work must also reach `main` and have its
+    diagnostics" above). Integrated work must also reach `main` and have its
     branch deleted without lingering — a stranded branch is a dirty tree
     deferred (see "Do not strand pushed branches" above).
 
