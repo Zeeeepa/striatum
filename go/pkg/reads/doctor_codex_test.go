@@ -197,3 +197,96 @@ func TestCodexDoctorNeverReadsTokenValue(t *testing.T) {
 		t.Fatalf("token value leaked into warnings: %v", warnings)
 	}
 }
+
+// stubLaneCodexConfig points STRIATUM_LANE_OS_USER at a distinct fake lane user
+// whose home contains the given ~/.codex/config.toml, stubbing the OS-user home
+// lookup and the daemon user so codexLaneConfigBlock inspects the fixture. It
+// returns the lane home dir. With contents=="" the lane home has no codex config.
+func stubLaneCodexConfig(t *testing.T, laneUser, contents string) string {
+	t.Helper()
+	laneHome := t.TempDir()
+	if contents != "" {
+		codexDir := filepath.Join(laneHome, ".codex")
+		if err := os.MkdirAll(codexDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(codexDir, "config.toml"), []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv(laneOSUserEnv, laneUser)
+	origUser := currentUsername
+	origLookup := lookupOSUserHome
+	currentUsername = func() string { return "striatum-daemon" }
+	lookupOSUserHome = func(name string) (string, bool) {
+		if name == laneUser {
+			return laneHome, true
+		}
+		return "", false
+	}
+	t.Cleanup(func() { currentUsername = origUser; lookupOSUserHome = origLookup })
+	return laneHome
+}
+
+// #568: a surviving codex lane reads the LANE OS user's ~/.codex/config.toml,
+// which goes stale across a daemon restart. doctor must flag the lane-side stale
+// endpoint, not only the daemon user's config.
+func TestCodexDoctorFlagsStaleLaneConfig(t *testing.T) {
+	const live = "http://127.0.0.1:55555/mcp/sse"
+	// Daemon user's own config is FRESH (no daemon-side warning).
+	daemonHome := writeCodexConfig(t, "[mcp_servers.striatum]\nurl = \""+live+"\"\nbearer_token_env_var = \""+agentloop.EnvMCPToken+"\"\n")
+	setCodexDoctorEnv(t, daemonHome, live, "bearer")
+	// Lane user's config points at a STALE (different) port.
+	const staleLane = "http://127.0.0.1:11111/mcp/sse"
+	stubLaneCodexConfig(t, "striatum-lane", "[mcp_servers.striatum]\nurl = \""+staleLane+"\"\n")
+
+	block, warnings := codexDoctorBlock()
+	laneBlock, ok := block["lane_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected lane_config sub-block, block=%#v", block)
+	}
+	if laneBlock["stale"] != true {
+		t.Fatalf("expected lane_config.stale=true, lane_block=%#v", laneBlock)
+	}
+	joined := strings.Join(warnings, "\n")
+	if !strings.Contains(joined, "codex_lane_config_stale") || !strings.Contains(joined, "striatum-lane") || !strings.Contains(joined, staleLane) {
+		t.Fatalf("expected stale lane-config warning naming the lane user + stale url, got: %v", warnings)
+	}
+	// The daemon-user config is fresh, so there must be NO daemon-side stale warn.
+	if strings.Contains(joined, "codex_config_stale:") {
+		t.Fatalf("daemon-user config is fresh; should not warn codex_config_stale: %v", warnings)
+	}
+}
+
+// A fresh lane config produces a lane_config block but no stale warning.
+func TestCodexDoctorLaneConfigFreshNoWarning(t *testing.T) {
+	const live = "http://127.0.0.1:55555/mcp/sse"
+	daemonHome := writeCodexConfig(t, "[mcp_servers.striatum]\nurl = \""+live+"\"\n")
+	setCodexDoctorEnv(t, daemonHome, live, "bearer")
+	stubLaneCodexConfig(t, "striatum-lane", "[mcp_servers.striatum]\nurl = \""+live+"\"\n")
+
+	block, warnings := codexDoctorBlock()
+	laneBlock, ok := block["lane_config"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected lane_config sub-block, block=%#v", block)
+	}
+	if laneBlock["stale"] != false {
+		t.Fatalf("expected lane_config.stale=false for matching endpoint, lane_block=%#v", laneBlock)
+	}
+	if strings.Contains(strings.Join(warnings, "\n"), "codex_lane_config_stale") {
+		t.Fatalf("fresh lane config must not warn: %v", warnings)
+	}
+}
+
+// No lane_config block when STRIATUM_LANE_OS_USER is unset (lane == daemon user).
+func TestCodexDoctorNoLaneBlockWhenLaneUserUnset(t *testing.T) {
+	const live = "http://127.0.0.1:55555/mcp/sse"
+	home := writeCodexConfig(t, "[mcp_servers.striatum]\nurl = \""+live+"\"\n")
+	setCodexDoctorEnv(t, home, live, "bearer")
+	t.Setenv(laneOSUserEnv, "")
+
+	block, _ := codexDoctorBlock()
+	if _, present := block["lane_config"]; present {
+		t.Fatalf("no distinct lane user => no lane_config block, block=%#v", block)
+	}
+}

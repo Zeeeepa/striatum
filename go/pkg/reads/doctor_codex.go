@@ -109,7 +109,83 @@ func codexDoctorBlock() (map[string]any, []string) {
 		}
 	}
 
+	// #568 / #64 (lane-side): the daemon-user inspection above sees the operator's
+	// own ~/.codex/config.toml, but a supervised codex LANE runs as a different OS
+	// user (STRIATUM_LANE_OS_USER) and reads ITS home's ~/.codex/config.toml. That
+	// is the file that goes stale across a daemon restart and the one a surviving
+	// codex lane keeps resolving against (codex cannot reload the launch-time `-c`
+	// override). Inspect the lane user's config too when it is a distinct,
+	// resolvable user — advisory only, never reading any token value, and silently
+	// skipped when the cross-user file is unreadable (the daemon may lack read
+	// access to the lane home; that is not a doctor failure).
+	if laneBlock, laneWarnings := codexLaneConfigBlock(liveEndpoint, liveErr == nil); laneBlock != nil {
+		block["lane_config"] = laneBlock
+		warnings = append(warnings, laneWarnings...)
+	}
+
 	return block, warnings
+}
+
+// codexLaneConfigBlock inspects the lane OS user's ~/.codex/config.toml for a
+// stale striatum MCP endpoint, mirroring the daemon-user check in
+// codexDoctorBlock. It returns (nil, nil) when there is no distinct lane user to
+// inspect, or when the lane home / config cannot be resolved or read (advisory,
+// best-effort — a cross-user read denial is not a doctor failure). It never reads
+// or returns any token VALUE; only endpoint staleness is reported.
+func codexLaneConfigBlock(liveEndpoint string, liveResolved bool) (map[string]any, []string) {
+	laneUser := strings.TrimSpace(os.Getenv(laneOSUserEnv))
+	if laneUser == "" {
+		return nil, nil
+	}
+	if daemonUser := currentUsername(); daemonUser != "" && sameDoctorOSUsername(laneUser, daemonUser) {
+		// Lane runs as the daemon's own user; the daemon-user inspection already
+		// covers this exact config file — no separate lane block needed.
+		return nil, nil
+	}
+	laneHome, ok := lookupOSUserHome(laneUser)
+	if !ok {
+		return map[string]any{
+			"checked":   false,
+			"lane_user": laneUser,
+			"reason":    "cannot resolve lane OS user home directory",
+		}, nil
+	}
+	configPath := filepath.Join(laneHome, ".codex", "config.toml")
+	block := map[string]any{
+		"checked":     true,
+		"lane_user":   laneUser,
+		"config_path": configPath,
+	}
+	body, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			block["config_present"] = false
+			return block, nil
+		}
+		// Most likely a cross-user permission denial: the daemon cannot read the
+		// lane home. Advisory — report we could not inspect it, no warning, no
+		// failure.
+		block["config_present"] = false
+		block["reason"] = "read lane config.toml failed"
+		return block, nil
+	}
+	block["config_present"] = true
+
+	configURL, _, hasStriatumServer := codexStriatumConfig(string(body))
+	block["references_striatum"] = hasStriatumServer
+	if !hasStriatumServer || !liveResolved {
+		return block, nil
+	}
+	if codexEndpointMatches(configURL, liveEndpoint) {
+		block["stale"] = false
+		return block, nil
+	}
+	block["stale"] = true
+	return block, []string{
+		"codex_lane_config_stale: lane user " + laneUser + "'s ~/.codex/config.toml mcp_servers.striatum.url=" + configURL +
+			" does not match the live daemon MCP endpoint " + liveEndpoint +
+			"; a surviving codex lane reading this file keeps talking to the dead endpoint after a daemon restart (#568). Relaunch/reconnect the lane.",
+	}
 }
 
 // codexStriatumURL extracts the configured mcp_servers.striatum.url from codex

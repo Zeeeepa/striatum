@@ -384,6 +384,54 @@ func TestApplyMCPEndpointRotationNoopAdapterFallsBack(t *testing.T) {
 	}
 }
 
+// TestApplyMCPEndpointRotationCodexSurfacesWedgeLoudly is the #568 fix: a codex
+// lane bakes the MCP url into its launch-time `-c` argv and cannot reload it, and
+// it has no ephemeral --mcp-config to rewrite (mcpConfigPath == ""). On a mid-run
+// daemon-restart rotation the function must NOT silently fall through the benign
+// "no reconnect prompt" no-op; it must surface the dead-endpoint condition loudly
+// on stderr AND push a structured wedge prompt into the codex PTY so the stale
+// endpoint is detectable in-band, not silent.
+func TestApplyMCPEndpointRotationCodexSurfacesWedgeLoudly(t *testing.T) {
+	rec := &writeRecorder{}
+	var stderr strings.Builder
+	rotated := "http://127.0.0.1:41283/mcp/sse"
+	// codex never carries an ephemeral --mcp-config file (its url is `-c`-baked),
+	// so mcpConfigPath is empty — exactly the silent-no-op case before the fix.
+	if err := applyMCPEndpointRotation("/home/x/.local/bin/codex", "", rotated, TokenMaterial{Token: "dtok_rotated"}, rec, &stderr); err != nil {
+		t.Fatalf("applyMCPEndpointRotation codex: %v", err)
+	}
+	// Loud, structured stderr signal naming codex + the rotated endpoint + that it
+	// cannot reload the -c-injected url and must be relaunched.
+	gotStderr := stderr.String()
+	for _, want := range []string{"#568", "codex", rotated, "reload", "relaunched"} {
+		if !strings.Contains(gotStderr, want) {
+			t.Fatalf("codex rotation stderr missing %q:\n%s", want, gotStderr)
+		}
+	}
+	// It must NOT degrade into the benign agy-style "no reconnect prompt" no-op
+	// that swallowed the condition before the fix.
+	if strings.Contains(gotStderr, "no reconnect prompt") {
+		t.Fatalf("codex rotation must not use the benign no-op fallback:\n%s", gotStderr)
+	}
+	// In-band PTY wedge prompt so the codex agent surfaces the broken MCP path.
+	joined := strings.Join(rec.writes, "")
+	if joined == "" {
+		t.Fatalf("codex rotation must push an in-band PTY wedge prompt, got no writes")
+	}
+	for _, want := range []string{rotated, "dead", "relaunched"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("codex PTY wedge prompt missing %q:\n%s", want, joined)
+		}
+	}
+	// The codex prompt must NOT tell codex to reconnect via the claude `/mcp`
+	// slash-command (codex cannot reload its -c-injected url). Match the claude
+	// reconnect phrasing rather than the bare "/mcp" substring, which the rotated
+	// endpoint URL (".../mcp/sse") legitimately contains.
+	if strings.Contains(joined, "Run /mcp") {
+		t.Fatalf("codex wedge prompt must not ask codex to reconnect via the claude /mcp command (codex cannot reload its -c url):\n%s", joined)
+	}
+}
+
 // TestStartMCPEndpointRotationWatcherRewritesOnRotation is the focused watcher
 // test: with a short poll interval and a fake runtime dir, rotating the runtime
 // endpoint file mid-run causes the watcher to rewrite the ephemeral claude config

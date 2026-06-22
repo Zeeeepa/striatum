@@ -622,10 +622,32 @@ func applyMCPEndpointRotation(adapter, mcpConfigPath, endpoint string, token Tok
 			return fmt.Errorf("rewrite ephemeral mcp config: %w", err)
 		}
 	}
+	// #568: codex bakes the MCP url into its launch-time `-c
+	// mcp_servers.striatum.url=<endpoint>` argv (InjectCodexMCPConfigArgs) and
+	// does NOT reload `-c` overrides while running, and it has no ephemeral
+	// --mcp-config file to rewrite (mcpConfigPath == "" for codex). So a codex
+	// lane that survives a mid-run daemon restart silently keeps talking to the
+	// DEAD launch-time port: the config-rewrite no-op above changes nothing for
+	// it, and the agy-style "no reconnect prompt" path below would swallow the
+	// condition in a benign log line. That is the silent wedge. Surface it
+	// LOUDLY and in-band so it is detectable, instead of continuing on a stale
+	// endpoint: emit a structured error to the agent-loop/supervisor log (and
+	// stderr), and push a structured prompt into the codex PTY so the agent
+	// reports the broken MCP path rather than stalling unnoticed. We do NOT try
+	// to restart codex here — that machinery does not exist in the agent-loop;
+	// the lane must be relaunched/reconnected to pick up the rotated endpoint.
+	if LaneAdapterName(adapter) == "codex" {
+		log.Printf("agent-loop MCP rotation (#568): codex lane endpoint rotated to %s; codex cannot reload its -c-injected MCP url in place, so this lane is now talking to a DEAD endpoint and must be relaunched/reconnected", endpoint)
+		_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation (#568): codex lane endpoint rotated to %s; codex cannot reload its -c-injected MCP url in place; this lane must be relaunched/reconnected\n", endpoint)
+		if err := writePromptThenSubmit(ptmx, codexRotationWedgePrompt(endpoint), agentLoopSubmitDelay(), agentLoopSubmitSequence()); err != nil {
+			return fmt.Errorf("send codex rotation wedge prompt: %w", err)
+		}
+		return nil
+	}
 	prompt := mcpReconnectPrompt(adapter, endpoint)
 	if prompt == "" {
 		// Adapter has no known reconnect affordance — no-op fallback (the config
-		// was rewritten if it has an ephemeral file; codex/agy re-read their own
+		// was rewritten if it has an ephemeral file; agy re-reads its own
 		// config or env, and a future build may hot-reload). Never crash.
 		_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation (#323): adapter %q has no reconnect prompt; relying on config rewrite only\n", LaneAdapterName(adapter))
 		return nil
@@ -634,6 +656,18 @@ func applyMCPEndpointRotation(adapter, mcpConfigPath, endpoint string, token Tok
 		return fmt.Errorf("send reconnect prompt: %w", err)
 	}
 	return nil
+}
+
+// codexRotationWedgePrompt is the in-band, structured signal pushed into a codex
+// lane's PTY after a mid-run daemon restart rotated the MCP endpoint (#568).
+// Unlike claude, codex cannot reconnect a rotated endpoint in place (its url was
+// baked into the launch-time `-c` override and codex does not reload it), so the
+// prompt does NOT ask codex to reconnect — it tells the agent its Striatum MCP
+// path is broken, asks it to report the condition through any Striatum tool that
+// still resolves, and to stop assuming MCP calls are reaching the daemon, so the
+// wedge surfaces in the trajectory instead of failing silently.
+func codexRotationWedgePrompt(endpoint string) string {
+	return fmt.Sprintf("\n\nThe Striatum MCP daemon restarted and its endpoint rotated to %s. Codex cannot reload the MCP url that was injected at launch, so your \"striatum\" MCP server is now pointing at a dead port and your MCP tool calls are silently failing. Do not keep working as if MCP is reaching the daemon: this lane must be relaunched or reconnected by the operator. If any Striatum tool still resolves, use it to report that this lane's MCP endpoint is stale (e.g. block the active packet with a reason noting the rotated endpoint); otherwise stop and surface that you are wedged on a dead MCP endpoint.\n", endpoint)
 }
 
 // mcpReconnectPrompt returns the PTY text that tells an interactive lane CLI to
