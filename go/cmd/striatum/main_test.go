@@ -401,6 +401,92 @@ func TestWorkflowValidateJSONErrorEnvelope(t *testing.T) {
 	}
 }
 
+// RFC 0128 P0 (D196) test obligation #1: a workflow whose lane write-scope
+// reaches outside the registered repo fails `workflow validate` with exit 7 and
+// the offending path, in a structured cross_repo_write_scope error envelope.
+func TestWorkflowValidateRefusesCrossRepoWriteScope(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, crossRepoEscapeWorkflow())
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	exitCode := run([]string{"workflow", "validate", "--json", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 7 {
+		t.Fatalf("exit = %d, want 7; stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["ok"] != false {
+		t.Fatalf("payload ok = %#v", payload["ok"])
+	}
+	errPayload := payload["error"].(map[string]any)
+	if errPayload["code"] != "cross_repo_write_scope" {
+		t.Fatalf("error code = %#v, want cross_repo_write_scope", errPayload["code"])
+	}
+	if msg, _ := errPayload["message"].(string); !strings.Contains(msg, "../striatum-warmtier/go") {
+		t.Fatalf("error message must name the offending path; got %q", msg)
+	}
+}
+
+// RFC 0128 P0 (D196) test obligation: a free-text prompt slug naming a foreign
+// repo WARNS (non-fatal) — validate still passes (exit 0) and the JSON envelope
+// carries a foreign_repo_reach warning surfacing the cross-repo intent.
+func TestWorkflowValidateWarnsOnForeignPromptSlug(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, foreignPromptSlugWorkflow())
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Human output: exit 0 with a warning line on stderr.
+	exitCode := run([]string{"workflow", "validate", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, want 0; stderr = %s", exitCode, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "warning:") || !strings.Contains(stderr.String(), "acme/widget-service") {
+		t.Fatalf("expected a foreign-reach warning naming the slug; stderr = %q", stderr.String())
+	}
+
+	// JSON output: exit 0 with a foreign_repo_reach warning in data.warnings.
+	stdout.Reset()
+	stderr.Reset()
+	exitCode = run([]string{"workflow", "validate", "--json", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("json exit = %d, want 0; stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["ok"] != true {
+		t.Fatalf("payload ok = %#v", payload["ok"])
+	}
+	data := payload["data"].(map[string]any)
+	warnings, ok := data["warnings"].([]any)
+	if !ok || len(warnings) == 0 {
+		t.Fatalf("expected data.warnings; got %#v", data["warnings"])
+	}
+	first := warnings[0].(map[string]any)
+	if first["rule"] != "foreign_repo_reach" || first["token"] != "acme/widget-service" {
+		t.Fatalf("unexpected warning: %#v", first)
+	}
+}
+
 func TestWorkflowValidateRefusesSameModelPairingUnlessAllowed(t *testing.T) {
 	dir := t.TempDir()
 	path := writeWorkflow(t, dir, sameModelWorkflow())
@@ -822,6 +908,65 @@ func basicWorkflow() string {
     "role_id": "worker",
     "lane_id": "codex",
     "task_prompt": {"inline": "do work"},
+    "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["out/"], "forbidden_paths": []},
+    "expected_artifacts": []
+  }],
+  "edges": [],
+  "cycles": []
+}`
+}
+
+// crossRepoEscapeWorkflow is basicWorkflow with a single lane whose
+// write_scope.allowed_paths reaches outside the registered repo root (a
+// parent-escaping path). RFC 0128 P0 (D196) requires `workflow validate` to
+// refuse it with exit 7 and the offending path.
+func crossRepoEscapeWorkflow() string {
+	return `{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "go-cli-test",
+  "workflow_version": "test",
+  "name": "Go CLI Test",
+  "context_docs": [],
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "lanes": {"codex": {"adapter": "process", "command": ["true"], "model": "codex"}},
+  "roles": {"coordinator": {"description": "Coordinator"}, "worker": {"description": "Worker"}},
+  "jobs": [{
+    "id": "build",
+    "type": "build",
+    "role_id": "worker",
+    "lane_id": "codex",
+    "task_prompt": {"inline": "do work"},
+    "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["../striatum-warmtier/go"], "forbidden_paths": []},
+    "expected_artifacts": []
+  }],
+  "edges": [],
+  "cycles": []
+}`
+}
+
+// foreignPromptSlugWorkflow is a structurally valid, in-repo-write workflow
+// whose inline prompt names a foreign org/repo slug. RFC 0128 P0 (D196) requires
+// `workflow validate` to PASS (exit 0) while WARNING about the cross-repo intent.
+func foreignPromptSlugWorkflow() string {
+	return `{
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "go-cli-test",
+  "workflow_version": "test",
+  "name": "Go CLI Test",
+  "context_docs": [],
+  "coordinator": {"role_id": "coordinator", "lane_id": "codex"},
+  "parallelism": {"mode": "declared", "max_active_jobs": 1},
+  "branch": {"mode": "confirm", "suggested_name": "main"},
+  "lanes": {"codex": {"adapter": "process", "command": ["true"], "model": "codex"}},
+  "roles": {"coordinator": {"description": "Coordinator"}, "worker": {"description": "Worker"}},
+  "jobs": [{
+    "id": "build",
+    "type": "build",
+    "role_id": "worker",
+    "lane_id": "codex",
+    "task_prompt": {"inline": "Harden the acme/widget-service repo alongside this one."},
     "write_scope": {"mode": "repo_write", "repo_write": true, "allowed_paths": ["out/"], "forbidden_paths": []},
     "expected_artifacts": []
   }],
