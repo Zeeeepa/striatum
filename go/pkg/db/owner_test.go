@@ -131,6 +131,80 @@ func TestCheckOwnerBundleWatermarkPropagatesReadError(t *testing.T) {
 	}
 }
 
+// TestCheckOwnerBundleWatermarkPermissionDeniedHaltsCleanly is #581 (RFC 0142
+// two-role ownership trap): when the runtime role cannot SELECT the owner-owned
+// watermark surface (`owner_bundle_meta`), the read fails with PostgreSQL 42501
+// (insufficient_privilege). That MUST be classified as the clean awaiting_owner_ddl
+// halt — the same condition main.go maps to the non-restartable exitAwaitingOwnerDDL
+// exit — NOT a generic error that crash-loops under systemd Restart=on-failure.
+func TestCheckOwnerBundleWatermarkPermissionDeniedHaltsCleanly(t *testing.T) {
+	denied := &pgconn.PgError{Code: "42501", Message: "permission denied for table owner_bundle_meta"}
+	runner := &watermarkRunner{metaPresent: true, scalarErr: denied}
+
+	err := CheckOwnerBundleWatermark(context.Background(), runner)
+	if err == nil {
+		t.Fatal("a 42501 reading owner_bundle_meta must halt, got nil")
+	}
+	// The watermark check must remain a pure read even on the denied path.
+	if runner.wroteAnything() {
+		t.Fatalf("CheckOwnerBundleWatermark issued a write statement; it must be read-only: %v", runner.queries)
+	}
+	// Routed to the same typed halt main.go matches with errors.As — so it takes
+	// the non-restartable exitAwaitingOwnerDDL exit, not a generic crash-loop.
+	var typed *AwaitingOwnerDDLError
+	if !errors.As(err, &typed) {
+		t.Fatalf("42501 watermark read must classify as *AwaitingOwnerDDLError, got %T: %v", err, err)
+	}
+	if !errors.Is(err, ErrAwaitingOwnerDDL) {
+		t.Fatalf("42501 watermark read must satisfy errors.Is(ErrAwaitingOwnerDDL), got %v", err)
+	}
+	// The underlying pg error stays reachable for diagnostics.
+	if !errors.Is(err, denied) {
+		t.Fatalf("the 42501 cause must remain reachable via errors.Is, got %v", err)
+	}
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "42501" {
+		t.Fatalf("the underlying *pgconn.PgError (42501) must remain reachable via errors.As, got %v", err)
+	}
+	// The operator message must name the surface and the one-step remediation.
+	for _, needle := range []string{
+		"awaiting_owner_ddl",
+		"owner_bundle_meta",
+		"runtime role",
+		"striatum daemon owner-ddl apply",
+		"left untouched",
+	} {
+		if !strings.Contains(typed.Error(), needle) {
+			t.Fatalf("permission-denied halt message missing %q; got: %s", needle, typed.Error())
+		}
+	}
+}
+
+// TestCheckOwnerBundleWatermarkNonPrivilegeReadErrorStaysGeneric guards the
+// boundary of the #581 carve-out: a NON-42501 read failure (e.g. the database is
+// momentarily down) must NOT be misreported as awaiting_owner_ddl — it stays a
+// generic error so the daemon's normal transient-failure restart still applies.
+func TestCheckOwnerBundleWatermarkNonPrivilegeReadErrorStaysGeneric(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"plain_error", errors.New("connection refused")},
+		{"other_pg_code", &pgconn.PgError{Code: "57P03", Message: "the database system is starting up"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			runner := &watermarkRunner{metaPresent: true, scalarErr: tc.err}
+			err := CheckOwnerBundleWatermark(context.Background(), runner)
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("non-privilege read error must propagate as-is, got %v", err)
+			}
+			if errors.Is(err, ErrAwaitingOwnerDDL) {
+				t.Fatalf("a non-42501 read failure must not be misreported as a watermark halt: %v", err)
+			}
+		})
+	}
+}
+
 // TestRequiredOwnerBundleVersionTracksFrontier pins the RFC 0142 invariant that
 // the required watermark IS the owner-bundle frontier the binary ships. If a new
 // owner bundle bumps LatestOwnerBundleVersion, the required watermark moves with

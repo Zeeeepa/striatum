@@ -45,14 +45,40 @@ var ErrAwaitingOwnerDDL = errors.New("awaiting_owner_ddl")
 // the exact remediation command for the RFC 0142 Layer 2 watermark shortfall. It
 // wraps ErrAwaitingOwnerDDL so callers can branch on the condition with
 // errors.Is / errors.As while still printing the operator-facing remediation.
+//
+// It also carries the sibling "watermark unreadable" case (RFC 0142 two-role
+// ownership trap; #581): when the runtime role cannot even SELECT the watermark
+// surface (`owner_bundle_meta` is owner-owned and its grants are in flux mid-
+// deploy) the read fails with PostgreSQL 42501 (insufficient_privilege). That is
+// the SAME clean halt — a runtime-role privilege gap that a pending owner DDL
+// closes, which a bare restart cannot fix — so it reuses this type (and so the
+// daemon's `exitAwaitingOwnerDDL` non-restartable exit) rather than crash-looping
+// as a generic bootstrap error. Cause is set in that branch so Error() renders
+// the privilege-specific remediation and Unwrap() exposes the underlying pg error.
 type AwaitingOwnerDDLError struct {
 	Applied  int
 	Required int
+	// Cause, when set, marks the "watermark unreadable" variant (42501 reading
+	// owner_bundle_meta as the runtime role) instead of the version shortfall.
+	// Applied/Required are not meaningful in that case (the read never returned a
+	// version), so Error() renders the privilege-specific message.
+	Cause error
 }
 
-// Error renders the actionable halt message: the applied-vs-required versions and
-// the exact out-of-band remediation command.
+// Error renders the actionable halt message. For the version shortfall it names
+// the applied-vs-required versions; for the watermark-unreadable variant (#581)
+// it names the privilege gap on owner_bundle_meta. Both end with the same
+// out-of-band remediation command and the database-untouched guarantee.
 func (e *AwaitingOwnerDDLError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf(
+			"awaiting_owner_ddl: the runtime role cannot read the owner-bundle watermark surface "+
+				"(`striatumd.owner_bundle_meta`): %v. This is the RFC 0142 two-role ownership trap — "+
+				"owner-owned grants are in flux mid-deploy — so apply the pending owner bundle(s) as the "+
+				"database owner BEFORE restarting onto this binary: "+
+				"`striatum daemon owner-ddl apply` (RFC 0142 Layer 2). The database was left untouched (no runtime migration ran).",
+			e.Cause)
+	}
 	return fmt.Sprintf(
 		"awaiting_owner_ddl: applied owner-bundle watermark %d is below the %d this binary requires; "+
 			"apply the pending owner bundle(s) as the database owner BEFORE restarting onto this binary: "+
@@ -60,8 +86,15 @@ func (e *AwaitingOwnerDDLError) Error() string {
 		e.Applied, e.Required)
 }
 
-// Unwrap lets errors.Is(err, ErrAwaitingOwnerDDL) match an AwaitingOwnerDDLError.
-func (e *AwaitingOwnerDDLError) Unwrap() error { return ErrAwaitingOwnerDDL }
+// Unwrap lets errors.Is(err, ErrAwaitingOwnerDDL) match an AwaitingOwnerDDLError
+// in both variants, and errors.As reach the underlying pg error for the
+// watermark-unreadable variant.
+func (e *AwaitingOwnerDDLError) Unwrap() []error {
+	if e.Cause != nil {
+		return []error{ErrAwaitingOwnerDDL, e.Cause}
+	}
+	return []error{ErrAwaitingOwnerDDL}
+}
 
 // CheckOwnerBundleWatermark enforces the RFC 0142 Layer 2 owner-bundle watermark
 // interlock against the live database, returning the policy decision WITHOUT
@@ -91,6 +124,17 @@ func (e *AwaitingOwnerDDLError) Unwrap() error { return ErrAwaitingOwnerDDL }
 func CheckOwnerBundleWatermark(ctx context.Context, runner Runner) error {
 	applied, err := OwnerBundleVersion(ctx, runner)
 	if err != nil {
+		// #581 (RFC 0142 two-role ownership trap): reading owner_bundle_meta as the
+		// runtime role fails with 42501 (insufficient_privilege) when the owner-owned
+		// watermark surface's grants/ownership are in flux mid-deploy. That is the
+		// SAME clean, deterministic halt as a version shortfall — a runtime-role
+		// privilege gap a pending owner DDL closes, which a bare restart cannot fix —
+		// so classify it as awaiting_owner_ddl (the daemon's non-restartable exit)
+		// instead of letting it propagate as a generic bootstrap error that
+		// crash-loops under systemd Restart=on-failure (apoptosis, not necrosis).
+		if isInsufficientPrivilege(err) {
+			return &AwaitingOwnerDDLError{Required: RequiredOwnerBundleVersion, Cause: err}
+		}
 		return err
 	}
 	// applied == 0 is a fresh / single-role database with no authority schema.
