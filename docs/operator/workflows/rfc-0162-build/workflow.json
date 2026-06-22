@@ -1,0 +1,236 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "confirm",
+    "suggested_name": "striatum/rfc-0162-build"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0162-build/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0162-design/commit/proposal/PROPOSAL.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0162-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_2.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0162-lane-auth-silent-failure-observability.md",
+      "required": true
+    },
+    {
+      "path": "AGENTS.md",
+      "required": true
+    },
+    {
+      "path": "go/pkg/metrics/registry.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/laneproviderauth/lane_provider_auth.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/mutations/supervision_provider_auth.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/metrics/rules/alerting_rules.yml",
+      "required": false
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "review",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "on": "completed",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "on": "completed",
+      "to": "apply"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "draft",
+          "path": "docs/operator/artifacts/rfc-0162-build/DRAFT.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Implement the RFC 0162 lane-auth observability MVP (PROPOSAL build-order steps 1-5) test-first; publish DRAFT.md describing the source changes.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Draft starter artifact",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0162-build/",
+          "go/pkg/metrics/",
+          "go/pkg/laneproviderauth/",
+          "go/pkg/mutations/",
+          "go/pkg/reads/",
+          "go/cmd/striatumd/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/rfc-0162-build/review/REVIEW.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the MVP code against the PROPOSAL acceptance criteria, the F1/F2 binding folds, and the FA-* named tests; record a finding verdict.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review the draft",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0162-build/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "summary",
+          "path": "docs/operator/artifacts/rfc-0162-build/SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Finalize the reviewed MVP change; ensure go build/vet/test green and publish SUMMARY.md.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Apply the accepted review",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0162-build/",
+          "go/pkg/metrics/",
+          "go/pkg/laneproviderauth/",
+          "go/pkg/mutations/",
+          "go/pkg/reads/",
+          "go/cmd/striatumd/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      }
+    }
+  },
+  "name": "rfc-0162-build",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0162-build",
+  "workflow_version": "2026-06-22"
+}
