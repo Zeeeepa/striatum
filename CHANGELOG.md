@@ -4,6 +4,28 @@
 
 ### Added
 
+- **Schema-fingerprint drift gate, shadow-first (RFC 0142 Layer 3 part 1 / P3 /
+  D258; #570).** The serving daemon now computes `db.ExpectedFingerprint()` — a
+  deterministic sha256 over the ordered runtime-migration SHA set + ordered
+  owner-bundle SHA set its binary embeds — and, on a successful `ConnectAndMigrate`,
+  self-records it into the new runtime-owned `striatumd.schema_state` singleton
+  (migration **0043**, additive, runtime-role-applied, no owner-table DDL/FK). On
+  boot it reads `db.LiveFingerprint(db)` and compares: a correctly-migrated daemon
+  always reads Live == Expected and never false-halts. On **drift** the gate is
+  **SHADOW-FIRST** — by default it LOGS a loud warning and CONTINUES serving, and
+  only when the operator opts in with **`STRIATUM_SCHEMA_DRIFT_REFUSE=1`** does it
+  return the typed `schema_drift` halt (`db.SchemaDriftError` wrapping
+  `db.ErrSchemaDrift`) and refuse to serve, reusing the Layer 2 non-restartable
+  exit code 79. Shadow-first matches the codebase convention for a risky new boot
+  gate (cf. `STRIATUM_AUTO_SPAWN_SCHEDULER`): a boot-halt gate that lands to main
+  auto-applies on the next restart, so a fingerprint false-positive must not be
+  able to convert a healthy deploy into an outage. A read-only `schema_drift`
+  `striatum doctor` block reports Expected vs Live and whether drift is present (a
+  **warning**, never a hard problem) so drift is visible regardless of the env
+  flag. This is Layer 3 PART ONE only: it ships the loud, test-covered drift
+  DETECTION without yet moving where DDL runs (the one-shot `striatum daemon
+  deploy` coordinator is P4).
+
 - **Owner-bundle watermark interlock + fail-clean boot halt (RFC 0142 Layer 2 /
   D258; #442 / D248 class).** The daemon binary now declares
   `db.RequiredOwnerBundleVersion` — the owner-bundle frontier it ships

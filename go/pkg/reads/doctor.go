@@ -41,6 +41,14 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	ownerBundleWatermarkBlock, ownerBundleWatermarkProblems := ownerBundleWatermarkDoctorBlock(ctx, runner)
 	problems = append(problems, ownerBundleWatermarkProblems...)
 
+	// RFC 0142 Layer 3 part 1 (P3 / #570): surface the schema-fingerprint drift gate
+	// — the fingerprint this binary expects vs the live recorded fingerprint, and
+	// whether they diverge. Reported as a WARNING (never a hard problem) so drift is
+	// visible regardless of whether the operator opted enforcement on
+	// (STRIATUM_SCHEMA_DRIFT_REFUSE); the gate itself is shadow-first. Daemon-global;
+	// reads no secret. Collected here; appended to `warnings` once that slice exists.
+	schemaDriftBlock, schemaDriftWarnings := schemaDriftDoctorBlock(ctx, runner)
+
 	staleLeases := 0
 	if repositoryID != "" {
 		// #45: an expired lease row persists forever, so counting every
@@ -166,6 +174,9 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// is never read or returned.
 	codexBlock, codexWarnings := codexDoctorBlock()
 	warnings := append([]string{}, codexWarnings...)
+	// RFC 0142 Layer 3 part 1 (P3): drift is advisory at doctor time (see the
+	// collection above near the watermark block).
+	warnings = append(warnings, schemaDriftWarnings...)
 
 	// #87 / RFC 0096 §2: surface when supervised lanes are not isolated from the
 	// daemon's PostgreSQL by a dedicated PG-less lane OS user. This is advisory
@@ -332,6 +343,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"job_stuck_no_live_session":    stuckJobBlock,
 		"event_chain_segment_seams":    eventSegmentBlock,
 		"owner_bundle_watermark":       ownerBundleWatermarkBlock,
+		"schema_drift":                 schemaDriftBlock,
 		"verifier_selfpin_drift":       verifierSelfpinBlock,
 		"verifier_pin_drift":           verifierPinBlock,
 		"skills":                       skillsBlock,

@@ -212,6 +212,20 @@ func main() {
 				log.Printf("striatumd will NOT auto-restart this condition (exit %d); apply the pending owner bundle, then restart", exitAwaitingOwnerDDL)
 				os.Exit(exitAwaitingOwnerDDL)
 			}
+			// RFC 0142 Layer 3 part 1 (P3): a schema_drift halt only reaches here when
+			// the operator opted enforcement on (STRIATUM_SCHEMA_DRIFT_REFUSE=1); the
+			// DEFAULT shadow mode logs a warning and continues, never returning this
+			// error. Like the watermark shortfall it is a deterministic, bare-restart-
+			// can't-fix condition (the applied schema does not match this binary) — so
+			// reuse the same non-restartable exit code: the operator must reconcile the
+			// database to the binary (or vice versa) before restarting.
+			var schemaDrift *db.SchemaDriftError
+			if errors.As(err, &schemaDrift) {
+				releaseDaemonRuntime()
+				log.Printf("striatumd refusing to start: %v", schemaDrift)
+				log.Printf("striatumd will NOT auto-restart this condition (exit %d); reconcile the schema to the binary (or unset %s for shadow mode), then restart", exitAwaitingOwnerDDL, db.EnvSchemaDriftRefuse)
+				os.Exit(exitAwaitingOwnerDDL)
+			}
 			fatalf("daemon db connect/bootstrap failed: %v", err)
 		}
 		pool := booted.Pool

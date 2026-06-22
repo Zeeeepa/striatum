@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -351,6 +352,51 @@ func ConnectAndMigrate(ctx context.Context, postgresURL string, daemonVersion st
 	}
 	version, err := ApplyMigrations(ctx, pool.Runner, daemonVersion)
 	if err != nil {
+		pool.Close()
+		return nil, 0, err
+	}
+	// RFC 0142 Layer 3 part 1 (P3 / #570): schema-fingerprint drift gate. Compare
+	// the PRE-EXISTING recorded fingerprint (the plan that last deployed this
+	// database) against the set this binary embeds, BEFORE the self-record below
+	// overwrites it — otherwise the self-record would mask the very divergence the
+	// gate exists to catch. Note this is Layer 3 PART ONE: the serving daemon still
+	// auto-applies migrations above, so for a pure runtime-migration gap this gate
+	// is mostly a backstop (the apply just reconciled it); it bites when the apply
+	// CANNOT reconcile the divergence — a binary rolled to a frontier below the
+	// recorded plan, or owner bundles / out-of-band state the runtime role cannot
+	// touch. (P4 lifts apply out of serve-boot, which is when this gate becomes the
+	// primary guard.)
+	//
+	// SHADOW-FIRST (default): on drift, LOG a loud warning and CONTINUE serving — a
+	// boot-halt gate that lands to main auto-applies on the next restart, so a
+	// false-positive fingerprint must not be able to convert a healthy deploy into
+	// an outage. Only when the operator opts in (STRIATUM_SCHEMA_DRIFT_REFUSE=1)
+	// does drift return a typed *SchemaDriftError and refuse to serve, reusing the
+	// Layer 2 non-restartable exit path.
+	drifted, driftErr := CheckSchemaDrift(ctx, pool.Runner)
+	if driftErr != nil {
+		// Refuse mode (or a read error): halt. The migrate already ran, but the
+		// daemon must not serve on a drifted schema when enforcement is on; and we
+		// deliberately do NOT self-record below, so the divergence stays visible.
+		pool.Close()
+		return nil, 0, driftErr
+	}
+	if drifted {
+		// Shadow mode: drift detected but enforcement is OFF. Log loudly, then fall
+		// through to self-record (reconcile the recorded plan to this binary) and
+		// serve. doctor's schema_drift block re-derives drift live for visibility.
+		expected, _ := ExpectedFingerprint()
+		live, _ := LiveFingerprint(ctx, pool.Runner)
+		log.Printf("RFC 0142 schema_drift (SHADOW; not refusing): recorded schema fingerprint %q diverges from the %q this binary expects; "+
+			"set %s=1 to refuse-to-serve on drift",
+			live, expected, EnvSchemaDriftRefuse)
+	}
+	// RFC 0142 Layer 3 part 1 (P3 / #570): self-record this binary's expected
+	// schema fingerprint into the schema_state singleton AFTER the drift check, so a
+	// correctly-migrated daemon always reads Live == Expected on the NEXT boot and
+	// the drift gate never false-halts. ApplyMigrations just succeeded, so the live
+	// schema IS the set this binary embeds. This is the only writer of schema_state.
+	if err := RecordSchemaFingerprint(ctx, pool.Runner, daemonVersion); err != nil {
 		pool.Close()
 		return nil, 0, err
 	}

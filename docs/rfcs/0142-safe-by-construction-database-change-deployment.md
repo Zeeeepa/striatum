@@ -11,8 +11,18 @@ author: proposer-claude-opus-4-8-001
 > and **P0 (the two-role pgtest fixture / `42501` oracle) is implemented and
 > deployed** (PR #553, live). **P1–P2** (ownership pre-flight lint + Layer 0
 > reservation ledger; owner-bundle watermark interlock + fail-clean halt) follow
-> as direct runner-fix PRs; **P3–P5** (schema-fingerprint drift gate; one-shot
-> deployer; rehearsal receipt + expand/contract) are tracked as sliced issues.
+> as direct runner-fix PRs. **P3** (schema-fingerprint drift gate, Layer 3 part 1
+> / #570) is **implemented SHADOW-FIRST**: migration `0043_schema_state` +
+> `ExpectedFingerprint`/`LiveFingerprint` + a boot-guard drift gate that, by
+> default, LOGS a loud warning and continues serving on drift, and only
+> refuses-to-serve (the typed `schema_drift` halt, reusing the Layer 2
+> non-restartable exit) when the operator opts in with
+> `STRIATUM_SCHEMA_DRIFT_REFUSE=1`; a read-only `schema_drift` doctor block makes
+> drift visible regardless of the flag. The shadow-first default is the codebase
+> convention for a risky new boot gate (a boot-halt gate that lands to main
+> auto-applies on the next restart, so a fingerprint false-positive must not be
+> able to cause an outage by merely landing). **P4–P5** (one-shot deployer;
+> rehearsal receipt + expand/contract) remain tracked as sliced issues.
 
 Context:
 - The recurring production incident class this RFC closes is **a database
@@ -220,7 +230,7 @@ crash-loop either.
 | **P0 — two-role pgtest fixture** | Layer 1a. Provision both roles + real grants; one red regression test reproducing the #442 `42501`. | Highest leverage, lowest ambiguity, becomes the oracle for everything else. Catches the named root cause in CI today. |
 | **P1 — ownership pre-flight lint + Layer 0 ledger** | Static owner-table denylist (generated) + load-time refusal + reservation ledger + CI collision guard. | Cheap author-time gates; remove the two most common foot-guns before they reach CI. |
 | **P2 — watermark interlock + fail-clean** | Layer 2: `requires_owner_bundle` declaration, clean `awaiting_owner_ddl` halt, doctor precondition, downgrade policy. | Converts any surviving ordering/ownership miss from a crash-loop into a clean, actionable stop. Small, high-fit. |
-| **P3 — schema-fingerprint drift gate** | Layer 3 part 1: `schema_state`, `ExpectedFingerprint`/`LiveFingerprint`, refuse-to-serve on drift — **without moving where DDL runs yet**. | Ships the loud, test-covered drift gate first; de-risks P4. |
+| **P3 — schema-fingerprint drift gate** *(implemented, shadow-first; #570)* | Layer 3 part 1: `schema_state` (migration 0043), `ExpectedFingerprint`/`LiveFingerprint`, drift gate — **without moving where DDL runs yet**. SHADOW-FIRST default: on drift LOG + continue; refuse-to-serve (`schema_drift` halt) only under `STRIATUM_SCHEMA_DRIFT_REFUSE=1`. Read-only `schema_drift` doctor block surfaces drift regardless of the flag. | Ships the loud, test-covered drift gate first; de-risks P4. Shadow-first so a fingerprint false-positive can't auto-cause an outage on the next restart. |
 | **P4 — one-shot deployer** | Layer 3 part 2: lift auto-apply out of serve-boot into `striatum daemon deploy` (both-role coordinator, resumable cursor, deploy receipt); revoke serving-role DDL. | The structural change; only after the drift contract is proven. |
 | **P5 — rehearsal receipt + expand/contract** | Layer 4: `rehearse`, `rehearsal_receipt.v1`, fidelity tiering, expand/contract primitive, lock-budget. Unblocks RFC 0136 P2/P3 safely. | Highest-risk owner DDL; lands last, on the foundation P0–P4 provide. |
 
