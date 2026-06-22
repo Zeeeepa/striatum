@@ -98,7 +98,7 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
-	if err := runSuperviseProviderAuthGate(ctx, config, providerAuthGate); err != nil {
+	if err := runSuperviseProviderAuthGate(ctx, runner, config, providerAuthGate); err != nil {
 		return nil, err
 	}
 	supervisorID, err := newID("sup")

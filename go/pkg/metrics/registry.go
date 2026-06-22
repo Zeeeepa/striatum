@@ -168,5 +168,16 @@ func DefaultRegistry() *Registry {
 	r.MustRegister(Family{Name: metricLifecycleBalance, Type: TypeGauge, Classification: ClassificationOperational})
 	r.MustRegister(Family{Name: metricRepoConsent, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"bucket"}})
 	r.MustRegister(Family{Name: metricRepoRuns, Type: TypeGauge, Classification: ClassificationProvenance, Labels: []string{"bucket", "state"}})
+	// RFC 0162 lane-auth silent-failure observability. All Operational: lane is
+	// the roster slug (OS user), provider/kind are closed enums — no per-repo
+	// linkable surrogate, so none is consent-gated Provenance.
+	r.MustRegister(Family{Name: metricLaneAuthExpected, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane", "provider", "kind"}})
+	r.MustRegister(Family{Name: metricLaneCredSamplePresent, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane", "kind"}})
+	r.MustRegister(Family{Name: metricLaneCredResolverMismatch, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane", "kind"}})
+	r.MustRegister(Family{Name: metricLaneCredSecondsToExpiry, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane", "kind"}})
+	r.MustRegister(Family{Name: metricLaneCredAgeSeconds, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane", "kind"}})
+	r.MustRegister(Family{Name: metricLaneAuthLastSuccess, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane"}})
+	r.MustRegister(Family{Name: metricLaneAuthStalenessThresh, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane"}})
+	r.MustRegister(Family{Name: metricLaneCredExpiryLead, Type: TypeGauge, Classification: ClassificationOperational, Labels: []string{"lane"}})
 	return r
 }

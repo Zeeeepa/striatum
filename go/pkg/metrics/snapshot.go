@@ -135,6 +135,15 @@ type SnapshotInput struct {
 	// completed cleanly (Phase D deliverable #3). The empty value renders as ok so
 	// a hand-built snapshot (tests, the pre-first-fold zero value) is well-formed.
 	TickStatus TickStatus
+	// RFC 0162 lane-auth observations. LaneAuthRoster is the declared census
+	// expected set + the OQ4 thresholds; LaneCredSamples / LaneResolverMismatches
+	// are the Layer 1 sampler output (resolver-proven samples vs fail-closed
+	// mismatches); LaneAuthSuccesses is the codex-scoped Layer 3 heartbeat folded
+	// from lane.auth_success events. All fold into the bounded lane-auth families.
+	LaneAuthRoster         []LaneRosterObservation
+	LaneCredSamples        []LaneCredSampleObservation
+	LaneResolverMismatches []LaneResolverMismatchObservation
+	LaneAuthSuccesses      []LaneAuthSuccessObservation
 }
 
 // RepoMetric is one active repository's Phase D observation. RepoID is the raw
@@ -268,6 +277,10 @@ type Snapshot struct {
 	repoSeries          map[string]*repoSeriesEntry
 	tickStatus          TickStatus
 	unaccountedTerminal int
+
+	// RFC 0162 lane-auth families, folded from the roster + the Layer 1 sampler +
+	// the Layer 3 heartbeat events, bounded by the per-family lane series budget.
+	laneAuth *laneAuth
 }
 
 // BuildSnapshot is the Phase A constructor: it folds run observations and the
@@ -376,6 +389,10 @@ func Build(in SnapshotInput) *Snapshot {
 	for _, rm := range in.RepoMetrics {
 		snap.addRepoMetric(rm)
 	}
+
+	// RFC 0162: fold the lane-auth families, applying the per-family lane series
+	// budget and recording any clips into the shared cardinality-clip counter.
+	snap.laneAuth = foldLaneAuth(in, snap.cardinalityClipped)
 
 	return snap
 }

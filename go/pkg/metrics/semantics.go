@@ -71,6 +71,20 @@ var metricRateSemantics = map[string]RateSemantics{
 	// Snapshot despite the `_total` suffix and the `# TYPE counter` exposition: the
 	// value is the current snapshot's clip count, recomputed each tick.
 	metricCardinalityClipped: SeriesSnapshot,
+
+	// RFC 0162 lane-auth gauges — every one is a point-in-time snapshot rebuilt
+	// each fold from the roster / the current credential sample / the latest
+	// heartbeat. They rise and fall (a credential renews → seconds_to_expiry
+	// jumps; a lane is removed → its series disappears), so rules read them with
+	// direct comparison / delta / time(), never rate()/increase().
+	metricLaneAuthExpected:         SeriesSnapshot,
+	metricLaneCredSamplePresent:    SeriesSnapshot,
+	metricLaneCredResolverMismatch: SeriesSnapshot,
+	metricLaneCredSecondsToExpiry:  SeriesSnapshot,
+	metricLaneCredAgeSeconds:       SeriesSnapshot,
+	metricLaneAuthLastSuccess:      SeriesSnapshot,
+	metricLaneAuthStalenessThresh:  SeriesSnapshot,
+	metricLaneCredExpiryLead:       SeriesSnapshot,
 }
 
 // histogramSeriesSuffixes are the derived series a histogram family emits. A

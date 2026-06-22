@@ -111,3 +111,84 @@ groups:
         annotations:
           summary: "striatumd metrics series budget clipped a family"
           description: "A per-family series budget collapsed distinct label tuples onto the other bucket."
+
+      # RFC 0162 lane-auth silent-failure observability — alert on the ABSENCE of
+      # expected lane authentication, never on the presence of errors. Every alert
+      # carries the missing/affected lane label so one dead lane can never average
+      # into green (no aggregate-only rule). The operator re-vendors these into
+      # halbritt/proximal separately; here they keep the registry guardrail honest.
+
+      # L1 proactive — fires WHILE the OAuth lane is still healthy: seconds-to-expiry
+      # has crossed the operator-declared per-lane lead. Both series are per-tick
+      # gauges, so the comparison is direct (never through rate()).
+      - alert: LaneCredExpirySoon
+        expr: striatum_lane_cred_seconds_to_expiry < on(lane) group_left() striatum_lane_cred_expiry_lead_seconds
+        for: 15m
+        labels:
+          severity: page
+          lane: "{{ $labels.lane }}"
+        annotations:
+          summary: "lane {{ $labels.lane }} OAuth credential expiring soon"
+          description: "seconds_to_expiry crossed the declared expiry lead; renew the lane credential before it expires."
+
+      # The renewer silently stopped: seconds_to_expiry is falling instead of being
+      # topped up, days before the lead tripwire. delta() over a gauge is a direct
+      # trend read, not a counter rate. The [6h] window must exceed ~1.5x the
+      # longest-cadence rostered lane's renewal interval (documented caveat).
+      - alert: LaneCredRenewalStalled
+        expr: delta(striatum_lane_cred_seconds_to_expiry[6h]) < 0
+        for: 2h
+        labels:
+          severity: page
+          lane: "{{ $labels.lane }}"
+        annotations:
+          summary: "lane {{ $labels.lane }} credential renewal appears stalled"
+          description: "seconds_to_expiry is trending down over 6h; the renewer may have stopped while the token is still valid."
+
+      # Per-lane census / absence — covers ALL rostered lanes incl. non-codex
+      # api_key, preserving the missing lane's label via unless on(lane).
+      - alert: LaneAuthSampleMissing
+        expr: striatum_lane_auth_expected unless on(lane) (striatum_lane_cred_sample_present == 1)
+        for: 10m
+        labels:
+          severity: page
+          lane: "{{ $labels.lane }}"
+        annotations:
+          summary: "rostered lane {{ $labels.lane }} produced no auth sample"
+          description: "A rostered lane emitted no sample_present this window; its credential may have vanished."
+
+      # Fail-closed resolver — an unprovable runtime credential source pages, never
+      # reads green.
+      - alert: LaneCredResolverMismatch
+        expr: striatum_lane_cred_resolver_mismatch == 1
+        for: 10m
+        labels:
+          severity: page
+          lane: "{{ $labels.lane }}"
+        annotations:
+          summary: "lane {{ $labels.lane }} credential resolver mismatch"
+          description: "The runtime credential source for this lane could not be proven; no green gauge is emitted for it."
+
+      # L3 passive backstop — codex lanes that run a real auth Check. time()-minus-
+      # last-success against the operator-declared staleness threshold.
+      - alert: LaneAuthHeartbeatStale
+        expr: time() - striatum_lane_auth_last_success_timestamp_seconds > on(lane) group_left() striatum_lane_auth_staleness_threshold_seconds
+        for: 10m
+        labels:
+          severity: page
+          lane: "{{ $labels.lane }}"
+        annotations:
+          summary: "lane {{ $labels.lane }} auth heartbeat stale"
+          description: "No real auth success for this lane within its declared staleness threshold."
+
+      # Shared-fate — the exporter/daemon being down pages as loudly as a stale
+      # value (complements MetricsSnapshotStale). up{job="striatumd"} is not a
+      # striatum_* family, so the registry guardrail ignores it.
+      - alert: LaneAuthExporterDown
+        expr: absent(striatum_lane_auth_expected) or up{job="striatumd"} == 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "striatumd lane-auth exporter is down or emitting no expected vector"
+          description: "The lane-auth census vector is absent or the exporter is unscrapeable; lane-auth observability is blind."

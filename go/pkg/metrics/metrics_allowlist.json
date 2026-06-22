@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "sha256": "8ab426474bc21f45999fd080629fcffbfd652f1885f5936868283571b5933ff9",
+  "sha256": "275863abdcb068f1769876acef293dac73de92a82b0a07047a0d1c4cbd5a6651",
   "families": [
     {
       "name": "striatum_apoptosis_total",
@@ -17,6 +17,76 @@
       "classification": "operational",
       "labels": [
         "class"
+      ]
+    },
+    {
+      "name": "striatum_lane_auth_expected",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "kind",
+        "lane",
+        "provider"
+      ]
+    },
+    {
+      "name": "striatum_lane_auth_last_success_timestamp_seconds",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_auth_staleness_threshold_seconds",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_cred_age_seconds",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "kind",
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_cred_expiry_lead_seconds",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_cred_resolver_mismatch",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "kind",
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_cred_sample_present",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "kind",
+        "lane"
+      ]
+    },
+    {
+      "name": "striatum_lane_cred_seconds_to_expiry",
+      "type": "gauge",
+      "classification": "operational",
+      "labels": [
+        "kind",
+        "lane"
       ]
     },
     {

@@ -39,6 +39,15 @@ const (
 	metricLifecycleBalance = "striatum_lifecycle_balance"
 	metricRepoConsent      = "striatum_metrics_repo_consent"
 	metricRepoRuns         = "striatum_repo_runs"
+	// RFC 0162 lane-auth silent-failure observability families.
+	metricLaneAuthExpected         = "striatum_lane_auth_expected"
+	metricLaneCredSamplePresent    = "striatum_lane_cred_sample_present"
+	metricLaneCredResolverMismatch = "striatum_lane_cred_resolver_mismatch"
+	metricLaneCredSecondsToExpiry  = "striatum_lane_cred_seconds_to_expiry"
+	metricLaneCredAgeSeconds       = "striatum_lane_cred_age_seconds"
+	metricLaneAuthLastSuccess      = "striatum_lane_auth_last_success_timestamp_seconds"
+	metricLaneAuthStalenessThresh  = "striatum_lane_auth_staleness_threshold_seconds"
+	metricLaneCredExpiryLead       = "striatum_lane_cred_expiry_lead_seconds"
 )
 
 // WriteText renders the FULL snapshot as Prometheus text exposition — the
@@ -101,7 +110,70 @@ func (s *Snapshot) WriteTextScoped(w io.Writer, now time.Time, allowedRepos map[
 	s.writeRepoConsent(bw, allowedRepos)
 	s.writeRepoRuns(bw, allowedRepos)
 
+	// RFC 0162 lane-auth families. Always rendered (HELP/TYPE) so absence is
+	// distinguishable from a genuine zero; only observed label-tuples carry a
+	// value, bounded by the lane series budget.
+	s.writeLaneAuth(bw)
+
 	return bw.err
+}
+
+// writeLaneAuth renders the eight RFC 0162 lane-auth families. lane is the roster
+// slug (OS user), provider/kind are closed enums — never a repo/run/session id,
+// path, sha, branch, prompt, or byline reaches these labels.
+func (s *Snapshot) writeLaneAuth(bw *errWriter) {
+	la := s.laneAuth
+	if la == nil {
+		la = newLaneAuth()
+	}
+
+	bw.line("# HELP " + metricLaneAuthExpected + " Declared lane auth mechanisms (census expected set) by lane, provider and kind.")
+	bw.line("# TYPE " + metricLaneAuthExpected + " gauge")
+	for _, k := range sortedLaneProviderKinds(la.expected) {
+		bw.line(metricLaneAuthExpected + `{kind="` + k.kind + `",lane="` + k.lane + `",provider="` + k.provider + `"} ` + strconv.Itoa(la.expected[k]))
+	}
+
+	bw.line("# HELP " + metricLaneCredSamplePresent + " Lane credential observed (resolved and parsed) this sweep by lane and kind.")
+	bw.line("# TYPE " + metricLaneCredSamplePresent + " gauge")
+	for _, k := range sortedLaneKindsInt(la.samplePresent) {
+		bw.line(metricLaneCredSamplePresent + `{kind="` + k.kind + `",lane="` + k.lane + `"} ` + strconv.Itoa(la.samplePresent[k]))
+	}
+
+	bw.line("# HELP " + metricLaneCredResolverMismatch + " Lanes whose runtime credential source could not be proven (fail-closed) by lane and kind.")
+	bw.line("# TYPE " + metricLaneCredResolverMismatch + " gauge")
+	for _, k := range sortedLaneKindsInt(la.resolverMismatch) {
+		bw.line(metricLaneCredResolverMismatch + `{kind="` + k.kind + `",lane="` + k.lane + `"} ` + strconv.Itoa(la.resolverMismatch[k]))
+	}
+
+	bw.line("# HELP " + metricLaneCredSecondsToExpiry + " Seconds until the lane OAuth credential expires by lane and kind.")
+	bw.line("# TYPE " + metricLaneCredSecondsToExpiry + " gauge")
+	for _, k := range sortedLaneKindsFloat(la.secondsToExpiry) {
+		bw.line(metricLaneCredSecondsToExpiry + `{kind="` + k.kind + `",lane="` + k.lane + `"} ` + formatFloat(la.secondsToExpiry[k]))
+	}
+
+	bw.line("# HELP " + metricLaneCredAgeSeconds + " Age in seconds of the lane OAuth credential by lane and kind.")
+	bw.line("# TYPE " + metricLaneCredAgeSeconds + " gauge")
+	for _, k := range sortedLaneKindsFloat(la.ageSeconds) {
+		bw.line(metricLaneCredAgeSeconds + `{kind="` + k.kind + `",lane="` + k.lane + `"} ` + formatFloat(la.ageSeconds[k]))
+	}
+
+	bw.line("# HELP " + metricLaneAuthLastSuccess + " Unix timestamp of the most recent real lane auth success by lane (codex-scoped heartbeat).")
+	bw.line("# TYPE " + metricLaneAuthLastSuccess + " gauge")
+	for _, lane := range sortedLaneFloatKeys(la.lastSuccessUnixSecs) {
+		bw.line(metricLaneAuthLastSuccess + `{lane="` + lane + `"} ` + formatFloat(la.lastSuccessUnixSecs[lane]))
+	}
+
+	bw.line("# HELP " + metricLaneAuthStalenessThresh + " Operator-declared lane auth staleness threshold in seconds by lane.")
+	bw.line("# TYPE " + metricLaneAuthStalenessThresh + " gauge")
+	for _, lane := range sortedLaneFloatKeys(la.stalenessThreshold) {
+		bw.line(metricLaneAuthStalenessThresh + `{lane="` + lane + `"} ` + formatFloat(la.stalenessThreshold[lane]))
+	}
+
+	bw.line("# HELP " + metricLaneCredExpiryLead + " Operator-declared lane credential expiry tripwire lead in seconds by lane.")
+	bw.line("# TYPE " + metricLaneCredExpiryLead + " gauge")
+	for _, lane := range sortedLaneFloatKeys(la.expiryLead) {
+		bw.line(metricLaneCredExpiryLead + `{lane="` + lane + `"} ` + formatFloat(la.expiryLead[lane]))
+	}
 }
 
 // writeTickStatus renders the sweep-tick status SLI (Phase D deliverable #3). The

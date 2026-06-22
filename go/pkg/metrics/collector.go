@@ -133,6 +133,18 @@ func (c *Collector) Refresh(ctx context.Context, now time.Time) error {
 	// whole surface.
 	in.DoctorProblemRecords = c.doctorProblemRecords(ctx)
 
+	// RFC 0162 lane-auth folds (best-effort). The roster + Layer 1 sampler do no DB
+	// query (the sampler is a read-only file sample); only the Layer 3 heartbeat
+	// fold queries the durable events ledger. An empty roster makes all three no-ops.
+	roster, rosterObs := laneAuthRosterObservations()
+	in.LaneAuthRoster = rosterObs
+	in.LaneCredSamples, in.LaneResolverMismatches = sampleLaneCredentials(ctx, roster, at)
+	if successes, herr := c.laneAuthSuccessObservations(ctx, roster); herr != nil {
+		partial = true
+	} else {
+		in.LaneAuthSuccesses = successes
+	}
+
 	if partial {
 		in.TickStatus = TickPartial
 	} else {

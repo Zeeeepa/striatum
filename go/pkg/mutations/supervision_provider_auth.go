@@ -5,11 +5,18 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 var supervisionProviderAuthCheck = laneproviderauth.Check
+
+// emitLaneAuthSuccessEvent is the RFC 0162 Layer 3 heartbeat write, a package var
+// so tests can observe it / simulate a write failure. It is BEST-EFFORT: the gate
+// discards its return, so a failed event write can never change the gate verdict
+// (FA-7).
+var emitLaneAuthSuccessEvent = defaultEmitLaneAuthSuccessEvent
 
 func providerAuthGateMode(envelope rpc.Envelope) (laneproviderauth.GateMode, error) {
 	raw, ok := envelope.Params["provider_auth_gate"]
@@ -27,7 +34,7 @@ func providerAuthGateMode(envelope rpc.Envelope) (laneproviderauth.GateMode, err
 	return mode, nil
 }
 
-func runSuperviseProviderAuthGate(ctx context.Context, config supervisionStartConfig, mode laneproviderauth.GateMode) error {
+func runSuperviseProviderAuthGate(ctx context.Context, runner db.Runner, config supervisionStartConfig, mode laneproviderauth.GateMode) error {
 	if mode == laneproviderauth.GateOff {
 		return nil
 	}
@@ -54,9 +61,41 @@ func runSuperviseProviderAuthGate(ctx context.Context, config supervisionStartCo
 		Env:       providerAuthPreflightEnv(config),
 	})
 	if result.Passed() {
+		// RFC 0162 Layer 3 (FA-5): emit the codex-scoped auth-success heartbeat
+		// strictly downstream of a real result.Passed() — never on the
+		// unsupported early return above. BEST-EFFORT (FA-7): the write is on the
+		// success path only and its error is swallowed, so a failed heartbeat
+		// write can never flip the gate verdict or alter a timeout.
+		_ = emitLaneAuthSuccessEvent(ctx, runner, config, result)
 		return nil
 	}
 	return providerAuthRPCError(result)
+}
+
+// defaultEmitLaneAuthSuccessEvent writes the lane.auth_success domain event into
+// the durable events ledger (folded by the metrics collector into
+// striatum_lane_auth_last_success_timestamp_seconds{lane}). The payload carries
+// only the closed-enum lane_user (roster slug / OS user), provider, and kind — no
+// repo path, sha, branch, prompt, or byline. It runs in its own short transaction
+// so the event-chain head stays contiguous; any error is returned to the caller,
+// which discards it (best-effort, FA-7).
+func defaultEmitLaneAuthSuccessEvent(ctx context.Context, runner db.Runner, config supervisionStartConfig, result laneproviderauth.Result) error {
+	if runner == nil {
+		return nil
+	}
+	laneUser := strings.TrimSpace(config.RunAsUser)
+	payload := map[string]any{
+		"lane_user": laneUser,
+		"provider":  result.Provider,
+		"kind":      laneproviderauth.KindOAuth,
+	}
+	_, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+		if _, aerr := appendEvent(ctx, tx, config.RepositoryID, config.RunID, "lane.auth_success", config.SessionID, nil, nil, nil, nil, payload); aerr != nil {
+			return nil, aerr
+		}
+		return nil, nil
+	})
+	return err
 }
 
 func providerAuthBinary(config supervisionStartConfig) string {

@@ -87,3 +87,19 @@ striatum_metrics_repo_consent{bucket="7"} 1
 striatum_repo_runs{bucket="7",state="completed"} 5
 striatum_repo_runs{bucket="7",state="other"} 1
 striatum_repo_runs{bucket="7",state="running"} 2
+# HELP striatum_lane_auth_expected Declared lane auth mechanisms (census expected set) by lane, provider and kind.
+# TYPE striatum_lane_auth_expected gauge
+# HELP striatum_lane_cred_sample_present Lane credential observed (resolved and parsed) this sweep by lane and kind.
+# TYPE striatum_lane_cred_sample_present gauge
+# HELP striatum_lane_cred_resolver_mismatch Lanes whose runtime credential source could not be proven (fail-closed) by lane and kind.
+# TYPE striatum_lane_cred_resolver_mismatch gauge
+# HELP striatum_lane_cred_seconds_to_expiry Seconds until the lane OAuth credential expires by lane and kind.
+# TYPE striatum_lane_cred_seconds_to_expiry gauge
+# HELP striatum_lane_cred_age_seconds Age in seconds of the lane OAuth credential by lane and kind.
+# TYPE striatum_lane_cred_age_seconds gauge
+# HELP striatum_lane_auth_last_success_timestamp_seconds Unix timestamp of the most recent real lane auth success by lane (codex-scoped heartbeat).
+# TYPE striatum_lane_auth_last_success_timestamp_seconds gauge
+# HELP striatum_lane_auth_staleness_threshold_seconds Operator-declared lane auth staleness threshold in seconds by lane.
+# TYPE striatum_lane_auth_staleness_threshold_seconds gauge
+# HELP striatum_lane_cred_expiry_lead_seconds Operator-declared lane credential expiry tripwire lead in seconds by lane.
+# TYPE striatum_lane_cred_expiry_lead_seconds gauge
