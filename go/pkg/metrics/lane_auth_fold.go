@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"os/user"
 	"strings"
 	"time"
@@ -112,13 +113,17 @@ func sampleLaneCredentials(ctx context.Context, roster laneproviderauth.Roster, 
 }
 
 func isResolverMismatch(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "runtime credential source cannot be proven")
+	// Match the exported fail-closed sentinel, not its message text: a future
+	// reword of ErrResolverMismatch's string must not silently reclassify a
+	// fail-closed mismatch as "absent" and drop a page (RFC 0162 review F-1).
+	return errors.Is(err, laneproviderauth.ErrResolverMismatch)
 }
 
-// laneLaunchEnv reconstructs the lane process's launch env for the resolver: the
-// lane OS user's HOME plus any roster-declared credential-home / config-dir keys.
-// This is what lets the resolver read the credential the live lane resolves, not
-// a daemon-side HOME decoy.
+// laneLaunchEnv reconstructs the launch env the lane CLI resolves its credential
+// from (the roster-declared launch_env keys plus the lane OS user's HOME). At fold
+// time there is no live lane process, so this is a reconstruction — not a read of
+// the live process env — but it is what lets the resolver prefer a provider's
+// config-dir key over a daemon-side HOME decoy (RFC 0162 review F-4).
 func laneLaunchEnv(entry laneproviderauth.RosterEntry) []string {
 	env := []string{}
 	if home := laneOSUserHome(entry.Lane); home != "" {
