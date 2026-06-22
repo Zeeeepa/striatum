@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.35.0 — 2026-06-22
+
 ### Added
 
 - **Schema-fingerprint drift gate, shadow-first (RFC 0142 Layer 3 part 1 / P3 /
