@@ -17,9 +17,21 @@ author: proposer-claude-opus-4-8
 > is census-covered only — an explicit accepted risk); a **codex-scoped** Layer-3
 > `lane.auth_success` heartbeat; doctor reconciliation; and 8 families in the RFC
 > 0137 exporter. The six alert rules are vendored to `halbritt/proximal` @ `87458e9`.
-> **Deferred follow-up:** Layer 2 (active prober / non-codex *positive* validity).
-> **Remaining acceptance gate:** the live **game-day fire test** (install the rules
-> to `/etc/prometheus` after striatumd is rebuilt, then prove each alert fires).
+> **Game-day fire test — PROVEN** (committed, reproducible): `promtool test rules
+> go/pkg/metrics/rules/rfc0162_alerts_gameday_test.yaml` => SUCCESS fires all six
+> alerts on synthetic triggers (GD-1 expiry, GD-3 renewal-stalled, GD-1b census +
+> healthy control, GD-2b resolver-mismatch, GD-5 heartbeat, GD-4 shared-fate),
+> alongside the committed `/metrics` golden render test proving the exporter emits
+> the eight families. **Live exporter deploy is gated** on the daemon's next
+> owner-DDL deploy: the running `striatumd` predates a pending owner bundle, so a
+> current-`main` restart `42501`s on `owner_bundle_meta` until `striatum daemon
+> owner-ddl apply` is run (a pre-existing, human-gated step — out of RFC 0162
+> scope). The lane-auth binary is built (`go/bin/striatumd`), the roster is staged
+> (`~/.config/striatum/lane-auth-roster.json`), and the rules are vendored to
+> `halbritt/proximal` — ready to go live at that deploy.
+> **Deferred follow-up:** Layer 2 (active prober / non-codex *positive* validity);
+> the roster model keys by lane OS user, so a host running multiple providers as
+> one lane user needs `(lane, provider)` keying to monitor each provider's cred.
 
 ## Problem
 
