@@ -1041,6 +1041,14 @@ fresh active session on the same run, appends a newer `accept` or
 revision-routing human checkpoints when present, and re-evaluates downstream
 gates.
 
+`checkpoint.resolve continue` and `checkpoint.resolve override` refuse before
+mutating blocker or job state when the parked `waiting_human` job declares a
+required artifact whose body is not inspectable from its declared placement.
+The refusal returns the affected artifact ids, paths, placements, readback
+status, and recovery guidance. `cancel` remains available as the operator's
+explicit stop path; advancing or overriding a checkpoint may not route around
+missing official evidence.
+
 `evidence export` writes a redacted Markdown snapshot of run, job, blocker,
 verdict, artifact, status, doctor, and downstream-blocking state. Export paths
 must stay inside the repository and outside `.striatum/`; the daemon DB

@@ -19,6 +19,9 @@ type doctorArtifactAnchorRunner struct {
 	repoRoot        string
 	artifactRows    []map[string]any
 	artifactQueried bool
+	// requireWaitingHumanSelection simulates a waiting_human artifact row that a
+	// completed-only doctor query would miss before it reached classification.
+	requireWaitingHumanSelection bool
 	// tombstonedIDs are artifact_ids the fake reports as recovery.debris_pruned
 	// tombstones (#303), so a suppression test can drive the doctor pass to skip
 	// them without a live PostgreSQL.
@@ -35,6 +38,9 @@ func (r *doctorArtifactAnchorRunner) Query(_ context.Context, sql string, _ ...a
 		return dashboardAllRowsFromMaps(rows), nil
 	case strings.Contains(sql, "FROM striatumd.artifacts a"):
 		r.artifactQueried = true
+		if r.requireWaitingHumanSelection && strings.Contains(sql, "j.state = 'completed'") {
+			return dashboardAllRowsFromMaps(nil), nil
+		}
 		return dashboardAllRowsFromMaps(r.artifactRows), nil
 	case strings.Contains(sql, "FROM striatumd.repositories"):
 		if r.repoRoot == "" {
@@ -187,6 +193,33 @@ func TestDoctorArtifactAnchorIntegrityReportsMissingFile(t *testing.T) {
 	contextMap := records[0]["context"].(map[string]any)
 	if contextMap["reason"] != "path_not_present_in_checked_anchors" {
 		t.Fatalf("record context = %#v, want missing-file detail", contextMap)
+	}
+}
+
+func TestDoctorArtifactAnchorIntegrityReportsWaitingHumanMissingFile(t *testing.T) {
+	repoRoot := t.TempDir()
+	baseSHA := readsGitInit(t, repoRoot)
+	runBranch := "wf/waiting-human-artifact"
+	readsGitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	row := artifactAnchorRow(repoRoot, "art_waiting_missing", "run_waiting", "job_waiting", runBranch, "docs/operator/artifacts/gate/COLLABORATION_LEDGER.md", testSHA256("missing ledger body\n"))
+	row["workflow_job_id"] = "adjudicate"
+	row["job_state"] = "waiting_human"
+
+	_, problems, records, _, _ := doctorArtifactAnchorIntegrity(
+		context.Background(),
+		&doctorArtifactAnchorRunner{
+			artifactRows:                 []map[string]any{row},
+			requireWaitingHumanSelection: true,
+		},
+		"repo_anchor",
+		healthyBlobBlock(),
+	)
+	if !strings.Contains(strings.Join(problems, "\n"), "artifact_anchor_missing_file.art_waiting_missing") {
+		t.Fatalf("problems = %#v, want waiting_human artifact missing-file problem", problems)
+	}
+	contextMap := records[0]["context"].(map[string]any)
+	if contextMap["workflow_job_id"] != "adjudicate" || contextMap["job_state"] != "waiting_human" || contextMap["reason"] != "path_not_present_in_checked_anchors" {
+		t.Fatalf("record context = %#v, want waiting-human adjudicate missing-file detail", contextMap)
 	}
 }
 

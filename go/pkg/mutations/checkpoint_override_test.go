@@ -2,6 +2,8 @@ package mutations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -227,6 +229,130 @@ func TestCheckpointOverrideRequiresDecisionID(t *testing.T) {
 	// The checkpoint is untouched.
 	if n := openRevisionBlockers(t, ctx, runner, repoID, reviewJobID); n != 1 {
 		t.Fatalf("expected checkpoint still open, got %d", n)
+	}
+}
+
+func seedUnreadableRequiredCheckpointArtifact(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, reviewJobID, sessionID string) {
+	t.Helper()
+	repoRoot := t.TempDir()
+	baseSHA := gitInit(t, repoRoot)
+	runBranch := "wf/checkpoint-unreadable"
+	gitRun(t, repoRoot, "branch", runBranch, baseSHA)
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.repositories
+		   SET repo_root = $2, state_db_path = $2 || '/.striatum'
+		 WHERE repository_id = $1`, repoID, repoRoot); err != nil {
+		t.Fatalf("point repository at git repo: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs
+		   SET repo_root = $2, branch_name = $3, branch_base = $4
+		 WHERE repository_id = $1 AND run_id = $5`, repoID, repoRoot, runBranch, baseSHA, runID); err != nil {
+		t.Fatalf("point run at git branch: %v", err)
+	}
+
+	artifactPath := "docs/operator/artifacts/checkpoint/COLLABORATION_LEDGER.md"
+	body := []byte("missing checkpoint ledger body\n")
+	sum := sha256.Sum256(body)
+	contentSHA := hex.EncodeToString(sum[:])
+	expectedArg, err := db.JSONBArg(runner, []any{map[string]any{
+		"logical_name": "collaboration_ledger_cycle_2",
+		"kind":         "collaboration_ledger",
+		"path":         artifactPath,
+		"placement":    "git_publication",
+		"required":     true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.jobs
+		   SET expected_artifacts_json = $3::jsonb
+		 WHERE repository_id = $1 AND job_id = $2`, repoID, reviewJobID, expectedArg); err != nil {
+		t.Fatalf("set expected artifact: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.artifacts (
+		  repository_id, artifact_id, run_id, job_id, session_id,
+		  logical_name, artifact_kind, repo_path, content_sha256,
+		  size_bytes, publish_mode, created_at, attempt
+		) VALUES ($1,'art_ckpt_unreadable',$2,$3,$4,
+		          'collaboration_ledger_cycle_2','collaboration_ledger',$5,$6,
+		          $7,'create',NOW(),1)`,
+		repoID, runID, reviewJobID, sessionID, artifactPath, contentSHA, len(body)); err != nil {
+		t.Fatalf("insert unreadable artifact row: %v", err)
+	}
+}
+
+func TestCheckpointContinueRefusesUnreadableRequiredArtifact(t *testing.T) {
+	if !haveGit(t) {
+		return
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_ckpt_continue_unreadable_artifact"
+	runID, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+	blockerID := openCheckpointViaVerdict(t, ctx, runner, repoID, reviewJobID, sessionID, leaseID)
+	seedUnreadableRequiredCheckpointArtifact(t, ctx, runner, repoID, runID, reviewJobID, sessionID)
+
+	_, err := HandleCheckpointResolve(ctx, runner, intgEnv(repoID, map[string]any{
+		"blocker_id": blockerID,
+		"action":     "continue",
+	}))
+	if err == nil {
+		t.Fatal("expected checkpoint continue to refuse unreadable required artifact")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("expected rpc error, got %T: %v", err, err)
+	}
+	if rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "required artifact body is not inspectable") {
+		t.Fatalf("checkpoint refusal = %s/%q, want provenance-health refusal", rpcErr.Code, rpcErr.Message)
+	}
+	if rpcErr.Details == nil || rpcErr.Details["artifacts"] == nil {
+		t.Fatalf("refusal details = %#v, want artifact diagnostics", rpcErr.Details)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "waiting_human" {
+		t.Fatalf("review state after refusal = %q, want waiting_human", got)
+	}
+	if n := openRevisionBlockers(t, ctx, runner, repoID, reviewJobID); n != 1 {
+		t.Fatalf("open checkpoint blockers after refusal = %d, want 1", n)
+	}
+}
+
+func TestCheckpointOverrideRefusesUnreadableRequiredArtifact(t *testing.T) {
+	if !haveGit(t) {
+		return
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoID := "repo_ckpt_override_unreadable_artifact"
+	runID, reviewJobID, _, sessionID, leaseID := revisionFixture(t, ctx, runner, repoID, []any{})
+	blockerID := openCheckpointViaVerdict(t, ctx, runner, repoID, reviewJobID, sessionID, leaseID)
+	seedUnreadableRequiredCheckpointArtifact(t, ctx, runner, repoID, runID, reviewJobID, sessionID)
+
+	decisionID := "dec_accept_unreadable"
+	seedDecisionArtifact(t, ctx, runner, repoID, runID, decisionID, "accepted")
+	_, err := HandleCheckpointResolve(ctx, runner, intgEnv(repoID, map[string]any{
+		"blocker_id":  blockerID,
+		"action":      "override",
+		"decision_id": decisionID,
+	}))
+	if err == nil {
+		t.Fatal("expected checkpoint override to refuse unreadable required artifact")
+	}
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) {
+		t.Fatalf("expected rpc error, got %T: %v", err, err)
+	}
+	if rpcErr.Code != "invalid_transition" || !strings.Contains(rpcErr.Message, "required artifact body is not inspectable") {
+		t.Fatalf("checkpoint refusal = %s/%q, want provenance-health refusal", rpcErr.Code, rpcErr.Message)
+	}
+	if got := jobState(t, ctx, runner, repoID, reviewJobID); got != "waiting_human" {
+		t.Fatalf("review state after refusal = %q, want waiting_human", got)
+	}
+	if n := openRevisionBlockers(t, ctx, runner, repoID, reviewJobID); n != 1 {
+		t.Fatalf("open checkpoint blockers after refusal = %d, want 1", n)
 	}
 }
 

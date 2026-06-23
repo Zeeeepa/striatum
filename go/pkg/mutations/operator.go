@@ -273,6 +273,20 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 		eventType := "checkpoint.resolved"
 		switch action {
 		case "continue":
+			var job map[string]any
+			if blockerJobID != nil {
+				var err error
+				job, err = rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(blockerJobID), true)
+				if err != nil {
+					return nil, err
+				}
+				if fmt.Sprint(job["state"]) != "waiting_human" {
+					return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint job is not in waiting_human (state=%q)", job["state"]), nil)
+				}
+				if err := ensureCheckpointJobArtifactsInspectable(ctx, tx, repositoryID, job); err != nil {
+					return nil, err
+				}
+			}
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.blockers
 				   SET state = 'resolved', resolved_at = $1
@@ -286,13 +300,6 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 				return nil, err
 			}
 			if blockerJobID != nil {
-				job, err := rowByID(ctx, tx, repositoryID, "jobs", "job_id", fmt.Sprint(blockerJobID), true)
-				if err != nil {
-					return nil, err
-				}
-				if fmt.Sprint(job["state"]) != "waiting_human" {
-					return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint job is not in waiting_human (state=%q)", job["state"]), nil)
-				}
 				// RFC 0095 Phase 2 (#65 P3): re-open atomically through the shared
 				// helper. The prior inline path moved the existing message back to
 				// `pending` (or re-enqueued) but never released a still-active lease
@@ -333,6 +340,9 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 			}
 			if fmt.Sprint(job["state"]) != "waiting_human" {
 				return nil, rpc.NewError("invalid_transition", fmt.Sprintf("checkpoint job is not in waiting_human (state=%q)", job["state"]), nil)
+			}
+			if err := ensureCheckpointJobArtifactsInspectable(ctx, tx, repositoryID, job); err != nil {
+				return nil, err
 			}
 			if err := tx.Exec(ctx, `
 				UPDATE striatumd.blockers
@@ -553,6 +563,32 @@ func HandleCheckpointResolve(ctx context.Context, runner db.Runner, envelope rpc
 			"next_actions":         nextActions,
 		}, nil
 	})
+}
+
+func ensureCheckpointJobArtifactsInspectable(ctx context.Context, runner any, repositoryID string, job map[string]any) error {
+	recon, err := verifyRequiredArtifactReconstructable(ctx, runner, repositoryID, job)
+	if err != nil {
+		return err
+	}
+	var unreadable []artifactReconstruction
+	for _, r := range recon {
+		if r.Status != reconstructionVerified {
+			unreadable = append(unreadable, r)
+		}
+	}
+	if len(unreadable) == 0 {
+		return nil
+	}
+	return rpc.NewError(
+		"invalid_transition",
+		fmt.Sprintf("checkpoint resolve refused: %d required artifact body is not inspectable; restore the body or repair artifact provenance before continuing or overriding the checkpoint", len(unreadable)),
+		map[string]any{
+			"job_id":    job["job_id"],
+			"run_id":    job["run_id"],
+			"artifacts": reconstructionLedgerEntries(unreadable),
+			"recovery":  "restore the required artifact body at its declared placement, then use recovery reseal or rerun the affected job before resolving the checkpoint",
+		},
+	)
 }
 
 type escapeDecision struct {

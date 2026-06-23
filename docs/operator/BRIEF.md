@@ -12,6 +12,14 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-23 delta — RFC 0165 v2 quarantined on artifact integrity
+
+RFC 0165 design v2 / #583 must not be continued or overridden: run
+`run_02c4fc6ad7cb5092ae4d5c67651e22a8` is parked at blocker
+`blk_66f3a29175ac2a58d509fa790e59c519`; ledger artifact `art_ae48cc3014f1ecad37303d8f0ab49b57` is unreadable. Treat v2 notes as
+diagnostic-only; repair runner artifact integrity, then start v3 from a
+refusal/coverage matrix. See `docs/operator/artifacts/rfc-0165-design-v2/QUARANTINE.md`.
+
 ## 2026-06-23 delta — owner-bundle watermark read hotfix
 
 Restarting the v2.35.0 daemon onto the RFC 0142 Layer 2 owner-bundle watermark
@@ -223,18 +231,13 @@ recovery-escalation legibility (details in CHANGELOG `v2.33.0`). The prior
 fixes; the v2.10.0 → v2.31.0 release burst is indexed in CHANGELOG and the
 decision log. Historical open sets such as #212/#263-#267 are no longer current.
 
-## Deep architecture review 2026-06-11 — work-list (mostly closed in v2.34.0)
+## Deep architecture review 2026-06-11 — mostly closed in v2.34.0
 
-`STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md` (`0e8671ed`,
-Claude Fable 5): verdict **ROUGHLY RIGHT-SIZED · ON TRACK**. v2.34.0 closed the
-ranked BLOCKER (sweep-error daemon suicide + in-tx git — fixed earlier), the P0
-untested spine (#356), the P1 deletion pass (#357, scoped to the ~1K provably-dead
-LOC — the review's "4-5K" did not survive verification), conformance honesty (#358),
-truth mechanization (#359/#363, incl. this brief's freshness guard + `supervise.rebridge`
-on-contract), and the P2 boundary-hygiene batch (#358). **STILL OPEN:** P1
-token-out-of-argv (`STRIATUM_MCP_TOKEN` passes through tmux/sudo argv, world-readable
-via `/proc/*/cmdline`, `supervisor/pty.go`) and the `docs/operator/` exhaust
-relocation (#364, ready-for-human).
+`STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_FABLE_5_2026-06-11.md` (`0e8671ed`):
+verdict **ROUGHLY RIGHT-SIZED · ON TRACK**. v2.34.0 closed the ranked blocker,
+untested spine, scoped deletion pass, conformance honesty, truth mechanization,
+and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
+`docs/operator/` exhaust relocation (#364, ready-for-human).
 
 ## Current Frontier
 

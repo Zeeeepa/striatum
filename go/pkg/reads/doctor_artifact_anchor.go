@@ -110,7 +110,7 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 		SELECT a.repository_id, a.artifact_id, a.run_id, a.job_id, a.logical_name, a.repo_path,
 		       a.content_sha256, a.artifact_kind, a.blob_key,
 		       a.blob_sha256, a.blob_content_type`+artifactPlacementProjectionAny(ctx, runner, "a")+`,
-		       j.workflow_job_id, j.attempt, j.write_scope_json,
+		       j.workflow_job_id, j.state AS job_state, j.attempt, j.write_scope_json,
 		       r.repo_root, r.branch_name, r.state AS run_state
 		  FROM striatumd.artifacts a
 		  JOIN striatumd.jobs j
@@ -120,7 +120,7 @@ func doctorArtifactAnchorIntegrity(ctx context.Context, runner db.Runner, reposi
 		    ON r.repository_id = a.repository_id
 		   AND r.run_id = a.run_id
 		 WHERE a.repository_id = $1
-		   AND j.state = 'completed'
+		   AND j.state IN ('completed', 'waiting_human')
 		   AND COALESCE(j.write_scope_json->>'repo_write', 'false') = 'true'
 		 ORDER BY a.run_id, a.job_id, a.created_at, a.artifact_id`,
 		repositoryID,
@@ -613,18 +613,20 @@ func artifactAnchorProblem(check string, row map[string]any, anchorRef, anchorCo
 		message = fmt.Sprintf("%s.%s: artifact %s missing at %s in durable git anchor", check, artifactID, artifactID, repoPath)
 	}
 	contextMap := map[string]any{
-		"repository_id":  row["repository_id"],
-		"run_id":         row["run_id"],
-		"job_id":         row["job_id"],
-		"artifact_id":    row["artifact_id"],
-		"logical_name":   row["logical_name"],
-		"repo_path":      row["repo_path"],
-		"content_sha256": row["content_sha256"],
-		"placement":      row["placement"],
-		"anchor_kind":    artifactAnchorKind(anchorRef),
-		"anchor_ref":     nullableString(anchorRef),
-		"anchor_commit":  nullableString(anchorCommit),
-		"checked_refs":   row["checked_refs"],
+		"repository_id":   row["repository_id"],
+		"run_id":          row["run_id"],
+		"job_id":          row["job_id"],
+		"workflow_job_id": row["workflow_job_id"],
+		"job_state":       row["job_state"],
+		"artifact_id":     row["artifact_id"],
+		"logical_name":    row["logical_name"],
+		"repo_path":       row["repo_path"],
+		"content_sha256":  row["content_sha256"],
+		"placement":       row["placement"],
+		"anchor_kind":     artifactAnchorKind(anchorRef),
+		"anchor_ref":      nullableString(anchorRef),
+		"anchor_commit":   nullableString(anchorCommit),
+		"checked_refs":    row["checked_refs"],
 	}
 	if check == artifactAnchorHashMismatch {
 		contextMap["anchor_content_sha256"] = detail
@@ -652,6 +654,8 @@ func artifactBlobProblem(check string, row map[string]any, detail string) (strin
 			"repository_id":     row["repository_id"],
 			"run_id":            row["run_id"],
 			"job_id":            row["job_id"],
+			"workflow_job_id":   row["workflow_job_id"],
+			"job_state":         row["job_state"],
 			"artifact_id":       row["artifact_id"],
 			"logical_name":      row["logical_name"],
 			"repo_path":         row["repo_path"],
@@ -687,17 +691,19 @@ func artifactWarning(check string, row map[string]any, detail, preservedRef stri
 		message = fmt.Sprintf("%s.%s: artifact %s at %s reclassified to warning", check, artifactID, artifactID, repoPath)
 	}
 	contextMap := map[string]any{
-		"repository_id":  row["repository_id"],
-		"run_id":         row["run_id"],
-		"job_id":         row["job_id"],
-		"artifact_id":    row["artifact_id"],
-		"logical_name":   row["logical_name"],
-		"repo_path":      row["repo_path"],
-		"content_sha256": row["content_sha256"],
-		"placement":      row["placement"],
-		"blob_key":       row["blob_key"],
-		"run_state":      row["run_state"],
-		"reason":         detail,
+		"repository_id":   row["repository_id"],
+		"run_id":          row["run_id"],
+		"job_id":          row["job_id"],
+		"workflow_job_id": row["workflow_job_id"],
+		"job_state":       row["job_state"],
+		"artifact_id":     row["artifact_id"],
+		"logical_name":    row["logical_name"],
+		"repo_path":       row["repo_path"],
+		"content_sha256":  row["content_sha256"],
+		"placement":       row["placement"],
+		"blob_key":        row["blob_key"],
+		"run_state":       row["run_state"],
+		"reason":          detail,
 	}
 	if preservedRef != "" {
 		contextMap["preserved_ref"] = preservedRef

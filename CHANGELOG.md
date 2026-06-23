@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **Checkpoint artifact-integrity blind spot.** `striatum doctor` now checks
+  repo-write artifact rows for `waiting_human` jobs as well as completed jobs,
+  so a daemon-listed checkpoint artifact whose body is missing or unreadable
+  reds `doctor` instead of hiding behind the parked job state. `checkpoint
+  resolve continue` and `checkpoint resolve override` now preflight the
+  checkpoint job's required artifacts and refuse before mutating the blocker
+  when any required body is not inspectable, returning artifact diagnostics and
+  recovery guidance. This quarantines the RFC 0165 v2 failure mode where the
+  cycle-2 collaboration ledger row was listed but `artifact.get-content`
+  returned `artifact body file does not exist on disk`.
 - **Owner-bundle watermark read grant (RFC 0142 Layer 2 / #581).** Owner bundle
   **0020** grants runtime-role `SELECT` on `striatumd.owner_bundle_meta` so the
   boot-time owner-bundle watermark interlock can read the applied frontier after
