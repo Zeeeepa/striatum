@@ -259,3 +259,32 @@ run. The Holder revises the design-v1 `HOLDER.md` to resolve the seven binding
 findings (F1–F7) while holding the security invariant; the falsifiers re-attack
 the revised spec. Lanes: author=claude (holder/adjudicator/committer),
 reviewer=codex (falsifiers).</sub>
+
+## Maintainer ratification (operator pin — BINDING, supersedes any softer framing above)
+
+The maintainer has ratified the security/authz decision (OQ1) and the F2 replay
+defense. These are binding and override any "recommended/optional" language:
+
+- **OQ1 — trust-model shape (ratified): Option 4 + ratification-gated Option 2 + minimal Option 3.**
+  - **Slice A (mandatory, lands first, ZERO trust-model change):** Option 4 — the
+    legible, self-escalating `session_unrecoverable_across_rotation` signal
+    replacing the silent unsealed exit. This is the floor; it must be buildable
+    and valuable on its own.
+  - **Slice B (ratification-gated):** Option 2's *narrow* reseal authority — a
+    session-scoped `CapabilityReseal` covering ONLY the in-flight job's seal
+    (`work.complete` / `artifact.publish` / `interrogation.answer`), never any of
+    `{admin, apply, recovery, surgical_recovery}` and never plain `write` — folding
+    in a minimal Option 3 per-session endpoint+epoch republish so the lane never
+    needs to read the admin client-token.
+- **F2 — replay defense (DECIDED): non-bearer, daemon-owned, session-tied channel. NO readable reseal token file.**
+  Because all lanes currently share the `striatum-lane` OS user, a `0600` reseal
+  *file* is a same-uid replay surface readable by sibling lanes. The ratified
+  resolution is therefore: deliver/verify the `CapabilityReseal` authority over
+  the **daemon-owned supervisor/PTY session-tied channel** — there is NO
+  lane-readable reseal token file at all. The spec MUST specify how the reseal
+  authority is carried and verified over that session-tied channel (the daemon
+  proves the calling session, not a bearer file). This resolves F2 and reshapes
+  **F7**: with no file, the epoch-integrity concern moves onto the daemon-owned
+  channel (which the daemon controls), so the spec addresses epoch tamper/missing
+  on that channel rather than a lane-writable mirror. Do NOT reintroduce a
+  readable bearer file as the reseal credential under any option.
