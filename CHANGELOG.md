@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.36.0 — 2026-06-23
+
 ### Fixed
 
 - **Checkpoint artifact-integrity blind spot.** `striatum doctor` now checks
@@ -20,6 +22,32 @@
   `striatum daemon owner-ddl apply`. The table stays owner-owned and
   write-owner-only; the read-authority inventory now classifies it as
   `runtime_parity_select`.
+- **Daemon no longer crash-loops on the owner-bundle watermark read (#581).**
+  When the runtime role lacked `SELECT` on `striatumd.owner_bundle_meta`, the
+  boot-time watermark interlock's read raised `42501`, which the daemon treated
+  as an unexpected error and restarted — a ~112s crash-loop during a deploy. The
+  `42501` is now classified as the `awaiting_owner_ddl` clean halt (exit 79): the
+  daemon stops once with the `striatum daemon owner-ddl apply` remediation
+  instead of looping. Pairs with owner bundle 0020 above, which closes the
+  underlying grant gap.
+- **`striatum doctor` no longer false-reds on superseded run-branch artifacts.**
+  The artifact-anchor check now reads superseded artifact history on the default
+  branch, so an artifact whose prior body was replaced by a revision republish on
+  the run branch is recognized as superseded rather than reported as
+  `artifact_anchor_hash_mismatch`.
+- **GitHub Release publication unblocked (#582).** Releases had not published
+  since v2.33.0. Two faults: the `installed-cli-check` go-test hit the default
+  10m timeout (now `-timeout 30m`), and the Codex installed-CLI seat in the
+  adapter-conformance gate failed on workspace-trust / MCP discovery
+  (rotation-watcher isolation + a clean sign-in skip). The release workflow's
+  publish job is re-coupled to the now-passing seat gate.
+
+### Upgrade notes
+
+- This release ships **owner bundle 0020**. Run `striatum daemon owner-ddl apply`
+  against the owner DSN before restarting onto the new binary; otherwise the
+  RFC 0142 Layer 2 watermark interlock cleanly halts the daemon (exit 79) until
+  the bundle is applied. No new runtime migration beyond v2.35.0's 0043.
 
 ## v2.35.0 — 2026-06-22
 

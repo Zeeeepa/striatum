@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-22_v2.35.0-release"
-supersedes: "brief_2026-06-18_v2.34.1-release"
+brief_id: "brief_2026-06-23_v2.36.0-release"
+supersedes: "brief_2026-06-22_v2.35.0-release"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,22 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-23 delta — v2.36.0 released
+
+**v2.36.0 (2026-06-23)** — a bugfix-only cut over v2.35.0. No new RFC
+implementations: the in-flight RFC 0142 P4 / 0143 / 0165 work is design-phase
+only and rides along as inert design artifacts. Fixes: owner-bundle watermark
+read grant (owner bundle 0020, #581) plus its `42501` clean-halt classify so a
+deploy no longer crash-loops (~112s → one clean exit 79); `doctor` no longer
+false-reds superseded run-branch artifacts; checkpoint artifact-integrity
+preflight on `resolve continue/override`; and the GitHub Release publish
+pipeline (#582 — codex installed-CLI seat + 30m `installed-cli-check` timeout,
+gate re-coupled). **Deploy:** run `striatum daemon owner-ddl apply` before
+restarting onto the new binary (owner bundle 0020, or the daemon clean-halts
+exit 79); local prod was already 20/20 in-sync at cut time, so the tag mostly
+formalizes code already proven live. Cut via direct sync-guarded commit + tag
+`v2.36.0` (no PR).
 
 ## 2026-06-23 delta — RFC 0165 v2 quarantined on artifact integrity
 
@@ -177,47 +193,12 @@ in the read-side helper-event drain authority slice. The current issue frontier
 is the 18 open GitHub issues listed in [Blockers / Open Issues](#blockers--open-issues-18);
 older #212/#263-#267 text is historical only.
 
-## 2026-06-16 delta — #300 P1 LANDED + DEPLOYED (doctor artifact problems → 0, D205)
-
-Historical (superseded — doctor is green now). `striatum doctor`'s artifact check
-took its 42 residual historical-loss problems to `problem_count: 0` via three
-additive read-only rules (D205): default-branch history awareness, an
-`artifact_superseded_on_default_branch` warning, and a sha-bound
-`artifact_acknowledged_loss` baseline (`docs/operator/doctor-acknowledged-loss.json`);
-an unlisted genuine loss still reds `ok`. Detail in CHANGELOG `v2.33.0`, D204/D205,
-and [[project_doctor_integrity_legibility]].
-
-## 2026-06-16 delta — #296 + #290 IMPLEMENTED + DEPLOYED (the two design picks)
-
-The #290/#296 divergent-design picks were implemented from their synthesis,
-landed off `origin/main`, deployed (daemon restarted, running image == installed),
-and the issues CLOSED. `doctor` stayed green throughout.
-
-- **#296 CLOSED + LIVE** (`d9329618`). codex push (stdin-FIFO) lane now FAILS
-  LOUD when the MCP endpoint/token can't resolve (was a silent degrade to bare
-  `codex` that no-ops the control plane); precedence locked in by a codex-CLI-gated
-  test proving the `-c mcp_servers.striatum.url` override beats a stale config.toml
-  section. Bug fix, no D-number; boot-epoch/port-reuse long-tail → follow-up **#316**.
-- **#290 CLOSED + LIVE** (`bd79ab51`, **D206**). Fan-in siblings that can't
-  fast-forward the run branch are now INTEGRATED via a conflict-free object-DB
-  content merge (`merge-tree`→`commit-tree`→CAS `update-ref`, like `run integrate`)
-  instead of stranded under a pin; overlap errors loudly. New `doctor`
-  `fanin_sibling_unintegrated` warning (running runs only). Deferred join barrier +
-  manifest → follow-up **#319**. Direct impl (operator-chosen) — smallest correct slice.
-- **Also landed (kept main green):** brief trimmed under its 300-line budget
-  (`ea3b237f`, the brief-guard had held CI red 4+ commits); embedded
-  refactoring-campaign `REFERENCE.md` re-synced (`f636be15`, drifted in 61ab3ea1 →
-  red `TestEmbeddedOptionalSkillMatchesCanonicalSource`).
-- **Concurrent-agent ownership (do not duplicate):** another agent is implementing
-  **#308** (sweep auto-finalize of a published-but-unsealed final job) + its coupled
-  prerequisite **#309** (finalize liveness test → session-liveness not lease-time).
-- **Historical live open set at that point:** #298/#299/#300/#301/#302/#303/
-  #304/#305/#306/#307/#308/#309/#310/#311 + follow-ups #316/#319. This list is
-  superseded by the current tracker snapshot below.
-
 ## State
 
-Latest release is **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
+Latest release is **v2.36.0 (2026-06-23)** — a bugfix-only cut over v2.35.0
+(#581 owner-bundle watermark deploy crash-loop, #582 release publish pipeline,
+doctor superseded-artifact false-red, checkpoint artifact-integrity; owner
+bundle 0020). **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
 since v2.34.1; ~12 RFC graduations incl. 0142 P0–P3; see the top delta).
 **v2.34.1 (2026-06-18)** was a docs/maintenance cut (no code change). **v2.34.0
 (2026-06-18)** packaged six reliability/security fixes +
