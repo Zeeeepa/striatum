@@ -1,0 +1,335 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0142-p4-design-v3"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0142-p4-design-v3/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v2/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0142-safe-by-construction-database-change-deployment.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0142 P4 implementation spec (the one-shot `striatum daemon deploy`) so it RESOLVES the two cycle-2 (design-v2) falsification-gate findings — C3 (runtime-object ownership transfer self-contradicts the bundle-0020 CREATE revoke) and N1 (per-step deploy receipt not crash-safe) — while CARRYING FORWARD UNREGRESSED the two findings the v2 gate already resolved: C1 (the `finalizing` state + idempotent finalizer + §1.3 resumable-finalization row) and C2 (CheckDeployActivation before ApplyMigrations, absent-cursor-as-incomplete, the awaiting_deploy/awaiting_deploy_config typed halts, the forward-watermark rule, Required kept at 19). Start from the v2 HOLDER.md (a required context doc) and the v2 collaboration ledger (the C3/N1 analysis and the exact prescribed fixes); do not re-litigate Q4, the per-step Q3-A/Q3-B mid-step resumability body, the shadow-first decoupling shape, C1, or the C2 edge — those carry forward. Resolve C3 by pinning ONE coherent 0020-compatible ownership mechanism per SEED.md (recommend sequencing the bundle-0020 REVOKE last, after all runtime ownership reconciles) and resolve N1 by an idempotent per-step receipt reconcile keyed on (plan_hash, step_index). Name exact code sites (go/pkg/db/connection.go ConnectAndMigrate, go/pkg/db/schema_drift.go, go/pkg/db/owner.go, go/pkg/db/migrations.go, go/pkg/db/sql/owner/0018_runtime_table_ownership_transfer.sql, go/pkg/cli/localcommands/daemon.go) and state every load-bearing correctness claim as a falsifiable assertion. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v3) holder proposal, the v2 HOLDER.md, and the v2 collaboration ledger. FIRST verify the two cycle-2 findings are GENUINELY resolved (not merely claimed): N1 — is the per-step deploy receipt now crash-safe? Pressing hardest on the atomicity/resumability lens: does the spec place the per-step receipt append in the SAME owner-connection transaction as the transactional step (Q3-A), and add a step-level idempotent receipt reconcile keyed on (plan_hash, step_index) so the in_progress(k) reconciler appends exactly one receipt before writing step_committed(k) for NT-DDL (Q3-B)? Is there a crash window between a step's commit and its receipt-write that resume does NOT repair? Does T-deploy-receipt-crash-resume kill between step-commit and receipt-write and assert exactly-once receipt on re-run, and is `doctor schema_deploy_unrecorded` green only when every committed step has a receipt? ALSO verify C1 (the finalizing state + idempotent finalizer + §1.3 row) is not regressed by the new per-step receipt rule. Then hunt for any NEW material gap in the Q3 atomicity/resumability correctness core.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (atomicity/resumability lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v3) holder proposal, the v2 HOLDER.md, and the v2 collaboration ledger. FIRST verify the two cycle-2 findings are GENUINELY resolved (not merely claimed), pressing hardest on the decoupling/migration-safety lens: C3 — has the spec picked ONE coherent ownership policy that is compatible with the bundle-0020 CREATE revoke, fully specified, and tested? Confirm against the repo's own bundles (0018/0019 GRANT CREATE ON SCHEMA striatumd TO striatumd_rw FIRST before each ALTER … OWNER TO striatumd_rw, because PostgreSQL requires the new owner to hold CREATE) that the chosen mechanism — whether (a) sequence the 0020 REVOKE last after all runtime ownership reconciles, (b) a scoped temporary GRANT/REVOKE around the transfer, or (c) Policy 2 owner-owned objects + per-migration DML grants and a §4.1 correction — actually lets `ALTER … OWNER TO striatumd_rw` succeed during the deploy AND leaves the post-deploy steady state denying striatumd_rw CREATE. Does T-deploy-runtime-object-ownership assert catalog owner, the serving role's real DML under striatumd_rw, AND the post-deploy CREATE denial in a documented non-superuser two-role cluster? ALSO verify C2 (CheckDeployActivation before ApplyMigrations, typed halts, forward-watermark rule, Required=19) is not regressed and the activation deploy can now actually complete. Then hunt for any NEW material gap (does lifting ApplyMigrations regress the P2 watermark interlock or the P3 drift gate/self-record; the #512-class lockout class).",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (decoupling/migration-safety lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0142 P4 v3 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v2 HOLDER.md and v2 collaboration ledger as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES that BOTH cycle-2 findings (C3 runtime-object ownership transfer compatible with the bundle-0020 revoke; N1 crash-safe per-step deploy receipt) are genuinely resolved AND C1 (finalizing state + idempotent finalizer + §1.3 row) and C2 (CheckDeployActivation before ApplyMigrations, typed halts, forward-watermark rule, Required=19) are carried forward intact AND no new material challenge stands unrebutted. needs_revision if C3 or N1 remains open, if C1 or C2 is regressed, or any new material challenge lands — especially if the Q3 per-step-atomic+resumable-cursor contract (now including the per-step receipt) is shown insufficient for any interleaving we actually ship without a concrete sub-protocol.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared falsifiable implementation spec for RFC 0142 P4 (resolving Q3 + Q4 with all four findings fixed: C1 finalization-boundary sub-protocol, C2 fail-closed 0020+flag activation edge, C3 a 0020-compatible chosen+tested runtime-object ownership policy, and N1 a crash-safe per-step deploy receipt protocol; plus the deploy plan / deploy_cursor / deploy receipt design and the serve-boot decoupling slices) only after the adjudicator ledger records a clearing verdict; this SPEC is the artifact the rfc-0142-p4-build run consumes. Apply the shadow-first convention for the new deploy path.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v3/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v3/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0142-p4-design-v3",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0142-p4-design-v3",
+  "workflow_version": "2026-06-23"
+}
