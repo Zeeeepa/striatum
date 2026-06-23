@@ -24,6 +24,14 @@ first, in order:
    `docs/operator/BRIEF.md` and the open GitHub issues)
 8. `docs/operator/BRIEF.md` for current operator state and the bounded
    plan links that supersede older handoffs.
+9. `docs/operator/rfc-roadmap.md` when the task is to advance the RFC
+   backlog (a proposed, accepted-but-unbuilt, or partially-implemented RFC).
+   It is the sequenced, themed "do the next one" roadmap: it defines the
+   Design → Build → Verify ship path every RFC goes through and orders the
+   open RFCs into waves (reliability spine first, features last). For "work
+   the next RFC", take the lowest-numbered unshipped item whose blocker is
+   clear. Each file's `Status:` line under `docs/rfcs/` remains the
+   authoritative per-RFC truth.
 
 Treat `docs/records/_frozen/ENGRAM_INCUBATION_CONTEXT.md`,
 `examples/rfc-0014-operational-artifact-home/`, and the older P00x prompts as
@@ -132,7 +140,9 @@ Examples live under `examples`. Historical execution prompts live under
   disagrees with current source behavior, fix the doc") also covers state docs:
   when a change moves the state a doc or board describes, update it in the same
   change — `docs/reference/spec.md`, `docs/reference/todo.md`, the decision log,
-  `CHANGELOG.md`, and `docs/operator/BRIEF.md`. `make check-docs` flags broken
+  `CHANGELOG.md`, and `docs/operator/BRIEF.md`. When an RFC ships (or its status
+  changes), also mark it in `docs/operator/rfc-roadmap.md` and re-triage the wave.
+  `make check-docs` flags broken
   local doc links (frozen provenance under `docs/rfcs/`, `docs/records/_frozen/`, and
   similar is excluded via `.check-docs-ignore`). It currently passes; keep it
   green (it can be promoted into `make check` when the team is ready).
