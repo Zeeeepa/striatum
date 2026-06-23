@@ -108,6 +108,7 @@ gets a Striatum workflow").
 | 18 | **0094** | ✨ | Deferred collaboration shapes — fog-of-war review, synaptic prune, adjudicator reliability | done (slices 1–3); remainder | — | — |
 | 19 | **0115** | ✨ | Precise token-usage telemetry for supervised lanes | done | dashboard-ingest landing | #404 |
 | 20 | **0067** | ✨ | Optional git + PR integration | — | **product decision first** | — |
+| 21 | **0167** | ✨ | Operator identity & run attribution — leased handles over `principal_id` (RFC 0107): `striatum whose`, `status --mine` manifest, write-once run stamp, operator-named handoff files | **accepted (D260)** → scaffold design→build→verify, land autonomously | — | — |
 
 ---
 
