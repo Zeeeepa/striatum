@@ -1,0 +1,335 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0143-design-v6"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0143-design-v6/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0143 falsifiable implementation spec so it RESOLVES the one remaining design-v5 binding constraint BC1-W1-TOKEN (see SEED.md `## The binding constraint v6 MUST resolve`) while CARRYING FORWARD UNREGRESSED the design the v5 gate already credited (see SEED.md `## Carried forward — resolved by v5`): the CONNECT-OUT topology + the named plumbing sites (no fd crosses the tmux client/server boundary; the pane wrapper dials OUT after `PR_SET_DUMPABLE(0)`), the non-secret listener address + the post-auth nonce (W3), the W2 ordering + dumpable-before-dial, the `#{pane_dead_status}` exit-code backstop (since `result.Cmd.Wait()` on the tmux path resolves the ATTACH CLIENT not the pane wrapper, the authenticated frame is the PRIMARY signal and the reserved 97/98 exit code is observed via a `#{pane_dead_status}` capture as a BACKSTOP) + the C2 commitment, BC2 (reseal artifact identity from the job's `expected_artifacts` daemon state, refusing unexpected paths, reusing verifyRequiredArtifacts/ensurePerJobPublishedArtifactsDurable, front-matter failure routed to the Option-4 floor), BC3 (`CapabilityReseal` a daemon-internal marker projected by `resealInFlightJob` mapping supervisor_id->session_id with an internal AuthContext and no public Authorize prelude; public route-alternate kept test-only), BC4 (the concrete monotonic `jobs.recovery_generation` column in owner bundle 0021, LatestOwnerBundleVersion 20->21, increment points, stamped lease.recovery_generation compared under the lock), BC5 (`leases.reseal_grace_extended_at` pinned to the same owner bundle 0021 — leases owner-held, created by runtime 0005, absent from the owner/0018 transfer cohort — and the corrected work.complete lock-order skip/replace/replay gate map so expired-beyond-grace ALWAYS routes the typed class), the daemon-OBSERVED positive intent (post-rotation + stamped-generation match + lease-in-grace + every required expected_artifact present-and-content-hash-modified-since-baseline, with a recovery-sweep backstop), the ensureWorkSessionBackend BYPASS (so a stopped supervisor routes the typed class, never a leaked backend error), the W1/W3 wall SHAPES (W1 SO_PEERCRED peer-cred bound to the launched wrapper pid+start-time; W3 nonce delivered daemon->wrapper post-auth, out of the env), F2 (no lane-readable reseal bearer), F4 (route-specific `MethodEntry.ResealAlternate` recording reseal not write), the F7 file-mirror half (daemon-owned lane-read-only 0644 mirror, O_NOFOLLOW, atomic rename, reject MISSING boot-epoch header — closing #316), AF1 reachability-not-reminting, AF4 epoch/token decoupling, the categorical no-admin-token-widening invariant, the per-claim falsifiable-assertion discipline (A1-A18, extended A3'/A4'/A7'), and the modified-since-baseline authored-path build-test. Start from the design-v5 HOLDER.md (a required context doc) and the v5 collaboration ledger (the BC1-W1-TOKEN finding, its rationale, and the exact 'next revision must...' list); do NOT re-litigate the ratified OQ1 trust-model shape (Option 4 mandatory floor + ratification-gated Option 2 narrow CapabilityReseal + minimal Option 3 per-session endpoint+epoch republish), the F2 non-bearer decision, the connect-out topology, OR the W1/W2/W3 wall shapes and W1's load-bearing role — those are pinned in SEED.md `## Ratified design shape` and `## Carried forward — resolved by v5`. BC1-W1-TOKEN (security cluster) must resolve the ONE unrebutted ground in ONE place: the v5 W1 peer-credential proof compares `ProcessStartToken(peer.pid)` — the Linux `/proc/<pid>/stat` field-22 start-TICK-since-boot (`go/pkg/supervisor/process_identity_linux.go:11-32`) — against `identity.PaneStartToken`, but the spec SOURCES `PaneStartToken` from tmux `#{pane_start_time}`, which `CaptureTmuxIdentity` stores via `verifiedStartToken(#{pane_start_time})` whenever tmux returns a numeric value, only falling back to `ProcessStartToken(panePID)` when the tmux value is absent/non-numeric (`go/pkg/supervisor/tmux_liveness.go:181-209`, esp. `:194-202`); `verifiedStartToken` (`tmux_liveness.go:429-436`) merely checks the value parses as an unsigned integer. tmux `#{pane_start_time}` is a WALL-CLOCK unix timestamp (the existing test treats `1748452211` as a valid `PaneStartToken`) while `/proc` field 22 is start-ticks-since-boot — categorically different domains, not just different formats. So on the PRODUCTION tmux path the v5 W1 check compares a kernel start-tick against a tmux pane-start timestamp; consequence (security-load-bearing): EITHER the legitimate pane wrapper is REJECTED before `resealInFlightJob` ever takes the run lock (the claimed primary connect-out entry point silently does not work and the design depends on the `#{pane_dead_status}`/recovery-sweep backstops while claiming a working primary), OR the build is pressured to DROP/weaken the pid-reuse guard, reopening the same-uid replay surface BC1 exists to close. Prescribed fix (do this in ONE place): pin a SINGLE consistent KERNEL start-token source for W1 — capture a NAMED kernel start token via `ProcessStartToken(identity.PanePID)` IMMEDIATELY after `CaptureTmuxIdentity` reports the pane pid and BEFORE any control connection is accepted; persist/use THAT value for the W1 peer-credential check; and compare the accepted peer's `ProcessStartToken(peer.pid)` (`/proc` field 22) to that captured kernel token. Keep tmux `#{pane_start_time}` ONLY as liveness metadata UNLESS the implementation PROVES it equivalent to `/proc` field 22 on supported hosts. Extend `TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper` so the accepted connect-out frame compares `/proc/<peer-pid>/stat` field 22 to the captured `/proc/<pane-pid>/stat` field 22, AND add a NEGATIVE that rejects the SAME pid with a mismatched/stale kernel start token (the pid-reuse guard). Name the exact sites: `tmux_liveness.go:181-209` (`CaptureTmuxIdentity`/`verifiedStartToken`), `process_identity_linux.go:11-32` (`ProcessStartToken` = `/proc` field 22). Confirm them against current main and FLAG any drift, and state every load-bearing security claim as a falsifiable assertion paired with its named test. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v6) holder proposal, the design-v5 HOLDER.md, and the v5 collaboration ledger. FIRST verify the design-v5 binding constraint BC1-W1-TOKEN is GENUINELY resolved (not merely claimed), pressing hardest on the W1 AUTHENTICATION / same-uid lens — this is the single ground the v5 gate held open. The connect-out topology, the named plumbing sites, the non-secret address + post-auth nonce (W3), the W2 ordering, the `#{pane_dead_status}` backstop, and the real-path test SHAPE are credited; the open question is whether W1's peer-credential proof now compares ONE coherent KERNEL identity token on BOTH sides. Press: (1) Is the W1 token now a SINGLE consistent kernel start-token source — a NAMED kernel token captured via `ProcessStartToken(identity.PanePID)` (`/proc/<pid>/stat` field 22, `process_identity_linux.go:11-32`) — NOT tmux `#{pane_start_time}`? Recall `CaptureTmuxIdentity` stores `verifiedStartToken(#{pane_start_time})` (a tmux WALL-CLOCK timestamp, `tmux_liveness.go:194-202`) as `PaneStartToken` whenever numeric, falling back to the kernel token only when tmux is absent/non-numeric, and `verifiedStartToken` (`:429-436`) only checks the value parses as an unsigned int — it does NOT convert tmux's pane-start timestamp into a `/proc` field-22 tick. Does the v6 spec compare kernel field-22 to kernel field-22, or does it still compare a kernel start-tick against a tmux pane-start timestamp (the v5 hole)? (2) Is the kernel token captured BEFORE any control connection is accepted — i.e. immediately after `CaptureTmuxIdentity` reports the pane pid, so the value the daemon authenticates against is the launch-time kernel field-22 token and not a later/forgeable read? (3) Does the real-path test `TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper` actually FIRE against RunHelper with RequireTmux/RunAsUser, and does it compare `/proc/<peer-pid>/stat` field 22 to the captured `/proc/<pane-pid>/stat` field 22 AND add a NEGATIVE that rejects the SAME pid with a mismatched/stale kernel start token (the pid-reuse guard)? If the spec keeps `#{pane_start_time}` as the W1 operand, or leaves the two sides in different clock domains, or normalizes the mismatch only by hand-wave (no named kernel field, no negative test), that is a landed falsification — either the legit wrapper is REJECTED before `resealInFlightJob` takes the run lock or the pid-reuse guard is dropped, reopening the same-uid replay surface BC1 exists to close. ALSO verify the v5-credited security set is NOT regressed: the connect-out topology + named plumbing sites, the non-secret address + post-auth nonce, the W2 ordering, the `#{pane_dead_status}` backstop + C2, BC2 (artifact identity from daemon state), BC3 (CapabilityReseal daemon-internal marker, route-alternate test-only), the daemon-observed positive intent + backend-gate bypass, F2 (no lane-readable reseal bearer), F4 (route-alternate records reseal not write), and the no-admin-token-widening invariant. Then hunt for any NEW material gap in the security/authz core.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (BC1-W1-TOKEN: single coherent kernel start-token source for the connect-out peer-cred check + same-uid lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v6) holder proposal, the design-v5 HOLDER.md, and the v5 collaboration ledger. Your lens is REGRESSION + LIFECYCLE: the v5 gate resolved the connect-out topology + W2/W3 + BC2/BC3/BC4/BC5 + C2 + the daemon-observed positive intent + the ensureWorkSessionBackend bypass and carried the rest forward; v6 changes only the W1 start-token SOURCE (BC1-W1-TOKEN). FIRST verify NONE of the v5-credited set is regressed by the v6 W1-token fix: (1) BC2/BC3 — artifact identity still derived from daemon `expected_artifacts` state, CapabilityReseal still a daemon-internal marker projected by resealInFlightJob (supervisor_id->session_id, internal AuthContext, public route-alternate test-only); does the W1-token change still let resealInFlightJob find the bound session/job from daemon state (process_supervisors/process_supervisor_pointers) rather than from the channel frame? (2) BC4/BC5 — the jobs.recovery_generation owner-bundle-0021 column + stamped-generation guard, leases.reseal_grace_extended_at in the same owner bundle 0021 (leases owner-held: created runtime 0005:166, absent from the owner/0018 transfer cohort), and the corrected work.complete skip/replace/replay lock-order map (enforceSessionBindingForSession/enforceActiveActingSession skipped pre-lockRunForJob; activeLeaseFor/ensureWorkSessionBackend skipped post-lock; lockRunForJob + FOR UPDATE rows + reseal predicate + write-scope + durability + running->completed replayed) so expired-beyond-grace ALWAYS routes the typed session_unrecoverable_across_rotation class — still intact and still serialized against artifact.publish (artifact.go:75-85) and the recovery sweep (recovery.go:575-621)? (3) The connect-out topology + the named plumbing sites + the non-secret address + the post-auth nonce + the W2 ordering + the `#{pane_dead_status}` backstop + C2 — still intact and not weakened by the W1-token change? Specifically, does the daemon still capture the pane identity (the NEW named kernel start token) at launch and accept the FIRST matching peer, with the connect-out listener still racing-safe against the lease lifecycle? (4) The daemon-observed positive intent + backend-gate bypass — still intact? (5) F7 file-mirror half (daemon-owned lane-read-only endpoint/epoch, O_NOFOLLOW, atomic rename, missing-epoch rejected), AF1, AF4 — intact? THEN verify the FOLD-IN persists: does the deliverable-observed condition still reuse the gitChangedPathSnapshots/collectInScopeAuthoredPaths authored-path attribution (baseline nil for isolated worktrees, write_scope_guard.go:81-83; claim.go:622; artifact_source_publish.go:69-88,:259-263) so an UNCHANGED pre-existing expected path is NOT resealed (TestResealRequiresAuthoredExpectedArtifactChange or the positive TestCodexResealUsesReceiverNotProviderStdout case)? THEN hunt for any NEW lifecycle gap the v6 W1-token fix introduced — e.g. capturing the kernel start token TOO LATE (after a connection is accepted) so a pid-reused sibling slips in, a split-brain where a reseal writes into a session/job the daemon retired across the rotation, or a typed-class route that the change leaves leaking a raw lease_error/backend error. Then hunt for any other NEW material gap in the lifecycle/correctness core.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (regression/lifecycle: connect-out topology + W2/W3 + BC2/BC3/BC4/BC5 + positive-intent + backend-gate intact; no new lifecycle gap)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0143 v6 REVISION (the revised HOLDER.md and the two FALSIFIER.md re-attacks), with the design-v5 HOLDER.md and the v5 collaboration ledger as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES that the single remaining binding constraint BC1-W1-TOKEN is genuinely resolved with ONE coherent KERNEL identity token AND structural no-replay is established on the REAL channel AND the v5-credited resolved set (the connect-out topology + the named plumbing sites + the non-secret address + the post-auth nonce W3, the W2 ordering + dumpable-before-dial, the `#{pane_dead_status}` exit-code backstop + C2, BC2, BC3, BC4, BC5, the daemon-observed positive intent, the ensureWorkSessionBackend bypass, the W1/W2/W3 wall shapes, F2, F4, the F7 file-mirror half, AF1, AF4, the no-admin-token-widening invariant, the A1-A18 assertion discipline incl. A3'/A4'/A7') is carried forward UNREGRESSED with the modified-since-baseline build-test folded in AND no new material challenge stands unrebutted. BC1-W1-TOKEN is resolved ONLY IF: (1) the spec pins a SINGLE consistent KERNEL start-token source for W1 — a NAMED kernel start token captured via `ProcessStartToken(identity.PanePID)` (`/proc/<pid>/stat` field 22, `process_identity_linux.go:11-32`) IMMEDIATELY after `CaptureTmuxIdentity` reports the pane pid (`tmux_liveness.go:181-209`) and BEFORE any control connection is accepted, persisted/used for the W1 peer-credential check, with tmux `#{pane_start_time}` kept ONLY as liveness metadata unless the implementation PROVES it equivalent to `/proc` field 22 on supported hosts (NOT a hand-wave that the build will normalize it); (2) the accepted peer's `ProcessStartToken(peer.pid)` (`/proc` field 22) is compared to THAT captured kernel token (kernel field-22 vs kernel field-22, ONE clock domain), so a same-uid sibling that connects is REJECTED on pid/start-time and the pid-reuse guard is NOT dropped; (3) the real-path test `TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper` (through RunHelper with RequireTmux/RunAsUser) compares `/proc/<peer-pid>/stat` field 22 to the captured `/proc/<pane-pid>/stat` field 22 AND adds a NEGATIVE that rejects the same pid with a mismatched/stale kernel start token. needs_revision if BC1-W1-TOKEN remains open (a W1 proof that still compares a kernel start-tick against a tmux `#{pane_start_time}` timestamp, that leaves the two sides in different clock domains, that captures the kernel token too late to bind the launch-time identity, that drops/weakens the pid-reuse guard, or whose real-path test would not compare field-22-to-field-22 and would not reject the stale-token same-pid case), if structural no-replay is not established on the real channel, if any v5-credited item is regressed, or any new material challenge lands; reject only if a path widens admin-token exposure or mints a credential carrying any of {admin,apply,recovery,surgical_recovery}. The security invariant must hold STRUCTURALLY — no-replay must hold structurally on the REAL channel with W1 specified as ONE coherent kernel identity token, not as a trackable post-clearance finding, and not only on a direct-exec harness. Note that Slice B (the daemon-internal CapabilityReseal marker, the test-only auth-prelude route alternate, the daemon-owned supervisor control channel with connect-out SO_PEERCRED pid+start-time authentication, the reserved agentloop exit codes, the jobs.recovery_generation + leases.reseal_grace_extended_at owner-bundle-0021 columns, and endpoint/epoch republish plumbing) still requires maintainer ratification before any build slice touches credential code; adjudicator clearance gates the spec's soundness, not the maintainer's product call, and Slice A (the Option-4 typed-exit-code floor) is zero-trust-change but must route over a real non-PTY channel with the same-uid authentication anchored through the tmux launch path AND specified with one coherent kernel identity token before it lands.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsification-hardened implementation spec for RFC 0143 (resolving the remaining binding constraint BC1-W1-TOKEN with the ratified trust-model shape — Option 4 mandatory floor + ratification-gated Option 2 narrow CapabilityReseal + minimal Option 3 per-session endpoint+epoch republish — and carrying the v5-credited resolved set: the connect-out topology + named plumbing sites + non-secret address + post-auth nonce + W2 ordering + `#{pane_dead_status}` backstop + C2 + BC2/BC3/BC4/BC5 + daemon-observed positive intent + backend-gate bypass + W1/W2/W3 shapes + F2/F4/F7-file/AF1/AF4/no-widening/A1-A18 forward), only after the adjudicator ledger records a clearing verdict; this SPEC is the artifact the rfc-0143-build run consumes. It MUST carry the BC1-W1-TOKEN resolution in full: a SINGLE consistent KERNEL start-token source for W1 — a NAMED kernel start token captured via `ProcessStartToken(identity.PanePID)` (`/proc/<pid>/stat` field 22, `process_identity_linux.go:11-32`) immediately after `CaptureTmuxIdentity` reports the pane pid (`tmux_liveness.go:181-209`) and BEFORE any control connection is accepted, compared against the accepted peer's `ProcessStartToken(peer.pid)` (kernel field-22 vs kernel field-22), with tmux `#{pane_start_time}` kept only as liveness metadata unless proven equivalent; and the real-path test `TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper` (through RunHelper with RequireTmux/RunAsUser) comparing `/proc` field 22 on both sides plus a negative for the same pid with a mismatched/stale kernel start token. It MUST carry the v5-credited set forward unregressed (the connect-out topology + the named HelperLaunchSpec/LaunchSpec/RunHelper plumbing sites that reach the PANE agentloop wrapper not the tmux client, the non-secret listener address, the daemon->wrapper post-auth nonce W3, the W2 ordering + dumpable-before-dial, the `#{pane_dead_status}` exit-code backstop, C2 reserved-exit commitment, BC2 artifact identity from daemon state, BC3 CapabilityReseal daemon-internal marker route-alternate test-only, BC4 jobs.recovery_generation owner-bundle-0021 column + stamped guard, BC5 leases.reseal_grace_extended_at in owner bundle 0021 + corrected lock-order map, the daemon-observed positive intent + recovery-sweep backstop, the ensureWorkSessionBackend bypass, the W1/W2/W3 wall shapes, F2/F4/F7-file/AF1/AF4/no-widening/A1-A18), with the modified-since-baseline authored-path build-test folded in (reuse gitChangedPathSnapshots/collectInScopeAuthoredPaths so an unchanged pre-existing expected path is not resealed). It MUST specify the build slices in contract-first order (Slice A the Option-4 legible-failure floor over the connect-out channel anchored through the real tmux launch path with the one-coherent-kernel-token W1, then Slice B the reseal mechanism), each with its named Go tests and the owner-bundle-0021 migration changes (jobs.recovery_generation + leases.reseal_grace_extended_at; LatestOwnerBundleVersion 20->21), applying the shadow-first convention (new behavior defaults OFF behind an env flag; additive migrations only; self-record before enforce). It MUST state the Acceptance Criteria including the mandatory game-day fire test (GD-1/GD-1b: restart the daemon mid-job, lane survives-and-reseals OR fails legibly-and-is-routed, no silent unsealed exit, no elevated-capability exposure) and the same-uid sibling-replay negative game-day run THROUGH THE TMUX LAUNCH PATH (a non-child, non-wrapper same-uid sibling that connects to the same control address is rejected on the kernel field-22 pid+start-token, at any launch step). It MUST open with the maintainer-ratification banner: Slice B is a security/authz trust-model change requiring maintainer ratification before any build slice touches credential code, and Slice A (the zero-trust-change legible-failure floor) may land first under the normal review gate once BC1-W1-TOKEN anchors its connect-out W1 over one coherent kernel identity token. Stay strictly inside the Non-Goals and the local-first product boundary.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0143-design-v6/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v6/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0143-design-v6",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0143-design-v6",
+  "workflow_version": "2026-06-23"
+}
