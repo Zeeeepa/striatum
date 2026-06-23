@@ -60,13 +60,14 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    # Publish after the archive build passes. The installed-CLI seat gate still runs
-    # (in parallel here + on the daily cron) as a NON-BLOCKING signal, but no longer
-    # gates publication: it false-blocked v2.34.0-v2.35.0 because the codex seat
-    # fails in a fresh CI runner on a workspace-trust / MCP-discovery stall (#582).
-    # Re-add `installed-cli` to needs once #582 is fixed if the seat should hard-gate
-    # releases again.
-    needs: [build]
+    # Publish only after BOTH the installed-CLI seat gate and the archive build pass.
+    # The seat gate is hermetic again (#582 fixed, c623549f): the #323 rotation
+    # watcher no longer leaks the real /run/striatum endpoint into the test, codex
+    # genuinely runs where authenticated, and both agy + codex skip cleanly on an
+    # unauthenticated CI runner — so the gate is green in CI and only a real seat
+    # regression blocks a release. (Temporarily decoupled in 72ef7402 while #582 was
+    # open; re-coupled here now that it is resolved.)
+    needs: [installed-cli, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
