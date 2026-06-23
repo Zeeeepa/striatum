@@ -38,3 +38,6 @@ docs/dogfood/
 
 # Multi-agent teamwork-preview scratch output (accidentally committed in 335c349)
 .agents/
+
+# coordination/intero proof-of-life — local per-box, not history (showerthoughts coordination/intero/SPEC.md)
+.intero.json
