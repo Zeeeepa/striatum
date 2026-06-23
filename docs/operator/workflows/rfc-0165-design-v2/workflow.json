@@ -1,0 +1,395 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0165-design-v2"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0165-design-v2/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0165-design/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0165-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0165-design/dialogue/falsifier_1/FALSIFIER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0165-design/dialogue/falsifier_2/FALSIFIER.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0165-claude-provider-credential-freshness.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0121-lane-provider-auth-preflight.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0162-lane-auth-silent-failure-observability.md",
+      "required": true
+    },
+    {
+      "path": "AGENTS.md",
+      "required": true
+    },
+    {
+      "path": "docs/reference/command-authority-matrix.md",
+      "required": true
+    },
+    {
+      "path": "go/pkg/mutations/supervision_launch.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/mutations/supervision_provider_auth.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/mutations/recovery_liveness_oracle.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/sessionliveness/liveness.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/laneproviderauth/resolver.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/laneproviderauth/expiry.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/laneproviderauth/lane_provider_auth.go",
+      "required": true
+    },
+    {
+      "path": "go/pkg/reads/doctor_lane_provider_auth.go",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "allow_same_model": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "holder"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0165 implementation spec for GH #583. Start from the v1 HOLDER.md and v1 collaboration ledger, preserve the credited launch-time work, and resolve all four binding constraints from SEED.md: C1 no lane raw refresh-token custody, C2 recovery-time freshness classification before generic retry budget, C3 trusted heartbeat or broker telemetry for credential decay while a lane is running, and C4 long-run, concurrent-RTR, subsequent-launch, and redaction tests. Prefer a daemon-managed broker and access-token IPC model unless you can prove an equally concrete OAuth-safe file model. Name exact source surfaces, durable state, launch and recovery transitions, privacy boundaries, and tests. This is the revised claim the falsifiers will challenge.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the revised v2 holder proposal, the v1 HOLDER.md, and the v1 collaboration ledger. First verify C1 and C4 are genuinely resolved, not merely claimed: no lane receives or can independently refresh a raw Claude refresh token; concurrent lanes, lane-side refresh, subsequent lane launch, and operator-source validity are handled; redaction forbids raw OAuth bytes, access tokens, refresh tokens, id tokens, private paths, provider stdout and stderr, and Striatum control-plane tokens. Press hardest on broker and access-token IPC caller identity, token lifetime, replay, same-user collapse, CLI or SDK configuration, and any remaining file-copy RTR proof. Then hunt for one material new gap in credential custody.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (credential custody + RTR lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the revised v2 holder proposal, the v1 HOLDER.md, and the v1 collaboration ledger. First verify C2 and C3 are genuinely resolved, not merely claimed: a long-running lane whose credential expires after launch is classified as provider-auth debt before generic requeue or transfer counters move, and the daemon has a trusted heartbeat, broker-state, or equivalent signal for credential decay that does not trust lane-authored claims or provider stdout and stderr. Press hardest on agent_mcp_discovery_stall classification, stale spawn-time receipts, recovery budget accounting, doctor and dashboard evidence, and operator remediation privacy. Then hunt for one material new gap in runtime freshness or recovery.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (runtime freshness + recovery lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the RFC 0165 v2 dialogue trajectory, with the v1 HOLDER.md and v1 collaboration ledger as context for what this revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject - a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict requires that C1 no lane raw refresh-token custody, C2 recovery-time freshness classification, C3 trusted heartbeat or broker telemetry, and C4 long-run, concurrent-RTR, subsequent-launch, and redaction tests are genuinely resolved; the useful v1 launch-time work is carried forward unregressed; and no new material falsifier challenge stands unrebutted. needs_revision if any constraint remains open or any credited v1 item regresses.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared RFC 0165 v2 implementation spec only after the adjudicator ledger records a clearing verdict. The proposal must be the artifact consumed by a later rfc-0165-build run and must name exact source surfaces, durable state, tests, privacy boundaries, recovery semantics, and deferred work. Do not close GH #583.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0165-design-v2/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared RFC 0165 v2 collaboration gate, the proposal artifact path, the accepted build scope, and any explicit deferrals. State whether C1-C4 cleared and whether the run is ready for a separate build and verifier workflow. Do not close GH #583.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v2/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "agy"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0165-design-v2",
+  "allow_same_model_review_pairing": true,
+  "allow_same_model_review_pairing_rationale": "The bounded needs_revision cycle must return the revised design to the holder so the v1 ledger constraints are explicitly discharged before re-attack; independent pressure is supplied by the reviewer lane falsifiers, while the adjudicator only gates the dialogue.",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0165-design-v2",
+  "workflow_version": "2026-06-23"
+}
