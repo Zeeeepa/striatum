@@ -72,6 +72,37 @@ func TestReadDeniedTablesHaveNoRuntimeSelect(t *testing.T) {
 	}
 }
 
+// TestRuntimeParityTablesHaveRuntimeSelect pins the owner-maintained tables the
+// daemon intentionally reads through the runtime role during startup.
+func TestRuntimeParityTablesHaveRuntimeSelect(t *testing.T) {
+	pool := pgtest.Pool(t)
+	ctx := context.Background()
+	if _, _, err := db.ApplyOwnerBundles(ctx, pool.Runner, "test"); err != nil {
+		t.Fatalf("apply owner bundle: %v", err)
+	}
+
+	found := 0
+	for table, class := range db.ReadAuthorityInventory() {
+		if class != db.ReadClassRuntimeParity {
+			continue
+		}
+		found++
+		if scalar(t, ctx, pool.Runner,
+			"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, 'SELECT')::text", table) != "true" {
+			t.Fatalf("striatumd_rw cannot SELECT %s; read inventory class is %s", table, class)
+		}
+		for _, privilege := range []string{"INSERT", "UPDATE", "DELETE"} {
+			if scalar(t, ctx, pool.Runner,
+				"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, $2)::text", table, privilege) != "false" {
+				t.Fatalf("striatumd_rw can %s %s; runtime parity tables must stay write-owner-only", privilege, table)
+			}
+		}
+	}
+	if found == 0 {
+		t.Fatal("no runtime_parity_select tables in the inventory; the startup parity guard would be vacuous")
+	}
+}
+
 // TestReadDeniedColumnsHaveNoRuntimeSelect pins the RFC 0113 R1 column-level
 // reduction: client token hashes/salts are no longer directly selectable by the
 // runtime role after owner bundle 0005, even though non-secret client metadata

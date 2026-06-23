@@ -82,6 +82,25 @@ func TestParityReadGrant(t *testing.T) {
 	}
 }
 
+// TestOwnerBundleWatermarkReadGrant is the runtime-role read gate for the RFC
+// 0142 Layer 2 owner-bundle watermark interlock. db.CheckOwnerBundleWatermark
+// reads striatumd.owner_bundle_meta AS THE RUNTIME ROLE before runtime
+// migrations, so owner-DDL repair must leave a SELECT grant while preserving the
+// owner-only write boundary.
+func TestOwnerBundleWatermarkReadGrant(t *testing.T) {
+	pool, ctx := enforcementDB(t)
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.owner_bundle_meta', 'SELECT')::text") != "true" {
+		t.Fatal("striatumd_rw cannot SELECT owner_bundle_meta; the owner-bundle watermark check would fail 42501 after owner-DDL repair")
+	}
+	for _, privilege := range []string{"INSERT", "UPDATE", "DELETE"} {
+		if scalar(t, ctx, pool.Runner,
+			"SELECT has_table_privilege('striatumd_rw', 'striatumd.owner_bundle_meta', $1)::text", privilege) != "false" {
+			t.Fatalf("striatumd_rw must not hold %s on owner_bundle_meta; write stays owner-only", privilege)
+		}
+	}
+}
+
 // TestPhase0DirectInsertDenied is T-42501-P0 + T-GRANT-DRIFT: after the runtime
 // role is provisioned broad DML (as daemon doctor does), the owner bundle's
 // REVOKE removes audit_log INSERT (only) — so a direct write is denied while
@@ -972,6 +991,7 @@ func TestReassertReadRevokesReclosesIdentitySelect(t *testing.T) {
 		"GRANT SELECT ON striatumd.principal_clients TO striatumd_rw",
 		"GRANT SELECT ON striatumd.client_sessions TO striatumd_rw",
 		"GRANT SELECT (token_hash, token_salt) ON striatumd.clients TO striatumd_rw",
+		"REVOKE SELECT ON striatumd.owner_bundle_meta FROM striatumd_rw",
 	} {
 		if err := pool.Runner.Exec(ctx, stmt); err != nil {
 			t.Fatalf("simulate read grant drift (%q): %v", stmt, err)
@@ -981,11 +1001,19 @@ func TestReassertReadRevokesReclosesIdentitySelect(t *testing.T) {
 		"SELECT has_table_privilege('striatumd_rw', 'striatumd.principals', 'SELECT')::text") != "true" {
 		t.Fatal("read grant drift setup failed: principals SELECT did not reopen")
 	}
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.owner_bundle_meta', 'SELECT')::text") != "false" {
+		t.Fatal("read grant drift setup failed: owner_bundle_meta SELECT did not close")
+	}
 
 	if err := db.ReassertReadRevokes(ctx, pool.Runner); err != nil {
 		t.Fatalf("reassert read revokes: %v", err)
 	}
 
+	if scalar(t, ctx, pool.Runner,
+		"SELECT has_table_privilege('striatumd_rw', 'striatumd.owner_bundle_meta', 'SELECT')::text") != "true" {
+		t.Fatal("ReassertReadRevokes stranded the owner_bundle_meta startup watermark SELECT grant")
+	}
 	for _, table := range []string{"principals", "client_sessions"} {
 		if scalar(t, ctx, pool.Runner,
 			"SELECT has_table_privilege('striatumd_rw', 'striatumd.'||$1, 'SELECT')::text", table) != "false" {

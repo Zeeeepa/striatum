@@ -33,7 +33,6 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	// Owner-only authority surfaces.
 	"daemon_auth_registry": ReadClassRuntimeDenied,
 	"daemon_auth_log":      ReadClassRuntimeDenied,
-	"owner_bundle_meta":    ReadClassRuntimeDenied,
 
 	// RFC 0114 / owner bundle 0006: session↔credential linkage, denied with no
 	// projection — nothing in go/ consumes it (the table is vestigial since the
@@ -47,7 +46,8 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"principals": ReadClassRuntimeProjection,
 
 	// Startup parity: owner-maintained, intentionally runtime-readable.
-	"schema_authority": ReadClassRuntimeParity,
+	"schema_authority":  ReadClassRuntimeParity,
+	"owner_bundle_meta": ReadClassRuntimeParity,
 
 	// Sensitive broad SELECT surfaces. These are the tables a future #164 split
 	// should consider first for denial, projection, or row/column scoping.

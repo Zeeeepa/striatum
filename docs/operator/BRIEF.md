@@ -12,6 +12,16 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-23 delta — owner-bundle watermark read hotfix
+
+Restarting the v2.35.0 daemon onto the RFC 0142 Layer 2 owner-bundle watermark
+interlock exposed #581's grant gap: `striatumd_rw` could not `SELECT`
+`striatumd.owner_bundle_meta`, so the daemon cleanly halted with exit 79 even
+after `striatum daemon owner-ddl apply` reported bundle 0019 current. Hotfix
+owner bundle **0020** grants runtime-role `SELECT` on `owner_bundle_meta` while
+keeping the table owner-owned and write-owner-only; the read-authority inventory
+now classifies it as `runtime_parity_select`.
+
 ## 2026-06-22 delta — v2.35.0 released
 
 **v2.35.0 (2026-06-22)** — large feature-wave cut: 207 commits since v2.34.1

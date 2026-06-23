@@ -20,7 +20,7 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 19
+const LatestOwnerBundleVersion = 20
 
 // RequiredOwnerBundleVersion is the applied `owner_bundle_meta` watermark the
 // serving binary requires before it may apply runtime migrations and serve (RFC
@@ -176,6 +176,7 @@ var ownerBundleLabels = map[int]string{
 	17: "synthetic pipe-read liveness column on sessions for pipe-transport lanes (RFC 0131 131-future / GH #350)",
 	18: "transfer pre-split runtime-table cohort (job_recovery_state etc.) ownership to striatumd_rw so runtime migrations may ALTER them (GH #442 / #441)",
 	19: "transfer supervisor-pointer table cohort ownership to striatumd_rw so runtime migration 0039 can reshape idx_process_supervisor_pointers_run (RFC 0139 / GH #421)",
+	20: "runtime read grant on owner_bundle_meta for owner-bundle watermark boot interlock (RFC 0142 Layer 2 / GH #581)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -467,12 +468,19 @@ var readScopeReasserts = map[string][]string{
 	},
 }
 
+var runtimeParityReadReasserts = []string{
+	"GRANT SELECT ON striatumd.schema_authority TO striatumd_rw",
+	"GRANT SELECT ON striatumd.owner_bundle_meta TO striatumd_rw",
+}
+
 // ReassertReadRevokes re-applies read-scope revokes for authority-protected
-// read projections stamped by owner bundles. Like ReassertWriteRevokes it is
-// map-driven from the stamps, so it re-closes exactly the read surfaces the
-// applied bundles closed. Run as the owner; a no-op when no authority schema
-// is present. `striatum daemon owner-ddl apply` calls it after
-// ApplyOwnerBundles, making a re-run the documented grant-drift repair.
+// read projections stamped by owner bundles and restates the startup-parity
+// read grants that are intentionally runtime-readable. Like
+// ReassertWriteRevokes it is map-driven from the stamps for closed projection
+// surfaces, so it re-closes exactly the read surfaces the applied bundles
+// closed. Run as the owner; a no-op when no authority schema is present.
+// `striatum daemon owner-ddl apply` calls it after ApplyOwnerBundles, making a
+// re-run the documented grant-drift repair.
 func ReassertReadRevokes(ctx context.Context, runner Runner) error {
 	stamped, present, err := readStampedCapabilities(ctx, runner)
 	if err != nil {
@@ -480,6 +488,11 @@ func ReassertReadRevokes(ctx context.Context, runner Runner) error {
 	}
 	if !present {
 		return nil
+	}
+	for _, stmt := range runtimeParityReadReasserts {
+		if err := runner.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("reassert startup parity read grant: %w", err)
+		}
 	}
 	for _, capability := range stamped {
 		stmts, ok := readScopeReasserts[capability]

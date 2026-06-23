@@ -9,7 +9,7 @@
 # file, a DUPLICATE ordinal, or a GAP in the sequence. Two PRs can no longer
 # silently grab the same NNNN (the 0039 / 0041 collisions, RFC 0142 failure #4).
 #
-# Frontiers: runtime_migration = 0043, owner_bundle = 0019.
+# Frontiers: runtime_migration = 0043, owner_bundle = 0020.
 #
 # Format: a tiny array-of-tables (a purpose-built parser in reservations.go
 # reads only `ordinal` and `file`; keep it that simple and human-legible).
@@ -265,3 +265,6 @@ file = "0018_runtime_table_ownership_transfer.sql"
 ordinal = 19
 file = "0019_supervisor_pointer_runtime_ownership.sql"
 
+[[owner_bundle]]
+ordinal = 20
+file = "0020_owner_bundle_watermark_read.sql"

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Owner-bundle watermark read grant (RFC 0142 Layer 2 / #581).** Owner bundle
+  **0020** grants runtime-role `SELECT` on `striatumd.owner_bundle_meta` so the
+  boot-time owner-bundle watermark interlock can read the applied frontier after
+  `striatum daemon owner-ddl apply`. The table stays owner-owned and
+  write-owner-only; the read-authority inventory now classifies it as
+  `runtime_parity_select`.
+
 ## v2.35.0 — 2026-06-22
 
 ### Added
