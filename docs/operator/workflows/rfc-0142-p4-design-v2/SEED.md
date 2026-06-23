@@ -246,3 +246,23 @@ proven, then flips behind a flag.
 <sub>Operator scaffold for the RFC 0142 P4 falsification-gate design run (v2 /
 REVISION of `rfc-0142-p4-design`; resolves the cycle-1 findings C1/C2/C3). Lanes:
 author=claude (holder/adjudicator/committer), reviewer=codex (falsifiers).</sub>
+
+## Operator sharpenings (pin these — do NOT let cycle-2 re-derive them)
+
+- **C1 finalization: the single-transaction sub-option is structurally impossible
+  — choose the idempotent finalizer.** The deploy receipt is appended over the
+  OWNER connection (`append_audit_row`, owner-only) while `deploy_cursor` and
+  `schema_state` are runtime-owned tables — the receipt write and the
+  cursor/fingerprint writes CANNOT share one transaction across the two
+  connections. So the only coherent close is an **idempotent finalizer**: on
+  re-run after any finalization-boundary crash it reconciles the receipt +
+  fingerprint from the durable `complete` cursor (ledger C1 Option A or B). Do not
+  propose a single finalization transaction spanning the owner+runtime
+  connections.
+- **C2 halt predicate: handle the bootstrap-order case.** The `awaiting_deploy`
+  typed halt reads "deploy incomplete" from `deploy_cursor`, but the C2 lockout
+  scenario includes the case where the `deploy_cursor` migration (>= 0044) has NOT
+  yet been applied (the table is absent). Treat "`owner_bundle_meta >= 20` AND
+  `deploy_cursor` table/row absent" as **incomplete → halt cleanly**, NOT
+  error-on-missing-table. The halt predicate must not assume `deploy_cursor` is
+  queryable.
