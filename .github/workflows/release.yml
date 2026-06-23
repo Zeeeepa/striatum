@@ -60,9 +60,13 @@ jobs:
 
   github-release:
     name: Create GitHub Release
-    # Publish only after BOTH the installed-CLI gate and the archive build pass —
-    # the gate still blocks the release; it just no longer serializes the build.
-    needs: [installed-cli, build]
+    # Publish after the archive build passes. The installed-CLI seat gate still runs
+    # (in parallel here + on the daily cron) as a NON-BLOCKING signal, but no longer
+    # gates publication: it false-blocked v2.34.0-v2.35.0 because the codex seat
+    # fails in a fresh CI runner on a workspace-trust / MCP-discovery stall (#582).
+    # Re-add `installed-cli` to needs once #582 is fixed if the seat should hard-gate
+    # releases again.
+    needs: [build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
