@@ -3,6 +3,9 @@ package mutations
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
 // revisionCycle is the runtime view of a workflow `cycles[]` entry that the
@@ -518,6 +521,16 @@ func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, j
 	if err := resetJobToBlockedWithReason(ctx, runner, repositoryID, jobID, now, reason); err != nil {
 		return "", err
 	}
+	// GH #584: advance the reopened job's per-job worktree to the current
+	// run-branch tip. Without this the worktree stays pinned at the OLD attempt's
+	// HEAD, so operator/revision fixes already integrated onto the run branch are
+	// invisible to the re-dispatched lane and a reviewer just re-emits the
+	// already-fixed blockers — the revision cycle can never converge. Done after
+	// the reset (the job is now `blocked` and its lease released) and before
+	// re-enqueue, inside the resolve/route transaction.
+	if err := advanceReopenedWorktreeToRunBranchTip(ctx, runner, repositoryID, job, reason); err != nil {
+		return "", err
+	}
 	// RFC 0126 P0 (D194 / GH #282): advance the reopened build/synthesis job's
 	// review epoch in the SAME transaction as its attempt bump. Verdicts recorded
 	// against the prior content were stamped with the prior generation, so this
@@ -530,6 +543,111 @@ func reopenJobForAttempt(ctx context.Context, runner any, repositoryID string, j
 		return "", err
 	}
 	return enqueueJob(ctx, runner, repositoryID, jobID)
+}
+
+// advanceReopenedWorktreeToRunBranchTip (GH #584) fast-forwards a reopened
+// repo-write job's active per-job worktree to the current run-branch tip, so the
+// re-dispatched lane starts the fresh revision attempt from the INTEGRATED code
+// (the operator/revision fix already committed onto the run branch) rather than
+// the stale prior-attempt HEAD it was left pinned at by `git worktree add`.
+//
+// It is a clean no-op for jobs with no active worktree (a read-only reviewer
+// lane, or a job whose worktree was already GC'd) and tolerates a worktree dir
+// that is missing on disk (a re-dispatch recreates the worktree from the run
+// branch anyway); only a genuine git failure on a present worktree surfaces a
+// typed error. The advance is a `git reset --hard <tip>`, which intentionally
+// discards the stale prior-attempt working state — a fresh revision attempt must
+// start from the integrated run-branch tip, and the prior attempt's commit stack
+// is already durably pinned under refs/striatum/<run>/<job>/<attempt> by the
+// completion-time anchor, so nothing is lost.
+//
+// Runs inside the reopen transaction (the runner is the resolve/route tx). The
+// worktree row is loaded FOR UPDATE so a concurrent worktree mutation cannot race
+// the advance. base_branch is left unchanged: it records the run BRANCH NAME (not
+// a sha), the branch is the same one whose tip we advance to, and the durable
+// reachability check (durableWorktreeRefs) builds refs/heads/<base_branch> — the
+// advanced HEAD is exactly that branch's tip, so reachability still holds. No new
+// attempt-ref pin is minted here either; pins are minted at work.complete against
+// the then-current attempt.
+func advanceReopenedWorktreeToRunBranchTip(ctx context.Context, runner any, repositoryID string, job map[string]any, reason string) error {
+	jobID := strings.TrimSpace(fmt.Sprint(job["job_id"]))
+	worktree, err := activeWorktreeForJob(ctx, runner, repositoryID, jobID)
+	if err != nil {
+		return err
+	}
+	if worktree == nil {
+		// No per-job worktree (read-only reviewer, or already GC'd): nothing to
+		// advance.
+		return nil
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, runner, repositoryID)
+	if err != nil {
+		return err
+	}
+	runID := strings.TrimSpace(fmt.Sprint(job["run_id"]))
+	run, err := rowByID(ctx, runner, repositoryID, "runs", "run_id", runID, false)
+	if err != nil {
+		return err
+	}
+	runBranch := strings.TrimSpace(fmt.Sprint(run["branch_name"]))
+	if runBranch == "" || runBranch == "<nil>" || nullable(run["branch_confirmed_at"]) == nil {
+		// A run that has no confirmed branch cannot have spawned a per-job worktree
+		// (validatedWorktreeCreateInputs requires one), so reaching here means the
+		// data is inconsistent. Refuse loudly rather than silently skip the advance.
+		return rpc.NewError("invalid_transition", "reopened job has an active worktree but its run has no confirmed branch to advance to", map[string]any{
+			"run_id":  runID,
+			"job_id":  jobID,
+			"reason":  reason,
+			"surface": "reopen_worktree_advance",
+		})
+	}
+
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(worktree["worktree_path"]))
+	if err != nil {
+		return err
+	}
+	if !pathExists(target) {
+		// The worktree dir is gone on disk (e.g. swept). A re-dispatch recreates the
+		// worktree from the run branch, so there is nothing on disk to advance and no
+		// stale state to leak. Skip cleanly.
+		return nil
+	}
+
+	tip, err := gitRevParseCommit(ctx, repoRoot, "refs/heads/"+runBranch)
+	if err != nil {
+		return err
+	}
+	prevHead, _ := gitRevParseCommit(ctx, target, "HEAD")
+	if prevHead == tip {
+		// Already at the tip (e.g. the run branch never moved since the last
+		// attempt). Nothing to do; do not record a no-op advance event.
+		return nil
+	}
+
+	result, err := runGitWorktreeCommand(ctx, target, "reset", "--hard", tip)
+	if err != nil {
+		return err
+	}
+	if result.ExitCode != 0 {
+		return rpc.NewError("git_commit_apply_failed", gitWorktreeErrorMessage("git reset --hard of the reopened worktree to the run-branch tip failed", result), map[string]any{
+			"run_id":   runID,
+			"job_id":   jobID,
+			"worktree": worktree["worktree_id"],
+			"tip":      tip,
+		})
+	}
+
+	if _, err := appendEvent(ctx, runner, repositoryID, runID, "worktree.advanced", nil, jobID, nil, nil, worktree["lease_id"], map[string]any{
+		"worktree_id":   worktree["worktree_id"],
+		"worktree_path": worktree["worktree_path"],
+		"base_branch":   runBranch,
+		"from_head":     prevHead,
+		"to_tip":        tip,
+		"reason":        reason,
+	}); err != nil {
+		return err
+	}
+	return nil
 }
 
 // bumpReviewGeneration advances a build/synthesis job's monotonic
