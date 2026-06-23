@@ -1,0 +1,335 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0143-design-v5"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0143-design-v5/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v4/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0143 falsifiable implementation spec so it RESOLVES the one remaining cycle-4 (design-v4) binding constraint BC1-CHANNEL (see SEED.md `## The binding constraint v5 MUST resolve`) while CARRYING FORWARD UNREGRESSED the design the v4 gate already credited (see SEED.md `## Carried forward — resolved by v4`): BC2 (reseal artifact identity from the job's `expected_artifacts` daemon state, refusing unexpected paths, reusing verifyRequiredArtifacts/ensurePerJobPublishedArtifactsDurable, front-matter failure routed to the Option-4 floor), BC3 (`CapabilityReseal` a daemon-internal marker projected by `resealInFlightJob` mapping supervisor_id->session_id with an internal AuthContext and no public Authorize prelude; public route-alternate kept test-only), BC4 (the concrete monotonic `jobs.recovery_generation` column in owner bundle 0021, LatestOwnerBundleVersion 20->21, increment points, stamped lease.recovery_generation compared under the lock), BC5 (`leases.reseal_grace_extended_at` pinned to the same owner bundle 0021 — leases owner-held, created by runtime 0005, absent from the owner/0018 transfer cohort — and the corrected work.complete lock-order skip/replace/replay gate map so expired-beyond-grace ALWAYS routes the typed class), C2 (the wrapper never propagates provider child statuses 97/98 into the reserved agentloop exit codes), the daemon-OBSERVED positive intent (post-rotation + stamped-generation match + lease-in-grace + every required expected_artifact present-and-content-hash-modified-since-baseline, with a recovery-sweep backstop), the ensureWorkSessionBackend BYPASS (so a stopped supervisor routes the typed class, never a leaked backend error), the W1/W2/W3 wall SHAPES (W1 per-message SCM_CREDENTIALS peer-cred bound to the launched wrapper pid+start-time; W2 PR_SET_DUMPABLE(0); W3 nonce out of the env), F2 (no lane-readable reseal bearer), F4 (route-specific `MethodEntry.ResealAlternate` recording reseal not write), the F7 file-mirror half (daemon-owned lane-read-only 0644 mirror, O_NOFOLLOW, atomic rename, reject MISSING boot-epoch header — closing #316), AF1 reachability-not-reminting, AF4 epoch/token decoupling, the categorical no-admin-token-widening invariant, and the per-claim falsifiable-assertion discipline (A1-A18). Start from the design-v4 HOLDER.md (a required context doc) and the v4 collaboration ledger (the BC1-CHANNEL finding, its rationale, and the exact 'next revision must...' list); do NOT re-litigate the ratified OQ1 trust-model shape (Option 4 mandatory floor + ratification-gated Option 2 narrow CapabilityReseal + minimal Option 3 per-session endpoint+epoch republish), the F2 non-bearer decision, OR the W1/W2/W3 wall shapes and W1's load-bearing role — those are pinned in SEED.md `## Ratified design shape` and `## Carried forward — resolved by v4`. BC1-CHANNEL (security cluster) must resolve the ONE unrebutted ground in ONE place: the W1/W2/W3 walls are designed for a DIRECT exec.Cmd.ExtraFiles child, but the production supervised lane is TMUX-BACKED (launchPTY -> tmux respawn-pane, pty.go:479, under sudo -n -u RunAsUser -- env -i, pty.go:98-112, wrapped by the env-file shim launchEnvFileExec, pty.go:24), and the control-fd delivery through the real launch path is unspecified — (a) an fd via ExtraFiles to the tmux CLIENT does not reach the tmux-SERVER-spawned pane process; (b) passing fd 3 through the env-file shim makes it live BEFORE agentloop can run PR_SET_DUMPABLE(0) (breaking the W2 ordering — a same-uid sibling can read /proc/<wrapper-pid>/fd/3 in that window); (c) any env-var/filesystem-socket-name/lane-readable bridge reopens the exact same-uid surface BC1 must close. Pin the control-fd delivery + dumpability mechanism through the production tmux/sudo run-as/env-file path — OR explicitly change the launch topology — and NAME the EXACT HelperLaunchSpec (helper_protocol.go:27-39, no control-fd field today) / LaunchSpec (pty.go:30-41, no ExtraFiles/control-fd field today) / RunHelper (helper.go:149-156, forwards no fd) plumbing sites that reach the PANE agentloop wrapper (NOT the tmux client). Guarantee NO same-uid-readable shim process holds fd 3 or the nonce before PR_SET_DUMPABLE(0) is effective. Add a REAL-PATH test TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper that launches through RunHelper with RequireTmux/RunAsUser and asserts TOGETHER: the wrapper can send an accepted frame stamped with the launched wrapper pid+start-time (W1); the provider lacks fd 3; and a non-child/non-wrapper same-uid sibling cannot open /proc/<wrapper-pid>/fd/3 OR recover the nonce at ANY point in the launch chain (W2/W3). A CONNECT-OUT topology (the pane wrapper calls PR_SET_DUMPABLE(0) FIRST then connects OUT to a daemon-held listener, daemon authenticating the peer via SO_PEERCRED uid+pid+start-time so a sibling that connects is REJECTED and there is no inherited fd to steal through tmux) likely sidesteps the fd-through-tmux problem cleanly — the holder may take it or pin a real fd-passing path that genuinely reaches the pane wrapper, but must anchor it through the actual tmux/sudo/env-file plumbing and preserve the W2 ordering. ALSO fold in the v4 build-test precision item: the deliverable-observed condition must reuse the gitChangedPathSnapshots/collectInScopeAuthoredPaths authored-path attribution (baseline nil for isolated worktrees, write_scope_guard.go:69-85; claim.go:601-630; artifact_source_publish.go:69-88,:255-290) so an UNCHANGED pre-existing expected path is NOT resealed (TestResealRequiresAuthoredExpectedArtifactChange or the positive TestCodexResealUsesReceiverNotProviderStdout case). Name the exact code sites cited in SEED.md, confirm them against current main and FLAG any drift, and state every load-bearing security claim as a falsifiable assertion paired with its named test. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder proposal, the design-v4 HOLDER.md, and the v4 collaboration ledger. FIRST verify the cycle-4 binding constraint BC1-CHANNEL is GENUINELY resolved (not merely claimed), pressing hardest on the CHANNEL-INSTALLATION / same-uid lens — this is the single ground the v4 gate held open. The W1/W2/W3 wall shapes are credited; the open question is whether the spec installs them on the REAL tmux-backed production launch path. Press: (1) Does fd 3 / the connect-out reach ONLY the pane agentloop wrapper through the real tmux/sudo/env-file path — NOT merely the tmux client? Recall an fd via ExtraFiles to the tmux client does not reach the tmux-SERVER-spawned pane process (pty.go:479 respawn-pane under sudo -n -u RunAsUser -- env -i, pty.go:98-112, env-file shim pty.go:24). Does the spec name the EXACT HelperLaunchSpec (helper_protocol.go:27-39) / LaunchSpec (pty.go:30-41) / RunHelper (helper.go:149-156) plumbing sites that reach the pane wrapper — or does it still assume a direct exec.Cmd.ExtraFiles child? (2) Is the nonce / fd unreadable by a same-uid sibling at EVERY launch step? In particular, does PR_SET_DUMPABLE(0) precede the fd/nonce being live — i.e. does NO same-uid-readable shim process (the env-file shim, the sudo/env -i wrapper) hold fd 3 or the nonce before agentloop's first instruction? A bridge via env-var, a filesystem-socket-name a sibling can connect to without peer-cred rejection, or fd-inheritance-through-the-shim that exposes /proc/<wrapper-pid>/fd/3 before dumpable=0 is a landed falsification (the same-uid category mistake that killed the v1 0600 file). If the spec chose connect-out: does the daemon's SO_PEERCRED check bind uid+pid+start-time of the LAUNCHED wrapper so a sibling that connects to a same-uid-reachable socket is REJECTED (wrong pid/start-time)? (3) Does the real-path test TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper actually FIRE against RunHelper with RequireTmux/RunAsUser, asserting together that the wrapper can send an accepted frame (W1), the provider lacks fd 3, and a non-child/non-wrapper same-uid sibling cannot open /proc/<wrapper-pid>/fd/3 or recover the nonce at any point — or do the named tests only fire on a direct os/exec harness (the v4 hole)? ALSO verify the v4-credited security set is NOT regressed: BC2 (artifact identity from daemon state), BC3 (CapabilityReseal daemon-internal marker, route-alternate test-only), C2 (wrapper never propagates provider 97/98), the daemon-observed positive intent + backend-gate bypass, F2 (no lane-readable reseal bearer), F4 (route-alternate records reseal not write), and the no-admin-token-widening invariant. Then hunt for any NEW material gap in the security/authz core.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (BC1-CHANNEL: control-fd delivery through the real tmux/sudo path + same-uid lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder proposal, the design-v4 HOLDER.md, and the v4 collaboration ledger. Your lens is REGRESSION + LIFECYCLE: the v4 gate resolved BC2/BC3/BC4/BC5 + C2 + the daemon-observed positive intent + the ensureWorkSessionBackend bypass and carried the rest forward; v5 changes only the BC1-CHANNEL installation. FIRST verify NONE of the v4-credited set is regressed by the v5 channel rework: (1) BC2/BC3 — artifact identity still derived from daemon `expected_artifacts` state, CapabilityReseal still a daemon-internal marker projected by resealInFlightJob (supervisor_id->session_id, internal AuthContext, public route-alternate test-only); does the new channel installation still let resealInFlightJob find the bound session/job from daemon state (process_supervisors/process_supervisor_pointers) rather than from the channel frame? (2) BC4/BC5 — the jobs.recovery_generation owner-bundle-0021 column + stamped-generation guard, leases.reseal_grace_extended_at in the same owner bundle 0021 (leases owner-held: created runtime 0005:166, absent from the owner/0018 transfer cohort), and the corrected work.complete skip/replace/replay lock-order map (enforceSessionBindingForSession/enforceActiveActingSession skipped pre-lockRunForJob; activeLeaseFor/ensureWorkSessionBackend skipped post-lock; lockRunForJob + FOR UPDATE rows + reseal predicate + write-scope + durability + running->completed replayed) so expired-beyond-grace ALWAYS routes the typed session_unrecoverable_across_rotation class — still intact and still serialized against artifact.publish (artifact.go:75-85) and the recovery sweep (recovery.go:575-621)? (3) The daemon-observed positive intent + backend-gate bypass + C2 — still intact and not weakened by the channel change? (4) F7 file-mirror half (daemon-owned lane-read-only endpoint/epoch, O_NOFOLLOW, atomic rename, missing-epoch rejected), AF1, AF4 — intact? THEN verify the FOLD-IN: does the deliverable-observed condition reuse the gitChangedPathSnapshots/collectInScopeAuthoredPaths authored-path attribution (baseline nil for isolated worktrees, write_scope_guard.go:69-85; claim.go:601-630; artifact_source_publish.go:69-88,:255-290) so an UNCHANGED pre-existing expected path is NOT resealed (TestResealRequiresAuthoredExpectedArtifactChange or the positive TestCodexResealUsesReceiverNotProviderStdout case)? THEN hunt for any NEW lifecycle gap the v5 channel rework introduced — e.g. a connect-out listener that races the lease lifecycle, a split-brain where a reseal writes into a session/job the daemon retired across the rotation, or a typed-class route that the channel change leaves leaking a raw lease_error/backend error. Then hunt for any other NEW material gap in the lifecycle/correctness core.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (regression/lifecycle: BC2/BC3/BC4/BC5 + positive-intent + backend-gate intact; no new lifecycle gap)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0143 v5 REVISION (the revised HOLDER.md and the two FALSIFIER.md re-attacks), with the design-v4 HOLDER.md and the v4 collaboration ledger as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES that the single remaining binding constraint BC1-CHANNEL is genuinely resolved AND structural no-replay is established on the REAL channel AND the v4-credited resolved set (BC2, BC3, BC4, BC5, C2, the daemon-observed positive intent, the ensureWorkSessionBackend bypass, the W1/W2/W3 wall shapes, F2, F4, the F7 file-mirror half, AF1, AF4, the no-admin-token-widening invariant, the A1-A18 assertion discipline) is carried forward UNREGRESSED with the modified-since-baseline build-test folded in AND no new material challenge stands unrebutted. BC1-CHANNEL is resolved only if the spec pins a concrete control-fd delivery + dumpability mechanism ANCHORED THROUGH THE PRODUCTION LAUNCH PATH: (1) it names the EXACT HelperLaunchSpec (helper_protocol.go:27-39) / LaunchSpec (pty.go:30-41) / RunHelper (helper.go:149-156) plumbing sites that reach the PANE agentloop wrapper — NOT the tmux client — OR explicitly changes the launch topology (e.g. a connect-out: the pane wrapper calls PR_SET_DUMPABLE(0) FIRST then connects OUT to a daemon-held listener, the daemon authenticating the peer via SO_PEERCRED uid+pid+start-time so a same-uid sibling that connects is REJECTED and there is NO inherited fd to steal through tmux); (2) it guarantees NO same-uid-readable shim process (the env-file shim, the sudo/env -i wrapper) holds fd 3 or the nonce before PR_SET_DUMPABLE(0) is effective — the W2 ordering preserved on the real path; (3) it adds a REAL-PATH test TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper that launches through RunHelper with RequireTmux/RunAsUser and asserts TOGETHER that the wrapper can send an accepted frame stamped with the launched wrapper pid+start-time (W1), the provider lacks fd 3, and a non-child/non-wrapper same-uid sibling cannot open /proc/<wrapper-pid>/fd/3 or recover the nonce at ANY point in the launch chain (W2/W3) — the direct-os/exec versions are necessary but not sufficient. needs_revision if BC1-CHANNEL remains open (a fix that still leaves fd 3 / the nonce same-uid-readable before PR_SET_DUMPABLE(0), that does not reach the pane wrapper through the real tmux/sudo path, that reopens a same-uid bridge, or whose real-path test would not actually fire), if structural no-replay is not established on the real channel, if any v4-credited item is regressed, or any new material challenge lands; reject only if a path widens admin-token exposure or mints a credential carrying any of {admin,apply,recovery,surgical_recovery}. The security invariant must hold STRUCTURALLY (no-replay must hold structurally on the REAL channel — not as a trackable post-clearance finding, and not only on a direct-exec harness). Note that Slice B (the daemon-internal CapabilityReseal marker, the test-only auth-prelude route alternate, the daemon-owned supervisor control channel with per-message peer-credential or connect-out SO_PEERCRED authentication, the reserved agentloop exit codes, the jobs.recovery_generation + leases.reseal_grace_extended_at owner-bundle-0021 columns, and endpoint/epoch republish plumbing) still requires maintainer ratification before any build slice touches credential code; adjudicator clearance gates the spec's soundness, not the maintainer's product call, and Slice A (the Option-4 typed-exit-code floor) is zero-trust-change but must route over a real non-PTY channel with the same-uid authentication anchored through the tmux launch path before it lands.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsification-hardened implementation spec for RFC 0143 (resolving the remaining binding constraint BC1-CHANNEL with the ratified trust-model shape — Option 4 mandatory floor + ratification-gated Option 2 narrow CapabilityReseal + minimal Option 3 per-session endpoint+epoch republish — and carrying the v4-credited resolved set BC2/BC3/BC4/BC5 + C2 + daemon-observed positive intent + backend-gate bypass + W1/W2/W3 shapes + F2/F4/F7-file/AF1/AF4/no-widening/A1-A18 forward), only after the adjudicator ledger records a clearing verdict; this SPEC is the artifact the rfc-0143-build run consumes. It MUST carry the BC1-CHANNEL resolution in full: the concrete control-fd delivery + dumpability mechanism ANCHORED THROUGH THE PRODUCTION tmux/sudo run-as/env-file launch path — naming the exact HelperLaunchSpec/LaunchSpec/RunHelper plumbing sites that reach the PANE agentloop wrapper (not the tmux client), OR the explicit launch-topology change (e.g. connect-out with daemon-side SO_PEERCRED uid+pid+start-time authentication so a same-uid sibling is rejected and no fd is inherited through tmux), the preserved W2 ordering (no same-uid shim holds fd 3 or the nonce before PR_SET_DUMPABLE(0)), and the real-path test TestTmuxRunAsControlFDIsDeliveredOnlyToWrapper through RunHelper with RequireTmux/RunAsUser. It MUST carry the v4-credited set forward unregressed (BC2 artifact identity from daemon state, BC3 CapabilityReseal daemon-internal marker route-alternate test-only, BC4 jobs.recovery_generation owner-bundle-0021 column + stamped guard, BC5 leases.reseal_grace_extended_at in owner bundle 0021 + corrected lock-order map, C2 reserved-exit commitment, the daemon-observed positive intent + recovery-sweep backstop, the ensureWorkSessionBackend bypass, the W1/W2/W3 wall shapes, F2/F4/F7-file/AF1/AF4/no-widening/A1-A18), with the modified-since-baseline authored-path build-test folded in (reuse gitChangedPathSnapshots/collectInScopeAuthoredPaths so an unchanged pre-existing expected path is not resealed). It MUST specify the build slices in contract-first order (Slice A the Option-4 legible-failure floor over the channel anchored through the real tmux launch path, then Slice B the reseal mechanism), each with its named Go tests and the owner-bundle-0021 migration changes (jobs.recovery_generation + leases.reseal_grace_extended_at; LatestOwnerBundleVersion 20->21), applying the shadow-first convention (new behavior defaults OFF behind an env flag; additive migrations only; self-record before enforce). It MUST state the Acceptance Criteria including the mandatory game-day fire test (GD-1/GD-1b: restart the daemon mid-job, lane survives-and-reseals OR fails legibly-and-is-routed, no silent unsealed exit, no elevated-capability exposure) and the same-uid sibling-replay negative game-day run THROUGH THE TMUX LAUNCH PATH. It MUST open with the maintainer-ratification banner: Slice B is a security/authz trust-model change requiring maintainer ratification before any build slice touches credential code, and Slice A (the zero-trust-change legible-failure floor) may land first under the normal review gate once BC1-CHANNEL anchors it over a real non-PTY-output channel through the production launch path. Stay strictly inside the Non-Goals and the local-first product boundary.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0143-design-v5/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-design-v5/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0143-design-v5",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0143-design-v5",
+  "workflow_version": "2026-06-23"
+}
