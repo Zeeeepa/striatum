@@ -128,6 +128,15 @@ func RunInstalledCLI(t *testing.T, h *Harness, adapter string, opts InstalledCLI
 	t.Setenv(agentloop.EnvMCPTokenFile, "")
 	t.Setenv(agentloop.EnvDaemonMCPHTTPURL, "")
 	t.Setenv(agentloop.EnvDaemonMCPHTTPEndpointFile, "")
+	// Isolate the #323 MCP-rotation watcher from the ambient runtime dir. Otherwise
+	// ResolveMCPEndpointFresh falls back to admin.RuntimeMCPEndpointPath()
+	// (/run/striatum) and, on any box with a live daemon, "detects" a rotation from
+	// the harness endpoint to the real one (e.g. :9464) and rewrites the lane's MCP
+	// url to a port that is dead inside the hermetic test — codex cannot reload its
+	// -c-injected url and wedges before claiming (was a false codex-seat failure).
+	// Point the runtime dir at an empty temp dir so the fresh resolve finds no
+	// endpoint file and the watcher never rotates a stable harness endpoint.
+	t.Setenv(agentloop.EnvDaemonRuntimeDir, t.TempDir())
 
 	report := InstalledCLIReport{Adapter: adapter, Command: command, SeatSession: fx.SeatSession}
 	var hook *installedCLIHook

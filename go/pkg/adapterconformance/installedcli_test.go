@@ -63,11 +63,14 @@ func tailLines(s string, n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// agyLoginPickerMarkers are substrings the agy CLI emits when the current
-// operator environment is not authenticated enough for a non-interactive
-// installed-CLI gate. Detecting one lets local/scheduled runs skip with an
-// environment-specific reason instead of burning the whole RunTimeout.
-var agyLoginPickerMarkers = []string{
+// cliLoginPickerMarkers are substrings an installed lane CLI (agy or codex)
+// emits when the current environment is not authenticated enough for a
+// non-interactive installed-CLI gate — agy's Google-OAuth picker and codex's
+// "Sign in with ChatGPT / API key" onboarding screen. Detecting one lets
+// local/scheduled runs skip with an environment-specific reason instead of
+// failing the gate (the unauthenticated CI runner cannot drive the LLM, exactly
+// like an absent CLI), while a genuine seat regression still fails.
+var cliLoginPickerMarkers = []string{
 	"sign in",
 	"sign-in",
 	"log in to",
@@ -80,11 +83,16 @@ var agyLoginPickerMarkers = []string{
 	"visit the following url",
 	"press enter to",
 	"continue with google",
+	// codex onboarding (codex-cli >= 0.141 shows this with no auth configured)
+	"welcome to codex",
+	"sign in with chatgpt",
+	"provide your own api key",
+	"usage-based billing",
 }
 
-func outputLooksLikeAgyLoginPicker(output string) bool {
+func outputLooksLikeLoginPicker(output string) bool {
 	lower := strings.ToLower(output)
-	for _, marker := range agyLoginPickerMarkers {
+	for _, marker := range cliLoginPickerMarkers {
 		if strings.Contains(lower, marker) {
 			return true
 		}
@@ -101,7 +109,7 @@ func TestInstalledCLISeatAgyTwoTurn(t *testing.T) {
 	// picker. That is an environment setup gap for this on-demand gate, not a
 	// supervised-seat regression in the authenticated environments where the gate
 	// is expected to run green.
-	if !report.Passed() && outputLooksLikeAgyLoginPicker(report.Output) {
+	if !report.Passed() && outputLooksLikeLoginPicker(report.Output) {
 		t.Skipf("agy CLI displayed an interactive login picker in this environment; authenticate agy before running the RFC 0109 P3 installed-CLI gate locally")
 	}
 	if !report.Passed() {
@@ -136,7 +144,7 @@ func TestInstalledCLISeatAgyRestartWhileLeased(t *testing.T) {
 	})
 	logInstalledCLIReport(t, report)
 	// Same unauthenticated-environment skip as TestInstalledCLISeatAgyTwoTurn.
-	if !report.Passed() && outputLooksLikeAgyLoginPicker(report.Output) {
+	if !report.Passed() && outputLooksLikeLoginPicker(report.Output) {
 		t.Skipf("agy CLI displayed an interactive login picker in this environment; authenticate agy before running the #151 restart-while-leased gate locally")
 	}
 	if !report.Passed() {
@@ -153,6 +161,15 @@ func TestInstalledCLISeatCodexTwoTurn(t *testing.T) {
 	h := NewHarness(t, "repo_conf_codex_seat")
 	report := RunInstalledCLI(t, h, "codex", InstalledCLIOptions{RunTimeout: installedCLITimeout(t)})
 	logInstalledCLIReport(t, report)
+	// codex shows an interactive sign-in screen ("Sign in with ChatGPT / API key")
+	// when no LLM auth is configured — e.g. a fresh CI runner. Treat that like an
+	// absent CLI: skip with an environment reason rather than fail. The seat is
+	// genuinely exercised wherever codex is authenticated (dev boxes; CI once an
+	// OPENAI_API_KEY / codex login is provisioned). A real seat regression on an
+	// authenticated box still fails because no login-picker markers appear.
+	if !report.Passed() && outputLooksLikeLoginPicker(report.Output) {
+		t.Skipf("codex CLI displayed an interactive sign-in screen in this environment; authenticate codex (ChatGPT login or OPENAI_API_KEY) before running the RFC 0109 P3 installed-CLI gate")
+	}
 	if !report.Passed() {
 		t.Fatalf("codex installed-CLI seat gate (RFC 0109 P3 / #95) FAILED:\n  %s", strings.Join(report.Failures, "\n  "))
 	}
