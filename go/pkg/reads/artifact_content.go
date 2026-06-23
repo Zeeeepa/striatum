@@ -253,7 +253,8 @@ func getContentFromGitAnchor(ctx context.Context, runner db.Runner, repositoryID
 	if repoRoot == "" || !ok || contentSha256 == "" {
 		return nil, false, nil
 	}
-	for _, ref := range durableWorktreeProbeRefs(ctx, repoRoot, row) {
+	refs := durableWorktreeProbeRefs(ctx, repoRoot, row)
+	for _, ref := range refs {
 		commit, err := readGitCommit(ctx, repoRoot, ref)
 		if err != nil {
 			continue
@@ -267,6 +268,26 @@ func getContentFromGitAnchor(ctx context.Context, runner db.Runner, repositoryID
 		}
 		sum := sha256.Sum256(body)
 		if hex.EncodeToString(sum[:]) != contentSha256 {
+			continue
+		}
+		return map[string]any{
+			"artifact_id":   artifactID,
+			"content_type":  "application/octet-stream",
+			"body_base64":   base64.StdEncoding.EncodeToString(body),
+			"sha256":        contentSha256,
+			"verified":      true,
+			"source":        "git_anchor",
+			"placement":     stringFrom(row, "placement"),
+			"anchor_ref":    ref,
+			"anchor_commit": commit,
+		}, true, nil
+	}
+	for _, ref := range refs {
+		body, commit, found, err := findGitBlobInRefHistory(ctx, repoRoot, ref, repoPath, contentSha256)
+		if err != nil {
+			return nil, false, rpc.NewError("artifact_error", err.Error(), nil)
+		}
+		if !found {
 			continue
 		}
 		return map[string]any{

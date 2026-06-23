@@ -73,6 +73,46 @@ func TestDoctorArtifactAnchorPreservedInDefaultBranchHistoryIsClean(t *testing.T
 	}
 }
 
+// An artifact whose recorded body was superseded by a later attempt on the same
+// run branch is still durably reconstructable from that run branch's path
+// history. The operator may be looking at the revised branch tip, but doctor
+// should not red when the original body is still reachable in the run branch.
+func TestDoctorArtifactAnchorPreservedInRunBranchHistoryIsClean(t *testing.T) {
+	requireGit(t)
+	repoRoot := t.TempDir()
+	readsGitInit(t, repoRoot)
+	runBranch := "wf/revision-run-branch"
+	readsGitRun(t, repoRoot, "checkout", "-q", "-b", runBranch)
+	if err := os.MkdirAll(filepath.Join(repoRoot, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := "docs/FINDING.md"
+	originalBody := "attempt 1 finding body\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(artifactPath)), []byte(originalBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, repoRoot, "add", artifactPath)
+	readsGitRun(t, repoRoot, "commit", "-q", "-m", "publish attempt 1 finding")
+	if err := os.WriteFile(filepath.Join(repoRoot, filepath.FromSlash(artifactPath)), []byte("attempt 2 revised finding body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readsGitRun(t, repoRoot, "add", artifactPath)
+	readsGitRun(t, repoRoot, "commit", "-q", "-m", "publish attempt 2 finding")
+	readsGitRun(t, repoRoot, "checkout", "-q", "main")
+
+	row := artifactAnchorRow(repoRoot, "art_run_history", "run_history", "job_history", runBranch, artifactPath, testSHA256(originalBody))
+	row["run_state"] = "running"
+
+	_, problems, records, warnings, warningRecords := doctorArtifactAnchorIntegrity(
+		context.Background(), &doctorArtifactAnchorRunner{artifactRows: []map[string]any{row}}, "repo_anchor", healthyBlobBlock())
+	if len(problems) != 0 || len(records) != 0 {
+		t.Fatalf("content preserved in run-branch history must not red ok: problems=%#v records=%#v", problems, records)
+	}
+	if len(warnings) != 0 || len(warningRecords) != 0 {
+		t.Fatalf("run-history-preserved content must be clean (no warning): warnings=%#v", warnings)
+	}
+}
+
 // Rule B: the deliverable's path is still live on the default-branch tip but with
 // different content (the recorded sha is an intermediate draft revised before
 // merge) -> exactly one artifact_superseded_on_default_branch warning, no problem.

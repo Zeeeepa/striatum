@@ -365,6 +365,16 @@ func checkArtifactAnchor(ctx context.Context, row map[string]any, defaultRef str
 		}
 	}
 
+	// Revision cycles can supersede a repo_path on the run branch before the run
+	// lands on default. If the recorded artifact body is still reachable in the
+	// durable run ref's path history, the body is reconstructable and doctor must
+	// not red on the later tip mismatch.
+	for _, ref := range refs {
+		if artifactContentInRefHistory(ctx, repoRoot, ref, repoPath, expected, pass.historyByKey) {
+			return "", nil, "", nil
+		}
+	}
+
 	// Legibility rule 2: a finding from an abandoned (terminal-debris) run is
 	// archived leftover, not an active gap.
 	if terminalDebrisRunState(stringFrom(row, "run_state")) {
@@ -427,11 +437,11 @@ func artifactContentPreserved(ctx context.Context, row map[string]any, defaultRe
 	if artifactContentMatchesAnyRef(ctx, repoRoot, repoPath, expected, refs) {
 		return true
 	}
-	// Rule A: also consult default-branch history, not only ref tips, so a
-	// legacy artifact merged then deleted/rewritten is still recognized as
-	// preserved (legacy warning) rather than reported as missing metadata.
-	for _, ref := range defaultRefList {
-		if artifactContentInDefaultRefHistory(ctx, repoRoot, ref, repoPath, expected, pass.historyByKey) {
+	// Also consult ref history, not only ref tips, so a legacy artifact merged or
+	// revised and then deleted/rewritten is still recognized as preserved rather
+	// than reported as missing metadata.
+	for _, ref := range refs {
+		if artifactContentInRefHistory(ctx, repoRoot, ref, repoPath, expected, pass.historyByKey) {
 			return true
 		}
 	}
@@ -446,20 +456,24 @@ func artifactContentPreserved(ctx context.Context, row map[string]any, defaultRe
 // defaultRefHistoryRevisionCap revisions of that path), ctx-cancellable, memoized
 // per (root|ref|path|sha), and safe-degrades to false on any git error.
 func artifactContentInDefaultRefHistory(ctx context.Context, repoRoot, defaultRef, repoPath, expectedSHA string, cache map[string]bool) bool {
+	return artifactContentInRefHistory(ctx, repoRoot, defaultRef, repoPath, expectedSHA, cache)
+}
+
+func artifactContentInRefHistory(ctx context.Context, repoRoot, ref, repoPath, expectedSHA string, cache map[string]bool) bool {
 	repoRoot = strings.TrimSpace(repoRoot)
-	defaultRef = strings.TrimSpace(defaultRef)
+	ref = strings.TrimSpace(ref)
 	repoPath = strings.TrimSpace(repoPath)
 	expectedSHA = strings.TrimSpace(expectedSHA)
-	if repoRoot == "" || defaultRef == "" || repoPath == "" || expectedSHA == "" {
+	if repoRoot == "" || ref == "" || repoPath == "" || expectedSHA == "" {
 		return false
 	}
-	key := repoRoot + "|" + defaultRef + "|" + repoPath + "|" + expectedSHA
+	key := repoRoot + "|" + ref + "|" + repoPath + "|" + expectedSHA
 	if cache != nil {
 		if hit, ok := cache[key]; ok {
 			return hit
 		}
 	}
-	result := computeContentInDefaultRefHistory(ctx, repoRoot, defaultRef, repoPath, expectedSHA)
+	result := computeContentInRefHistory(ctx, repoRoot, ref, repoPath, expectedSHA)
 	if cache != nil {
 		cache[key] = result
 	}
@@ -467,31 +481,43 @@ func artifactContentInDefaultRefHistory(ctx context.Context, repoRoot, defaultRe
 }
 
 func computeContentInDefaultRefHistory(ctx context.Context, repoRoot, defaultRef, repoPath, expectedSHA string) bool {
-	// `git log <defaultRef> --max-count=N --format=%H -- <repoPath>` lists only the
-	// commits that touched that path (cheap; bounded by --max-count so a
-	// pathological history cannot blow up the pass). A missing ref/path errors out
-	// and we safe-degrade to false.
-	out, err := readGitOutput(ctx, repoRoot, "log", "--max-count="+strconv.Itoa(defaultRefHistoryRevisionCap), "--format=%H", defaultRef, "--", repoPath)
+	return computeContentInRefHistory(ctx, repoRoot, defaultRef, repoPath, expectedSHA)
+}
+
+func computeContentInRefHistory(ctx context.Context, repoRoot, ref, repoPath, expectedSHA string) bool {
+	_, _, found, _ := findGitBlobInRefHistory(ctx, repoRoot, ref, repoPath, expectedSHA)
+	return found
+}
+
+func findGitBlobInRefHistory(ctx context.Context, repoRoot, ref, repoPath, expectedSHA string) ([]byte, string, bool, error) {
+	// `git log <ref> --max-count=N --format=%H -- <repoPath>` lists only the
+	// commits that touched that path. It is cheap, bounded, and safe-degrades to
+	// "not found" when the ref or path is absent.
+	out, err := readGitOutput(ctx, repoRoot, "log", "--max-count="+strconv.Itoa(defaultRefHistoryRevisionCap), "--format=%H", ref, "--", repoPath)
 	if err != nil {
-		return false
+		return nil, "", false, nil
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if ctx.Err() != nil {
-			return false
+			return nil, "", false, nil
 		}
 		commit := strings.TrimSpace(line)
 		if commit == "" {
 			continue
 		}
-		probe, err := readGitBlobSHA256(ctx, repoRoot, commit, repoPath)
-		if err != nil || !probe.Exists {
+		body, present, err := readGitFileBytes(ctx, repoRoot, commit, repoPath)
+		if err != nil {
+			return nil, "", false, err
+		}
+		if !present {
 			continue
 		}
-		if probe.SHA256 == expectedSHA {
-			return true
+		sum := sha256.Sum256(body)
+		if hex.EncodeToString(sum[:]) == expectedSHA {
+			return body, commit, true, nil
 		}
 	}
-	return false
+	return nil, "", false, nil
 }
 
 // pathExistsOnRef reports whether repoPath exists in the tree at ref's tip (D205
