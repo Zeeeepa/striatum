@@ -1,0 +1,335 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0142-p4-design-v5"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0142-p4-design-v5/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v4/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0142-safe-by-construction-database-change-deployment.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0142 P4 implementation spec (the one-shot `striatum daemon deploy`) so it RESOLVES the two cycle-4 (design-v4) falsification-gate findings — M1 (the v4 stored-transcript/binary verification rule verifies ONLY not-yet-applied steps, so a resume binary whose ALREADY-APPLIED step bytes differ — B45 != A45 — passes the not-yet-applied check, is classified resume-off-stored-transcript rather than `deploy_plan_binary_mismatch`, completes the plan, and the C1 finalizer self-records the running binary's `ExpectedFingerprint()` — which hashes EMBEDDED FILE BYTES, go/pkg/db/schema_drift.go:83-99, while `LiveFingerprint` does NOT recompute from `schema_migrations`, :145-160 — into the `schema_state` singleton and marks `complete`, converting a hybrid A-applied/B-expected deploy into an apparently in-sync B deploy; the v4 holder's own §8 HOLDER.md:833-839 concedes the already-applied check does not fire) and M2 (the v4 'C3 carried forward / 0021 unreachable via owner-ddl apply' guarantee binds ONLY `applyPendingOwnerBundles` go/pkg/db/owner.go:309-320; the FMA-007 self-heal branch `ReapplyAllOwnerBundles` reached from `ApplyOwnerBundles` on a cross-bundle dependency error owner.go:277-302 re-runs EVERY loaded bundle regardless of recorded version owner.go:324-349, and since the activation binary's `OwnerBundles()` MUST surface 0021 for `revokeEmbedded` detection, a cross-bundle dependency repair can commit `REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw` early — before the runtime ownership reconcile — recreating the #512-class CREATE lockout the revoke-last mechanism exists to prevent) — while CARRYING FORWARD UNREGRESSED the five findings the v3/v4 gates already resolved (both v4 falsifiers conceded all of them): BC-N1 (immutable `deploy_plan` transcript materialized BEFORE step 0 + resume off the stored transcript by `cursor.plan_hash` + §1.3 and the per-step doctor keyed to the stored transcript + F14 `T-deploy-plan-hash-resume-after-step`), BC-N2 (the UNIVERSAL `CheckDeployActivation` cursor edge no longer gated on `revokeEmbedded`; every deployer-aware binary halts `awaiting_deploy` DB-untouched on a non-`complete` cursor at `applied_owner == 20` BEFORE `ApplyMigrations`/`RecordSchemaFingerprint`; extended F11 (e)/(f) + extended `G-old-binary-refuse`), C1 (the `finalizing` state + idempotent finalizer + §1.3 resumable-finalization row + F10), C2 (fail-closed `CheckDeployActivation` edge, typed halts, forward-watermark rule re-anchored to ordinal 21, `RequiredOwnerBundleVersion` KEPT at its current-`main` value 20 and NOT advanced to the revoke ordinal 21), and C3 (the DDL-revoke bundle re-anchored 0020→0021 since #581's `0020_owner_bundle_watermark_read.sql` took ordinal 0020, special-cased out of the owner prefix + EXCLUDED from `owner-ddl apply`, applied as the TERMINAL revoke-last deploy step so each `ALTER … OWNER TO striatumd_rw` runs while CREATE is still held; F12 in a two-role cluster + `G-revoke-last`). Start from the v4 HOLDER.md (a required context doc) and the v4 collaboration ledger (its §4 'What the revision must fix' gives the exact prescribed M1/M2 fixes); do not re-litigate BC-N1's moving-frontier mechanism, BC-N2, C1, the C2 edge, or the C3 revoke-last mechanism — those carry forward. Resolve M1 by verifying the ENTIRE stored `deploy_plan` transcript (EVERY step, already-applied AND not-yet-applied) `sha256` against the running binary's embedded bytes on every resume — classify ANY mismatch (already-applied or future) as `deploy_plan_binary_mismatch` (typed halt, DB-untouched, apply nothing), additionally verify the DB stamps (`schema_migrations.sha256` for runtime steps / `owner_bundle_meta.sha256` for owner steps) match the stored transcript for already-applied entries, and apply the SAME full-transcript check BEFORE the C1 finalizer writes `schema_state` or advances `finalizing → complete` so the finalizer can NEVER self-record a hybrid deploy as `complete`; resolve M2 by defining a single non-revoke bundle filter (exclude EVERY bundle `>= DDLRevokeOwnerBundleVersion` = 0021, regardless of recorded version) used by EVERY `owner-ddl apply` route — `applyPendingOwnerBundles`, `ReapplyAllOwnerBundles` (the FMA-007 self-heal), the `ApplyOwnerBundles` self-heal branch, tests, and any dry-run/list surfaces — and split the embed/listing helper so 'the binary embeds 0021' (for `revokeEmbedded`/`ExpectedFingerprint`) does NOT imply 'owner-ddl apply iterates 0021'. ALSO do the proactive hardening: audit EVERY code path that (a) applies owner bundles or (b) self-records / writes a schema fingerprint, name each against current `main`, and state the universal invariants (the DDL-revoke bundle is excluded from ALL apply paths — only the terminal deploy step commits it; NO fingerprint/`schema_state` `complete` is ever written unless the FULL stored transcript byte-matches the running binary). Name exact code sites (go/pkg/db/schema_drift.go ExpectedFingerprint/LiveFingerprint/RecordSchemaFingerprint/CheckSchemaDrift, go/pkg/db/owner.go ApplyOwnerBundles/applyPendingOwnerBundles/ReapplyAllOwnerBundles/OwnerBundles, go/pkg/db/connection.go ConnectAndMigrate/ConnectAndVerify, go/pkg/db/migrations.go, go/pkg/cli/localcommands/daemon.go) and re-anchor every line reference to current main. State every load-bearing correctness claim as a falsifiable assertion with its named test (extend F14 / add `T-deploy-resume-already-applied-byte-mismatch-refuses` for M1; add `T-deploy-revoke-excluded-from-reapply-self-heal` for M2). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder proposal, the v4 HOLDER.md, and the v4 collaboration ledger (its §4 + the M1/M2 findings). FIRST verify M1 is GENUINELY resolved (not merely claimed), pressing hardest on the atomicity/fingerprint lens: does the resume path now verify the ENTIRE stored `deploy_plan` transcript — INCLUDING already-applied steps — against the running binary's embedded bytes BEFORE applying anything and BEFORE the finalizer writes a fingerprint? Reproduce the v4 break: binary A materializes H=[runtime:0045 sha A45, runtime:0046 sha A46, owner:0021 sha A21]; step 0 commits A45 (schema_migrations sha A45 + cursor advance + per-step receipt (H,0,runtime:0045,A45) atomically in one owner-connection tx, go/pkg/db/migrations.go:304-355); crash after step 0; resume with binary B whose ALREADY-APPLIED 0045 bytes differ (B45) but whose not-yet-applied 0046/0021 still match. Does the spec now FORCE `deploy_plan_binary_mismatch` (typed halt, DB-untouched, NO step 1 apply, NO `RecordSchemaFingerprint`, NO `complete` cursor) instead of silently classifying resume-off-stored-transcript? Does the already-applied check fire BEFORE any self-record / fingerprint write, so the C1 finalizer can NEVER convert a hybrid A-applied/B-expected deploy into an apparently in-sync B deploy (recall `ExpectedFingerprint()` hashes embedded FILE BYTES go/pkg/db/schema_drift.go:83-99; `LiveFingerprint` does NOT recompute from `schema_migrations` :145-160; `RecordSchemaFingerprint` UPSERTs the running binary's expected value :171-194; `CheckSchemaDrift` compares the singleton to this binary :239-274)? Does the spec ALSO verify the DB stamps (`schema_migrations.sha256` / `owner_bundle_meta.sha256`) match the stored transcript for already-applied entries? Does `T-deploy-resume-already-applied-byte-mismatch-refuses` (extending F14 / F13 / F4) kill after step 0 commits, resume with a binary whose step-0 bytes differ but whose remaining steps match, and assert `deploy_plan_binary_mismatch`, NO apply, NO fingerprint write, NO `complete`, and a non-green doctor / typed diagnostic — plus the symmetric owner-step case? Verify the proactive-hardening audit names EVERY fingerprint/self-record path and states the invariant (no `complete`/`schema_state` write unless the FULL stored transcript byte-matches the binary). ALSO verify M1's fix does NOT regress BC-N1's moving-frontier mechanism, C1's finalization-boundary semantics (no `complete`-with-missing-receipt window), or the §1.3 table. Then hunt for any NEW material gap in the Q3 atomicity/resumability/fingerprint correctness core (a crash between step-commit and the full-transcript check; a transcript-vs-DB-stamp divergence the spec leaves unclassified; a window where the finalizer can still self-record without the full-transcript check).",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (atomicity/fingerprint lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder proposal, the v4 HOLDER.md, and the v4 collaboration ledger (its §4 + the M1/M2 findings). FIRST verify M2 is GENUINELY resolved (not merely claimed), pressing hardest on the owner-ddl/migration-safety lens: is the DDL-revoke bundle 0021 now excluded from EVERY `owner-ddl apply` route, INCLUDING the FMA-007 self-heal reapply branch — not just `applyPendingOwnerBundles`? Reproduce the v4 break: DB at owner frontier 20; run `striatum daemon owner-ddl apply` on the activation binary (which embeds 0021 for `revokeEmbedded` but keeps Latest=Required=20); inject the already-supported FMA-007 cross-bundle dependency condition (a `<= 20` bundle fails on a missing earlier object) so `ApplyOwnerBundles` (go/pkg/db/owner.go:277-302) falls into `ReapplyAllOwnerBundles(ctx, runner, bundles, daemonVersion)` (owner.go:324-349), which in v4 re-ran EVERY loaded bundle regardless of recorded version. Does the v5 spec now bind a single non-revoke filter (exclude every bundle `>= DDLRevokeOwnerBundleVersion` = 0021, regardless of recorded version) across `applyPendingOwnerBundles`, `ReapplyAllOwnerBundles`, the `ApplyOwnerBundles` self-heal branch, tests, and dry-run/list — so 0021's `REVOKE CREATE` can ONLY ever be committed as the terminal `deploy` step and NEVER via a self-heal reapply? Does the spec split the embed/listing helper so 'the binary embeds 0021' (for `revokeEmbedded` detection via `OwnerBundles()` owner.go:196-224, and for `ExpectedFingerprint`) does NOT imply 'the owner-ddl apply bundle slice iterates 0021'? Does `T-deploy-revoke-excluded-from-reapply-self-heal` force the cross-bundle self-heal with a synthetic 0021 loaded and assert 0021 is NOT applied, `owner_bundle_meta` never records 21, and `has_schema_privilege('striatumd_rw','striatumd','CREATE')` remains TRUE (CREATE still held)? Is F12/`G-revoke-last` extended with the owner-ddl side-path / FMA-007 reapply case proving 0021 stays pending for the deploy plan and the subsequent runtime ownership reconcile can still run while CREATE is held? Verify the proactive-hardening audit names EVERY owner-bundle apply path and states the invariant (the DDL-revoke bundle is excluded from ALL apply paths; only the terminal deploy step commits it). ALSO verify M2's fix does NOT regress C3 revoke-last (the deploy still completes; no stranded `ALTER … OWNER TO striatumd_rw` while CREATE is held), C2 (`CheckDeployActivation` ordering, typed halts, forward-watermark rule re-anchored to 21, `RequiredOwnerBundleVersion`=20), or the P2 watermark interlock / fresh-DB bring-up. Then hunt for any NEW material gap (any other path that commits the revoke early; any #512-class lockout in the activation path; a dry-run/list surface that still iterates 0021).",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (owner-ddl/migration-safety lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0142 P4 v5 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v4 HOLDER.md and v4 collaboration ledger (its §4 + the M1/M2 findings) as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES all of: M1 genuinely resolved (the resume path verifies the FULL stored transcript — every step, already-applied AND not — `sha256` against the running binary's embedded bytes and classifies ANY mismatch as `deploy_plan_binary_mismatch` DB-untouched; the DB stamps `schema_migrations.sha256`/`owner_bundle_meta.sha256` are verified against the stored transcript for already-applied entries; the SAME full-transcript check fires BEFORE the C1 finalizer writes `schema_state` or advances `finalizing → complete`, so the finalizer can NEVER self-record a hybrid A-applied/B-expected deploy as in-sync; `T-deploy-resume-already-applied-byte-mismatch-refuses` extends F14/F13/F4 with the already-applied mismatch case plus the symmetric owner-step case) AND M2 genuinely resolved (a single non-revoke filter excluding every bundle `>= DDLRevokeOwnerBundleVersion` = 0021 regardless of recorded version is bound across EVERY `owner-ddl apply` route — `applyPendingOwnerBundles`, `ReapplyAllOwnerBundles` / the FMA-007 self-heal, `ApplyOwnerBundles`, tests, dry-run/list; the embed/listing helper is split so 'binary embeds 0021' does not imply 'owner-ddl apply iterates 0021'; `T-deploy-revoke-excluded-from-reapply-self-heal` forces the cross-bundle self-heal and asserts 0021 not applied / `owner_bundle_meta` never records 21 / CREATE still held; F12/`G-revoke-last` extended with the owner-ddl side-path case) AND the proactive hardening present (every fingerprint/self-record path and every owner-bundle apply path named against current `main`, with the two universal invariants stated) AND the five carry-forward findings intact: BC-N1 moving-frontier fix (immutable `deploy_plan` transcript before step 0, resume off the stored transcript, §1.3 + doctor keyed to it, F14), BC-N2 universal pre-revoke edge (`CheckDeployActivation` not gated on `revokeEmbedded`, halt at `applied_owner == 20`, F11(e)/(f) + extended `G-old-binary-refuse`), C1 (`finalizing` + idempotent finalizer + §1.3 row + F10), C2 (`CheckDeployActivation` before `ApplyMigrations`, typed halts, forward-watermark rule at `applied >= 21`, `RequiredOwnerBundleVersion`=20 NOT advanced to the revoke ordinal), C3 (0021 special-cased + terminal + revoke-last, F12/`G-revoke-last`) AND no new material challenge standing unrebutted. needs_revision if M1 or M2 remains open, if any carry-forward finding is regressed, or any new material challenge lands — especially a per-step-receipt / resume-binary / fingerprint interleaving where the per-step-atomic + resumable-cursor contract is shown insufficient with no stricter sub-protocol, or an owner-ddl side-path that can still commit the revoke early and strand a reconcile under a revoked CREATE.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared falsifiable implementation spec for RFC 0142 P4 (resolving Q3 + Q4 with ALL seven findings fixed: C1 finalization-boundary sub-protocol, C2 fail-closed revoke-bundle+flag activation edge, C3 a chosen+tested runtime-object ownership policy compatible with the terminal DDL-revoke bundle, BC-N1 the immutable-transcript per-step deploy receipt whose (plan_hash, step_index) key is stable across crash-resume, BC-N2 a deploy_cursor that is authoritative before the terminal revoke so even a no-revoke-bundle deployer-aware binary at applied_owner==20 refuses awaiting_deploy on an incomplete cursor, M1 a FULL-stored-transcript byte verification on resume AND before the C1 finalizer self-records — including already-applied steps and their DB stamps — so a hybrid deploy is forced to `deploy_plan_binary_mismatch` and the finalizer can never record a hybrid as in-sync, and M2 a single non-revoke filter excluding the DDL-revoke bundle from EVERY `owner-ddl apply` route including the FMA-007 self-heal reapply; plus the deploy plan / deploy_cursor / deploy_plan / deploy receipt design and the serve-boot decoupling slices) only after the adjudicator ledger records a clearing verdict; this SPEC is the artifact the rfc-0142-p4-build run consumes. Keep the DDL-revoke owner bundle at the renumbered 0021 ordinal (0020 is `0020_owner_bundle_watermark_read.sql` / `LatestOwnerBundleVersion==20`). Apply the shadow-first convention for the new deploy path.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v5/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v5/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0142-p4-design-v5",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0142-p4-design-v5",
+  "workflow_version": "2026-06-23"
+}
