@@ -845,6 +845,19 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 				return nil, rerr
 			}
 			recoveryActions = acted
+			// #579: session-driven complement to the job-driven recoverStuckJobs.
+			// Reap an idle-stalled lane that owns NO job (a builder that finished its
+			// slice then went agent_protocol_idle_stall with job=None) — recoverStuckJobs
+			// scans only unfinished jobs and cannot reach it, so it would otherwise keep
+			// MCP-heartbeating forever, hold its lane "occupied" in run-reconcile, and
+			// starve queued downstream jobs with no needs_operator. Run AFTER
+			// recoverStuckJobs so any session the job-driven paths just closed is already
+			// 'closed' here and skipped.
+			reaped, oerr := reapIdleOrphanSessions(ctx, tx, repositoryID, runID)
+			if oerr != nil {
+				return nil, oerr
+			}
+			recoveryActions = append(recoveryActions, reaped...)
 			// A requeue may have completed the run's last unfinished job's removal
 			// from limbo; re-check completion so a fully-recovered run can settle.
 			if err := maybeCompleteRun(ctx, tx, repositoryID, runID); err != nil {

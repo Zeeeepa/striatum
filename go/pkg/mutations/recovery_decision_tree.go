@@ -1429,6 +1429,196 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 	return actions, nil
 }
 
+// reapIdleOrphanSessions reaps an idle-stalled lane that owns NO job (#579).
+//
+// recoverStuckJobs is JOB-driven: it scans unfinished jobs and acts on the
+// session resolved as each job's lease owner (CASE 2 transfer) or the #291
+// bound supervised session of a 'queued' job. That covers an idle-stalled lane
+// whose job is still in flight, or one bound to a not-yet-claimed queued job.
+// It structurally CANNOT reach the #579 orphan: a builder lane that already
+// COMPLETED its slice and then went `agent_protocol_idle_stall` with job=None —
+// it owns no unfinished job's lease, and the #291 bound-session join does not
+// bind it (its supervisor pointer is terminal, its lane/role does not match a
+// queued job, or more than one active session ties for the same queued slot, so
+// the COUNT(*) OVER () = 1 guard refuses to bind). The orphan session stays
+// `active` and keeps MCP-heartbeating, so the supervisor never reaps it, and
+// run-reconcile's per-lane occupancy/adoption keeps the lane "taken" — queued
+// downstream jobs never get a fresh lane and the run sits `running` with zero
+// progress and no needs_operator. The reporter's manual fix is exactly a
+// `supervise stop` of this orphan; this pass performs that programmatically.
+//
+// It is a session-driven complement to recoverStuckJobs, run immediately after
+// it in the same sweep transaction so any session those job-driven paths just
+// closed is already 'closed' here and skipped. Guards (deliberately narrow):
+//   - state='active' only, in this run.
+//   - NO active lease (the orphan owns no job — the job=None signal). A lane
+//     holding an active lease is a job owner recoverStuckJobs handles.
+//   - Classify() returns StallClass == StallProtocolIdle: the SAME classifier
+//     verdict CASE 2 acts on, already aged past ProtocolIdleSeconds (default
+//     300s) with no fresh protocol/PTY/tool-call/heartbeat activity. We do NOT
+//     introduce an independent timer; a working_local / working_tool / quiet
+//     (pre-deadline) or attention-posture session never classifies
+//     StallProtocolIdle, so a genuinely-working or human-awaiting lane is never
+//     reaped. A session momentarily between claims is `quiet`, not idle-stalled,
+//     so the 300s deadline makes the "finished orphan vs between-claims" call
+//     safe — we act only once the classifier has already committed to the stall.
+//   - The session is NOT the resolvable owner/binding of any non-terminal job
+//     in the run — recoverStuckJobs owns those (CASE 2 / #291). This keeps the
+//     two passes from both acting on one session and confines this pass to the
+//     genuinely job-less orphan.
+//
+// The reap is closeOrphanIdleSession (the proven closeStalledOwningSession
+// mechanism: close + session.closed event, reason recovery_stalled_transfer).
+// Closing the orphan frees the lane so run-reconcile's next PlanLaunch spawns a
+// fresh lane for the queued downstream jobs — no run-reconcile change needed.
+func reapIdleOrphanSessions(ctx context.Context, tx db.TxRunner, repositoryID, runID string) ([]map[string]any, error) {
+	now := time.Now().UTC().Truncate(time.Second)
+	actions := []map[string]any{}
+
+	rows, err := queryRows(ctx, tx, `
+		SELECT s.session_id, s.state, s.registered_at,
+		       s.last_mcp_request_at, s.last_tools_list_at, s.last_await_packet_at,
+		       s.last_packet_delivered_at, s.last_ack_at, s.last_work_block_at,
+		       s.last_work_release_at, s.last_work_complete_at, s.last_work_heartbeat_at,
+		       s.last_session_ready_at, s.last_session_heartbeat_at,
+		       s.last_session_question_at, s.last_session_escalate_at,
+		       s.last_pty_activity_at, `+db.SessionPipeReadProjection(ctx, tx, "s")+`,
+		       s.last_tool_call_started_at, s.last_tool_call_finished_at,
+		       s.liveness_stall_class, s.liveness_stall_since,
+		       sp.metadata_json AS supervisor_pointer_metadata_json
+		  FROM striatumd.sessions s
+		  -- A session that holds an ACTIVE lease owns a job; that is the job-driven
+		  -- recoverStuckJobs path's responsibility, never this orphan reap.
+		  LEFT JOIN striatumd.leases al
+		    ON al.repository_id = s.repository_id
+		   AND al.owner_session_id = s.session_id
+		   AND al.state = 'active'
+		  LEFT JOIN LATERAL (
+		    SELECT pp.metadata_json
+		      FROM striatumd.process_supervisor_pointers pp
+		     WHERE pp.repository_id = s.repository_id
+		       AND pp.session_id = s.session_id
+		     ORDER BY pp.updated_at DESC, pp.supervisor_id DESC
+		     LIMIT 1
+		  ) sp ON true
+		 WHERE s.repository_id = $1
+		   AND s.run_id = $2
+		   AND s.state = 'active'
+		   AND al.lease_id IS NULL
+		   -- Exclude any session recoverStuckJobs / #291 owns: the resolvable owner
+		   -- (via its latest lease, any state) or the lane-bound supervised session
+		   -- of a non-terminal job in this run. Those are reaped by the job-driven
+		   -- pass; this pass is only the genuinely job-less orphan.
+		   AND NOT EXISTS (
+		     SELECT 1
+		       FROM striatumd.jobs j
+		       LEFT JOIN striatumd.leases lz
+		         ON lz.repository_id = j.repository_id
+		        AND lz.resource_id = j.job_id
+		      WHERE j.repository_id = s.repository_id
+		        AND j.run_id = s.run_id
+		        AND j.state IN ('queued','claimed','running','stale_lease')
+		        AND (
+		          lz.owner_session_id = s.session_id
+		          OR (
+		            j.state = 'queued'
+		            AND s.role_id = j.role_id
+		            AND (
+		              NULLIF(j.lane_selector_json->>'lane_id','') IS NULL
+		              OR s.lane_id = j.lane_selector_json->>'lane_id'
+		            )
+		          )
+		        )
+		   )
+		 ORDER BY s.session_id
+		 FOR UPDATE OF s`, repositoryID, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		sessionID := fmt.Sprint(nullable(row["session_id"]))
+		if sessionID == "" || sessionID == "<nil>" {
+			continue
+		}
+		// Classify the orphan with the SAME pure classifier the decision tree uses.
+		// We act ONLY on the protocol-idle stall verdict — the classifier has
+		// already aged it past ProtocolIdleSeconds with no fresh activity. Anything
+		// still working (working_protocol/local/tool), pre-deadline (quiet), or
+		// awaiting a human (attention) never produces StallProtocolIdle and is
+		// therefore never reaped here. ActiveLeaseID is empty (the query already
+		// excluded active-lease holders), so Classify takes the lease-less
+		// protocol-idle catch-all path.
+		activity := sessionliveness.ActivityFromRow(row)
+		result := sessionliveness.Classify(activity, sessionliveness.DefaultPolicy(), now)
+		if result.StallClass != sessionliveness.StallProtocolIdle {
+			continue
+		}
+		closed, cerr := closeOrphanIdleSession(ctx, tx, repositoryID, runID, sessionID, result.StallClass)
+		if cerr != nil {
+			return nil, cerr
+		}
+		if !closed {
+			continue
+		}
+		actions = append(actions, map[string]any{
+			"session_id":            sessionID,
+			"action":                "reap_idle_orphan_session",
+			"stall_class":           result.StallClass,
+			"acted":                 true,
+			"stalled_owner_closed":  true,
+			"stalled_owner_session": sessionID,
+			"transport":             transportPayloadValue(activity.Transport),
+		})
+	}
+	return actions, nil
+}
+
+// closeOrphanIdleSession closes a still-active idle-stalled orphan session that
+// owns NO job (#579). It mirrors closeStalledOwningSession (idempotent
+// state='active' guard, recovery_stalled_transfer close reason, session.closed
+// event with the lifecycle-recovery-transfer tag) but carries no jobID — the
+// whole point of the #579 orphan is that it is bound to no unfinished job.
+func closeOrphanIdleSession(ctx context.Context, tx db.TxRunner, repositoryID, runID, sessionID, stallClass string) (bool, error) {
+	if sessionID == "" || sessionID == "<nil>" {
+		return false, nil
+	}
+	stillActive, err := existsRow(ctx, tx, `
+		SELECT 1 FROM striatumd.sessions
+		 WHERE repository_id = $1 AND session_id = $2 AND state = 'active'
+		 LIMIT 1`, repositoryID, sessionID)
+	if err != nil {
+		return false, err
+	}
+	if !stillActive {
+		return false, nil
+	}
+	now := nowString()
+	const closeReason = "recovery_stalled_transfer"
+	if err := tx.Exec(ctx, `
+		UPDATE striatumd.sessions
+		   SET state = 'closed', closed_at = $1, close_reason = $2
+		 WHERE repository_id = $3 AND session_id = $4 AND state = 'active'`,
+		now, closeReason, repositoryID, sessionID); err != nil {
+		return false, err
+	}
+	closePayload := map[string]any{
+		"session_id":  sessionID,
+		"reason":      closeReason,
+		"source":      "recovery_idle_orphan_reap",
+		"stall_class": stallClass,
+		// An idle-orphan reap is an honest-stall recovery transfer (the lane went
+		// idle and was reclaimed), never a confirmed-dead necrosis — tag it like
+		// closeStalledOwningSession's non-necrosis path so the RFC 0137 exporter
+		// fold accounts it identically.
+		metrics.LifecycleTagKey: metrics.LifecycleTagRecoveryTransfer,
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "session.closed", sessionID, nil, nil, nil, nil, closePayload); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // jobHasOpenHumanAttentionBlocker reports whether the job has ANY open blocker
 // that genuinely requires a human (#373B guardrail). This is the precise inverse
 // of the autonomous-blocker set: a human_checkpoint (its job sits waiting_human)
