@@ -1,0 +1,323 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0165-design-v4"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0165-design-v4/SEED.md", "required": true },
+    { "path": "docs/rfcs/0165-claude-provider-credential-freshness.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0165-design-v3/dialogue/holder/HOLDER.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0165-design-v3/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the v3 RFC 0165 SPEC (the daemon-brokered access-token projection for Claude lanes; #583) to discharge the three v3 binding constraints C1/C2/C3, carrying forward UNREGRESSED everything v1+v3 cleared. Start from the v3 HOLDER.md (required context — do NOT rewrite from scratch); the v3 cycle-1 ledger (required context) gives the exact prescribed fixes. RFC 0165 stays CLAUDE-SPECIFIC: RFC 0169 is the separate provider-agnostic spine; note the seam (0169 defines the cross-provider readiness contract; 0165 v4 hardens the Claude assurance class / daemon-broker custody) but keep v4 standing on its own. DISCHARGE C1 (daemon-owned state is the ONLY positive freshness authority in recovery): v3's recovery freshness check was not race-free/positively-daemon-owned — a stale daemon row could be upgraded to ready, or a missing/inconsistent row inferred green. FIX: a stale / missing / internally inconsistent `provider_auth_dependencies` (or broker) row must fail CLOSED to a typed reseed-required classification — never a generic MCP-discovery retry, never a green/ready inference; specify the race-free read (the daemon row is authoritative, the lane-side file/socket is never the freshness oracle). DISCHARGE C2 (explicit same-user decision): v3's F2 proof only holds for a distinct-UID lane; under `config.RunAsUser == \"\"` (or a value resolving to the daemon/operator identity) the lane shares the operator's home and can read the raw credential. FIX (preferred): fail CLOSED when `RunAsUser` is empty or resolves to the daemon/operator identity, with a typed launch-precondition error — no silent same-user credential sharing. DISCHARGE C3 (no raw refresh-token custody by ANY route): even via the same-user shape the lane must never reach the rotating refresh token. FIX: either declare Claude OAuth same-user self-driving lanes UNSUPPORTED and fail closed, OR have the daemon broker mint/serve only short-lived access (the v3 B1 0600-file / B2 SO_PEERCRED projection that carries NO refresh token), with refresh authority held in exactly one place. Add the required tests: a SAME-USER fixture for the no-refresh-token assertion that scans EVERY lane-readable credential surface named by the launch environment (not only the newly written projection file); the C1 fail-closed recovery test (stale/missing/inconsistent row → reseed-required, never green); the C2 same-user typed-precondition refusal test. CARRY FORWARD UNREGRESSED: the access-token-only projector in laneproviderauth, path/ownership rules, the spawn-time projection gate (placement unchanged), the runtime-expiry circuit breaker (F1) + decay signal, the durable-state/receipts model (access token never persisted), the redaction contract, the RFC 0096 trust boundary, `refresh_token_absent`. Open the revised SPEC with an auditable 'Addressing the v3 constraints' map (C1/C2/C3 RESOLVED how; carry-forwards INTACT). Keep local-first (no hosted services; no raw OAuth material in DB rows, repo artifacts, metrics, events, or doctor output). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC, the v3 HOLDER.md, and the v3 cycle-1 ledger (its C1/C2 findings). Your lens is C1 (daemon-owned freshness authority in recovery) + C2 (same-user decision). FIRST verify C1 is GENUINELY resolved: in the recovery/requeue path, is daemon-owned state the ONLY positive freshness authority — can a stale, missing, or internally inconsistent `provider_auth_dependencies`/broker row EVER be upgraded to ready or inferred green by any route (a race where the lane writes a future-dated value with no refresh token; a lane-side file/socket read substituting for the daemon row)? Does a stale/missing/inconsistent row fail CLOSED to a typed reseed-required classification (NOT a generic MCP-discovery retry)? Construct the race. THEN verify C2: under `config.RunAsUser == \"\"` or a value resolving to the daemon/operator identity, does the spec fail CLOSED with a typed launch-precondition error, or can a same-user lane still silently share the operator credential? Is the refusal at the right gate (before any Claude process starts)? If recovery can still infer freshness from non-daemon state, if a stale row can go green, or if the same-user shape is not fail-closed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC, the v3 HOLDER.md, and the v3 cycle-1 ledger (its C3 finding). Your lens is C3 (no raw refresh-token custody by ANY route) + CARRY-FORWARD REGRESSION. FIRST verify C3 is GENUINELY resolved: can a Claude lane obtain the rotating refresh token by ANY route — the distinct-UID projection, the same-user shape, a lane-readable file named by the launch environment, an env var, an inherited fd, a fallback path? The fix must be either same-user-unsupported-fail-closed OR a daemon broker that mints/serves ONLY short-lived access (the projection carries NO refresh token; refresh authority in exactly one place). Is the same-user no-refresh-token test real — does it scan EVERY lane-readable credential surface named by the launch environment, not just the newly written projection file? THEN spend the rest on REGRESSION: verify each carry-forward survives unregressed — the access-token-only projector, path/ownership rules, the spawn-time projection gate (placement unchanged), the F1 runtime-expiry circuit breaker + decay signal, the durable-state/receipts model (access token never persisted), the redaction contract (no raw OAuth material in DB/repo/metrics/events/doctor), the RFC 0096 trust boundary, `refresh_token_absent`. Confirm the C1/C2 changes did not perturb these. If the refresh token is reachable by any route, the credential-surface scan is incomplete, or any carry-forward regressed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0165 v4 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v3 HOLDER.md and the v3 cycle-1 ledger (its C1/C2/C3 findings) as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES ALL THREE genuinely discharged: C1 — daemon-owned state is the only positive freshness authority in recovery; a stale/missing/inconsistent row fails CLOSED to reseed-required (never green, never generic retry), race-free; C2 — same-user Claude OAuth lanes (`RunAsUser` empty or daemon/operator identity) fail CLOSED with a typed launch-precondition error; C3 — the rotating refresh token is unreachable by the lane by ANY route (same-user-unsupported OR a no-refresh-token daemon broker), proven by a same-user test scanning EVERY lane-readable credential surface; AND no carry-forward regressed (access-token-only projector, path/ownership, spawn-time gate, F1 circuit breaker + decay, durable-state/receipts with access token never persisted, redaction contract, RFC 0096 boundary, refresh_token_absent); AND no new material challenge stands. Record per constraint C1/C2/C3 whether RESOLVED, per carry-forward whether INTACT, per new challenge whether it stands. needs_revision if any of C1/C2/C3 remains open, a carry-forward regressed, or a new material challenge lands. This is the single allowed v4 revision cycle; a second needs_revision ends the gate uncleared and routes to the operator (a fresh -v5 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, revised falsifiable implementation SPEC for RFC 0165 (Claude provider-credential freshness; #583) — ONLY after the adjudicator ledger records a clearing verdict — incorporating C1/C2/C3 and every preserved finding without weakening any constraint. This SPEC is the artifact the rfc-0165-build code_change run consumes, so it must be buildable contract-first and consolidate the WHOLE Claude assurance design (not just the deltas): the access-token-only daemon-broker projection (no refresh token to the lane), the fail-closed recovery freshness classification (daemon-owned state authoritative; stale/missing/inconsistent → reseed-required), the same-user fail-closed launch precondition, the spawn-time projection gate, the F1 runtime-expiry circuit breaker + decay signal, the durable-state/receipts model (access token never persisted), the redaction contract, and ALL named tests (the same-user no-refresh-token credential-surface scan; the C1 stale/missing/inconsistent → reseed-required test; the C2 same-user typed-precondition refusal). State each as a falsifiable assertion + its test. Note the seam to RFC 0169 (the provider-agnostic spine) so the Claude adapter plugs into 0169's contract. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0165-design-v4/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0165 v4 revision: the ledger verdict, how C1 (daemon-owned freshness authority / fail-closed recovery), C2 (same-user fail-closed precondition), and C3 (no raw refresh-token custody by any route) were each discharged, which carry-forwards stayed intact, the seam to RFC 0169, and the consolidated SPEC + named tests the rfc-0165-build run will implement.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0165-design-v4/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0165-design-v4",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0165-design-v4",
+  "workflow_version": "2026-06-24"
+}
