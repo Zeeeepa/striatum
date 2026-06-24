@@ -94,7 +94,7 @@ gets a Striatum workflow").
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
 | 10 | **0158** | 🛡 | `verified_stale` staleness rung + `verifier resweep --builtins` (needs a sealed version basis + migration) | done (D252); migration sub-decision open | — | #577 |
-| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | needs design | — | — |
+| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | 🔵 **design v1 in flight** (`run_9f7d0196`, `striatum/rfc-0164-design`) — `falsification_gate` hardening P0 security floor (Slice 0 chokepoint + Slice 1 `gitEnv()`/red-team corpus); proving severance complete+correct + evidence contract unforgeable | — |
 | 12 | **0095** | 🛡 | Revision-safe lifecycle — remaining phases past 1–3 | done (per-phase) | — | — |
 | 13 | **0100** | 🛡 | Self-describing artifact contracts — phases past 1 (packet + error ergonomics) | done | — | — |
 | 14 | **0113** | 🛡 | Runtime read-scope least-privilege remainder (mostly carried by accepted 0114; confirm residual) | done | re-confirm vs 0114 | — |
