@@ -113,9 +113,16 @@ agent-side bundles, register a repository, render a user service,
 repair local Postgres grants, or run smoke checks, but they do not
 become an alternate workflow-state authority.
 
-AI-operator cold start is guided by `striatum operator bootstrap`. The command
-is a CLI-local read composite, not a daemon RPC method and not a new live-state
-authority. Its stable JSON payload uses
+AI-operator cold start is guided by `striatum operator bootstrap`. The command is
+a custom CLI-local entrypoint — it is not a generated 1:1 daemon route — but under
+RFC 0167 P0 it is the client of the `operator.bootstrap` RPC: it mints and presents
+a session-bound operator token and leases the operator handle. The live
+operator-session/handle/token state is daemon-owned, created server-side by the
+RPC (the CLI is not itself a new live-state authority). The minted `{admin, read}`
+token is written `0600` to `.striatum/scratch/operator-token` and consumed by the
+launched operator process through `STRIATUM_MCP_TOKEN_FILE` (resolved at higher
+precedence than the static runtime token); the raw token is never embedded in the
+packet. Its stable JSON payload uses
 `schema_version: "striatum.operator_bootstrap.v1"` and is also rendered as a
 bounded Markdown-ish human summary by default. It composes daemon reads such as
 `repo.resolve`, `status`, and `doctor` with local probes for git identity,

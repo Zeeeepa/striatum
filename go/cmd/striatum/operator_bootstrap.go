@@ -211,8 +211,9 @@ func routesHelp(arg string) bool {
 func printOperatorHelp(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "usage: striatum operator bootstrap [--operator-docs-root <path>] [--limit N] [--markdown|--json]")
 	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, "Read-only bounded cold-start packet for an AI operator.")
-	_, _ = fmt.Fprintln(out, "Composes daemon reads (repo.resolve, status, doctor) with local repo/doc probes.")
+	_, _ = fmt.Fprintln(out, "Bounded cold-start packet for an AI operator.")
+	_, _ = fmt.Fprintln(out, "Composes daemon reads (repo.resolve, status, doctor) with local repo/doc probes, and")
+	_, _ = fmt.Fprintln(out, "(RFC 0167 P0) calls operator.bootstrap to mint + present the session-bound operator token.")
 }
 
 func parseOperatorBootstrapArgs(args []string) (operatorBootstrapOptions, error) {
