@@ -1,9 +1,19 @@
 # RFC 0142 P4 build — status (2026-06-24)
 
+> **LANDED on `main` @ `7a63d8a2`** (integrate of `run_9a9709147d…`). The D7'
+> shadow-first regression was fixed (0021 un-embedded into
+> `go/pkg/db/sql/owner_staged_activation/`, `RevokeBundleEmbedded()` stays false,
+> flag-OFF boot byte-identical). Review verdict `accept_with_findings`; sealed
+> `builtin:go-build` + `builtin:go-vet` receipts green (bubblewrap strict);
+> integrated main `go build`/`go vet` clean. The notes below are the build's
+> historical journey (kept as provenance). Remaining non-blocking follow-ups
+> from review attempt 2 (D1' B1.1 `==20`/`>=21` live-arm tightening, D6 C3 §3.3b
+> reconcile) are deferred to the activation/verify run per PROPOSAL §4.3.
+
 **Design:** CLEARED (v9, `accept_with_findings`, D262). PROPOSAL.md is the contract:
 `docs/operator/artifacts/rfc-0142-p4-design-v9/commit/proposal/PROPOSAL.md`.
 
-**Build:** implemented + reviewed; **ONE bounded revision remaining** before it can land.
+**Build:** implemented + reviewed + **LANDED** (the "one bounded revision" below was the D7' fix, now done).
 
 ## What is done (real credit — do not regress)
 
