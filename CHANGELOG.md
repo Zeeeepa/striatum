@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+### Added
+
+- **RFC 0143 Slice A — legible `session_unrecoverable_across_rotation` recovery
+  floor (#512).** When a `striatum-lane` lane dies unsealed across a daemon
+  boot-epoch rotation, the daemon now records a typed
+  `session_unrecoverable_across_rotation` recovery class instead of a generic
+  `agent_exited_unsealed` / silent unsealed exit, so an operator (and the RFC 0137
+  exporter) immediately see *why* the lane stopped. It is driven by a daemon-observed
+  `daemon.stale_epoch_rotation` event (recorded when `validateBootEpoch` rejects a
+  stale-epoch request, attributed read-only to the bound session, superseded on a
+  successful current-epoch reconnect so a recovered session that later dies ordinarily
+  is **not** mislabeled). The typed class is a strict refinement of
+  `agent_exited_unsealed` that routes the **same** finalize-or-escalate path and grants
+  **no** new auto-seal authority (observability-only): a lane still requires an operator
+  requeue (or Slice B) to seal. Pure daemon-side observability — mints no credential,
+  widens no token, adds no Slice-B surface; default-off/additive (a nil recorder is a
+  no-op). Under the shared `striatum-lane` uid no lane-attributable signal is
+  forge-resistant (the `BC1-W1-ORACLE` root), so the floor is **best-effort legibility,
+  RFC-0168-bounded**. Reserved agentloop exit code `97`
+  (`ExitUnrecoverableAcrossRotation`) + credential-chain narrowing carry the same class
+  on the direct (non-tmux) path; the tmux `#{pane_dead_status}` carrier records the
+  class only when corroborated by a daemon observation. Slice B (the `CapabilityReseal`
+  reseal authority) remains blocked on RFC 0168 / #585.
+
 ## v2.36.0 — 2026-06-23
 
 ### Fixed

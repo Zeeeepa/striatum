@@ -1,10 +1,26 @@
 # RFC 0143: Lane credential survival across a daemon boot-epoch rotation
 
-Status: accepted (D261, 2026-06-24) — **split**: Slice A (option 4, the legible
-`session_unrecoverable_across_rotation` typed-exit floor) accepted and
-**decoupled**, ships now as pure daemon-side observability; Slice B (options
-2/3, the `CapabilityReseal` authority) **blocked on [RFC 0168](0168-per-lane-security-principal.md)**
+Status: accepted (D261, 2026-06-24) — **split**: Slice A **BUILT + LANDED**
+(`a6d5610f`, 2026-06-24) — the legible `session_unrecoverable_across_rotation`
+typed-exit floor as pure daemon-side observability; Slice B (options 2/3, the
+`CapabilityReseal` authority) **blocked on [RFC 0168](0168-per-lane-security-principal.md)**
 (per-lane OS uid). See `## Decision (D261)` below.
+
+> **Slice A landed (2026-06-24, `a6d5610f`).** A daemon-observed
+> `daemon.stale_epoch_rotation` event (recorded when `validateBootEpoch` rejects a
+> stale-epoch request, attributed read-only to the bound session, superseded on a
+> successful current-epoch reconnect) drives a typed
+> `session_unrecoverable_across_rotation` recovery class — a strict refinement of
+> `agent_exited_unsealed` that routes the **same** finalize-or-escalate path, granting
+> **no** new auto-seal authority. The two design gates (v1+v2, banked under
+> `docs/operator/artifacts/rfc-0143-slice-a-design{,-v2}/`) drove the design to its
+> honest landing: under the shared `striatum-lane` uid no lane-attributable signal is
+> forge-resistant (the v7 `BC1-W1-ORACLE` root), so Slice A is **best-effort
+> legibility, RFC-0168-bounded**, sound via the **observability-only** invariant (a
+> forged typed class is no more privileged than a forged `agent_exited_unsealed`,
+> which a same-uid sibling can already cause). Verified by sealed `builtin:go-build` +
+> `builtin:go-vet` bubblewrap receipts. Closes the legibility half of #512; the reseal
+> half awaits Slice B / RFC 0168.
 Date: 2026-06-21
 author: proposer-claude-opus-4-8
 
