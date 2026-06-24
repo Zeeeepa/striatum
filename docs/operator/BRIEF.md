@@ -1,7 +1,7 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-24_v2.37.0-release"
+brief_id: "brief_2026-06-24_v2.37.1-hotfix-release"
 supersedes: "brief_2026-06-24_audit-closeout-gates"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
@@ -11,6 +11,22 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-24 delta — v2.37.1 hotfix release
+
+**v2.37.1 (2026-06-24)** supersedes v2.37.0 for deployment. The v2.37.0
+release artifact installed and owner bundle **0022** applied successfully, but
+the daemon then refused startup with
+`schema stamps capability "operator_identity_run_attribution" this binary does
+not support`: the new 0022 read-projection stamp was present in
+`readScopeReasserts` but missing from `SupportedAuthorityCapabilities()`.
+v2.37.1 adds that capability to the supported daemon-authority inventory and
+adds a unit guard that every write/read reassertion stamp is declared supported.
+
+**Recovery/deploy order:** install v2.37.1, restart the system daemon, then verify
+`doctor` and `status`. If a host already applied owner bundle 0022 during the
+v2.37.0 attempt, re-running `striatum daemon owner-ddl apply` is idempotent but
+not required before restart; the watermark should already be 22.
 
 ## 2026-06-24 delta — v2.37.0 release
 
@@ -23,10 +39,10 @@ adds a mechanical README release-row gate:
 `VERSION`, the README Project Status version row, and the matching CHANGELOG
 release header disagree.
 
-**DDL/deploy order:** install the v2.37.0 binaries first, run
-`striatum daemon owner-ddl apply` for owner bundle 0022, then restart the daemon
-and verify `doctor`/`status`. Do not apply bundle 0022 under the old binary:
-its `runs` REVOKE/re-GRANT is coupled to the v2.37.0 star-reader conversions.
+**Superseded deploy note:** do not deploy v2.37.0 after owner bundle 0022. It
+omits the `operator_identity_run_attribution` capability from the startup parity
+inventory and will refuse the schema after the DDL is applied. Deploy v2.37.1
+instead.
 
 ## 2026-06-24 delta — audit closeout gates
 
@@ -62,11 +78,12 @@ with the `striatum operator bootstrap` CLI as their client, `striatum whose`,
 composed-route closure, the write-once trigger, the two-`maya` disambiguation,
 the operator-token authorization, the drift reassert); `go build`/`go vet` green.
 
-Bundle 0022 ships in v2.37.0. Apply it only after installing the v2.37.0 binary,
-then restart the daemon; after that, `whose`, `status --mine`, and the
-operator-bootstrap mint RPC are live. **P1–P3** (custody log; honest bylines +
-handoff naming + chips + opt-in OSC title; lineage) are sequenced behind this
-P0 release/deploy.
+Bundle 0022's deployable release is v2.37.1. Apply it only with a binary that
+declares `operator_identity_run_attribution` in
+`SupportedAuthorityCapabilities()`, then restart the daemon; after that, `whose`,
+`status --mine`, and the operator-bootstrap mint RPC are live. **P1–P3** (custody
+log; honest bylines + handoff naming + chips + opt-in OSC title; lineage) are
+sequenced behind this P0 release/deploy.
 
 ## 2026-06-23 delta — v2.36.0 released
 
@@ -170,8 +187,9 @@ older #212/#263-#267 text is historical only.
 
 ## State
 
-Latest release is **v2.37.0 (2026-06-24)** — operator identity/run attribution
-(RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap,
+Latest release is **v2.37.1 (2026-06-24)** — hotfixes the v2.37.0 owner-bundle
+0022 capability-parity deploy skew after shipping operator identity/run
+attribution (RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap,
 RFC 0143 Slice A recovery legibility, D269 fan-in barrier default-live cutover,
 and the audit closeout gates. **v2.36.0 (2026-06-23)** was a bugfix-only cut over
 v2.35.0 (#581 owner-bundle watermark deploy crash-loop, #582 release publish
@@ -242,9 +260,10 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 
 ## Next Actions
 
-1. **Deploy v2.37.0 atomically:** install the release binaries, apply owner bundle
-   0022 with `striatum daemon owner-ddl apply`, restart the system daemon, and
-   verify `doctor`/`status`.
+1. **Deploy v2.37.1 hotfix:** install the release binaries, restart the system
+   daemon, and verify `doctor`/`status`. On this host owner bundle 0022 was
+   already applied during the v2.37.0 attempt; re-run
+   `striatum daemon owner-ddl apply` only as an idempotent drift repair.
 2. **Keep current-state docs truthful:** after every issue-closeout or release,
    refresh this brief, README status, docs index summaries, and any roadmap/todo
    surface that claims to list current open work; the README version row is now
@@ -256,7 +275,7 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 
 ## Blockers / Open Issues (22)
 
-Open GitHub tracker state rechecked on 2026-06-24 during the v2.37.0 cut.
+Open GitHub tracker state rechecked on 2026-06-24 during the v2.37.1 cut.
 
 - **Active defects / recovery:** #612 cross-user falsifier handoff publish wedge,
   #579 idle-stalled builder lane blocks downstream jobs, #576 lease-warmed lane
@@ -306,6 +325,6 @@ Open GitHub tracker state rechecked on 2026-06-24 during the v2.37.0 cut.
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
 - `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
-- `CHANGELOG.md` (v2.10.0 → v2.37.0 + Unreleased)
+- `CHANGELOG.md` (v2.10.0 → v2.37.1 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)

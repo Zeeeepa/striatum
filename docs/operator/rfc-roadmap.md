@@ -81,7 +81,7 @@ closeout.
   tax until second-adopter evidence appears; RFC 0142 P4 and RFC 0133 fan-in are
   adopter-critical because they protect schema deployment and final tree
   correctness.
-- **Feature-wave fuse:** v2.37.0 closes the audit subtraction-release checklist:
+- **Feature-wave fuse:** v2.37.1 closes the audit subtraction-release checklist:
   README/front-door truth is mechanically guarded by `scripts/check_release_version.py`
   through `make check-docs`, and #598/#599/#600/#602/#603/#604/#605/#606/#607/#608
   are closed. Wave 4 still requires a green `doctor`, current README/brief/roadmap

@@ -4,6 +4,18 @@
 
 - (No changes yet.)
 
+## v2.37.1 — 2026-06-24
+
+### Fixed
+
+- **Hotfix: owner bundle 0022 deploy skew.** v2.37.0 applied owner bundle 0022
+  correctly, but daemon startup then refused the schema with
+  `schema stamps capability "operator_identity_run_attribution" this binary does
+  not support` because `SupportedAuthorityCapabilities()` omitted the new
+  read-projection capability stamp. v2.37.1 adds the stamp to the supported
+  daemon-authority inventory and adds a regression guard that every
+  owner-bundle write/read reassertion stamp is declared supported before release.
+
 ## v2.37.0 — 2026-06-24
 
 ### Added

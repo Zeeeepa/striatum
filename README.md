@@ -301,7 +301,7 @@ owner-only socket.
 
 | Area | Status |
 |------|--------|
-| Version | v2.37.0 — latest release published 2026-06-24; Go-only runtime, PostgreSQL daemon, operator identity/run attribution, session-bound operator bootstrap, fan-in barrier cutover, owner-bundle 0022, and installed-CLI release gating are live (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.37.1 — latest release published 2026-06-24; Go-only runtime, PostgreSQL daemon, operator identity/run attribution, session-bound operator bootstrap, fan-in barrier cutover, owner-bundle 0022, and the owner-bundle 0022 capability-parity hotfix are live (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |

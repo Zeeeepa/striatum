@@ -71,3 +71,17 @@ func TestRequiredAuthorityCapabilitiesByPhase(t *testing.T) {
 		}
 	}
 }
+
+func TestSupportedAuthorityCapabilitiesCoverReassertedStamps(t *testing.T) {
+	supported := toSet(SupportedAuthorityCapabilities())
+	for capability := range capabilityProtectedTable {
+		if !supported[capability] {
+			t.Fatalf("SupportedAuthorityCapabilities missing write stamp %q", capability)
+		}
+	}
+	for capability := range readScopeReasserts {
+		if !supported[capability] {
+			t.Fatalf("SupportedAuthorityCapabilities missing read stamp %q", capability)
+		}
+	}
+}
