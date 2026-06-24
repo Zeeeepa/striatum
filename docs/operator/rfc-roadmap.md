@@ -1,6 +1,6 @@
 # RFC Roadmap — sequenced, themed, "do the next one"
 
-Living doc. Last triaged: 2026-06-23. Owner: operator. This orders every RFC
+Living doc. Last triaged: 2026-06-24. Owner: operator. This orders every RFC
 that is **proposed, accepted-but-unbuilt, or partially implemented** into a
 single execution sequence. Items not listed are `accepted / implemented`
 (shipped) or superseded/closed-out.
@@ -70,14 +70,15 @@ gets a Striatum workflow").
 |---|---|---|---|---|---|
 | 1 | **0142 P4** | 🛡 | One-shot `striatum daemon deploy` — make it the only schema mutator; lift auto-apply out of serve-boot; revoke serving-role DDL | ✅ **Design done (D262)** — v9 `falsification_gate` cleared `accept_with_findings` (M7 row-16 derived from A like rows 13/15); build-ready spec `rfc-0142-p4-design-v9/commit/proposal/PROPOSAL.md`; finding B1 folded as build acceptance criteria. **Build next** (`rfc-0142-p4-build`, `code_change`/TDD). | #571 |
 | 2 | **0143** | 🛡 | Lane credential survival across a daemon boot-epoch rotation (reseal without the owner-only client-token) | ✅ **split D261**: Slice A (legible `session_unrecoverable_across_rotation` floor, pure daemon-side observability) **accepted, ships now**; Slice B (`CapabilityReseal`) **blocked on RFC 0168** | #512 |
-| 2b | **0168** | 🛡 | Per-lane OS uid (pooled) as the lane security principal — dissolves the shared-uid `BC1-W1-ORACLE` wall the 0143 gate hit; **RFC 0143 Slice-B prerequisite** | 🔵 **design v1 in flight** (`run_076fec23`, `striatum/rfc-0168-design`) — `falsification_gate` hardening the 6 OQs (pool size/exhaustion, lease+scrub+restart-survival, provisioning ownership, ACL, attestation, credential store) + proving per-lane uid dissolves BC1-W1-ORACLE | #512 / RFC 0143 Slice B blocker |
-| 3 | **0165** | 🛡 | Claude provider-cred freshness + spawn-time hydration (supervisor side; complements the host cred-resync timer) | 🔵 **design v3 in flight** (`run_453bf8ee`, `striatum/rfc-0165-design-v3`) — revision discharging v1 F2 (no lane raw-refresh-token custody → daemon broker) + F1 (runtime-expiry recovery classification); v2 was quarantined on a runner defect | #583 |
+| 2b | **0168** | 🛡 | Per-lane OS uid (pooled) as the lane security principal — dissolves the shared-uid `BC1-W1-ORACLE` wall the 0143 gate hit; **RFC 0143 Slice-B prerequisite** | 🔵 **design v2 in flight** (`run_7274cd6a`, `striatum/rfc-0168-design-v2`) — v1 PROVED the hard core (per-lane uid dissolves BC1-W1-ORACLE) + OQ1/3/5/6, returned `needs_revision` on C1 (durable scrubbing/quarantined lease state + scrub postcondition + reaper) + C2 (`.striatum/` ACL carve-out); v2 discharges both. v1 cycle-1 dialogue banked. | #512 / RFC 0143 Slice B blocker |
+| 3 | **0165** | 🛡 | Claude provider-cred freshness + spawn-time hydration (supervisor side; complements the host cred-resync timer) | 🔵 **design v4 in flight** (`run_5b6bfca2`, `striatum/rfc-0165-design-v4`) — v3 returned `needs_revision` on C1 (daemon-owned state = only positive freshness authority, fail-closed) + C2 (same-user Claude fail-closed) + C3 (no raw-refresh-token custody by any route); v4 discharges all three. Kept **separate** from 0169 per operator. | #583 |
+| 3b | **0169** | 🛡 | Provider-agnostic lane credential-readiness spine — subsumes 0121/0162/0165 as assurance classes; spawn-fresh placement closes #583 by construction (converge Claude onto agy's daemon-minted model) | 🔵 **design v1 in flight** (`run_e4f752e6`, `striatum/rfc-0169-design`) — `falsification_gate` proving the registry refactor is behavior-preserving + spawn-fresh placement structurally closes #583 without CLI modification; Layer 3 tamper-proof vs untrusted lane | #583 |
 
 ### Wave 1 — Stop the bleeding (lane-health reliability that wedges live runs)
 
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
-| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | 🔵 **design v1 in flight** (`run_671c0660`, `striatum/rfc-0166-design`; RFC snapshotted from review branch as context doc) — `falsification_gate` hardening the 4-part sealed-progress silence budget; ratifying the AND-not-OR no-false-kill safety decision | #576 |
+| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | 🔵 **design v2 in flight** (`run_18b937d0`, `striatum/rfc-0166-design-v2`) — v1 ratified the AND-not-OR core, returned `needs_revision` on C1 (novelty-aware clock: one primitive for all reset surfaces, junk-artifact can't move the floor) + C2 (corrected no-false-kill for an alive-working lane); v2 discharges both | #576 |
 | 5 | **0162 + #569** | 🛡 | Lane auth silent-failure observability — detect absence-of-success; finish the detection layers + a live game-day | done (MVP shipped) | — | #569 |
 | 6 | **0133** | 🛡 | Fan-in deferred-join barrier cutover — wire `recordFaninFreezePoint`, flip `STRIATUM_BARRIER_FANIN`, retire `fanInIntegrateRunBranch` | done | equivalence run | #527 |
 
@@ -94,7 +95,7 @@ gets a Striatum workflow").
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
 | 10 | **0158** | 🛡 | `verified_stale` staleness rung + `verifier resweep --builtins` (needs a sealed version basis + migration) | done (D252); migration sub-decision open | — | #577 |
-| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | 🔵 **design v1 in flight** (`run_9f7d0196`, `striatum/rfc-0164-design`) — `falsification_gate` hardening P0 security floor (Slice 0 chokepoint + Slice 1 `gitEnv()`/red-team corpus); proving severance complete+correct + evidence contract unforgeable | — |
+| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | 🔵 **design v2 in flight** (`run_ec809be2`, `striatum/rfc-0164-design-v2`) — v1 returned `needs_revision` on C1 (complete git-surface taxonomy: route every funnel incl. `runGitWorktreeCommand`/`integrateGit`, close `recovery_quarantine_lane.go:425` status→fsmonitor RCE + 3 corpus rows) + C2 (benign `[alias]`/`[pager]` never wedges); v2 discharges both | — |
 | 12 | **0095** | 🛡 | Revision-safe lifecycle — remaining phases past 1–3 | done (per-phase) | — | — |
 | 13 | **0100** | 🛡 | Self-describing artifact contracts — phases past 1 (packet + error ergonomics) | done | — | — |
 | 14 | **0113** | 🛡 | Runtime read-scope least-privilege remainder (mostly carried by accepted 0114; confirm residual) | done | re-confirm vs 0114 | — |
