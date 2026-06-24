@@ -239,7 +239,7 @@ a post-launch tmux query — authenticates the replacement. A `0600` reseal file
   (per-lane OS uid) landing. Under a per-lane uid the same-uid class dissolves
   and option 2 reduces to a safe lane-uid-owned `0600` reseal token. No
   credential code lands until RFC 0168 is accepted and its provisioning slice
-  ships. Tracked blocker: the GH issue cited in D261.
+  ships. Tracked blocker: #585.
 
 This decision does not widen who can read the admin token and mints no new
 credential; Slice A is pure observability and Slice B is deferred behind a

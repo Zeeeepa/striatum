@@ -159,4 +159,4 @@ The maintainer has ratified the **direction** (per-lane OS uid, pooled). The
 attestation interaction — goes through a `falsification_gate` design run before
 any build slice touches host provisioning or credential code. RFC 0143 Slice B
 build is blocked on this RFC reaching `accepted` + at least its P0 provisioning
-slice landing (tracked blocker: see the GH issue referenced from D261).
+slice landing (tracked blocker: #585).
