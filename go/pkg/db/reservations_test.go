@@ -37,8 +37,20 @@ func TestReservationLedgerMatchesOnDisk(t *testing.T) {
 	t.Run("owner_bundles", func(t *testing.T) {
 		onDisk := ordinalsToFilesOnDisk(t, "sql/owner")
 		assertLedgerMatchesDir(t, "owner_bundle", ledger.OwnerBundles, onDisk)
-		if got := highestOrdinal(ledger.OwnerBundles); got != LatestOwnerBundleVersion {
-			t.Fatalf("owner-bundle frontier in RESERVATIONS.toml = %d, want LatestOwnerBundleVersion = %d", got, LatestOwnerBundleVersion)
+		// Frontier sanity: the highest reserved owner ordinal is the highest version
+		// the loader actually embeds — so the ledger cannot silently lag the embedded
+		// owner-bundle set. This is the highest version in OwnerBundles(), NOT
+		// LatestOwnerBundleVersion: the RFC 0142 P4 DDL-revoke bundle (0021 =
+		// DDLRevokeOwnerBundleVersion) is embedded and reserved but deliberately sits
+		// ABOVE the watermark frontier (LatestOwnerBundleVersion / Required stay 20),
+		// because it is deploy-plan-terminal and excluded from owner-ddl apply.
+		bundles, err := OwnerBundles()
+		if err != nil {
+			t.Fatalf("OwnerBundles: %v", err)
+		}
+		wantFrontier := maxEmbeddedOwnerVersion(bundles)
+		if got := highestOrdinal(ledger.OwnerBundles); got != wantFrontier {
+			t.Fatalf("owner-bundle frontier in RESERVATIONS.toml = %d, want highest embedded bundle = %d", got, wantFrontier)
 		}
 	})
 }

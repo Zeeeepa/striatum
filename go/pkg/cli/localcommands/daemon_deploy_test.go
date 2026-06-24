@@ -1,0 +1,61 @@
+package localcommands
+
+import (
+	"bytes"
+	"strings"
+	"testing"
+
+	"github.com/halbritt/striatum/go/pkg/db"
+)
+
+// TestRunDaemonDeployDispatch is F3 (verb-dispatch): `daemon deploy` routes to the
+// deployer verb, an unknown flag is a usage error (exit 2), and the top-level
+// daemon usage advertises `deploy`.
+func TestRunDaemonDeployDispatch(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := RunDaemon([]string{"deploy", "--bogus-flag"}, &stdout, &stderr, "test"); code != 2 {
+		t.Fatalf("deploy --bogus-flag exit = %d, want 2 (usage); stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "unknown daemon deploy flag") {
+		t.Fatalf("unknown-flag stderr did not name the deploy verb: %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := RunDaemon(nil, &stdout, &stderr, "test"); code != 2 {
+		t.Fatalf("daemon (no args) exit = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "deploy") {
+		t.Fatalf("daemon usage does not advertise the deploy verb: %q", stderr.String())
+	}
+}
+
+// TestRunDaemonDeployM3PreflightRefusesWithoutDecoupled is the M3 (e) verb arm: a
+// binary that embeds the DDL-revoke (owner bundle 0021) must refuse `daemon deploy`
+// with STRIATUM_DEPLOY_DECOUPLED unset BEFORE connecting, naming the flag — the
+// activation preflight that keeps a revoke-embedding binary off the legacy mutate
+// path. Under the build's Option B (D7') THIS inert-landing binary STAGES 0021 out
+// of ownerBundleFS, so RevokeBundleEmbedded() is false and this arm is inert here;
+// it is the activation binary's executable assertion (re-scoped per §4.3) and reds
+// the moment 0021 is embedded.
+func TestRunDaemonDeployM3PreflightRefusesWithoutDecoupled(t *testing.T) {
+	embedded, err := db.RevokeBundleEmbedded()
+	if err != nil {
+		t.Fatalf("RevokeBundleEmbedded: %v", err)
+	}
+	if !embedded {
+		t.Skip("inert-landing binary (Option B): the DDL-revoke is staged out of ownerBundleFS, so the M3 verb preflight is inert; this arm fires for the activation binary")
+	}
+	t.Setenv(db.EnvDeployDecoupled, "")
+
+	var stdout, stderr bytes.Buffer
+	// A syntactically valid DSN passes the no-DSN guard so we reach the preflight;
+	// the preflight refuses BEFORE any connection is attempted.
+	code := RunDaemon([]string{"deploy", "--owner-url", "postgres://u@127.0.0.1:5432/db?sslmode=disable"}, &stdout, &stderr, "test")
+	if code != 1 {
+		t.Fatalf("revoke-embedding deploy without %s exit = %d, want 1; stderr=%q", db.EnvDeployDecoupled, code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), db.EnvDeployDecoupled) {
+		t.Fatalf("M3 preflight refusal must name %s; got %q", db.EnvDeployDecoupled, stderr.String())
+	}
+}
