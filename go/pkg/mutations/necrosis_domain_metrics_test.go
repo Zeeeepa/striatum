@@ -21,9 +21,10 @@ import (
 // (liveness_deadline_missed, F-A6) can never re-enter it.
 func TestNecrosisDomainMatchesConfirmedDeadConstants(t *testing.T) {
 	want := map[string]bool{
-		stallClassAgentPIDDead:        true, // recovery_decision_tree.go
-		stallClassAgentExitedUnsealed: true, // recovery_decision_tree.go
-		recoveryExhaustedBlockerKind:  true, // recovery_escalation.go
+		stallClassAgentPIDDead:                       true, // recovery_decision_tree.go
+		stallClassAgentExitedUnsealed:                true, // recovery_decision_tree.go
+		stallClassSessionUnrecoverableAcrossRotation: true, // recovery_decision_tree.go (RFC 0143 Slice A, #512)
+		recoveryExhaustedBlockerKind:                 true, // recovery_escalation.go
 	}
 
 	got := map[string]bool{}

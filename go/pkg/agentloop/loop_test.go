@@ -324,10 +324,10 @@ func TestDaemonEnvelopeRequestsIdleExitFailsClosedOnIdleBehavior(t *testing.T) {
 
 func TestNormalizeAgentExitErrorTreatsRequestedIdleExitAsClean(t *testing.T) {
 	exitErr := errors.New("signal: terminated")
-	if err := normalizeAgentExitError(exitErr, true); err != nil {
+	if err := normalizeAgentExitError(exitErr, true, false); err != nil {
 		t.Fatalf("idle-requested exit err = %v, want nil", err)
 	}
-	if err := normalizeAgentExitError(exitErr, false); err == nil || !strings.Contains(err.Error(), "agent command exited") {
+	if err := normalizeAgentExitError(exitErr, false, false); err == nil || !strings.Contains(err.Error(), "agent command exited") {
 		t.Fatalf("non-idle exit err = %v, want wrapped error", err)
 	}
 }
@@ -397,8 +397,11 @@ func TestApplyMCPEndpointRotationCodexSurfacesWedgeLoudly(t *testing.T) {
 	rotated := "http://127.0.0.1:41283/mcp/sse"
 	// codex never carries an ephemeral --mcp-config file (its url is `-c`-baked),
 	// so mcpConfigPath is empty — exactly the silent-no-op case before the fix.
-	if err := applyMCPEndpointRotation("/home/x/.local/bin/codex", "", rotated, TokenMaterial{Token: "dtok_rotated"}, rec, &stderr); err != nil {
-		t.Fatalf("applyMCPEndpointRotation codex: %v", err)
+	// RFC 0143 Slice A (#512): the codex wedge now ALSO returns the typed
+	// ErrUnrecoverableAcrossRotation so the watcher requests a clean reserved-code
+	// exit; the loud-surface + in-band-prompt behavior below is unchanged.
+	if err := applyMCPEndpointRotation("/home/x/.local/bin/codex", "", rotated, TokenMaterial{Token: "dtok_rotated"}, rec, &stderr); !errors.Is(err, ErrUnrecoverableAcrossRotation) {
+		t.Fatalf("applyMCPEndpointRotation codex = %v, want ErrUnrecoverableAcrossRotation", err)
 	}
 	// Loud, structured stderr signal naming codex + the rotated endpoint + that it
 	// cannot reload the -c-injected url and must be relaunched.
@@ -473,7 +476,7 @@ func TestStartMCPEndpointRotationWatcherRewritesOnRotation(t *testing.T) {
 		Env:       os.Environ(),
 	}
 	rec := &syncWriteRecorder{}
-	startMCPEndpointRotationWatcher(ctx, cfg, "/home/x/.local/bin/claude", cfgPath, rec, io.Discard)
+	startMCPEndpointRotationWatcher(ctx, cfg, "/home/x/.local/bin/claude", cfgPath, rec, io.Discard, func() {})
 
 	// Rotate the runtime endpoint file as a mid-run daemon restart would.
 	rotated := "http://127.0.0.1:41283/mcp/sse"

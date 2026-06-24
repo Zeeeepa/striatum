@@ -333,6 +333,23 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 		}
 	})
 
+	// RFC 0143 Slice A (#512): the structural twin of the idle-exit callback. When
+	// the #323 rotation watcher proves this lane has irrecoverably lost its MCP path
+	// across a daemon boot-epoch rotation (the codex wedge: a `-c`-baked url codex
+	// cannot reload), request a CLEAN exit with the reserved floor code so the
+	// daemon's recovery sweep classifies the death legibly as
+	// session_unrecoverable_across_rotation rather than a silent/generic unsealed
+	// exit. This is a direct-path CORROBORATOR only: the forge-resistant primary
+	// producer is the daemon's own daemon.stale_epoch_rotation observation (T1,
+	// pkg/mcp). It grants nothing — exit 97 is observability, not authority.
+	var unrecoverableExitRequested atomic.Bool
+	requestUnrecoverableExit := func() {
+		unrecoverableExitRequested.Store(true)
+		if cmd.Process != nil {
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+		}
+	}
+
 	// RFC 0140 (part A): keep an honest long-local-work lane out of the #324
 	// wedged_no_tool_progress stall by emitting a periodic local_work keepalive
 	// from THIS supervised process while it holds an active lease. The keepalive
@@ -351,7 +368,7 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	// halbritt-owned worktree. Watch the runtime endpoint file; when it rotates
 	// away from the launch value, rewrite the ephemeral --mcp-config and prompt
 	// the CLI to reconnect its striatum MCP server.
-	startMCPEndpointRotationWatcher(ctx, cfg, laneCommand[0], mcpConfigPath, ptmx, stderr)
+	startMCPEndpointRotationWatcher(ctx, cfg, laneCommand[0], mcpConfigPath, ptmx, stderr, requestUnrecoverableExit)
 
 	if stdin != nil {
 		go func() {
@@ -365,10 +382,26 @@ func runWithIO(ctx context.Context, cfg runConfig, stdin io.Reader, stdout, stde
 	err = cmd.Wait()
 	_ = ptmx.Close()
 	<-outputDone
-	return normalizeAgentExitError(err, idleExitRequested.Load())
+	return normalizeAgentExitError(err, idleExitRequested.Load(), unrecoverableExitRequested.Load())
 }
 
-func normalizeAgentExitError(err error, idleExitRequested bool) error {
+// normalizeAgentExitError maps the supervised child's raw exit to the agent-loop's
+// own return contract. Precedence (RFC 0143 Slice A): an unrecoverable-rotation
+// request wins — the lane lost its MCP path across a boot-epoch rotation (#512), so
+// the wrapper returns the typed ErrUnrecoverableAcrossRotation sentinel, which the
+// -agent-loop entrypoint (cmd/striatumd) maps to the reserved exit 97. Next, a
+// requested idle exit is a CLEAN stop (nil). Otherwise a non-nil child exit is a
+// generic "agent command exited" error.
+//
+// C2 forge-resistance (direct path): the PROVIDER child's numeric exit code is
+// NEVER consulted here — only the wrapper's OWN observed conditions
+// (idleExitRequested / unrecoverableExitRequested) drive the typed/clean return. So
+// a provider child that itself exits 97 or 98 produces only the generic error, never
+// the reserved sentinel; it cannot forge the floor on the direct path.
+func normalizeAgentExitError(err error, idleExitRequested, unrecoverableExitRequested bool) error {
+	if unrecoverableExitRequested {
+		return ErrUnrecoverableAcrossRotation
+	}
 	if err != nil {
 		if idleExitRequested {
 			return nil
@@ -569,7 +602,7 @@ func mcpRotationPollInterval() time.Duration {
 // PTY reconnect prompt is best-effort and adapter-gated: only adapters with a
 // known reconnect affordance (claude, via /mcp) are prompted; others fall back
 // to a no-op (logged), never a crash.
-func startMCPEndpointRotationWatcher(ctx context.Context, cfg runConfig, adapter, mcpConfigPath string, ptmx io.Writer, stderr io.Writer) {
+func startMCPEndpointRotationWatcher(ctx context.Context, cfg runConfig, adapter, mcpConfigPath string, ptmx io.Writer, stderr io.Writer, requestUnrecoverableExit func()) {
 	interval := mcpRotationPollInterval()
 	if interval <= 0 {
 		return
@@ -603,6 +636,22 @@ func startMCPEndpointRotationWatcher(ctx context.Context, cfg runConfig, adapter
 				token = freshTok
 			}
 			if err := applyMCPEndpointRotation(adapter, mcpConfigPath, fresh, token, ptmx, stderr); err != nil {
+				// RFC 0143 Slice A (#512): a codex lane provably cannot recover a
+				// rotated endpoint in place (its url was baked into the launch-time
+				// `-c` override and codex does not reload it), so the rotation has
+				// irrecoverably severed this lane's MCP path. applyMCPEndpointRotation
+				// still surfaces the wedge loudly + pushes the in-band prompt; here we
+				// ALSO request the clean reserved-code exit so the death is classified
+				// legibly as session_unrecoverable_across_rotation. Any OTHER rotation
+				// error is a transient recovery failure: retry on the next tick (the
+				// pre-Slice-A behavior).
+				if errors.Is(err, ErrUnrecoverableAcrossRotation) {
+					_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation (#512): codex lane unrecoverable across boot-epoch rotation; requesting reserved-code exit %d\n", ExitUnrecoverableAcrossRotation)
+					if requestUnrecoverableExit != nil {
+						requestUnrecoverableExit()
+					}
+					return
+				}
 				_, _ = fmt.Fprintf(stderr, "agent-loop MCP rotation recovery failed (#323): %v\n", err)
 				// Do not advance appliedEndpoint: retry on the next tick.
 				continue
@@ -642,7 +691,13 @@ func applyMCPEndpointRotation(adapter, mcpConfigPath, endpoint string, token Tok
 		if err := writePromptThenSubmit(ptmx, codexRotationWedgePrompt(endpoint), agentLoopSubmitDelay(), agentLoopSubmitSequence()); err != nil {
 			return fmt.Errorf("send codex rotation wedge prompt: %w", err)
 		}
-		return nil
+		// RFC 0143 Slice A (#512): the codex wedge is a PROVABLE, irrecoverable loss
+		// of this lane's MCP path (codex cannot reload the `-c`-baked url), so return
+		// the typed sentinel. The caller (the rotation watcher) maps it to a clean
+		// reserved-code exit (97) so the daemon classifies the death legibly instead
+		// of letting the lane grind silently on a dead endpoint. The wedge prompt has
+		// already been pushed in-band above, so the agent still sees the condition.
+		return ErrUnrecoverableAcrossRotation
 	}
 	prompt := mcpReconnectPrompt(adapter, endpoint)
 	if prompt == "" {

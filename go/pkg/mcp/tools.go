@@ -18,6 +18,47 @@ type Service struct {
 	// check on the handler side; an empty presented epoch is always allowed
 	// (the backward-compatible posture for lanes launched before #316).
 	BootEpoch string
+	// StaleEpochRecorder is the RFC 0143 Slice A (#512) daemon-observation backend.
+	// When set, the boot-epoch rejection branch records a durable, attributed
+	// daemon.stale_epoch_rotation observation for the presenting session, and a
+	// successful (current-epoch) request supersedes it (Correction 1). It is OPTIONAL
+	// and additive: a nil recorder (every existing unit-test handler) disables the
+	// observation entirely, so the recycled-port 403 behavior is unchanged. It records
+	// observations only; it grants no capability and widens no token.
+	StaleEpochRecorder StaleEpochRecorder
+}
+
+// BoundSessionIdentifier is the read-only, grant-nothing identity resolver the RFC
+// 0143 Slice A pre-auth attribution uses to learn WHICH session a boot-epoch-rejected
+// lane belongs to (#512). It is satisfied by *rpc.PostgresAuthorizer; an Authorizer
+// that does not implement it (e.g. AllowAllAuthorizer in unit tests) simply yields no
+// attribution and nothing is recorded (no over-fire). It authorizes NOTHING.
+type BoundSessionIdentifier interface {
+	IdentifyBoundSession(token string) (repositoryID, sessionID string, ok bool)
+}
+
+// StaleEpochRecorder records the RFC 0143 Slice A daemon-side stale-epoch
+// observations (#512). RecordStaleEpochRejection appends the durable observation on a
+// boot-epoch rejection; RecordStaleEpochRecovered supersedes it when the session
+// re-presents the current epoch (Correction 1). Both are best-effort: a record error
+// never alters the request's response. The daemon wires a PostgreSQL-backed
+// implementation; nil disables the observation.
+type StaleEpochRecorder interface {
+	RecordStaleEpochRejection(ctx context.Context, repositoryID, runID, sessionID string) error
+	RecordStaleEpochRecovered(ctx context.Context, repositoryID, runID, sessionID string) error
+}
+
+// identifyBoundSession resolves the presenting bearer to its bound (repositoryID,
+// sessionID) WITHOUT authorizing the request — the RFC 0143 Slice A pre-auth
+// attribution. ok=false (and the caller records nothing) when the Authorizer cannot
+// identify the bearer or it carries no session binding. It reads no admin token and
+// grants no capability.
+func (s Service) identifyBoundSession(token string) (repositoryID, sessionID string, ok bool) {
+	identifier, has := s.Authorizer.(BoundSessionIdentifier)
+	if !has || identifier == nil {
+		return "", "", false
+	}
+	return identifier.IdentifyBoundSession(token)
 }
 
 func (s Service) ToolsList(ctx context.Context, params map[string]any, token string) map[string]any {

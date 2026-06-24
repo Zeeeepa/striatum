@@ -124,11 +124,17 @@ func ResolveTokenMaterialFresh(repoRoot string) (TokenMaterial, error) {
 	}
 	if runtimeDir, ok := envLookup(env, EnvDaemonRuntimeDir); ok && strings.TrimSpace(runtimeDir) != "" {
 		path := filepath.Join(runtimeDir, "client-token")
+		if adminTokenReachedByNonOwner(path) {
+			return TokenMaterial{}, ErrUnrecoverableAcrossRotation
+		}
 		token, found, err := readOptionalTokenFile(path)
 		if err != nil || found {
 			return TokenMaterial{Token: token, Source: path}, err
 		}
 	} else if path, err := admin.RuntimeTokenPath(); err == nil {
+		if adminTokenReachedByNonOwner(path) {
+			return TokenMaterial{}, ErrUnrecoverableAcrossRotation
+		}
 		token, found, err := readOptionalTokenFile(path)
 		if err != nil || found {
 			return TokenMaterial{Token: token, Source: path}, err

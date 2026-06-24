@@ -112,6 +112,17 @@ func main() {
 		sessionID := os.Getenv("STRIATUM_SESSION_ID")
 
 		if err := agentloop.Run(socketPath, repoRoot, runID, sessionID, flag.Args()); err != nil {
+			// RFC 0143 Slice A (#512): the typed unrecoverable-across-rotation sentinel
+			// — and ONLY it — maps to the reserved floor exit code 97 so the daemon's
+			// recovery sweep classifies the lane death legibly as
+			// session_unrecoverable_across_rotation. Every other error stays the
+			// generic exit 1. This is the SINGLE place the wrapper emits 97, and only
+			// for the sentinel (C2: a provider child's own 97/98 can never reach here —
+			// normalizeAgentExitError never propagates a child's numeric exit).
+			if errors.Is(err, agentloop.ErrUnrecoverableAcrossRotation) {
+				log.Printf("agent-loop: %v", err)
+				os.Exit(agentloop.ExitUnrecoverableAcrossRotation) // 97 — reserved floor
+			}
 			log.Fatalf("agent-loop failed: %v", err)
 		}
 		os.Exit(0)
@@ -445,6 +456,29 @@ func main() {
 	}
 }
 
+// staleEpochRecorder is the RFC 0143 Slice A (#512) daemon-side observation backend.
+// It adapts the daemon's db.Runner to the mcp.StaleEpochRecorder interface by
+// delegating to the append-only mutations. Defined here (cmd/striatumd already
+// imports both mcp and mutations) so neither package depends on the other. It records
+// observation events only — it grants no capability and reads no admin token.
+type staleEpochRecorder struct {
+	runner db.Runner
+}
+
+func (s staleEpochRecorder) RecordStaleEpochRejection(ctx context.Context, repositoryID, runID, sessionID string) error {
+	if s.runner == nil {
+		return nil
+	}
+	return mutations.RecordStaleEpochRejection(ctx, s.runner, repositoryID, runID, sessionID)
+}
+
+func (s staleEpochRecorder) RecordStaleEpochRecovered(ctx context.Context, repositoryID, runID, sessionID string) error {
+	if s.runner == nil {
+		return nil
+	}
+	return mutations.RecordStaleEpochRecovered(ctx, s.runner, repositoryID, runID, sessionID)
+}
+
 func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr string, rpcServer *rpc.Server, authorizer rpc.Authorizer, runner db.Runner, webOpts webServiceOptions, metricsHandler http.Handler) (func(), error) {
 	value := strings.TrimSpace(addr)
 	if value == "" {
@@ -486,6 +520,11 @@ func startMCPHTTPServer(ctx context.Context, cancel context.CancelFunc, addr str
 		Authorizer:       authorizer,
 		ActivityRecorder: sessionliveness.DBRecorder{Runner: runner},
 		BootEpoch:        bootEpoch,
+		// RFC 0143 Slice A (#512): the daemon-side stale-epoch observation backend.
+		// Backs the boot-epoch rejection branch's durable daemon.stale_epoch_rotation
+		// observation (T1) and its Correction-1 supersede. Observation-only — records
+		// events, grants nothing.
+		StaleEpochRecorder: staleEpochRecorder{runner: runner},
 	})
 	webHandler := newWebServiceHandler(rpcServer, webOpts)
 	httpServer := &http.Server{

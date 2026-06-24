@@ -95,6 +95,11 @@ func ApoptosisReasons() []ApoptosisReason {
 //   - recovery_exhausted      — mutations.recoveryExhaustedBlockerKind
 //     (recovery_escalation.go): autonomous recovery could not reclaim the job
 //     within its per-job budget.
+//   - session_unrecoverable_across_rotation — mutations.stallClassSessionUnrecoverableAcrossRotation
+//     (recovery_decision_tree.go, RFC 0143 Slice A / #512): a confirmed-dead lane
+//     whose owning session was locked out of resealing across a daemon boot-epoch
+//     rotation. A strict refinement of agent_exited_unsealed, so it is also a
+//     confirmed-dead necrosis reason.
 //
 // F-A6 (RFC 0137 §"design-run hardening"): liveness_deadline_missed is a
 // REVERSIBLE pre-death observation (session.liveness_recovered proves it is not
@@ -107,6 +112,10 @@ const (
 	NecrosisAgentPIDDead        NecrosisReason = "agent_pid_dead"
 	NecrosisAgentExitedUnsealed NecrosisReason = "agent_exited_unsealed"
 	NecrosisRecoveryExhausted   NecrosisReason = "recovery_exhausted"
+	// NecrosisSessionUnrecoverableAcrossRotation is the RFC 0143 Slice A (#512)
+	// rotation-lockout refinement: a confirmed-dead lane whose owning session was
+	// locked out of resealing across a daemon boot-epoch rotation. Additive.
+	NecrosisSessionUnrecoverableAcrossRotation NecrosisReason = "session_unrecoverable_across_rotation"
 )
 
 // necrosisDomain is the closed, sorted necrosis-reason enum. The guardrail test
@@ -115,6 +124,7 @@ var necrosisDomain = []NecrosisReason{
 	NecrosisAgentExitedUnsealed,
 	NecrosisAgentPIDDead,
 	NecrosisRecoveryExhausted,
+	NecrosisSessionUnrecoverableAcrossRotation,
 }
 
 // NecrosisReasons returns a copy of the closed necrosis-reason enum.

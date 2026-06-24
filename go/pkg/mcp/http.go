@@ -164,9 +164,25 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// carry none); enforcement only fires for a request that presents an epoch
 	// that disagrees with the live daemon's.
 	if epochErr := h.validateBootEpoch(r); epochErr != nil {
+		// RFC 0143 Slice A (#512): record the daemon's OWN observation of this stale-
+		// epoch rejection, attributed (read-only, pre-auth) to the presenting session.
+		// This is the forge-resistant primary producer (T1) of the typed
+		// session_unrecoverable_across_rotation recovery floor. It grants NO capability,
+		// widens NO token, and the request is STILL rejected below — the daemon merely
+		// consults its own token store to learn which session the rejected lane is. An
+		// unattributable bearer records nothing (no over-fire). Best-effort: a record
+		// failure NEVER alters the 403 (#316 protection unchanged).
+		h.recordStaleEpochRejection(r)
 		writeJSONResponseStatus(w, http.StatusForbidden, errorResponse(nil, jsonrpcForbidden, epochErr.Message, errorData(epochErr.Code, nil)))
 		return
 	}
+	// RFC 0143 Slice A Correction 1 (#512): the session re-presented the CURRENT live
+	// epoch — it reconnected across the rotation. Supersede any LIVE stale-epoch
+	// observation so a LATER ordinary death classifies agent_exited_unsealed, NOT the
+	// typed floor (the no-over-fire invariant). Only fires when the request actually
+	// carries the matching epoch (clearStaleEpochObservation guards on that), so a
+	// pre-#316 request that presents no epoch supersedes nothing.
+	h.clearStaleEpochObservation(r)
 	setLocalCORSHeaders(w, r)
 	if isEndpointPath(r.URL.Path) && r.Method == http.MethodGet {
 		h.serveStream(w, r)
@@ -697,6 +713,70 @@ func (h *HTTPHandler) validateBootEpoch(r *http.Request) *localRequestError {
 		Code:    "stale_daemon_identity",
 		Message: "request presents a stale daemon boot epoch; the MCP port was recycled by a different daemon process run — relaunch the lane against the current daemon",
 	}
+}
+
+// recordStaleEpochRejection is the RFC 0143 Slice A T1 producer (#512). On a boot-
+// epoch rejection it attributes the rejected request to its bound session (read-only,
+// grant-nothing) and records a durable daemon.stale_epoch_rotation observation. It is
+// fully gated: no recorder configured, no bearer, or an unattributable bearer all
+// record NOTHING (no over-fire). Never alters the response.
+func (h *HTTPHandler) recordStaleEpochRejection(r *http.Request) {
+	if h.Service.StaleEpochRecorder == nil {
+		return
+	}
+	bearer := bearerRaw(r)
+	if bearer == "" {
+		return
+	}
+	repoID, sessID, ok := h.Service.identifyBoundSession(bearer)
+	if !ok {
+		return // unattributable rejection: record nothing.
+	}
+	// The run_id is not echoed as a request header; the observation is keyed on
+	// (repository_id, session_id) and the recovery sweep resolves the run from the
+	// session. Pass an empty run_id (stored NULL) — best-effort context only.
+	_ = h.Service.StaleEpochRecorder.RecordStaleEpochRejection(r.Context(), repoID, "", sessID)
+}
+
+// clearStaleEpochObservation is the RFC 0143 Slice A Correction 1 supersede hook
+// (#512). When a session presents the CURRENT live epoch (it passed validateBootEpoch
+// while actually carrying an epoch), any LIVE stale-epoch observation for it is
+// superseded so the typed floor cannot over-fire on a later ordinary death. Gated on
+// a present, matching epoch and an attributable bearer; otherwise no-op. The recorder
+// itself only writes when a LIVE observation exists, so a healthy session stays
+// event-free. Never alters the response.
+func (h *HTTPHandler) clearStaleEpochObservation(r *http.Request) {
+	if h.Service.StaleEpochRecorder == nil {
+		return
+	}
+	// Only meaningful when the daemon holds a live epoch AND the request presents the
+	// matching one — i.e. the session is provably reconnected, not a pre-#316 lane.
+	live := strings.TrimSpace(h.Service.BootEpoch)
+	presented := strings.TrimSpace(r.Header.Get(HeaderBootEpoch))
+	if live == "" || presented == "" || presented != live {
+		return
+	}
+	bearer := bearerRaw(r)
+	if bearer == "" {
+		return
+	}
+	repoID, sessID, ok := h.Service.identifyBoundSession(bearer)
+	if !ok {
+		return
+	}
+	_ = h.Service.StaleEpochRecorder.RecordStaleEpochRecovered(r.Context(), repoID, "", sessID)
+}
+
+// bearerRaw extracts the raw bearer token string from the Authorization header
+// WITHOUT requiring it to be valid-for-authz (reusing the same parse shape as
+// bearerToken). Returns "" when absent or malformed. Used only by the RFC 0143
+// Slice A read-only session attribution; it authorizes nothing.
+func bearerRaw(r *http.Request) string {
+	token, rpcErr := bearerToken(r)
+	if rpcErr != nil {
+		return ""
+	}
+	return token
 }
 
 func validateLocalRequest(r *http.Request) *localRequestError {

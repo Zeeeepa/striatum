@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -182,6 +185,21 @@ const (
 	// seal on its behalf (attestation), so it respawns once then escalates with a
 	// distinct, inspect-the-worktree remediation (#289).
 	stallClassAgentExitedUnsealed = "agent_exited_unsealed"
+	// stallClassSessionUnrecoverableAcrossRotation — RFC 0143 Slice A (#512): a
+	// confirmed-dead supervised agent whose OWNING SESSION was locked out of resealing
+	// across a daemon boot-epoch rotation. It is a STRICT REFINEMENT of
+	// agent_exited_unsealed for the rotation case: it routes the SAME
+	// finalize-or-escalate path with a distinct, legible reason and remediation
+	// (operator requeue / Slice B), so it is OBSERVABILITY-ONLY — no-more-privileged
+	// than agent_exited_unsealed, triggering no auto-seal and minting/using no
+	// credential (Correction 2). It is EXACT-ATTRIBUTION: it never infers the floor
+	// from complete-on-disk + lane-lost alone — it requires a forge-resistant daemon
+	// observation (T1) or the wrapper's own direct-path exit 97 (T2-direct), and the
+	// tmux #{pane_dead_status}==97 carrier ONLY when a LIVE T1 observation corroborates.
+	// Under the shared striatum-lane uid no carrier is forge-resistant; that residual
+	// is best-effort, RFC-0168-bounded (#585), and sound only because of the
+	// observability-only invariant.
+	stallClassSessionUnrecoverableAcrossRotation = "session_unrecoverable_across_rotation"
 )
 
 // isNecrosisStallClass reports whether a recovery stall class is a CONFIRMED-DEAD
@@ -194,7 +212,14 @@ const (
 // escalation site (run.escalated / recovery.job_quarantined carry blocker_kind),
 // not here.
 func isNecrosisStallClass(stallClass string) bool {
-	return stallClass == stallClassAgentPIDDead || stallClass == stallClassAgentExitedUnsealed
+	return stallClass == stallClassAgentPIDDead ||
+		stallClass == stallClassAgentExitedUnsealed ||
+		// RFC 0143 Slice A (#512): the rotation-lockout refinement is also a
+		// confirmed-dead class (the lane is lane-lost), so it joins the necrosis
+		// domain. This is the single disclosed additive change to the necrosis-domain
+		// guardrail (TestNecrosisDomainMatchesConfirmedDeadConstants + metrics
+		// necrosisDomain), not a meaning change to any existing member.
+		stallClass == stallClassSessionUnrecoverableAcrossRotation
 }
 
 // recoveryPolicyFromWorkflow reads the recovery budgets from a workflow JSON
@@ -957,6 +982,17 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		deadLaneUnsealed := (sessionDead && leaseClearedOrGone && !leaseStaleActive(row)) ||
 			(confirmedDead() && deadAgentExitedUnsealed(activity))
 		if deadLaneUnsealed && deadAgentExitedUnsealed(activity) {
+			// RFC 0143 Slice A (#512): when the unsealed dead lane is rotation-locked,
+			// TAG this finalize/reopen path with the typed class instead of the generic
+			// one. The path itself is UNCHANGED — same tryFinalizeUnsealedFromDurableArtifact
+			// + closeStalledOwningSession — so the typed class is no-more-privileged
+			// (observability-only, Correction 2): it only makes the recovery REASON
+			// legible. exact-attribution: deadAgentUnrecoverableAcrossRotation requires a
+			// forge-resistant carrier, never complete-on-disk + lane-lost alone.
+			unsealedStallClass := stallClassAgentExitedUnsealed
+			if deadAgentUnrecoverableAcrossRotation(ctx, tx, repositoryID, runID, row) {
+				unsealedStallClass = stallClassSessionUnrecoverableAcrossRotation
+			}
 			finalized, ferr := tryFinalizeUnsealedFromDurableArtifact(ctx, tx, repositoryID, jobID)
 			if ferr != nil {
 				return nil, ferr
@@ -966,7 +1002,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 				// double-work the job that is now terminally completed. Idempotent.
 				ownerClosed := false
 				if !sessionAbsent {
-					closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClassAgentExitedUnsealed)
+					closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, unsealedStallClass)
 					if cerr != nil {
 						return nil, cerr
 					}
@@ -976,7 +1012,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 					"workflow_job_id":       workflowJobID,
 					"job_id":                jobID,
 					"action":                "auto_finalize_unsealed",
-					"stall_class":           stallClassAgentExitedUnsealed,
+					"stall_class":           unsealedStallClass,
 					"acted":                 true,
 					"stalled_owner_closed":  ownerClosed,
 					"stalled_owner_session": nullable(sessionID),
@@ -998,7 +1034,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			if reopened {
 				ownerClosed := false
 				if !sessionAbsent {
-					closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, stallClassAgentExitedUnsealed)
+					closed, cerr := closeStalledOwningSession(ctx, tx, repositoryID, runID, jobID, sessionID, unsealedStallClass)
 					if cerr != nil {
 						return nil, cerr
 					}
@@ -1014,7 +1050,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 					"workflow_job_id":            workflowJobID,
 					"job_id":                     jobID,
 					"action":                     "reopen_fresh_attempt_stale_artifact",
-					"stall_class":                stallClassAgentExitedUnsealed,
+					"stall_class":                unsealedStallClass,
 					"from_attempt":               fromAttempt,
 					"to_attempt":                 toAttempt,
 					"acted":                      true,
@@ -1133,7 +1169,16 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// and both populations are well served by "inspect the worktree, retry
 			// once, then escalate". Only the never-engaged early crash stays
 			// agent_pid_dead.
-			if deadAgentExitedUnsealed(activity) {
+			// RFC 0143 Slice A (#512): interpose the typed rotation-lockout class FIRST,
+			// leaving both existing branches intact. It is a STRICT REFINEMENT of
+			// agent_exited_unsealed for the rotation case — exact-attribution (a LIVE
+			// daemon stale-epoch observation, the wrapper's own exit 97, or a
+			// T1-corroborated dead-pane 97), never inferred from complete-on-disk +
+			// lane-lost alone. It routes the same path with a more legible reason, so it
+			// is no-more-privileged (observability-only).
+			if deadAgentUnrecoverableAcrossRotation(ctx, tx, repositoryID, runID, row) {
+				stallClass = stallClassSessionUnrecoverableAcrossRotation
+			} else if deadAgentExitedUnsealed(activity) {
 				stallClass = stallClassAgentExitedUnsealed
 			} else {
 				stallClass = stallClassAgentPIDDead
@@ -1149,7 +1194,7 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 		if counterColumn == "transfer_count" {
 			current = budget.transferCount
 			limit = policy.maxTransfers
-		} else if stallClass == stallClassAgentExitedUnsealed {
+		} else if stallClass == stallClassAgentExitedUnsealed || stallClass == stallClassSessionUnrecoverableAcrossRotation {
 			// #289: the unsealed-exit class shares the requeue_count counter but
 			// escalates after a smaller budget — a respawn rarely heals a systematic
 			// unsealed exit, so hand it to the operator sooner with a precise reason.
@@ -1157,6 +1202,10 @@ func recoverStuckJobs(ctx context.Context, tx db.TxRunner, repositoryID, runID s
 			// lane gets the larger reviewer bound (a transient unsealed exit there is a
 			// clean fresh-session retry), while a stateful repo-write lane keeps the
 			// tight default (a repeated unsealed exit signals systematic failure).
+			// RFC 0143 Slice A (#512): the rotation-lockout refinement shares the SAME
+			// tight unsealed budget — it routes the same finalize-or-escalate path
+			// (observability-only), so it gets no extra requeue room, just a legible
+			// reason.
 			limit = policy.unsealedRequeueBudget(isRepoWrite(row))
 		}
 		// gateEscalation is set when the RFC 0131 131-C confidence gate PERMITTED a
@@ -1962,6 +2011,114 @@ func supervisedAgentConfirmedDead(ctx context.Context, row map[string]any) bool 
 	}
 	return !live.Alive
 }
+
+// deadAgentUnrecoverableAcrossRotation reports whether a confirmed-dead lane's
+// owning session is unrecoverable across a daemon boot-epoch rotation (RFC 0143
+// Slice A / #512), from DURABLE DAEMON-SIDE state ONLY, via EITHER trusted carrier —
+// EXACT ATTRIBUTION, no over-fire, no inbound frame:
+//
+//	T1 (forge-resistant, primary): a LIVE (un-superseded) daemon.stale_epoch_rotation
+//	   observation exists for this run's owning session (the daemon's OWN
+//	   validateBootEpoch rejection). Correction 1: an observation the session later
+//	   SUPERSEDED by reconnecting (daemon.stale_epoch_recovered) is NOT live, so a
+//	   recovered-then-ordinarily-dead session does NOT match here; OR
+//	T2-direct (forge-resistant): the latest supervisor.agent_exited event exit_code for
+//	   the owning session is exactly ExitUnrecoverableAcrossRotation (97) — the
+//	   wrapper's OWN Cmd.Wait status, which a provider child cannot drive (C2); OR
+//	T2-tmux (RFC-0168-bounded, CORROBORATED ONLY): the dead pane's #{pane_dead_status}
+//	   == 97 AND a LIVE T1 observation exists for the owning session. A bare
+//	   #{pane_dead_status}==97 with NO T1 corroboration returns false — a same-uid
+//	   `respawn-pane … exit 97` forges nothing (Correction 2).
+//
+// Returns false for any other state. It is OBSERVABILITY-ONLY: matching here only
+// TAGS the recovery with a more precise, legible reason; it routes the SAME
+// finalize-or-escalate path as agent_exited_unsealed and grants no new authority.
+func deadAgentUnrecoverableAcrossRotation(ctx context.Context, tx db.TxRunner, repositoryID, runID string, row map[string]any) bool {
+	sessionID := fmt.Sprint(nullable(row["session_id"]))
+	if sessionID == "" || sessionID == "<nil>" {
+		return false
+	}
+
+	// T1: the forge-resistant primary. A LIVE daemon-observed stale-epoch rejection
+	// for this owning session. (This already subsumes the corroborated T2-tmux case,
+	// since T2-tmux requires this same observation — see below.)
+	liveT1, err := hasLiveStaleEpochObservation(ctx, tx, repositoryID, sessionID)
+	if err == nil && liveT1 {
+		return true
+	}
+
+	// T2-direct: the wrapper's own exit 97, durably recorded on the owning session's
+	// latest supervisor.agent_exited event. Forge-resistant on the direct path (the
+	// provider child cannot set the wrapper's Cmd.Wait status; C2).
+	if latestAgentExitedCode(ctx, tx, repositoryID, sessionID) == ExitUnrecoverableAcrossRotation {
+		return true
+	}
+
+	// T2-tmux: the dead pane's #{pane_dead_status}==97 — CORROBORATED ONLY. It records
+	// the typed class ONLY when a LIVE T1 observation also exists. Since liveT1 is
+	// false here (the T1 branch above did not return), an uncorroborated
+	// #{pane_dead_status}==97 — including a same-uid `respawn-pane … exit 97` forge —
+	// does NOT match: it stays agent_exited_unsealed (Correction 2). The probe is read
+	// only to keep the carrier honest/legible in logs; it never matches without T1.
+	if status, ok := deadPaneStatusForRow(ctx, row); ok && status == ExitUnrecoverableAcrossRotation && liveT1 {
+		return true
+	}
+	return false
+}
+
+// deadPaneStatusForRow returns the supervised lane's dead-pane #{pane_dead_status}
+// (RFC 0143 Slice A best-effort carrier), and ok=false when the lane is not a dead
+// tmux pane / the status is unavailable. It reuses the same pre-tx liveness snapshot
+// the confirmed-dead probe reads, so it adds no extra tmux call in the sweep.
+func deadPaneStatusForRow(ctx context.Context, row map[string]any) (int, bool) {
+	pid := intFromAny(row["supervisor_pointer_pid"], 0)
+	if pid <= 0 {
+		return 0, false
+	}
+	metadata := asMap(row["supervisor_pointer_metadata_json"])
+	expectedStart := fmt.Sprint(nullable(row["supervisor_pointer_pid_start_time"]))
+	if expectedStart == "<nil>" {
+		expectedStart = ""
+	}
+	live := probeLaneLivenessCached(ctx, metadata, pid, expectedStart)
+	if live.Tmux == nil || live.Tmux.PaneDeadStatus == nil {
+		return 0, false
+	}
+	return *live.Tmux.PaneDeadStatus, true
+}
+
+// latestAgentExitedCode returns the exit_code on the owning session's most-recent
+// supervisor.agent_exited event, or a sentinel (math.MinInt) when none is recorded /
+// not numeric. Read-only durable daemon state (striatumd.events).
+func latestAgentExitedCode(ctx context.Context, tx db.TxRunner, repositoryID, sessionID string) int {
+	rows, err := queryRows(ctx, tx, `
+		SELECT payload_json->>'exit_code' AS exit_code
+		  FROM striatumd.events
+		 WHERE repository_id = $1
+		   AND actor_session_id = $2
+		   AND event_type = 'supervisor.agent_exited'
+		 ORDER BY event_id DESC
+		 LIMIT 1`, repositoryID, sessionID)
+	if err != nil || len(rows) == 0 {
+		return math.MinInt
+	}
+	raw := fmt.Sprint(nullable(rows[0]["exit_code"]))
+	if raw == "" || raw == "<nil>" {
+		return math.MinInt
+	}
+	code, perr := strconv.Atoi(strings.TrimSpace(raw))
+	if perr != nil {
+		return math.MinInt
+	}
+	return code
+}
+
+// ExitUnrecoverableAcrossRotation mirrors agentloop.ExitUnrecoverableAcrossRotation
+// (the reserved RFC 0143 Slice A floor exit code, 97). It is re-declared here as a
+// package constant to keep pkg/mutations free of an agentloop import (agentloop is a
+// lane-side wrapper; mutations is a daemon-side recovery package). A guard test
+// asserts the two stay in lockstep.
+const ExitUnrecoverableAcrossRotation = 97
 
 // leaseStaleActive reports whether the job's resolved lease is still 'active'
 // (not yet expired) — used to exclude live claimants from the dead-lane requeue
