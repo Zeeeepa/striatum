@@ -1,0 +1,144 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0166-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0166-design/SEED.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0166-design/RFC_0166_SNAPSHOT.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0166-design/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0166 P0 implementation SPEC: a completion deadline for an alive-but-never-completing lane (a 'sealed-progress silence budget') that escalates or auto-requeues WITHOUT false-killing a legitimately slow-but-healthy lane and WITHOUT a lane gaming it via fake progress. Read the v1 SEED and the RFC snapshot (docs/operator/workflows/rfc-0166-design/RFC_0166_SNAPSHOT.md) in full first. The RFC's PROPOSED DIRECTION is the four-part sealed-progress silence budget — harden it into build-bearing constraints, do not invent a different mechanism. Specify each part as a FALSIFIABLE assertion + the test that would refute it: PART 1 (the clock/detector) — a per-job deadline DERIVED not stored, the wall-clock since the job's last forgery-resistant sealed event via the existing jobSealedProgressAt (go/pkg/mutations/recovery_decision_tree.go: GREATEST(max(artifacts.created_at), max(verdicts.created_at))) with started_at/lease acquired_at as the floor; a new stall class wedged_no_sealed_progress next to StallToolProgress in go/pkg/sessionliveness/liveness.go, evaluated in recoverStuckJobs (NOT the pure Classify() which never sees per-job artifacts/verdicts), promoting the signal from a post-hoc progressAdvanced debounce to a first-class deadline. PART 2 (the central safety decision — AND not OR) — the rung fires ONLY when BOTH the sealed clock is past budget AND the #324 tool-progress timeline is past ToolProgressSeconds, so the single-final-seal lane (whose only deliverable is one terminal work.complete, zero intermediate seals) is NOT trapped while actively issuing tool calls — this is the load-bearing no-false-kill constraint that must not re-introduce the #145 CASE-2 mid-work artifact-loss; ratify it and prove its coverage. PART 3 (anti-gaming — reset on novelty) — a reset requires a STRICT INCREASE in a daemon-derived monotonic progress position {count(distinct content_sha256), count(sealed verdicts), highest satisfied expected_artifacts milestone index} on job_recovery_state; the deadline consumes NOVELTY not events (a re-published identical content_sha256 does not advance the cursor); de-dup grain is content_sha256 (genuinely-new bytes count, idempotent re-anchor does not). PART 4 (the action — self-heal ladder, telomere-bounded) — first breach auto-requeues ONE fresh session via transfer_requeue/requeueJobSameAttempt (no page); the requeue budget (maxRequeues/maxUnsealedRequeues/maxSilentSweeps) resets ONLY on genuine sealed progress, so a job burning fresh sessions without sealing shortens toward a floor (telomere) then escalates needs_operator with a copy-pasteable recovery verb. PROVE the hard core: the predicate distinguishes 'alive but never completing' from 'alive and legitimately working' (no false-kill) AND cannot be gamed by forged/fake progress, AND the derived clock is correct across daemon restart + requeue. Anchor every claim to named source. Define the P0 slice precisely and name later seams. Keep the local-first boundary. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0166-design/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and the RFC snapshot. Your lens is FALSE-KILL / CORRECTNESS (the #145 CASE-2 mid-work artifact-loss regression). Attack Part 2's 'AND not OR' safety claim. Can the rung still kill a legitimately slow-but-healthy lane? Construct the cases: a single-final-seal lane whose only deliverable is one terminal work.complete and that goes quiet on tool calls during a long legitimate computation / a long model think between tool calls (is it past BOTH the sealed clock AND ToolProgressSeconds while doing real work)? A lane whose real work produces no artifacts/verdicts AND whose tool-call cadence legitimately exceeds ToolProgressSeconds (e.g. a long single git/build/test invocation)? Does the floor (started_at/lease acquired_at) make a just-started long job cross budget before sealing anything? Is jobSealedProgressAt actually the right sealed signal for every job_type (do some job types never write artifacts/verdicts)? Does the derived clock mis-fire across a daemon restart or a legitimate requeue (clock resets or carries wrongly)? Does the AND degrade to an effective OR in any state? If the rung can false-kill a healthy lane or re-introduce CASE-2 artifact loss, say so explicitly with the failing scenario and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (false-kill/correctness lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0166-design/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and the RFC snapshot. Your lens is ANTI-GAMING + the ACTION LADDER + MECHANISM correctness. Attack Part 3 + Part 4. Can a flailing/hostile lane still GAME the clock to avoid the deadline: manufacture cheap NOVELTY (publish blobs with trivially-different content_sha256 — junk bytes, a counter, a timestamp — to keep the distinct-hash cardinality strictly increasing without doing real work)? Is the monotonic progress position {distinct content_sha256, sealed verdicts, milestone index} truly forgery-resistant, or can a lane mint sealed verdicts / advance the milestone index cheaply? Does 'reset consumes novelty not events' hold for every reset path? On Part 4: does the telomere/self-heal ladder actually CONVERGE for a deterministically-flailing lane, or can it loop (auto-requeue → flail → auto-requeue) or storm escalations? Does the requeue-budget 'reset only on genuine sealed progress' interact correctly with the existing maxRequeues/maxUnsealedRequeues/maxSilentSweeps (no double-reset, no budget never decrementing)? Is the needs_operator escalation's recovery verb correct (complete-stalled iff a durable artifact exists, else requeue-stale --override)? Does Part 1's derived (unstored) clock + Part 3's job_recovery_state cursor survive daemon restart consistently? If the clock is gameable, the ladder does not converge, or the budget interaction is wrong, say so explicitly with the failing scenario and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (anti-gaming/action-ladder lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0166-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0166 P0 design (the holder SPEC and the two FALSIFIER challenges), with the RFC snapshot as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: the NO-FALSE-KILL safety constraint genuinely holds (Part 2's AND-not-OR provably does not kill a single-final-seal or otherwise legitimately-slow-but-working lane, and does not re-introduce the #145 CASE-2 artifact-loss) AND covers the job-types/restart/requeue cases; the ANTI-GAMING reset is forgery-resistant (novelty cannot be cheaply manufactured via junk content_sha256 / minted verdicts / milestone advance); the SELF-HEAL ladder converges (no auto-requeue loop, no escalation storm) and the requeue-budget interaction with the existing counters is correct; and the DERIVED clock + cursor survive daemon restart. Record per part (1-4) whether RATIFIED and per falsifier challenge whether it STANDS or is REBUTTED; the AND safety decision is the central one to ratify. needs_revision if the rung can false-kill a healthy lane, the clock is gameable, the ladder does not converge, or the derived state is restart-inconsistent. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (who spins a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0166-design/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0166 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design buildable contract-first by the rfc-0166-build code_change run: Part 1 the derived sealed-progress clock + the wedged_no_sealed_progress stall class in recoverStuckJobs (not Classify), Part 2 the ratified AND-not-OR no-false-kill constraint (sealed-stale AND #324-tool-progress-stale) with the single-final-seal carve-out, Part 3 the reset-on-novelty monotonic progress cursor on job_recovery_state (content_sha256 grain, forgery-resistant), and Part 4 the telomere self-heal ladder (auto-requeue-one → budget-resets-only-on-sealed-progress → needs_operator with the copy-pasteable recovery verb). State each as a falsifiable assertion + its test, anchored to the named source (jobSealedProgressAt, recovery_decision_tree.go, sessionliveness/liveness.go, job_recovery_state, the requeue paths). Note any persisted/derived-state or migration needs and name later seams. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0166-design/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0166 P0 design: the ledger verdict, how the no-false-kill AND-safety constraint and the anti-gaming reset-on-novelty were ratified, whether the self-heal ladder converges, which falsifier challenges were rebutted, and the consolidated 4-part SPEC + named tests the rfc-0166-build run will implement.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0166-design/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0166-design",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0166-design",
+  "workflow_version": "2026-06-24"
+}
