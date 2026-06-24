@@ -9,7 +9,9 @@
 # file, a DUPLICATE ordinal, or a GAP in the sequence. Two PRs can no longer
 # silently grab the same NNNN (the 0039 / 0041 collisions, RFC 0142 failure #4).
 #
-# Frontiers: runtime_migration = 0044, owner_bundle = 0021.
+# Frontiers: runtime_migration = 0044, owner_bundle = 0020 (embedded). Owner
+# ordinal 0021 is RESERVED but STAGED, not embedded (see the owner-bundle note
+# below) — the embedded frontier tops out at 20.
 #
 # Format: a tiny array-of-tables (a purpose-built parser in reservations.go
 # reads only `ordinal` and `file`; keep it that simple and human-legible).
