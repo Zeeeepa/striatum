@@ -16,11 +16,17 @@
   caller's runs through `runs_for_origin_client`; an advisory `doctor`
   `attribution_unknown` rule surfaces non-terminal runs with no resolvable origin.
   Identity reads never touch tty/pane/title/env.
-- **Operator-bootstrap mint+lease RPC.** `operator.bootstrap` mints a
-  session-bound operator token (`{admin, read}`, repo-scoped) and leases a handle
-  in one transaction; `operator.heartbeat` renews the lease/session/token (a
-  guarded UPDATE, never release-then-reacquire); `operator.close` gracefully
-  closes the session, releases the handle, and revokes the operator token.
+- **Operator-bootstrap mint+lease RPC, with the CLI as its client.**
+  `operator.bootstrap` mints a session-bound operator token (`{admin, read}`,
+  repo-scoped) and leases a handle in one transaction; `operator.heartbeat`
+  renews the lease/session/token (a guarded UPDATE, never release-then-reacquire);
+  `operator.close` gracefully closes the session, releases the handle, and revokes
+  the operator token. `striatum operator bootstrap` now **calls** this RPC and
+  presents the minted session-bound operator token to the launched operator
+  process / MCP client via `.striatum/scratch/operator-token` (consumed through
+  `STRIATUM_MCP_TOKEN_FILE`, resolved at higher precedence than the static runtime
+  token); the static `bootstrap-admin` token is used only to call the RPC and is
+  never the routine repo-admin credential (§F F-2). The raw token is never printed.
 
 ### Security
 

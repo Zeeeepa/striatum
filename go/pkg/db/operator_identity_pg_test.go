@@ -2,11 +2,20 @@ package db_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/halbritt/striatum/go/pkg/db"
+	"github.com/halbritt/striatum/go/pkg/mutations"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
+	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
@@ -181,7 +190,7 @@ func TestOperatorOwnerBundleAppliesCleanTwoRole(t *testing.T) {
 func TestOperatorComposedIdentityMapUnreadableTwoRole(t *testing.T) {
 	fx := pgtest.TwoRole(t)
 	ctx := context.Background()
-	seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
+	repositoryID, principalID, _ := seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
 
 	// Route 1: cc ⋈ oh on oh.principal_id.
 	_, err := fx.SUTPool.Runner.QueryScalar(ctx, `
@@ -223,6 +232,57 @@ func TestOperatorComposedIdentityMapUnreadableTwoRole(t *testing.T) {
 		     AND ccu.table_name = 'principals')::text`)
 	if hasFK != "false" {
 		t.Fatalf("A44 refuted: spawn_authorization_grants.owner_principal_id has an FK to principals; it must stay a bare client-id column or the table needs the full identity-bearing treatment")
+	}
+
+	// Route 3, the COMPOSED form (§F F-1 / A44): seed the full
+	// cc ⋈ oh ⋈ runs ⋈ spawn_authorization_grants chain over an auto_spawn-captured
+	// grant whose owner_principal_id holds the run owner's CLIENT id, then prove that
+	// AS THE RUNTIME ROLE the composed route reconstructs client_id -> client_id (the
+	// grant's owner_principal_id IS a client id), NOT client_id -> principal_id.
+	seedLeasedHandle(t, ctx, fx.OwnerPool.Runner, "oh_sg", repositoryID, principalID, "maya", "osess_sg")
+	seedStampedRun(t, ctx, fx.OwnerPool.Runner, repositoryID, "run_sg", principalID, "oh_sg")
+	if err := fx.OwnerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.clients(client_id, client_kind, display_name, token_id, token_hash, token_salt, created_at)
+		VALUES ('client_sg', 'session', 'sg', 'tok_sg', 'h', 's', now())
+		ON CONFLICT (client_id) DO NOTHING`); err != nil {
+		t.Fatalf("seed sg client: %v", err)
+	}
+	if err := fx.OwnerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities(capability_id, client_id, repository_id, capability, granted_at, session_id)
+		VALUES ('cap_sg', 'client_sg', $1, 'admin', now(), 'osess_sg')`, repositoryID); err != nil {
+		t.Fatalf("seed sg capability: %v", err)
+	}
+	// The captured RFC 0122 grant: owner_principal_id holds the run owner's CLIENT id.
+	if err := fx.OwnerPool.Runner.Exec(ctx, `
+		INSERT INTO striatumd.spawn_authorization_grants(
+		  repository_id, grant_id, run_id, owner_principal_id, run_as_spec, capability_envelope, created_at)
+		VALUES ($1, 'grant_sg', 'run_sg', 'client_sg', '{}'::jsonb, '{}'::jsonb, now())`, repositoryID); err != nil {
+		t.Fatalf("seed spawn_authorization_grant: %v", err)
+	}
+	got := scalar(t, ctx, fx.SUTPool.Runner, `
+		SELECT sag.owner_principal_id
+		  FROM striatumd.client_capabilities cc
+		  JOIN striatumd.operator_handles oh ON oh.leased_session_id = cc.session_id
+		  JOIN striatumd.runs r ON r.created_by_handle_id = oh.handle_id
+		  JOIN striatumd.spawn_authorization_grants sag ON sag.run_id = r.run_id
+		 WHERE oh.released_at IS NULL
+		 LIMIT 1`)
+	if got != "client_sg" {
+		t.Fatalf("A44 Route 3: the composed route must reconstruct the run owner's CLIENT id (client_sg), got %q", got)
+	}
+
+	// The information_schema.role_column_grants exception (§F F-1): owner_principal_id
+	// is the ONE *principal_id*-named column granted to striatumd_rw — a client id, not
+	// a real principal — while every real-principal identity column stays ungranted.
+	exception := scalar(t, ctx, fx.OwnerPool.Runner, `
+		SELECT (
+		  has_column_privilege('striatumd_rw','striatumd.spawn_authorization_grants','owner_principal_id','SELECT')
+		  AND NOT has_column_privilege('striatumd_rw','striatumd.runs','created_by_principal_id','SELECT')
+		  AND NOT has_column_privilege('striatumd_rw','striatumd.operator_handles','principal_id','SELECT')
+		  AND NOT has_column_privilege('striatumd_rw','striatumd.operator_sessions','principal_id','SELECT')
+		)::text`)
+	if exception != "true" {
+		t.Fatalf("A44: spawn_authorization_grants.owner_principal_id must be the granted client-id exception while the real-principal identity columns stay ungranted")
 	}
 }
 
@@ -273,100 +333,187 @@ func TestOperatorWhoseStatusMineViaProjectionTwoRole(t *testing.T) {
 	}
 }
 
-// 4. operator_session_pre_run_stamp — two operator sessions for one principal,
-// two distinct leased handles, two runs stamped from app.session_id => two
-// NON-NULL DISTINCT created_by_handle_id and distinct whose (A29/A7/A27).
+// 4. operator_session_pre_run_stamp — two operator sessions for one human, each
+// minted via the REAL operator.bootstrap RPC, each authorizing run.prepare
+// through the REAL PostgresAuthorizer, each creating a run via the REAL
+// run.prepare RPC as the runtime role => two NON-NULL DISTINCT
+// created_by_handle_id and distinct whose (A29/A7/A27), plus the lane-no-admin
+// (A30/A43) and closed-session (A31) denials through the same authorizer.
 func TestOperatorSessionPreRunStampTwoRole(t *testing.T) {
 	fx := pgtest.TwoRole(t)
 	ctx := context.Background()
-	repositoryID, principalID, _ := seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
-	seedLeasedHandle(t, ctx, fx.OwnerPool.Runner, "oh_s1", repositoryID, principalID, "maya", "osess_s1")
-	seedLeasedHandle(t, ctx, fx.OwnerPool.Runner, "oh_s2", repositoryID, principalID, "theo", "osess_s2")
+	repositoryID, _, callerClientID := seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
 
-	// Seed the two runs' snapshots, then stamp created_by_handle_id via the SAME
-	// app.session_id subquery the real run.prepare uses, AS THE RUNTIME ROLE.
-	for _, rs := range []struct{ runID, sessionID string }{{"run_s1", "osess_s1"}, {"run_s2", "osess_s2"}} {
-		if err := fx.OwnerPool.Runner.Exec(ctx, `
-			INSERT INTO striatumd.workflow_snapshots(repository_id, workflow_snapshot_id, workflow_id,
-			  workflow_version, source_path, content_sha256, workflow_json, loaded_at)
-			VALUES ($1, $2, 'wf', '1', 'p', 'h', '{}'::jsonb, now()) ON CONFLICT DO NOTHING`,
-			repositoryID, "wfs_"+rs.runID); err != nil {
-			t.Fatalf("seed snapshot: %v", err)
-		}
-		// set_config app.session_id (the admin prelude installs this) then INSERT
-		// using the handle subquery — exactly the §1(2) stamp shape, as the SUT.
-		if err := fx.SUTPool.Runner.Exec(ctx, `
-			SELECT set_config('app.session_id', $1, false);
-			INSERT INTO striatumd.runs(repository_id, run_id, workflow_snapshot_id, repo_root,
-			  state, created_at, created_by_principal_id, created_by_handle_id)
-			VALUES ($2, $3, $4, '/tmp/repo_p0_oi', 'ready', now(), $5,
-			  (SELECT oh.handle_id FROM striatumd.operator_handles oh
-			    WHERE oh.leased_session_id = current_setting('app.session_id', true)
-			      AND oh.released_at IS NULL))`,
-			rs.sessionID, repositoryID, rs.runID, "wfs_"+rs.runID, principalID); err != nil {
-			t.Fatalf("stamp run %q via app.session_id subquery: %v", rs.runID, err)
-		}
+	// Point the repository at an on-disk workflow so the REAL run.prepare RPC can
+	// load it (branch mode "confirm" => no git ref creation needed).
+	repoRoot := t.TempDir()
+	operatorWriteWorkflow(t, filepath.Join(repoRoot, "workflow.json"))
+	if err := fx.OwnerPool.Runner.Exec(ctx,
+		`UPDATE striatumd.repositories SET repo_root = $1 WHERE repository_id = $2`, repoRoot, repositoryID); err != nil {
+		t.Fatalf("point repo_root at the workflow dir: %v", err)
 	}
 
-	h1 := scalar(t, ctx, fx.SUTPool.Runner, `SELECT created_by_handle_id FROM striatumd.runs WHERE run_id='run_s1'`)
-	h2 := scalar(t, ctx, fx.SUTPool.Runner, `SELECT created_by_handle_id FROM striatumd.runs WHERE run_id='run_s2'`)
-	if h1 == "" || h2 == "" {
-		t.Fatalf("A27: both stamps must be NON-NULL handle snapshots, got h1=%q h2=%q", h1, h2)
+	// The run-origin stamp rides the daemon-secret-gated resolve_principal_for_client
+	// DEFINER projection; install the process secret matching the registered one so
+	// the prelude satisfies assert_daemon_authority (restored on cleanup).
+	db.SetAuthorityRuntime(operatorTestSecret, db.AuditHashFormatV2, "", false)
+	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
+
+	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner}
+	runPrepareCap := rpc.MethodRegistry["run.prepare"].RequiredCapability
+
+	type stamped struct{ runID, handleID, whose string }
+	results := make([]stamped, 0, 2)
+	for _, label := range []string{"terminal_1", "terminal_2"} {
+		// Same human (callerClientID is linked to principal P): mint the operator
+		// session + lease a handle through the REAL operator.bootstrap RPC.
+		boot, err := mutations.HandleOperatorBootstrap(
+			operatorAuthCtx(ctx, callerClientID, "", repositoryID),
+			fx.SUTPool.Runner,
+			operatorEnvelope("operator.bootstrap", repositoryID, nil))
+		if err != nil {
+			t.Fatalf("%s operator.bootstrap: %v", label, err)
+		}
+		operatorClientID, _ := boot["client_id"].(string)
+		operatorSessionID, _ := boot["operator_session_id"].(string)
+		token, _ := boot["token"].(string)
+
+		// A29: the minted operator token AUTHORIZES run.prepare through the real authorizer.
+		if d := authz.Authorize(runPrepareCap, repositoryID, token); d.Decision != "allowed" {
+			t.Fatalf("%s A29: operator token must authorize run.prepare, got %s/%s", label, d.Decision, d.DenialReason)
+		}
+
+		// The REAL run.prepare RPC, run AS THE RUNTIME ROLE under the operator's auth:
+		// the stamp resolves created_by_principal_id via the projection and snapshots
+		// created_by_handle_id from app.session_id = the operator session.
+		res, err := mutations.HandleRunPrepare(
+			operatorAuthCtx(ctx, operatorClientID, operatorSessionID, repositoryID),
+			fx.SUTPool.Runner,
+			operatorEnvelope("run.prepare", repositoryID, map[string]any{"workflow": "workflow.json"}))
+		if err != nil {
+			t.Fatalf("%s run.prepare: %v", label, err)
+		}
+		runID, _ := res["run_id"].(string)
+		handleID := scalar(t, ctx, fx.SUTPool.Runner, `SELECT created_by_handle_id FROM striatumd.runs WHERE run_id = $1`, runID)
+		whose := scalar(t, ctx, fx.SUTPool.Runner, `SELECT origin_handle FROM striatumd.run_origin_identity($1,$2,$3)`, operatorTestSecret, repositoryID, runID)
+		results = append(results, stamped{runID, handleID, whose})
 	}
-	if h1 == h2 {
-		t.Fatalf("A7: two terminals of one human must stamp DISTINCT handles, both got %q", h1)
+
+	if results[0].handleID == "" || results[1].handleID == "" {
+		t.Fatalf("A27: real run.prepare must stamp NON-NULL created_by_handle_id, got %q / %q", results[0].handleID, results[1].handleID)
 	}
-	w1 := scalar(t, ctx, fx.SUTPool.Runner, `SELECT origin_handle FROM striatumd.run_origin_identity($1,$2,'run_s1')`, operatorTestSecret, repositoryID)
-	w2 := scalar(t, ctx, fx.SUTPool.Runner, `SELECT origin_handle FROM striatumd.run_origin_identity($1,$2,'run_s2')`, operatorTestSecret, repositoryID)
-	if w1 == w2 {
-		t.Fatalf("A7: whose RA == whose RB (%q); the two terminals are indistinguishable", w1)
+	if results[0].handleID == results[1].handleID {
+		t.Fatalf("A7: two operator sessions of one human must stamp DISTINCT handles, both got %q", results[0].handleID)
+	}
+	if results[0].whose == "" || results[0].whose == results[1].whose {
+		t.Fatalf("A7: whose must differ across the two terminals, got %q / %q", results[0].whose, results[1].whose)
+	}
+
+	// A30/A43: a lane token (no admin) is DENIED run.prepare through the same authorizer.
+	laneToken := seedOperatorLaneToken(t, ctx, fx.OwnerPool.Runner, "prestamp", repositoryID, "sess_lane_prestamp")
+	if d := authz.Authorize(runPrepareCap, repositoryID, laneToken); d.Decision == "allowed" {
+		t.Fatalf("A30/A43: a lane token must NOT authorize run.prepare, got allowed")
+	}
+
+	// A31: closing an operator session revokes its token; it can no longer authorize a stamp.
+	boot, err := mutations.HandleOperatorBootstrap(
+		operatorAuthCtx(ctx, callerClientID, "", repositoryID),
+		fx.SUTPool.Runner,
+		operatorEnvelope("operator.bootstrap", repositoryID, nil))
+	if err != nil {
+		t.Fatalf("bootstrap for close: %v", err)
+	}
+	closedSession, _ := boot["operator_session_id"].(string)
+	closedToken, _ := boot["token"].(string)
+	if _, err := mutations.HandleOperatorClose(ctx, fx.SUTPool.Runner,
+		operatorEnvelope("operator.close", repositoryID, map[string]any{"operator_session_id": closedSession})); err != nil {
+		t.Fatalf("operator.close: %v", err)
+	}
+	if d := authz.Authorize(runPrepareCap, repositoryID, closedToken); d.Decision == "allowed" {
+		t.Fatalf("A31: a closed operator session's token must NOT authorize run.prepare, got allowed")
 	}
 }
 
-// 5. operator_token_admin_surface — the C1" credential shape + segregation face:
-// the operator-session token carries {admin, read} bound to its session and
-// repo-scoped, while the static bootstrap admin token is broader and unscoped
-// (A40/A45). The trust-root fence + repo-scope authorization are proven at the
-// rpc-authorizer layer; here we pin the DB credential segregation.
+// 5. operator_token_admin_surface — the C1" justified-acceptance gate, exercised
+// through the REAL authorizer + handlers: a token minted by the REAL
+// operator.bootstrap RPC authorizes the accepted operator repo-admin surface
+// (A40), is refused typed at the verifier.attest trust-root fence (A41), is
+// unreachable for daemon-global admin (A42), a lane token is denied (A43), a
+// closed session is denied (A31), and the routine credential carries exactly
+// {admin, read} — the honest credential-segregation face of §F F-2 (A45).
 func TestOperatorTokenAdminSurfaceTwoRole(t *testing.T) {
 	fx := pgtest.TwoRole(t)
 	ctx := context.Background()
-	repositoryID, _, _ := seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
+	repositoryID, _, callerClientID := seedOperatorWorld(t, ctx, fx.OwnerPool.Runner)
 
-	// Simulate the operator-session token: a client with admin+read grants bound
-	// to the operator_session_id and repo-scoped (the mintOperatorSessionToken shape).
-	if err := fx.OwnerPool.Runner.Exec(ctx, `
-		INSERT INTO striatumd.clients(client_id, client_kind, display_name, token_id, token_hash, token_salt, created_at, expires_at)
-		VALUES ('oclient_surface', 'operator-session', 'operator-session osess_surface', 'otok_surface', 'h', 's', now(), now() + interval '24 hours')
-		ON CONFLICT (client_id) DO NOTHING`); err != nil {
-		t.Fatalf("seed operator client: %v", err)
+	db.SetAuthorityRuntime(operatorTestSecret, db.AuditHashFormatV2, "", false)
+	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
+
+	// A45 (F-2): mint + present via the REAL operator.bootstrap RPC. The returned
+	// token IS the routine repo-admin credential — the static bootstrap-admin token
+	// is never minted or presented here.
+	boot, err := mutations.HandleOperatorBootstrap(
+		operatorAuthCtx(ctx, callerClientID, "", repositoryID),
+		fx.SUTPool.Runner,
+		operatorEnvelope("operator.bootstrap", repositoryID, nil))
+	if err != nil {
+		t.Fatalf("operator.bootstrap: %v", err)
 	}
-	for _, cap := range []string{"admin", "read"} {
-		if err := fx.OwnerPool.Runner.Exec(ctx, `
-			INSERT INTO striatumd.client_capabilities(capability_id, client_id, repository_id, capability, granted_at, expires_at, session_id)
-			VALUES ($1, 'oclient_surface', $2, $3, now(), now() + interval '24 hours', 'osess_surface')`,
-			"ocap_"+cap, repositoryID, cap); err != nil {
-			t.Fatalf("seed operator capability %q: %v", cap, err)
+	operatorToken, _ := boot["token"].(string)
+	operatorSessionID, _ := boot["operator_session_id"].(string)
+	operatorClientID, _ := boot["client_id"].(string)
+
+	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner}
+
+	// A40: the accepted operator repo-admin surface is AUTHORIZED through the real authorizer.
+	for _, method := range []string{"run.prepare", "checkpoint.resolve", "review.override", "branch.confirm"} {
+		if d := authz.Authorize(rpc.MethodRegistry[method].RequiredCapability, repositoryID, operatorToken); d.Decision != "allowed" {
+			t.Fatalf("A40: operator token must authorize %s, got %s/%s", method, d.Decision, d.DenialReason)
 		}
 	}
 
-	// The operator token's grants are repo-scoped AND session-bound (A40/A42 shape).
-	scoped := scalar(t, ctx, fx.OwnerPool.Runner, `
-		SELECT (COUNT(*) = 2)::text FROM striatumd.client_capabilities
-		 WHERE client_id = 'oclient_surface' AND repository_id = $1 AND session_id = 'osess_surface'
-		   AND capability IN ('admin','read') AND revoked_at IS NULL`, repositoryID)
-	if scoped != "true" {
-		t.Fatalf("A40: the operator token must carry repo-scoped, session-bound {admin, read}")
+	// A41: the verifier.attest trust-root fence refuses the session-bound operator
+	// token typed capability_denied, through the real handler.
+	_, aerr := mutations.HandleVerifierAttest(
+		operatorAuthCtx(ctx, operatorClientID, operatorSessionID, repositoryID),
+		fx.SUTPool.Runner,
+		operatorEnvelope("verifier.attest", repositoryID, map[string]any{
+			"check_id":      "chk_p0_surface",
+			"binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+		}))
+	if !isRPCCode(aerr, "capability_denied") {
+		t.Fatalf("A41: verifier.attest must refuse the session-bound operator token capability_denied, got %v", aerr)
 	}
-	// A45 segregation: the operator token carries exactly two capabilities (admin,
-	// read) — NOT the broad static bootstrap-admin set. The lane slice carries no
-	// admin; this is the credential-narrowing the honest blast-radius accounting
-	// requires (the rpc-layer trust-root fence + daemon-global denial are proven in
-	// the rpc/capability authorizer tests).
-	count := scalar(t, ctx, fx.OwnerPool.Runner,
-		`SELECT COUNT(*)::text FROM striatumd.client_capabilities WHERE client_id = 'oclient_surface'`)
-	if count != "2" {
-		t.Fatalf("A45: the operator token must carry exactly {admin, read} (2 caps), got %s — not the broad static bootstrap set", count)
+
+	// A42: a daemon-global admin route is unreachable by the repo-scoped operator token.
+	if d := authz.Authorize(rpc.MethodRegistry["daemon.token.create"].RequiredCapability, "", operatorToken); d.Decision == "allowed" {
+		t.Fatalf("A42: a daemon-global admin route must be unreachable by the repo-scoped operator token, got allowed")
+	}
+
+	// A43: a lane token (no admin) is denied run.prepare through the same authorizer.
+	laneToken := seedOperatorLaneToken(t, ctx, fx.OwnerPool.Runner, "surface", repositoryID, "sess_lane_surface")
+	runPrepareCap := rpc.MethodRegistry["run.prepare"].RequiredCapability
+	if d := authz.Authorize(runPrepareCap, repositoryID, laneToken); d.Decision == "allowed" {
+		t.Fatalf("A43: a lane token must NOT authorize run.prepare, got allowed")
+	}
+
+	// A31: closing the operator session revokes the token; it can no longer authorize.
+	if _, err := mutations.HandleOperatorClose(ctx, fx.SUTPool.Runner,
+		operatorEnvelope("operator.close", repositoryID, map[string]any{"operator_session_id": operatorSessionID})); err != nil {
+		t.Fatalf("operator.close: %v", err)
+	}
+	if d := authz.Authorize(runPrepareCap, repositoryID, operatorToken); d.Decision == "allowed" {
+		t.Fatalf("A31: a closed operator session's token must NOT authorize run.prepare, got allowed")
+	}
+
+	// A45 segregation: the routine credential carries exactly {admin, read} — NOT the
+	// broad static bootstrap-admin set ({admin,read,write,claim,review,apply,recovery,
+	// surgical_recovery}). The narrowing is the honest blast-radius accounting.
+	caps := scalar(t, ctx, fx.OwnerPool.Runner,
+		`SELECT COALESCE(string_agg(capability, ',' ORDER BY capability), '') FROM striatumd.client_capabilities
+		  WHERE client_id = $1`, operatorClientID)
+	if caps != "admin,read" {
+		t.Fatalf("A45: the operator token must carry exactly {admin, read}, got %q (not the broad static bootstrap set)", caps)
 	}
 }
 
@@ -521,4 +668,119 @@ func TestOperatorLeaseFlapStealTwoRole(t *testing.T) {
 	if released != "true" {
 		t.Fatalf("A12: S1's lease row must never transit a released state during a flap")
 	}
+}
+
+// --- real-path helpers (operator.bootstrap / run.prepare / verifier.attest /
+// PostgresAuthorizer) for the C1'/C1" gate tests ---
+
+// operatorAuthCtx threads a resolved AuthContext onto ctx exactly as the RPC
+// dispatch does after Authorize succeeds, so the RFC 0110 authority prelude
+// installs striatum.principal_id = clientID and app.session_id = sessionID for
+// the handler's mutation transaction.
+func operatorAuthCtx(ctx context.Context, clientID, sessionID, repositoryID string) context.Context {
+	return rpc.WithAuthContext(ctx, rpc.AuthContext{
+		ClientID:     clientID,
+		SessionID:    sessionID,
+		RepositoryID: repositoryID,
+		Capability:   rpc.CapabilityAdmin,
+		Decision:     "allowed",
+	})
+}
+
+// operatorEnvelope builds a minimal valid RPC envelope for a handler call.
+func operatorEnvelope(method, repositoryID string, extra map[string]any) rpc.Envelope {
+	params := map[string]any{"repository_id": repositoryID}
+	for key, value := range extra {
+		params[key] = value
+	}
+	return rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_" + strings.NewReplacer(".", "_").Replace(method),
+		Method:        method,
+		Params:        params,
+	}
+}
+
+// operatorWriteWorkflow writes the canonical minimal-valid run.prepare workflow
+// (the project's run.prepare test fixture shape) at path: one lane, one role,
+// one handoff job, branch mode "confirm" (so the real run.prepare needs no git
+// ref creation).
+func operatorWriteWorkflow(t *testing.T, path string) {
+	t.Helper()
+	workflow := map[string]any{
+		"schema_version":   "striatum.workflow.v1",
+		"workflow_id":      "rfc0167-operator-stamp",
+		"workflow_version": "1",
+		"name":             "RFC 0167 Operator Stamp",
+		"branch":           map[string]any{"mode": "confirm", "suggested_name": "test/operator-stamp"},
+		"coordinator":      map[string]any{"role_id": "worker", "lane_id": "lane_a"},
+		"lanes":            map[string]any{"lane_a": map[string]any{"command": []any{"true"}}},
+		"roles":            map[string]any{"worker": map[string]any{"description": "worker"}},
+		"context_docs":     []any{},
+		"parallelism":      map[string]any{"max_active_jobs": float64(1)},
+		"jobs": []any{
+			map[string]any{
+				"id":                 "job_a",
+				"type":               "handoff",
+				"role_id":            "worker",
+				"lane_id":            "lane_a",
+				"write_scope":        map[string]any{"allowed_paths": []any{"docs/"}},
+				"expected_artifacts": []any{},
+			},
+		},
+		"edges":  []any{},
+		"cycles": []any{},
+	}
+	payload, err := json.Marshal(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// seedOperatorLaneToken seeds (AS THE OWNER) a lane client with the lane
+// capability slice {claim, write, read, review} — NO admin — and returns its
+// bearer token (tokenID.secret), so the real authorizer can prove a lane token
+// is denied run.prepare (A30/A43).
+func seedOperatorLaneToken(t *testing.T, ctx context.Context, owner db.Runner, suffix, repositoryID, sessionID string) string {
+	t.Helper()
+	clientID := "lclient_" + suffix
+	tokenID := "ltok_" + suffix
+	secret := "lane_secret_" + suffix
+	salt := "lane_salt_" + suffix
+	if err := owner.Exec(ctx, `
+		INSERT INTO striatumd.clients(client_id, client_kind, display_name, token_id, token_hash, token_salt, created_at, expires_at)
+		VALUES ($1, 'session', $1, $2, $3, $4, now(), now() + interval '24 hours')
+		ON CONFLICT (client_id) DO NOTHING`,
+		clientID, tokenID, operatorHMACHex(salt, secret), salt); err != nil {
+		t.Fatalf("seed lane client: %v", err)
+	}
+	for _, capName := range []string{"claim", "write", "read", "review"} {
+		if err := owner.Exec(ctx, `
+			INSERT INTO striatumd.client_capabilities(capability_id, client_id, repository_id, capability, granted_at, expires_at, session_id)
+			VALUES ($1, $2, $3, $4, now(), now() + interval '24 hours', $5)`,
+			"lcap_"+suffix+"_"+capName, clientID, repositoryID, capName, sessionID); err != nil {
+			t.Fatalf("seed lane capability %q: %v", capName, err)
+		}
+	}
+	return tokenID + "." + secret
+}
+
+// operatorHMACHex reproduces the token-hash scheme the PostgresAuthorizer
+// validates against (HMAC-SHA256 keyed on the salt over the secret).
+func operatorHMACHex(salt, secret string) string {
+	mac := hmac.New(sha256.New, []byte(salt))
+	mac.Write([]byte(secret))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// isRPCCode reports whether err is an rpc.Error carrying the given code.
+func isRPCCode(err error, code string) bool {
+	var rpcErr *rpc.Error
+	if errors.As(err, &rpcErr) {
+		return rpcErr.Code == code
+	}
+	return false
 }

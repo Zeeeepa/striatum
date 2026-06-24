@@ -203,16 +203,21 @@ BEGIN
 
     -- runs: EXISTING table with table-level runtime SELECT (0005). REVOKE, then
     -- re-GRANT every column EXCEPT created_by_principal_id (C2" Route 2). The
-    -- column list is the live 0005 baseline (no migration ALTERs runs ADD COLUMN)
-    -- plus 0022's created_by_handle_id (the handle FK stays selectable -- it is no
-    -- identity map on its own). INSERT(created_by_principal_id) is independent of
-    -- SELECT and rides the table-level INSERT (0005), so the run-origin stamp is
-    -- unaffected; the write-once trigger reads OLD/NEW (no SELECT privilege needed).
+    -- column list is regenerated from the live catalog at authorship time (§C2".2b):
+    -- the 0005 baseline 16 columns + completion_mode (migration 0025) +
+    -- completion_record_json (migration 0026) + 0022's created_by_handle_id (the
+    -- handle FK stays selectable -- it is no identity map on its own), MINUS
+    -- created_by_principal_id. The 0025/0026 columns MUST be re-granted or the
+    -- run.summary / evidence.export / run-completion-record runtime readers springs
+    -- 42501. INSERT(created_by_principal_id) is independent of SELECT and rides the
+    -- table-level INSERT (0005), so the run-origin stamp is unaffected; the
+    -- write-once trigger reads OLD/NEW (no SELECT privilege needed).
     REVOKE SELECT ON striatumd.runs FROM striatumd_rw;
     GRANT SELECT (
       repository_id, run_id, workflow_snapshot_id, repo_root, state,
       branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
       started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id,
+      completion_mode, completion_record_json,
       created_by_handle_id
     ) ON striatumd.runs TO striatumd_rw;
     -- runs INSERT/UPDATE/DELETE table-level DML is unchanged (0005).

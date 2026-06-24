@@ -649,12 +649,17 @@ var readScopeReasserts = map[string][]string{
 	// drift GRANT cannot widen them. The statement lists restate the bundle SQL
 	// verbatim — keep them in lockstep with 0022.
 	"operator_identity_run_attribution": {
-		// Route 2: runs column gate (created_by_principal_id excluded).
+		// Route 2: runs column gate (created_by_principal_id excluded). The list is
+		// the live catalog MINUS created_by_principal_id: the 0005 baseline + 0025's
+		// completion_mode + 0026's completion_record_json + 0022's created_by_handle_id.
+		// Keep in lockstep with the 0022 bundle SQL (omitting 0025/0026 strands a
+		// 42501 on the run.summary / evidence.export runtime readers).
 		"REVOKE SELECT ON striatumd.runs FROM striatumd_rw",
 		`GRANT SELECT (
 		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
 		  branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
 		  started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id,
+		  completion_mode, completion_record_json,
 		  created_by_handle_id
 		) ON striatumd.runs TO striatumd_rw`,
 		// Route 1: operator_handles column gate (principal_id excluded).

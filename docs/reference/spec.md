@@ -240,9 +240,14 @@ rule). The handle pool is curated, lowercase, privacy-safe; the default is a has
 of `principal_id` (reconnect-stable, never tty/pane/title/env), escalating to the
 next candidate on a live collision. The operator-bootstrap RPC mints a
 session-bound operator token (`{admin, read}`, repo-scoped, TTL-bounded,
-close-revoked) and leases the handle in one transaction; per the honest
-blast-radius accounting the static `bootstrap-admin` token is segregated to the
-daemon-root surface and is not injected for routine operator repo-admin.
+close-revoked) and leases the handle in one transaction. `striatum operator
+bootstrap` is the client of that RPC: it calls `operator.bootstrap` and presents
+the minted session-bound operator token to the launched operator process / MCP
+client (written to `.striatum/scratch/operator-token`, consumed through
+`STRIATUM_MCP_TOKEN_FILE`, which the agent loop resolves at higher precedence
+than the static runtime token). Per the honest blast-radius accounting the static
+`bootstrap-admin` token is used only to call the RPC and remains segregated to the
+daemon-root surface — it is **not** the routine operator repo-admin credential.
 
 ## Workflow Config
 

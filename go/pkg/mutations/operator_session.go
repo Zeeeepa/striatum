@@ -299,12 +299,15 @@ func HandleOperatorHeartbeat(ctx context.Context, runner db.Runner, envelope rpc
 		now := time.Now().UTC()
 		expiresAt := now.Add(operatorHandleTTL)
 		// Guarded lease renewal (§3): only the owning, still-live session renews,
-		// and the row never transits a released state mid-renewal.
+		// and the row never transits a released state mid-renewal. The §3 shape is
+		// `leased_until = now() + TTL, last_heartbeat_at = now()`: leased_until is the
+		// future expiry, but last_heartbeat_at MUST be `now` (not expiresAt) or
+		// operator-handle liveness diagnostics would read a future heartbeat.
 		if err := tx.Exec(ctx, `
 			UPDATE striatumd.operator_handles
-			   SET leased_until = $1, last_heartbeat_at = $1
-			 WHERE repository_id = $2 AND leased_session_id = $3 AND released_at IS NULL`,
-			expiresAt, repositoryID, operatorSessionID,
+			   SET leased_until = $1, last_heartbeat_at = $2
+			 WHERE repository_id = $3 AND leased_session_id = $4 AND released_at IS NULL`,
+			expiresAt, now, repositoryID, operatorSessionID,
 		); err != nil {
 			return nil, err
 		}
