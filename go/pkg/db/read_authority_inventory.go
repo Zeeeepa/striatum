@@ -123,6 +123,14 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"auto_finalize_circuit_breakers": ReadClassRuntimeOperational,
 	"cross_repo_cycle_counters":      ReadClassRuntimeOperational,
 	"daemon_meta":                    ReadClassRuntimeOperational,
+	// deploy_cursor / deploy_plan / deploy_receipt (RFC 0142 P4, migration 0044):
+	// the runtime-owned deploy-coordinator substrate. The serving daemon SELECTs
+	// deploy_cursor + deploy_plan on every decoupled boot (CheckDeployActivation),
+	// and the single-role deployer reads the receipt trail — operational metadata,
+	// like schema_state / schema_migrations.
+	"deploy_cursor":  ReadClassRuntimeOperational,
+	"deploy_plan":    ReadClassRuntimeOperational,
+	"deploy_receipt": ReadClassRuntimeOperational,
 	// event_chain_segments (RFC 0136 P1, migration 0041): the per-repository event
 	// chain-segment seal ledger (first/last boundary ids + hashes + cross-segment
 	// witnesses + retention_state). Operational chain metadata the runtime role

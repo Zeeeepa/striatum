@@ -85,6 +85,14 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"cross_repo_runs":                ClassRuntimeDML,
 	"daemon_supervisors":             ClassRuntimeDML,
 	"escalation_inbox":               ClassRuntimeDML,
+	// deploy_cursor / deploy_plan / deploy_receipt (RFC 0142 P4, migration 0044):
+	// the runtime-owned deploy-coordinator substrate. Direct runtime DML — the
+	// single-role deployer INSERTs the immutable plan + per-step receipts and
+	// advances the cursor (GRANT SELECT/INSERT[/UPDATE] to striatumd_rw), like
+	// schema_state; not an SD-gated or owner-only surface.
+	"deploy_cursor":  ClassRuntimeDML,
+	"deploy_plan":    ClassRuntimeDML,
+	"deploy_receipt": ClassRuntimeDML,
 	// event_chain_segments (RFC 0136 P1, migration 0041): the per-repository
 	// event chain-segment seal ledger. The sealing path (pkg/mutations
 	// SealEventChainSegment) INSERTs the successor open segment and UPDATEs the
