@@ -1,7 +1,7 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-24_v2.37.1-hotfix-release"
+brief_id: "brief_2026-06-24_v2.37.1-deployed"
 supersedes: "brief_2026-06-24_audit-closeout-gates"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
@@ -23,10 +23,12 @@ not support`: the new 0022 read-projection stamp was present in
 v2.37.1 adds that capability to the supported daemon-authority inventory and
 adds a unit guard that every write/read reassertion stamp is declared supported.
 
-**Recovery/deploy order:** install v2.37.1, restart the system daemon, then verify
-`doctor` and `status`. If a host already applied owner bundle 0022 during the
-v2.37.0 attempt, re-running `striatum daemon owner-ddl apply` is idempotent but
-not required before restart; the watermark should already be 22.
+**Local deploy status:** v2.37.1 is published and deployed on this host from the
+GitHub release artifact. The hosted release workflow passed the archive build,
+installed-CLI gate, and release publication. The linux-amd64 tarball checksum
+verified, owner bundle 0022 re-apply is idempotent, the system daemon is running
+v2.37.1 (`48aa4a17`, clean), and `doctor` is green with `problem_count=0`,
+owner bundle 22 in sync, schema version 44, and schema drift in sync.
 
 ## 2026-06-24 delta — v2.37.0 release
 
@@ -260,22 +262,18 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 
 ## Next Actions
 
-1. **Deploy v2.37.1 hotfix:** install the release binaries, restart the system
-   daemon, and verify `doctor`/`status`. On this host owner bundle 0022 was
-   already applied during the v2.37.0 attempt; re-run
-   `striatum daemon owner-ddl apply` only as an idempotent drift repair.
-2. **Keep current-state docs truthful:** after every issue-closeout or release,
+1. **Keep current-state docs truthful:** after every issue-closeout or release,
    refresh this brief, README status, docs index summaries, and any roadmap/todo
    surface that claims to list current open work; the README version row is now
    mechanically gated by `make check-docs`.
-3. **Work the active defect frontier first:** #612, #579, #576, #512, and #506
+2. **Work the active defect frontier first:** #612, #579, #576, #512, and #506
    are the current operator-facing recovery defects.
-4. **Bound doctor warnings:** keep `problem_count=0`, but turn the warning channel
+3. **Bound doctor warnings:** keep `problem_count=0`, but turn the warning channel
    into named classes with allowed baselines/deltas.
 
-## Blockers / Open Issues (22)
+## Blockers / Open Issues (21)
 
-Open GitHub tracker state rechecked on 2026-06-24 during the v2.37.1 cut.
+Open GitHub tracker state rechecked on 2026-06-24 after the v2.37.1 deploy.
 
 - **Active defects / recovery:** #612 cross-user falsifier handoff publish wedge,
   #579 idle-stalled builder lane blocks downstream jobs, #576 lease-warmed lane
