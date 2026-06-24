@@ -1,0 +1,327 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0167-p0-design"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0167-p0-design/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0167-operator-identity-and-run-attribution.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "Produce the falsifiable implementation SPEC for RFC 0167 P0 (operator identity & run attribution) as the published claim the falsifiers will challenge. Read the SEED (docs/operator/workflows/rfc-0167-p0-design/SEED.md) and the accepted RFC (docs/rfcs/0167-operator-identity-and-run-attribution.md) in full. The SPEC must discharge EVERY SEED requirement, each as a falsifiable assertion paired with the named test/check that would refute it, anchored to REAL current source (go/pkg/... file:line on current main — verify, do not trust the RFC's anchors): R1a HONESTY (principal resolved + handle leased INSIDE the token-mint transaction; runs.created_by_principal_id resolved from the LIVE token server-side; never from tty/tmux/title/env/client-supplied name; every read surface resolves through principal_id and only snapshots the handle); R1b SUFFICIENCY — THE CRUX: one human = one principal_id shared across ~15 terminals, so created_by_principal_id alone CANNOT distinguish which window owns a run and the #suffix (from principal_id) is identical for all of them. Specify EXACTLY how P0 still answers 'which window': the handle is leased per session (operator_handles.leased_session_id) and the live-unique index (repository_id, lower(handle)) WHERE released_at IS NULL forces two concurrent same-human sessions onto DISTINCT words; specify the deterministic collision-escalation rule (what the second same-human session is named, stable across reconnect); specify the EXACT run->handle join so `whose` and `status --mine` render the per-session leased handle that owned the run at creation (decide and specify: does the run carry a handle or lease snapshot stamped at creation, or does whose join run->created_by_principal_id->live lease?), and PROVE the two-same-human-terminals case returns two distinct answers — if the SPEC renders only the principal-derived handle, P0 fails its goal; R1c LEASE FLAP (heartbeat renews the existing lease via guarded UPDATE, never release-then-reacquire); R2 OWNER-BUNDLE MIGRATION (operator_handles table + live-unique index + ALTER runs ADD COLUMN created_by_principal_id at the next free owner-bundle ordinal after the current LatestOwnerBundleVersion==20 verified in go/pkg/db/owner.go; deployed owner-ddl apply THEN restart; CHOOSE the DB write-once enforcement — REVOKE UPDATE(created_by_principal_id) column-privilege vs BEFORE UPDATE trigger — justify it and pin the privileges the runtime role must RETAIN: INSERT a run row carrying the column, INSERT and UPDATE operator_handles for lease+heartbeat-renewal+reconcile-release; prove clean apply + write-once hold under the RFC 0142 P0 TWO-ROLE pgtest fixture / non-superuser owner DSN; forward-only, watermark-consistent); R3 resolve all FOUR open questions (handle pool + deterministic default + escalation order; backfill-from-branch_confirmed_by vs NULL+advisory attribution_unknown; cross-repo board scope; @handle#suffix byline in or out of P0) each with a concrete in-P0 or deferred + mechanism + why; R4 ride RFC 0107 (operator-id IS principal_id; reuse principals/principal_clients/sessions.last_session_heartbeat_at + migration-0033 reconcile sweep; NO parallel identity table; product-boundary clean). Scope is P0 ONLY — note seams for P1/P2/P3 but do not design them. Open the SPEC with an auditable 'How this SPEC discharges R1a/R1b/R1c/R2/R3/R4' map so falsifiers can verify coverage. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold P0 implementation SPEC",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, the SEED, and the RFC. Your lens is the IDENTITY-HONESTY / SUFFICIENCY / SPOOF lens (SEED R1). Hunt the load-bearing failures: (1) SPOOF — find any path where run A created by operator A can render as operator B's handle: a client-supplied name reaching the authoritative answer, identity derived from tty/tmux/terminal-title/env anywhere on the read path, a forged capability-token client dereferencing to the wrong principal, or the stamp taken from anything other than the LIVE token server-side inside the token-mint or run-creation transaction. (2) SUFFICIENCY — THE decisive attack: verify the SPEC's R1b resolution actually returns TWO DISTINCT answers for two same-human terminals. Construct the case: human maya opens terminal 1 (bootstrap -> handle 'maya', session S1) and terminal 2 (bootstrap -> same principal_id, session S2). Terminal 1 starts run X, terminal 2 starts run Y. Does `whose run_X` vs `whose run_Y` return different handles? If the SPEC stamps only created_by_principal_id and renders only the principal-derived handle, BOTH return 'maya#7f3' (same principal -> same suffix) and P0 FAILS its stated goal ('which of 15 windows owns this run') — that is a standing falsification, say so. Verify the live-unique index actually forces S2 onto a distinct word and the run->handle join renders the per-session word. (3) ESCALATION DETERMINISM — does a reconnect or flap silently relabel a live run, or is the collision-escalation rule deterministic + stable? (4) LEASE FLAP (R1c) — can a racing same-human session steal the word during a release-then-reacquire window? Reproduce each as a concrete scenario with the exact source path / SQL that makes it true or false. If R1b sufficiency is not PROVEN (two distinct answers), if any spoof path exists, or if the escalation or flap is non-deterministic, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (identity-honesty / sufficiency / spoof lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, the SEED, and the RFC. Your lens is the OWNER-MIGRATION / TWO-ROLE DB-SAFETY / RFC-0107-REUSE lens (SEED R2 + R4). Hunt: (1) MIGRATION SAFETY — does the owner bundle (operator_handles table + live-unique partial index + ALTER runs ADD COLUMN created_by_principal_id) apply CLEANLY under the NON-SUPERUSER owner DSN (RFC 0142 P0 two-role fixture), or does a privilege gap surface 42501? Verify the ordinal is the next free one after the current LatestOwnerBundleVersion (read go/pkg/db/owner.go on current main — do NOT trust the SPEC's claimed number) and that it is an OWNER bundle, not a runtime ALTER (a runtime ALTER of runs boot-crashes the writer, D248 and D258). (2) WRITE-ONCE AT THE DB — is created_by_principal_id write-once actually enforced at the DATABASE (REVOKE UPDATE(col) column-privilege OR a BEFORE UPDATE trigger), not merely app-level? Does the chosen mechanism leave the runtime role EXACTLY the privileges it still needs: INSERT a run carrying the column, and INSERT and UPDATE operator_handles for lease + heartbeat-renewal + reconcile-sweep release? Find the privilege it accidentally revokes or accidentally retains. Confirm the SPEC names the pgtest that proves a forged UPDATE is REJECTED at the DB. (3) INDEX CONCURRENCY — does the live-unique partial index (repository_id, lower(handle)) WHERE released_at IS NULL behave under two sessions racing to lease 'maya' — one wins, one escalates, no deadlock, no duplicate-live row? Is the reconcile-sweep release (flip released_at) coherent with the index so a reaped handle returns to the pool without a window where two live rows exist? (4) RFC 0107 REUSE / BOUNDARY — does the SPEC rebuild machinery it should reuse (principals/principal_clients/sessions.last_session_heartbeat_at/migration-0033 sweep)? Does it add a parallel identity table (forbidden)? Does it advance RequiredOwnerBundleVersion without justification or break the forward-watermark / revoke-last ordering? Cross-check that the four open-question resolutions (R3) don't smuggle scope or boundary violations. Reproduce each as a concrete scenario with the exact SQL / source path / grant. If the bundle is unsafe under two-role, write-once is not DB-enforced, the index races, or RFC 0107 is rebuilt, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (owner-migration / two-role / RFC-0107-reuse lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0167 P0 design (the holder SPEC and the two FALSIFIER.md challenges), with the SEED and RFC as context. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES all of: R1a honesty discharged (identity bound server-side at token-mint against the live token; no display-signal or client-name path on any read surface); R1b SUFFICIENCY PROVEN — the SPEC demonstrably returns TWO DISTINCT answers for two same-human terminals (per-session leased handle + live-unique index forcing distinct words + the exact run->handle join), NOT merely created_by_principal_id with a principal-derived handle (if the latter, P0 fails its goal — needs_revision); R1c lease-flap renewal (guarded UPDATE, never release-then-reacquire); R2 owner-bundle migration safe under the two-role non-superuser owner DSN (correct next ordinal, owner bundle not runtime ALTER, DB-enforced write-once via REVOKE-col or trigger with the runtime role retaining exactly its needed privileges, live-unique index race-coherent, named two-role pgtests for the two-maya collision / token-revoked bare-id / forged-UPDATE-rejected); R3 all FOUR open questions resolved with concrete in-P0 or deferred + mechanism + why; R4 RFC 0107 ridden not rebuilt, product-boundary clean, P0-only scope. Record per requirement R1a/R1b/R1c/R2/R3/R4 whether DISCHARGED or OPEN, and per falsifier challenge whether it is RESOLVED / STANDING. needs_revision if R1b sufficiency is unproven, if the owner-bundle two-role safety or DB-write-once is missing or hand-waved, if any open question is unresolved, or if any material challenge stands unrebutted. This is the single allowed revision cycle — be exact; a second needs_revision ends the gate unCleared and routes to the operator.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared falsifiable implementation SPEC for RFC 0167 P0 — ONLY after the adjudicator ledger records a clearing verdict — incorporating every finding the ledger preserved without weakening any constraint. The SPEC is the artifact the rfc-0167-p0-build code_change run consumes, so it must be buildable contract-first: the owner-bundle migration (operator_handles + live-unique index + ALTER runs ADD COLUMN created_by_principal_id at the verified next ordinal, with the chosen DB write-once enforcement and the runtime-role privilege set), the bootstrap token-mint-transaction handle lease + per-session word + deterministic default + collision escalation, the run->handle stamp or join that yields per-terminal attribution (R1b), `striatum whose <run-id>` as a pure principal_id-resolving join that cannot lie, the bootstrap + `status --mine` operator manifest, the doctor attribution_unknown advisory rule, the four resolved open questions, and the named two-role pgtests (two-maya collision / token-revoked bare-id / forged-UPDATE-rejected). State each as a falsifiable assertion + its test. Keep scope to P0; note the seams left for P1/P2/P3. Reference the clearing ledger.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared P0 SPEC",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0167-p0-design/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for RFC 0167 P0 and the downstream SPEC that was published: the ledger verdict, which findings were preserved into the SPEC, the R1b sufficiency resolution, the owner-bundle two-role safety decision, the four open-question resolutions, and any residual follow-up for the build run.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0167-p0-design/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0167-p0-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0167-p0-design",
+  "workflow_version": "2026-06-24"
+}
