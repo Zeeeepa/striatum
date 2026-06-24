@@ -1,6 +1,10 @@
 # RFC 0143: Lane credential survival across a daemon boot-epoch rotation
 
-Status: proposed (needs maintainer decision; security/authz blast-radius)
+Status: accepted (D261, 2026-06-24) — **split**: Slice A (option 4, the legible
+`session_unrecoverable_across_rotation` typed-exit floor) accepted and
+**decoupled**, ships now as pure daemon-side observability; Slice B (options
+2/3, the `CapabilityReseal` authority) **blocked on [RFC 0168](0168-per-lane-security-principal.md)**
+(per-lane OS uid). See `## Decision (D261)` below.
 Date: 2026-06-21
 author: proposer-claude-opus-4-8
 
@@ -193,3 +197,50 @@ code. Until then the supported recovery for #512 is the operator requeue path
 above; option 4 (legible failure) is the lowest-risk partial mitigation if the
 maintainer wants to reduce the "silent unsealed exit" surprise without changing
 what a lane may read.
+
+## Decision (D261, 2026-06-24)
+
+The maintainer ratified a **split**, informed by a seven-cycle
+`falsification_gate` design run (v1→v7) and a `/adhd` analysis of the
+structural obstruction it surfaced.
+
+**What the gate proved.** Options 2/3 (a lane-readable reseal credential / a
+re-injected session token over a daemon-launched control channel) require an
+authenticated channel that is **same-uid-safe**. The gate proved that is
+**unsolvable while every lane shares the `striatum-lane` uid**
+(`BC1-W1-ORACLE`): the production tmux control surface runs as the shared uid
+with a deterministic session name and no private socket, so a same-uid sibling
+can replace the pane the daemon launched and the daemon — whose only handle is
+a post-launch tmux query — authenticates the replacement. A `0600` reseal file
+(option 2) is the same same-uid replay surface. Verdicts banked under
+`docs/operator/artifacts/rfc-0143-design-v{6,7}/`.
+
+**The split.**
+
+- **Slice A — ship now (decoupled).** Option 4: the lane's
+  credential-resolution chain refuses to reach the owner-only admin
+  `client-token` for a non-owner lane and instead surfaces an explicit, typed
+  `session_unrecoverable_across_rotation` floor so the run's recovery routes it
+  legibly instead of a silent unsealed exit (closing the `BC1-W1-CAPTURE-FLOOR`
+  finding). The SEED's OQ1 clause — "Slice A must route over the
+  structurally-bound channel" — is **overridden** as a *documentation* coupling,
+  not a mechanical one: it was **verified in source** that Slice A's
+  deliverable-complete-on-disk and lane-lost predicates are computed **entirely
+  from daemon-side durable state** — tmux/`#{pane_dead}`/`#{pane_dead_status}`
+  liveness, `/proc`+`kill(0)` PID checks, the daemon-owned `striatumd.artifacts`
+  rows (`verifyRequiredArtifacts`), and git-blob reconstructability of the body
+  (`verifyRequiredArtifactReconstructable`, `go/pkg/mutations/recovery_complete_stalled.go`)
+  — with **no dependency on any authenticated inbound frame** from the lane. The
+  proposed W1 connect-out channel is a pure Slice-B feature, not a prerequisite
+  for Slice A. Slice A therefore clears on its own merits as observability and
+  does not touch the credential trust model.
+- **Slice B — blocked.** Options 2/3 (the `CapabilityReseal` authority and its
+  channel) are **gated on [RFC 0168](0168-per-lane-security-principal.md)**
+  (per-lane OS uid) landing. Under a per-lane uid the same-uid class dissolves
+  and option 2 reduces to a safe lane-uid-owned `0600` reseal token. No
+  credential code lands until RFC 0168 is accepted and its provisioning slice
+  ships. Tracked blocker: the GH issue cited in D261.
+
+This decision does not widen who can read the admin token and mints no new
+credential; Slice A is pure observability and Slice B is deferred behind a
+structural prerequisite.
