@@ -12,6 +12,42 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-24 delta — RFC 0167 P0 built + verified + integrated (deploy pending quiescence)
+
+RFC 0167 P0 (operator identity & run attribution, D260/D263) is **on `main`**
+(`525c4696`), landed autonomously through Striatum's own design → build → verify
+workflows. **Design:** a `falsification_gate` committee ran **4 cycles**, each
+surfacing a real, source-verified, build-breaking defect (pre-run session
+impossible under `sessions.run_id NOT NULL`; the run-origin stamp hitting the
+0006 token read-scope `42501`; the operator token lacking `run.prepare` admin;
+the operator-session token over-granting + a composed `client_id→principal_id`
+re-leak) before clearing `accept_with_findings` with two binding §F constraints.
+**Build:** a `code_change` run implemented all ten §9 items — owner bundle
+**0022** (`operator_handles` + `operator_sessions` + `runs.created_by_principal_id`
+/`created_by_handle_id` write-once trigger + the SECURITY DEFINER identity
+projections `run_origin_identity`/`runs_for_origin_client`/`runs_missing_origin`
++ the `runs` REVOKE/re-GRANT + `operator_handles`/`operator_sessions`
+column-scoped grants + the three `runs` star-reader conversions),
+`mintOperatorSessionToken`, the `operator.bootstrap`/`heartbeat`/`close` RPCs
+with the `striatum operator bootstrap` CLI as their client, `striatum whose`,
+`status --mine`, and the `attribution_unknown` doctor advisory. **Verify:** all
+**10 live two-role pgtests PASS** under the non-superuser owner DSN (the C2″
+composed-route closure, the write-once trigger, the two-`maya` disambiguation,
+the operator-token authorization, the drift reassert); `go build`/`go vet` green.
+
+⚠️ **DEPLOY GATE.** Bundle 0022 is **not yet applied** to the running daemon
+(still bundle 20 / old binary). The deploy is gated on a **quiescent window**
+(`AGENT_LOOP_COUNT==0`, zero active runs — the restart kills the whole lane
+cgroup) and **must be atomic**: build from clean `main` → backup `striatumd` →
+`make install` (new binary, `RequiredOwnerBundleVersion=22`) → `striatum daemon
+owner-ddl apply` → `sudo systemctl restart striatumd`, all together. The
+`owner-ddl apply` must **not** run before the new binary is installed — bundle
+0022's `REVOKE SELECT ON runs` is coupled to the star-reader conversions, so
+applying it under the old binary breaks `run.detail`/`archive`. Until deploy:
+`whose`/`status --mine`/the operator-bootstrap mint RPC are dormant. **P1–P3**
+(custody log; honest bylines + handoff naming + chips + opt-in OSC title;
+lineage) are sequenced behind the deploy.
+
 ## 2026-06-23 delta — v2.36.0 released
 
 **v2.36.0 (2026-06-23)** — a bugfix-only cut over v2.35.0. No new RFC
@@ -57,92 +93,11 @@ commit (AGENTS.md); + shared-checkout hygiene policy. RFC 0128 P0 re-landed via 
 daemon `code_change` run (#575), not a hand-merge; release gated on green CI after
 the `schema_state` authority-inventory fix (#570).
 
-## 2026-06-21 delta — RFC 0142 P0 built + verified via a 3-stage self-host dogfood (PR #553; runner defect #551)
+## 2026-06-16…21 deltas (pre-v2.35; see CHANGELOG + decision log)
 
-Drove **RFC 0142** (safe-by-construction DB-change deployment, proposed PR #538)
-through Striatum's own runner in three chained stages:
-
-- **Stage 1 — design committee** (`falsification_gate`, claude holder/adjudicator +
-  **agy/gemini** falsifiers; codex auth dead this session). Genuine cross-model
-  falsification hardened the P0 spec into 5 verification-gated binding constraints
-  (C1 escape-proof LOGIN role / C2 bootstrap ownership fidelity for 0038-0042 /
-  C3 non-superuser bootstrap / C4 isolation self-check / C5 search_path), verdict
-  `accept_with_findings`. Output preserved at
-  `docs/operator/workflows/rfc0142-design-falsification/committee-output/`.
-- **Stage 2 — `code_change` run** (draft→review→apply, `accept_with_findings`) built
-  P0: `pgtest.TwoRole` + the `42501` red oracle + green control, test-harness only.
-- **Stage 3 — verifier**: `striatum verifier run` minted passing sealed **ASSERTED**
-  receipts (go-build/go-vet/go-test) under strict bwrap; the PG-backed two-role suite
-  **passes live, 8/8, under a non-superuser owner DSN — the #442/D248 `42501`
-  reproduces.** → **PR #553** (additive safety net; gated on RFC 0142 acceptance).
-
-**Runner defect surfaced + filed: #551** — a `falsification_gate`
-`collaboration_ledger` published via `artifact.publish`+`review.verdict` was
-registered (verdict captured, gate cleared) but **never git-anchored to the run
-branch**; the downstream `commit_proposal` correctly escalated a `human_checkpoint`
-rather than fabricate a blind proposal. Stage 1 was banked (RFC 0137 precedent) and
-its output recovered to main. Also cleared **43 pre-existing doctor orphans** (old
-terminal runs) via `worktree anchor` + 2 acknowledged-loss baseline entries — doctor
-green throughout. Refreshed expired `striatum-lane` claude creds.
-
-## 2026-06-21 delta — lane-perms ACL cluster: #537/#539 FIXED, #512 → RFC 0143 (PR pending)
-
-Committee-run permission cluster surfaced by the prompt-committee dogfood:
-
-- **#537 (lane can't write) + #539 (daemon/operator can't manage) — FIXED.**
-  `striatum repo add --init` (live path `repo.add` → `repositories.Service.Add`;
-  also `repo.init`) now provisions the committee POSIX ACLs when lanes run as a
-  non-owner OS user (`STRIATUM_LANE_OS_USER`): `setfacl -R -m u:<lane>:rwx
-  -m d:u:<lane>:rwx -m d:u:<owner>:rwx` on the repo tree and `.striatum/worktrees`.
-  Same convention older repos carry; new helper `go/pkg/admin/repo_acl.go`
-  (mirrors `socket_acl.go`/`scratch_acl.go`). Best-effort/idempotent, no-op for
-  owner-run lanes / missing lane user / no setfacl; outcome surfaced as
-  `committee_acl_provisioned` / `committee_acl_error`. NB the system has **no**
-  shared lane/owner group — the convention is POSIX ACLs, and the inheritable
-  owner default ACL is what makes lane-created committee dirs daemon/operator-
-  manageable without sudo (#539). NOT deployed (PR pending); no daemon restart
-  needed (filesystem provisioning at adopt time).
-- **#512 (lane can't reseal across a daemon boot-epoch rotation) — routed RFC,
-  NOT implemented.** Security/authz: the lane's credential-resolution fallback
-  reaches the daemon's owner-only `0600` runtime `client-token`, which is the
-  full-authority **bootstrap admin** token; group-reading it (the issue's literal
-  suggestion) widens admin-token exposure to every lane and dissolves the
-  session-bound token trust model (#135/#296). The alternative (a durable
-  lane-readable session-scoped reseal token) is a new credential-distribution
-  mechanism. Both are decisions, not triage edits → **RFC 0143** stub on the PR
-  branch (`docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md`,
-  status proposed). No token code touched. Interim recovery stays the operator
-  requeue (`supervise stop` → `session close` → `recovery auto`).
-
-## 2026-06-20 delta — #515 builtin verifier verifies a nested Go module (merged + CLI deployed)
-
-The RFC 0134/0141 **builtin verifier** could not mint a passing receipt for
-striatum's OWN repo. The three bugs #515 named (multi-main `go build -o`,
-newer-toolchain offline, worktree `git fsck`) were **already fixed by #494**;
-the live cause was different — the verifier ran `go build|vet|test ./...` from
-`--cwd` (repo root) but striatum's Go module lives in `go/`, so every go builtin
-failed `directory prefix . does not contain main module`. Fix **PR #528 (merged
-`9e1b6475`, closes #515)**: `goModuleDir` runs go-* checks in the module dir while
-still binding the WHOLE worktree read-only (so module tests reading `../../VERSION`
-resolve and git discovery works); conservative — absent/ambiguous trees fall back to
-cwd and fail legibly, never guess. The receipt seals `working_subdir`. A red
-`verifier run` now also surfaces a bounded `stderr_tail` (the meta-fix for the
-blind hand-repro that misdiagnosed #515). **Result:** all four builtins now mint
-passing **ASSERTED** receipts against a clean `main`, run from the repo root
-(go-* show `workdir=go`). Bugfix to D239's impl — no migration, no D-number.
-
-**Red `main` fixed en route — PR #529 (merged `d26a9619`).** `main` was red for
-EVERY PR since #522 changed `daemon install` to refuse (exit 1) when a system unit
-exists but left #514's `TestDaemonInstallRespectsExistingSystemUnit` asserting the
-old exit-0 contract; a one-test sync unblocked the whole repo.
-
-**Deployed CLI-only.** The fix is lane-side; `striatumd` only READS receipts
-(ignores `working_subdir`, never recomputes the seal), so the installed
-`~/.local/bin/striatum` (v2.34.1, from `9e1b6475`) was updated WITHOUT touching
-`striatumd` — no daemon restart, the live RFC 0137 dogfood untouched, and the
-post-#522 daemon-install refusal sidestepped. Prior CLI backed up at
-`~/.local/bin/striatum.bak-pre515`. All work done in isolated `/tmp` worktrees off
-`origin/main`; `doctor ok`, `main` green.
+RFC 0142 P0 (3-stage self-host dogfood, PR #553, runner defect #551); the
+lane-perms ACL cluster (#537/#539 fixed, #512 → RFC 0143); and #515 (builtin
+verifier verifies a nested Go module, PR #528). Details in CHANGELOG.
 
 ## 2026-06-18 deltas — v2.34.1 / v2.34.0 (superseded; see CHANGELOG)
 
