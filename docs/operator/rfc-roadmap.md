@@ -81,13 +81,12 @@ closeout.
   tax until second-adopter evidence appears; RFC 0142 P4 and RFC 0133 fan-in are
   adopter-critical because they protect schema deployment and final tree
   correctness.
-- **Feature-wave fuse:** Wave 4 remains blocked until a subtraction release
-  closes or explicitly quarantines README/front-door truth, root record cleanup,
-  crossrepo #598, auto-finalize #599, recovery split #600, branch
-  pruning #602, WIP budget #603, self-hosting classification #604, feature gate
-  #605, deploy substrate #606, TODO/changelog tax #607, and supervisor split
-  #608. Any exception must name the product reason and accepted risk in this
-  file before the work starts.
+- **Feature-wave fuse:** v2.37.0 closes the audit subtraction-release checklist:
+  README/front-door truth is mechanically guarded by `scripts/check_release_version.py`
+  through `make check-docs`, and #598/#599/#600/#602/#603/#604/#605/#606/#607/#608
+  are closed. Wave 4 still requires a green `doctor`, current README/brief/roadmap
+  truth, and an explicit product reason in this file before new feature-wave work
+  starts.
 
 ---
 

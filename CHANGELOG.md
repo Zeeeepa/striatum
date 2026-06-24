@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (No changes yet.)
+
+## v2.37.0 — 2026-06-24
+
 ### Added
 
 - **Operator identity & run attribution (RFC 0167 P0 / D260, D263).** A single

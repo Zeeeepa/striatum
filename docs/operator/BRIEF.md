@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-24_audit-closeout-gates"
-supersedes: "brief_2026-06-23_v2.36.0-release"
+brief_id: "brief_2026-06-24_v2.37.0-release"
+supersedes: "brief_2026-06-24_audit-closeout-gates"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,22 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-24 delta — v2.37.0 release
+
+**v2.37.0 (2026-06-24)** cuts the post-v2.36.0 source state: RFC 0167 P0
+operator identity/run attribution, session-bound `operator.bootstrap`, owner
+bundle **0022**, RFC 0143 Slice A recovery legibility, D269/#527 fan-in barrier
+default-live cutover, and the D264-D269 audit closeout gates. The release also
+adds a mechanical README release-row gate:
+`scripts/check_release_version.py` runs through `make check-docs` and fails when
+`VERSION`, the README Project Status version row, and the matching CHANGELOG
+release header disagree.
+
+**DDL/deploy order:** install the v2.37.0 binaries first, run
+`striatum daemon owner-ddl apply` for owner bundle 0022, then restart the daemon
+and verify `doctor`/`status`. Do not apply bundle 0022 under the old binary:
+its `runs` REVOKE/re-GRANT is coupled to the v2.37.0 star-reader conversions.
 
 ## 2026-06-24 delta — audit closeout gates
 
@@ -21,9 +37,9 @@ source/truth fixes until integrity is green again. `docs/operator/rfc-roadmap.md
 now carries the active WIP cap, self-hosting-tax classification, and
 subtraction-release checklist. D269 closes the #527 source cutover with PG/unit
 proof: fan-in is live by default, `STRIATUM_BARRIER_FANIN=0` is the kill switch,
-and live deployment equivalence is deferred until `striatum doctor` is green.
+and live deployment equivalence is now the post-green validation path.
 
-## 2026-06-24 delta — RFC 0167 P0 built + verified + integrated (deploy pending quiescence)
+## 2026-06-24 delta — RFC 0167 P0 built + verified + integrated
 
 RFC 0167 P0 (operator identity & run attribution, D260/D263) is **on `main`**
 (`525c4696`), landed autonomously through Striatum's own design → build → verify
@@ -46,18 +62,11 @@ with the `striatum operator bootstrap` CLI as their client, `striatum whose`,
 composed-route closure, the write-once trigger, the two-`maya` disambiguation,
 the operator-token authorization, the drift reassert); `go build`/`go vet` green.
 
-⚠️ **DEPLOY GATE.** Bundle 0022 is **not yet applied** to the running daemon
-(still bundle 20 / old binary). The deploy is gated on a **quiescent window**
-(`AGENT_LOOP_COUNT==0`, zero active runs — the restart kills the whole lane
-cgroup) and **must be atomic**: build from clean `main` → backup `striatumd` →
-`make install` (new binary, `RequiredOwnerBundleVersion=22`) → `striatum daemon
-owner-ddl apply` → `sudo systemctl restart striatumd`, all together. The
-`owner-ddl apply` must **not** run before the new binary is installed — bundle
-0022's `REVOKE SELECT ON runs` is coupled to the star-reader conversions, so
-applying it under the old binary breaks `run.detail`/`archive`. Until deploy:
-`whose`/`status --mine`/the operator-bootstrap mint RPC are dormant. **P1–P3**
-(custody log; honest bylines + handoff naming + chips + opt-in OSC title;
-lineage) are sequenced behind the deploy.
+Bundle 0022 ships in v2.37.0. Apply it only after installing the v2.37.0 binary,
+then restart the daemon; after that, `whose`, `status --mine`, and the
+operator-bootstrap mint RPC are live. **P1–P3** (custody log; honest bylines +
+handoff naming + chips + opt-in OSC title; lineage) are sequenced behind this
+P0 release/deploy.
 
 ## 2026-06-23 delta — v2.36.0 released
 
@@ -161,10 +170,13 @@ older #212/#263-#267 text is historical only.
 
 ## State
 
-Latest release is **v2.36.0 (2026-06-23)** — a bugfix-only cut over v2.35.0
-(#581 owner-bundle watermark deploy crash-loop, #582 release publish pipeline,
-doctor superseded-artifact false-red, checkpoint artifact-integrity; owner
-bundle 0020). **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
+Latest release is **v2.37.0 (2026-06-24)** — operator identity/run attribution
+(RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap,
+RFC 0143 Slice A recovery legibility, D269 fan-in barrier default-live cutover,
+and the audit closeout gates. **v2.36.0 (2026-06-23)** was a bugfix-only cut over
+v2.35.0 (#581 owner-bundle watermark deploy crash-loop, #582 release publish
+pipeline, doctor superseded-artifact false-red, checkpoint artifact-integrity;
+owner bundle 0020). **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
 since v2.34.1; ~12 RFC graduations incl. 0142 P0–P3; see the top delta).
 **v2.34.1 (2026-06-18)** was a docs/maintenance cut (no code change). **v2.34.0
 (2026-06-18)** packaged six reliability/security fixes +
@@ -230,38 +242,34 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 
 ## Next Actions
 
-1. **Keep the reliability recovery gate green:** preserve closed #302/#308/#309
-   as regression evidence, then prove the final-review failure shape from
-   `run_8489e7d2df3b56e1ed7fdb49ff5c8ba7` no longer needs operator
-   requeue/escalation handling.
+1. **Deploy v2.37.0 atomically:** install the release binaries, apply owner bundle
+   0022 with `striatum daemon owner-ddl apply`, restart the system daemon, and
+   verify `doctor`/`status`.
 2. **Keep current-state docs truthful:** after every issue-closeout or release,
    refresh this brief, README status, docs index summaries, and any roadmap/todo
-   surface that claims to list current open work.
-3. **Triage the 2026-06-16 issue wave:** #322-#327 are newer than the v2.33.0
-   brief and should be classified before release planning resumes. #329 is fixed
-   but should stay in the regression set for the read-side helper-event drain
-   authority path.
-4. **Bound doctor warnings:** keep `problem_count=0`, but turn the 219-warning
-   channel into named classes with allowed baselines/deltas.
+   surface that claims to list current open work; the README version row is now
+   mechanically gated by `make check-docs`.
+3. **Work the active defect frontier first:** #612, #579, #576, #512, and #506
+   are the current operator-facing recovery defects.
+4. **Bound doctor warnings:** keep `problem_count=0`, but turn the warning channel
+   into named classes with allowed baselines/deltas.
 
-## Blockers / Open Issues (18)
+## Blockers / Open Issues (22)
 
-Open GitHub tracker state as of 2026-06-17T00:29Z. #302/#308/#309/#329 were
-checked separately and are closed or fixed in this slice; keep them as
-regression references, not open work.
+Open GitHub tracker state rechecked on 2026-06-24 during the v2.37.0 cut.
 
-- **Ready-for-human / operator decisions:** #298 dirty lane worktree recovery,
-  #299 run-branch base drift, #303 terminal-run debris prune, #305 terminal-run
-  provenance legibility, #310 lane-owned artifact ACL gap, #311 agy liveness
-  wedge.
-- **Divergent/fan-in follow-ups:** #306 blob-routed divergent inputs, #316
-  codex/MCP boot-epoch defense, #317 same-attempt byline mismatch wedge, #319
-  deferred fan-in join barrier, #322 `parallelism.max_active_jobs` ignored,
-  #327 sibling-publication fan-in false rejection.
-- **Fresh 2026-06-16 triage wave:** #312 `repo add --init` flag mismatch, #313
-  operator-by-hand path non-functional, #323 daemon restart orphans claude lane,
-  #324 stale endpoint lane spins forever, #325 daemon DB deadlock under parallel
-  completion, #326 artifact publication drops undeclared in-scope files.
+- **Active defects / recovery:** #612 cross-user falsifier handoff publish wedge,
+  #579 idle-stalled builder lane blocks downstream jobs, #576 lease-warmed lane
+  never completes, #512 boot-epoch rotation reseal blocked by shared-lane token
+  ownership, #506 reviewer over-rejection/blob-exhaust legibility.
+- **Reliability/security follow-ups:** #593 retrospective, #592 RFC 0142 P4
+  activation/verify run, #590 gate-compute timing, #589 structural-root precheck,
+  #588 falsification recursion tripwire, #587 auto-bank/rescaffold clean revision
+  cycles, #585 RFC 0143 Slice B blocked on per-lane security principal.
+- **Feature/design backlog:** #611/#610/#609 RFC 0167 P3/P2/P1, #578 schema-drift
+  refuse-to-serve flip, #577 verified-stale rung, #572 RFC 0142 P5 rehearsal
+  receipt, #569 provider-auth absence-of-success alerting, #387 events/audit-log
+  partitioning, #380 remaining git-hoist lock holders.
 
 ## Hazards / Do Not
 
@@ -298,6 +306,6 @@ regression references, not open work.
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
 - `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
-- `CHANGELOG.md` (v2.10.0 → v2.32.0 + Unreleased)
+- `CHANGELOG.md` (v2.10.0 → v2.37.0 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)

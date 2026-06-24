@@ -10,7 +10,7 @@ Two repo-agnostic, low-false-positive checks:
    false positives on links into sibling checkouts).
 
 2. Version consistency: if ``scripts/check_release_version.py`` exists, run it so
-   pyproject / ``__version__`` / CHANGELOG stay in lockstep.
+   VERSION / README / CHANGELOG stay in lockstep.
 
 Semantic staleness — a status doc or board that contradicts the actual state of
 the repo — is a human/agent responsibility per AGENTS.md, not something this
