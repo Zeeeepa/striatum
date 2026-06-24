@@ -437,6 +437,39 @@ func TestWorkflowValidateRefusesCrossRepoWriteScope(t *testing.T) {
 	}
 }
 
+func TestWorkflowValidateRefusesWriteScopeGlob(t *testing.T) {
+	dir := t.TempDir()
+	path := writeWorkflow(t, dir, writeScopeGlobWorkflow())
+	var stdout, stderr bytes.Buffer
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	exitCode := run([]string{"workflow", "validate", "--json", filepath.Base(path)}, &stdout, &stderr)
+	if exitCode != 8 {
+		t.Fatalf("exit = %d, want 8; stderr = %s", exitCode, stderr.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	errPayload := payload["error"].(map[string]any)
+	if errPayload["code"] != "workflow_invalid" {
+		t.Fatalf("error code = %#v, want workflow_invalid", errPayload["code"])
+	}
+	msg, _ := errPayload["message"].(string)
+	for _, want := range []string{"go/**", "glob", "repo-relative prefixes", "go/"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("error message %q missing %q", msg, want)
+		}
+	}
+}
+
 // RFC 0128 P0 (D196) test obligation: a free-text prompt slug naming a foreign
 // repo WARNS (non-fatal) — validate still passes (exit 0) and the JSON envelope
 // carries a foreign_repo_reach warning surfacing the cross-repo intent.
@@ -944,6 +977,10 @@ func crossRepoEscapeWorkflow() string {
   "edges": [],
   "cycles": []
 }`
+}
+
+func writeScopeGlobWorkflow() string {
+	return strings.Replace(basicWorkflow(), `"allowed_paths": ["out/"]`, `"allowed_paths": ["go/**"]`, 1)
 }
 
 // foreignPromptSlugWorkflow is a structurally valid, in-repo-write workflow

@@ -394,9 +394,15 @@ func validateJobPaths(jobIndex int, jobID string, job map[string]any) error {
 			if repoPathInvalid(allowedPath) {
 				return errf("job %q has invalid write_scope allowed_path", jobID)
 			}
+			if writeScopePathHasGlob(allowedPath) {
+				return errf("job %q write_scope allowed_path %q uses glob metacharacters; write_scope paths are repo-relative prefixes, use %q instead", jobID, allowedPath, globPrefixSuggestion(allowedPath))
+			}
 			for _, forbiddenPath := range forbidden {
 				if repoPathInvalid(forbiddenPath) {
 					return errf("job %q has invalid write_scope forbidden_path", jobID)
+				}
+				if writeScopePathHasGlob(forbiddenPath) {
+					return errf("job %q write_scope forbidden_path %q uses glob metacharacters; write_scope paths are repo-relative prefixes, use %q instead", jobID, forbiddenPath, globPrefixSuggestion(forbiddenPath))
 				}
 				if repoPathWithin(allowedPath, forbiddenPath) {
 					return errf("job %q write_scope allowed_path %q is inside forbidden_path %q", jobID, allowedPath, forbiddenPath)
@@ -1278,6 +1284,27 @@ func repoPathInvalid(path string) bool {
 		}
 	}
 	return false
+}
+
+func writeScopePathHasGlob(path string) bool {
+	return strings.ContainsAny(path, "*?[")
+}
+
+func globPrefixSuggestion(path string) string {
+	before := path
+	for _, marker := range []string{"*", "?", "["} {
+		if candidate, _, found := strings.Cut(path, marker); found && len(candidate) < len(before) {
+			before = candidate
+		}
+	}
+	if before == path {
+		return path
+	}
+	prefix := strings.TrimRight(before, "/")
+	if prefix == "" || prefix == "." {
+		return "./"
+	}
+	return prefix + "/"
 }
 
 func repoPathWithin(child string, parent string) bool {

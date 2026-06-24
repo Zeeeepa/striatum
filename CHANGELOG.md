@@ -552,7 +552,7 @@
     lane still loses attestation and is reaped.
 - **Failure-mode audit remediation + open-issue triage wave (2026-06-19, D236).**
   Resolves the SERIOUS/MINOR availability & liveness findings from the
-  `STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md` audit (#451–#458) plus the
+  `docs/records/audits/STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md` audit (#451–#458) plus the
   prod-critical owner-DDL crash-loop (#442/#441) and three smaller runner bugs
   (#445/#446/#447), each as a direct runner-fix PR:
   - **daemon: a background-sweep panic no longer crash-loops the single writer

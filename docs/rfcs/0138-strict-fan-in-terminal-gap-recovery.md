@@ -9,7 +9,7 @@ Context:
   terminal-gap exit (parks run in needs_operator)." Source: the failure-mode audit
   (Claude Opus 4.8, 2026-06-19, static-traced, medium confidence) finding
   **FMA-003** in
-  [`STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md`](../../STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md)
+  [`STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md`](../records/audits/STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md)
   (§3). Labeled `rfc-0133` — this is in the fan-in / sealed-barrier family.
 - [RFC 0133](0133-fan-in-deferred-join-barrier-and-manifest.md) (accepted, D213) —
   the fan-in deferred join barrier + join manifest. This RFC's terminal-gap edge is
