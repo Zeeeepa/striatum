@@ -1,0 +1,103 @@
+{
+  "branch": { "allow_dirty": false, "mode": "auto", "suggested_name": "striatum/rfc-0167-p0-build" },
+  "context_docs": [
+    { "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/commit/proposal/PROPOSAL.md", "required": true },
+    { "path": "docs/rfcs/0167-operator-identity-and-run-attribution.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "author" },
+  "cycles": [
+    { "from": "review", "max_iterations": 1, "on_verdict": "needs_revision", "to": "draft" }
+  ],
+  "edges": [
+    { "from": "draft", "on": "completed", "to": "review" },
+    { "from": "review", "on": "completed", "to": "apply" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "draft", "path": "docs/operator/artifacts/rfc-0167-p0-build/DRAFT.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Implement RFC 0167 P0 in Go, contract-first, per the falsification-cleared SPEC (the required context doc docs/operator/artifacts/rfc-0167-p0-design-v4/commit/proposal/PROPOSAL.md — read it IN FULL, especially §9 the build manifest, §C2-double-prime, §C1-double-prime, §F the binding constraints, and §8 the assertion ledger). Implement ALL ten §9 items in your per-job worktree: (1) the OWNER BUNDLE SQL go/pkg/db/sql/owner/00NN_operator_identity_run_attribution.sql (operator_handles + operator_sessions + runs ADD created_by_principal_id + created_by_handle_id + the BEFORE UPDATE write-once trigger refuse_run_origin_change + the two SECURITY DEFINER identity projections run_origin_identity and runs_for_origin_client + COLUMN-SCOPED grants including the runs REVOKE SELECT + column re-GRANT excluding created_by_principal_id AND the operator_handles principal_id exclusion + the watermark stamp) with owner.go label entry + LatestOwnerBundleVersion=NN + RequiredOwnerBundleVersion=NN + the readScopeReasserts['operator_identity_run_attribution'] entry; VERIFY the next-free ordinal at build time (grep LatestOwnerBundleVersion in go/pkg/db/owner.go — use 0021 if free, 0022 if the concurrent RFC 0142 P4 build took 0021) and regenerate the runs GRANT SELECT(...) column list from the live catalog; (2) the lease + operator-session Go layer (defaultHandle + principal-seeded escalation walk, lease acquisition + guarded heartbeat renewal, operator_sessions create/heartbeat/close lifecycle with graceful close revoking the operator token); (3) mintOperatorSessionToken (sibling to mintSessionBoundToken, inserting operatorSessionCapabilities={admin,read}; the shared sessionBoundCapabilities slice UNCHANGED); (4) the operator-bootstrap mint+lease daemon RPC reusing mintOperatorSessionToken + link_client_to_principal, presenting the session-bound operator token; (5) the run-origin stamp (resolve principal in Go via admin.ResolvePrincipalForClient bound as a param; created_by_handle_id via the operator_handles subquery on app.session_id; delete any direct principal_clients subquery); (6) identity reads via projections — the whose <run-id> read handler over run_origin_identity (CapabilityRead) + contracts/daemon_methods.json + regenerated routes + docs/reference/command-authority-matrix.md row + registry contract test; status --mine over runs_for_origin_client with bare-id fallback; (7) convert the three runs star-readers (reads/detail.go run.detail + job.detail, reads/archive.go SELECT r.*) to explicit column lists EXCLUDING created_by_principal_id — REQUIRED or the column-revoke springs 42501; (8) the doctor attribution_unknown advisory; (9) ALL ten named two-role pgtests in go/pkg/db (composed_identity_map_unreadable incl. the Route 3 spawn-grant enumeration + whose_status_mine_via_projection + drift_reassert_recloses_routes; operator_session_pre_run_stamp; operator_token_admin_surface incl. the credential-segregation face; owner_bundle_applies_clean; forged_update_created_by_rejected; two_live_maya; token_revoked_bare_id; lease_flap_steal); (10) docs updates (docs/decisions/decision-log.md, docs/reference/spec.md, docs/reference/command-authority-matrix.md, CHANGELOG.md). DISCHARGE the §F binding constraints: F-1 (A44) enumerate spawn_authorization_grants in the composed-route analysis + a fail-loud control that owner_principal_id is a client_id not a principal_id; F-2 (A45) make the C1-double-prime blast-radius accounting source-honest (the static bootstrap token persists, so reframe as routine-credential narrowing + a credential-segregation control). Ensure `cd go && go build ./... && go vet ./...` pass in your worktree (the PG-backed two-role pgtests are proven in the separate verifier stage; still write them correctly). Publish DRAFT.md summarizing what you implemented, each §9 item files + the assertion and test it discharges, and the verified owner-bundle ordinal. Your source changes are captured via publish_source_changes.",
+      "role_id": "author",
+      "task_prompt": { "path": "prompts/draft.md" },
+      "title": "Draft RFC 0167 P0 implementation",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-build/", "go/", "contracts/", "docs/decisions/", "docs/reference/", "CHANGELOG.md" ],
+        "forbidden_paths": [ ".striatum/" ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "finding", "logical_name": "review", "path": "docs/operator/artifacts/rfc-0167-p0-build/review/REVIEW.md", "placement": "blob_exhaust", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the draft RFC 0167 P0 implementation against the falsification-cleared SPEC (context doc PROPOSAL.md). Verdict accept / accept_with_findings / needs_revision. Check the GATE-CRITICAL assertions are implemented faithfully: A35/A36/A37/A38/A39 (C2-double-prime — the composed read-scope closure: is operator_handles SELECT column-scoped to exclude principal_id? is runs.created_by_principal_id SELECT REVOKEd from striatumd_rw with a complete column re-GRANT? are the three runs star-readers converted to explicit column lists (or go build or the daemon would 42501)? are whose/status--mine/doctor identity reads routed through the SECURITY DEFINER projections? are the composed negative controls (Route 1 + Route 2 + Route 3 spawn-grant) and the positive + drift-reassert controls present in the pgtests?); A40/A41/A42/A43 (C1-double-prime — mintOperatorSessionToken {admin,read}, lane slice unchanged, the verifier.attest trust-root fence); A29/A7/A27 (R1b through the real run.prepare authorization); A19' (the honest runs REVOKE); and the two BINDING §F constraints A44 (spawn-grant enumeration + fail-loud client-id control) and A45 (honest credential-segregation accounting) — final_review_required, you MUST confirm both are discharged. Verify the owner-bundle ordinal is the verified next-free one and LatestOwnerBundleVersion and RequiredOwnerBundleVersion match. Run `cd go && go build ./... && go vet ./...` in the draft's worktree and confirm green; spot-check the pgtest files compile and exercise the real paths (not stubs). If a gate-critical assertion or a §F constraint is unimplemented, the build is broken, or a star-reader was missed, return needs_revision with the specific gap; otherwise accept_with_findings noting any minor residual.",
+      "role_id": "reviewer",
+      "task_prompt": { "path": "prompts/review.md" },
+      "title": "Review the implementation",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-build/review/" ],
+        "forbidden_paths": [ ".striatum/" ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "summary", "path": "docs/operator/artifacts/rfc-0167-p0-build/SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Finalize the reviewed RFC 0167 P0 implementation: apply the accepted review findings and any revision the reviewer required, ensuring `cd go && go build ./... && go vet ./...` pass and every §9 item + both §F binding constraints (A44 spawn-grant client-id control, A45 credential-segregation control) are in place. Publish SUMMARY.md enumerating: the final owner-bundle ordinal (verified next-free), every file changed grouped by §9 item, each gate-critical assertion (A35-A45) and the test that discharges it, the §F dispositions, and any residual the verifier stage must prove. Your source changes are captured via publish_source_changes; this is the implementation the verifier stage seals and the operator integrates to main.",
+      "role_id": "author",
+      "task_prompt": { "path": "prompts/apply.md" },
+      "title": "Apply the reviewed implementation",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-build/", "go/", "contracts/", "docs/decisions/", "docs/reference/", "CHANGELOG.md" ],
+        "forbidden_paths": [ ".striatum/" ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0167-p0-build",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "roles": {
+    "author": { "definition_path": "roles/author.md" },
+    "reviewer": { "definition_path": "roles/reviewer.md" }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0167-p0-build",
+  "workflow_version": "2026-06-24"
+}
