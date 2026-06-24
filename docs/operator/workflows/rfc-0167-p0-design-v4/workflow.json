@@ -1,0 +1,102 @@
+{
+  "branch": { "allow_dirty": false, "mode": "auto", "suggested_name": "striatum/rfc-0167-p0-design-v4" },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0167-p0-design-v4/SEED.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0167-p0-design-v3/dialogue/holder/HOLDER.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0167-p0-design-v3/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true },
+    { "path": "docs/rfcs/0167-operator-identity-and-run-attribution.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [ { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true } ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the v3 RFC 0167 P0 implementation SPEC to resolve the two v3 residual constraints C2-prime-prime and C1-prime-prime per the v4 SEED's prescribed fixes, carrying forward UNREGRESSED everything cleared through v1+v2+v3, and produce a CONSOLIDATED whole-P0 SPEC (not just deltas). Start from the v3 HOLDER.md (a required context doc); the v3 cycle-1 ledger (also required) has the C1-prime-prime and C2-prime-prime findings. Read the v4 SEED in full — it prescribes the exact fixes including a deeper composed read-scope route the v3 falsifier did not name. DISCHARGE C2-prime-prime (composed read-scope, THE decisive blocker): striatumd_rw must NOT be able to reconstruct client_id->principal_id by ANY route over the ACL graph. Close BOTH routes: Route 1 = client_capabilities cc JOIN operator_handles oh ON oh.leased_session_id=cc.session_id reading oh.principal_id; Route 2 (deeper) = cc JOIN oh JOIN runs r ON r.created_by_handle_id=oh.handle_id reading r.created_by_principal_id. Fix per SEED: (a) column-scope operator_handles SELECT to the runtime EXCLUDING principal_id (keep handle_id, leased_session_id, handle, repository_id, released_at, leased_until, last_heartbeat_at); (b) column-revoke runs.created_by_principal_id SELECT from striatumd_rw (REVOKE SELECT ON runs FROM striatumd_rw; GRANT SELECT on every other runs column enumerated; KEEP INSERT for the stamp; the BEFORE UPDATE trigger reads OLD and NEW row vars so is unaffected); (c) route whose, status --mine, and doctor-attribution identity reads through SECURITY DEFINER projections (owned by owner, EXECUTE to striatumd_rw, mirroring resolve_principal_for_client). Add a NEGATIVE control over the COMPOSED graph (both Route 1 and Route 2 as striatumd_rw must fail 42501 / return zero identity rows) and a POSITIVE control (projection-routed whose and status --mine + the stamp + lease heartbeat and close still work). Enumerate every reader of created_by_principal_id to prove the column-revoke breaks no other daemon path. DISCHARGE C1-prime-prime (operator-admin token scope): per SEED, resolve as JUSTIFIED-ACCEPTANCE — the operator-session token legitimately carries the operator's admin authority (a real operator drives checkpoint.resolve, review.override, decision.record, branch.confirm — a run-lifecycle-only capability would break the operator's job); provide the N-tokens blast-radius analysis (each token TTL-bounded and revoked on close = strictly-less-standing than the static 0600 admin token the human already holds); CONFIRM the existing verifier.attest IsSessionBound() refusal (verifier_attest.go:49-59) still fences the trust-root route from the session-bound operator token, and enumerate any other session-bound-refusing route, so the accepted surface is the operator's authority MINUS the already-fenced trust-root routes; add the control. CARRY FORWARD UNREGRESSED: R1a, the R1b architecture, the v2 operator_sessions storage substrate + projection stamp, the v3 mintOperatorSessionToken authorization core + operator_sessions direct-read closure, R1c, the R2 write-once trigger + bundle ordinal 0021, R3's four open questions, R4 reuse. NOTE for the build run: owner bundle ordinal is 0021 at design time, but verify the next-free ordinal at build time (concurrent RFC 0142 P4 build may take 0021 first -> 0022). Open the SPEC with an auditable 'Addressing the v3 constraints' map. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue", "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold revised P0 SPEC (v4 consolidated)", "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [ { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true } ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC, the v3 HOLDER.md, and the v3 cycle-1 ledger (C2-prime-prime). Your lens is C2-prime-prime / COMPOSED READ-SCOPE. Reason over the FULL ACL graph: can striatumd_rw recover client_id->principal_id by Route 1 (client_capabilities cc JOIN operator_handles oh on leased_session_id reading oh.principal_id), Route 2 (cc JOIN oh JOIN runs reading r.created_by_principal_id), or ANY THIRD route — another table, view, or function exposing principal_id to the runtime (check principals, principal_clients, operator_sessions, operator_handles, runs, and any new projection's underlying grant)? Verify the fix actually closes both: is operator_handles SELECT column-scoped to exclude principal_id? Is runs.created_by_principal_id SELECT revoked from striatumd_rw (and is the re-GRANT of the other runs columns complete — does it accidentally omit a column the daemon needs, or accidentally include created_by_principal_id)? Are the identity reads (whose, status --mine, doctor) routed through SECURITY DEFINER projections whose own grants don't re-leak? Are the NEGATIVE controls the actual COMPOSED queries (both routes), and do they truly fail 42501 / return no identity rows? Does the POSITIVE control prove whose and status/stamp/heartbeat still work? Does the runs column-revoke break any other daemon read path (find a SELECT * or a created_by_principal_id reader the holder missed)? If client_id->principal_id is reconstructable by any route, if a control is fake, or if the column-revoke breaks a real read path, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue", "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (C2'' / composed read-scope lens)", "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [ { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true } ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC, the v3 HOLDER.md, and the v3 cycle-1 ledger (C1-prime-prime). Your lens is C1-prime-prime / TOKEN-SCOPE + CARRY-FORWARD REGRESSION. Verify the operator-admin justified-acceptance is sound: is the N-tokens blast-radius analysis honest (each operator token TTL-bounded and revoked on close = strictly-less-standing than the static 0600 admin token; not MORE standing authority)? Is the verifier.attest IsSessionBound() refusal (verifier_attest.go:49-59) actually still effective against the session-bound operator token (so the trust-root route is fenced)? Is there any genuinely-dangerous-when-session-bound admin route that does NOT already refuse session-bound tokens and is NOT addressed? Does the control prove the operator token does the operator verbs but is refused on verifier.attest? THEN verify NO carry-forward regressed: R1a honesty, the R1b architecture (per-session created_by_handle_id + live-unique index + escalation walk), the v2 operator_sessions storage substrate (auth_pg.go:104-156) + projection stamp (no direct principal_clients.principal_id read), the v3 mintOperatorSessionToken authorization core (lane slice {claim,write,read,review} untouched, lane tokens still no admin) + operator_sessions direct-read closure, R1c guarded-UPDATE flap, the R2 BEFORE UPDATE write-once trigger + owner bundle ordinal 0021, R3's four open questions, R4 reuse. Did the C2-prime-prime grant changes perturb owner-bundle ordering, the watermark, or lane-token capabilities? If the acceptance is not sound, the trust-root route is not fenced, or any carry-forward regressed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue", "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (C1'' / token-scope + carry-forward lens)", "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [ { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true } ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0167 P0 v4 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v3 HOLDER.md and v3 cycle-1 ledger as context. Publish the collaboration ledger verdict (accept, accept_with_findings, needs_revision, or reject — a clearing verdict is accept or accept_with_findings). This is the intended CONVERGING cycle. A clearing verdict REQUIRES: C2-prime-prime DISCHARGED — striatumd_rw cannot reconstruct client_id->principal_id by Route 1, Route 2, or any third route (operator_handles principal_id column-scoped out; runs.created_by_principal_id SELECT revoked from the runtime; identity reads via SECURITY DEFINER projections that do not re-leak), proven by the COMPOSED negative controls + a positive control; AND C1-prime-prime DISCHARGED — a sound justified-acceptance of the operator-admin token with the verifier.attest trust-root refusal confirmed; AND no carry-forward regressed. The decisive, non-negotiable bar is C2-prime-prime: a still-reconstructable client_id->principal_id mapping (any route) is needs_revision. PREFER accept_with_findings for a MINOR residual (a noted build-time refinement) rather than needs_revision, reserving needs_revision for a materially unclosed identity leak, a broken proof, or a regressed carry-forward — the build run needs a cleared consolidated SPEC. Record per constraint C2-prime-prime and C1-prime-prime whether RESOLVED, per carry-forward whether INTACT, per new challenge whether it stands. This is the single allowed v4 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator.",
+      "phase_id": "dialogue", "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance", "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [ { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true } ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, CONSOLIDATED whole-P0 falsifiable implementation SPEC for RFC 0167 P0 — ONLY after the adjudicator ledger records a clearing verdict — incorporating C2-prime-prime and C1-prime-prime and every preserved finding without weakening any constraint. This SPEC is the single source the rfc-0167-p0-build code_change run implements, so it must be buildable contract-first and self-contained: owner bundle 0021 (verify next-free ordinal at build time vs concurrent 0142 P4 build) with operator_handles (column-scoped runtime SELECT excluding principal_id) + operator_sessions (column-scoped, excluding principal_id+client_id) + ALTER runs ADD created_by_principal_id + created_by_handle_id + the BEFORE UPDATE write-once trigger + the runs.created_by_principal_id SELECT column-revoke + the SECURITY DEFINER identity projections (whose, status --mine, doctor-attribution) + the runtime grants; the pre-run operator-session mint+lease at bootstrap (mintOperatorSessionToken with the justified operator-admin capability, lane tokens stay narrow); the run-origin stamp via resolve_principal_for_client; the per-session created_by_handle_id disambiguation; striatum whose <run-id>; the status --mine manifest; the doctor attribution_unknown advisory; the four open questions; and ALL named two-role pgtests (operator_session_pre_run_stamp + lane-no-admin + closed-session controls; run_origin_stamp_uses_identity_projection + 42501 control; the COMPOSED read-scope negative control over Route 1 + Route 2 + the positive control; two_live_maya; lease_flap_steal; owner_bundle_applies_clean; forged-UPDATE-rejected). State each as a falsifiable assertion + its test. Keep scope to P0; note the seams for P1/P2/P3. Reference the clearing ledger.",
+      "phase_id": "commit", "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit consolidated P0 SPEC (v4)", "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [ { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0167-p0-design-v4/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true } ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0167 P0 v4 revision: the ledger verdict, how C2-prime-prime (composed read-scope closure via projections + column-revokes) and C1-prime-prime (justified operator-admin acceptance) were discharged, which carry-forwards stayed intact, and the consolidated SPEC + the full named pgtest suite the rfc-0167-p0-build run will implement.",
+      "phase_id": "commit", "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run", "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0167-p0-design-v4/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": { "adapter": "process", "adapter_capabilities": { "agent_loop": true }, "capabilities": [ "write", "review", "synthesis" ], "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ], "display_model": "author", "supervision": { "transport": "pty_helper" }, "worktree_isolation": "per_job" },
+    "reviewer": { "adapter": "process", "adapter_capabilities": { "agent_loop": true }, "capabilities": [ "write", "review", "synthesis" ], "command": [ "codex", "--yolo" ], "display_model": "reviewer", "supervision": { "transport": "pty_helper" }, "worktree_isolation": "per_job" }
+  },
+  "name": "rfc-0167-p0-design-v4",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0167-p0-design-v4",
+  "workflow_version": "2026-06-24"
+}
