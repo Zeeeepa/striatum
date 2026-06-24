@@ -49,6 +49,12 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// reads no secret. Collected here; appended to `warnings` once that slice exists.
 	schemaDriftBlock, schemaDriftWarnings := schemaDriftDoctorBlock(ctx, runner)
 
+	// RFC 0142 P4: surface the deploy substrate — the live deploy_cursor state and
+	// any committed step missing its hash-chained receipt (schema_deploy_unrecorded)
+	// + the M1 stamp/byte WARN. Advisory (warning, never a hard problem), shadow-
+	// first like the schema_drift sibling. Skips cleanly on a pre-P4 database.
+	deployUnrecordedBlock, deployUnrecordedWarnings := deployUnrecordedDoctorBlock(ctx, runner)
+
 	staleLeases := 0
 	if repositoryID != "" {
 		// #45: an expired lease row persists forever, so counting every
@@ -177,6 +183,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	// RFC 0142 Layer 3 part 1 (P3): drift is advisory at doctor time (see the
 	// collection above near the watermark block).
 	warnings = append(warnings, schemaDriftWarnings...)
+	warnings = append(warnings, deployUnrecordedWarnings...)
 
 	// #87 / RFC 0096 §2: surface when supervised lanes are not isolated from the
 	// daemon's PostgreSQL by a dedicated PG-less lane OS user. This is advisory
@@ -344,6 +351,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"event_chain_segment_seams":    eventSegmentBlock,
 		"owner_bundle_watermark":       ownerBundleWatermarkBlock,
 		"schema_drift":                 schemaDriftBlock,
+		"schema_deploy":                deployUnrecordedBlock,
 		"verifier_selfpin_drift":       verifierSelfpinBlock,
 		"verifier_pin_drift":           verifierPinBlock,
 		"skills":                       skillsBlock,

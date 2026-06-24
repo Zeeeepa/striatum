@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	LatestDaemonDBVersion = 43
+	LatestDaemonDBVersion = 44
 	MigrationLockKey      = 332933
 )
 
@@ -72,6 +72,7 @@ func Migrations() ([]Migration, error) {
 		41: "event_chain_segments runtime sealing ledger (RFC 0136 P1 / D242 / #387)",
 		42: "daemon-owned operator attestations for the gate-enforced PINNED→VERIFIABLE trust boundary (RFC 0141 / D243 / #482)",
 		43: "schema-fingerprint drift gate state (RFC 0142 P3 Layer 3 part 1 / D258 / #570)",
+		44: "deploy substrate: deploy_cursor + immutable deploy_plan transcript + hash-chained deploy_receipt (RFC 0142 P4 / D262)",
 	}
 	entries, err := migrationFS.ReadDir("sql")
 	if err != nil {

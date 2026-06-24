@@ -9,7 +9,7 @@
 # file, a DUPLICATE ordinal, or a GAP in the sequence. Two PRs can no longer
 # silently grab the same NNNN (the 0039 / 0041 collisions, RFC 0142 failure #4).
 #
-# Frontiers: runtime_migration = 0043, owner_bundle = 0020.
+# Frontiers: runtime_migration = 0044, owner_bundle = 0021.
 #
 # Format: a tiny array-of-tables (a purpose-built parser in reservations.go
 # reads only `ordinal` and `file`; keep it that simple and human-legible).
@@ -188,6 +188,11 @@ file = "0042_verifier_attestations.sql"
 ordinal = 43
 file = "0043_schema_state.sql"
 
+[[runtime_migration]]
+ordinal = 44
+file = "0044_deploy_cursor.sql"
+note = "RFC 0142 P4 deploy substrate: deploy_cursor + deploy_plan + deploy_receipt"
+
 # --- Owner bundles (go/pkg/db/sql/owner/NNNN_*.sql), applied out-of-band as owner ---
 [[owner_bundle]]
 ordinal = 1
@@ -268,3 +273,8 @@ file = "0019_supervisor_pointer_runtime_ownership.sql"
 [[owner_bundle]]
 ordinal = 20
 file = "0020_owner_bundle_watermark_read.sql"
+
+[[owner_bundle]]
+ordinal = 21
+file = "0021_revoke_create_privilege.sql"
+note = "RFC 0142 P4 C3 serving-role create-DDL revoke; deploy-plan-terminal, excluded from owner-ddl apply"

@@ -226,6 +226,19 @@ func main() {
 				log.Printf("striatumd will NOT auto-restart this condition (exit %d); reconcile the schema to the binary (or unset %s for shadow mode), then restart", exitAwaitingOwnerDDL, db.EnvSchemaDriftRefuse)
 				os.Exit(exitAwaitingOwnerDDL)
 			}
+			// RFC 0142 P4 deploy activation halts (awaiting_deploy / awaiting_deploy_config /
+			// deploy_plan_binary_mismatch / deploy_plan_db_stamp_mismatch). Like the
+			// watermark shortfall and the schema_drift refusal these are deterministic,
+			// bare-restart-can't-fix conditions — the operator must run `striatum daemon
+			// deploy`, set STRIATUM_DEPLOY_DECOUPLED, or resume with the authoring binary —
+			// so they reuse the same non-restartable exit, DB left untouched.
+			if errors.Is(err, db.ErrAwaitingDeploy) || errors.Is(err, db.ErrAwaitingDeployConfig) ||
+				errors.Is(err, db.ErrDeployPlanBinaryMismatch) || errors.Is(err, db.ErrDeployPlanDBStampMismatch) {
+				releaseDaemonRuntime()
+				log.Printf("striatumd refusing to start: %v", err)
+				log.Printf("striatumd will NOT auto-restart this condition (exit %d); resolve the deploy state, then restart", exitAwaitingOwnerDDL)
+				os.Exit(exitAwaitingOwnerDDL)
+			}
 			fatalf("daemon db connect/bootstrap failed: %v", err)
 		}
 		pool := booted.Pool

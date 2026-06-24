@@ -22,6 +22,65 @@ import (
 // runtime-role ApplyMigrations path (RFC 0079 §5).
 const LatestOwnerBundleVersion = 20
 
+// DDLRevokeOwnerBundleVersion identifies the RFC 0142 P4 C3 DDL-revoke bundle
+// (0021, `REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw`). It is
+// DEPLOY-PLAN-TERMINAL ONLY: it ships embedded in OwnerBundles() (so
+// ExpectedFingerprint, revokeEmbedded, and BuildPlan all see it) but is EXCLUDED
+// from every `owner-ddl apply` route via OwnerDDLApplyBundles() + the in-loop
+// isNonRevokeBundle guard, so its REVOKE can ONLY ever be committed as the
+// terminal `striatum daemon deploy` step (M2). LatestOwnerBundleVersion and
+// RequiredOwnerBundleVersion deliberately STAY 20 — the revoke is gated by the
+// deploy cursor + CheckDeployActivation + the STRIATUM_DEPLOY_DECOUPLED flag +
+// its terminal placement, NOT the owner-bundle watermark frontier.
+const DDLRevokeOwnerBundleVersion = 21
+
+// isNonRevokeBundle reports whether an owner bundle version is a normal,
+// `owner-ddl apply`-eligible bundle (everything strictly below the DDL-revoke
+// frontier). The DDL-revoke bundle (>= DDLRevokeOwnerBundleVersion) is the sole
+// exclusion: it must never be applied via the pending loop, the FMA-007 self-heal
+// reapply, a nil-fallback, or a test helper — only via the terminal deploy step.
+func isNonRevokeBundle(version int) bool { return version < DDLRevokeOwnerBundleVersion }
+
+// OwnerDDLApplyBundles returns the owner bundles eligible for `owner-ddl apply`:
+// the FULL embedded set with the DDL-revoke bundle (0021) filtered OUT (M2). It
+// is the single named filter every `owner-ddl apply` route loads, so 0021 can
+// never be committed through the owner-ddl path. The non-apply consumers
+// (ExpectedFingerprint, revokeEmbedded, BuildPlan, RuntimeOwnedTablesAlterable)
+// keep using the full OwnerBundles() loader so the revoke remains part of the
+// fingerprint and the deploy plan.
+func OwnerDDLApplyBundles() ([]OwnerBundle, error) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]OwnerBundle, 0, len(bundles))
+	for _, b := range bundles {
+		if isNonRevokeBundle(b.Version) {
+			filtered = append(filtered, b)
+		}
+	}
+	return filtered, nil
+}
+
+// RevokeBundleEmbedded reports whether this binary embeds the DDL-revoke bundle
+// (0021) in ownerBundleFS — the `revokeEmbedded` predicate the boot-path deploy
+// activation gate (CheckDeployActivation) reads. It is derived from FILE PRESENCE
+// at DDLRevokeOwnerBundleVersion, NOT from `LatestOwnerBundleVersion >= 21`
+// (which stays 20): an inert-landing binary that does not ship 0021 returns
+// false, a revoke-embedding activation binary returns true.
+func RevokeBundleEmbedded() (bool, error) {
+	bundles, err := OwnerBundles()
+	if err != nil {
+		return false, err
+	}
+	for _, b := range bundles {
+		if b.Version >= DDLRevokeOwnerBundleVersion {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // RequiredOwnerBundleVersion is the applied `owner_bundle_meta` watermark the
 // serving binary requires before it may apply runtime migrations and serve (RFC
 // 0142 Layer 2). It is the owner-bundle frontier the binary was built against —
@@ -177,6 +236,7 @@ var ownerBundleLabels = map[int]string{
 	18: "transfer pre-split runtime-table cohort (job_recovery_state etc.) ownership to striatumd_rw so runtime migrations may ALTER them (GH #442 / #441)",
 	19: "transfer supervisor-pointer table cohort ownership to striatumd_rw so runtime migration 0039 can reshape idx_process_supervisor_pointers_run (RFC 0139 / GH #421)",
 	20: "runtime read grant on owner_bundle_meta for owner-bundle watermark boot interlock (RFC 0142 Layer 2 / GH #581)",
+	21: "serving-role create-DDL revocation: REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw (RFC 0142 P4 C3, deploy-plan-terminal / D262)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -266,7 +326,10 @@ func ApplyOwnerBundles(ctx context.Context, runner Runner, daemonVersion string)
 	if daemonVersion == "" {
 		daemonVersion = "dev"
 	}
-	bundles, err := OwnerBundles()
+	// M2: load the NON-REVOKE apply slice (0021 filtered out). The DDL-revoke
+	// bundle is deploy-plan-terminal and must never be committed through this
+	// route — only via `striatum daemon deploy`.
+	bundles, err := OwnerDDLApplyBundles()
 	if err != nil {
 		return nil, 0, err
 	}
@@ -312,6 +375,11 @@ func applyPendingOwnerBundles(ctx context.Context, runner Runner, bundles []Owne
 		if bundle.Version <= current {
 			continue
 		}
+		// M2 in-loop guard: even if an unfiltered list reaches here, the
+		// DDL-revoke bundle is never applied via the pending loop.
+		if !isNonRevokeBundle(bundle.Version) {
+			continue
+		}
 		if err := applyOneOwnerBundle(ctx, runner, bundle, daemonVersion); err != nil {
 			return applied, current, wrapOwnerBundleApplyError(bundle, err)
 		}
@@ -334,7 +402,10 @@ func ReapplyAllOwnerBundles(ctx context.Context, runner Runner, bundles []OwnerB
 		daemonVersion = "dev"
 	}
 	if bundles == nil {
-		loaded, err := OwnerBundles()
+		// M2 nil-fallback split: the self-heal reconciler loads the NON-REVOKE
+		// apply slice, so a forced FMA-007 reapply re-creates earlier bundles'
+		// objects WITHOUT ever committing the DDL-revoke early.
+		loaded, err := OwnerDDLApplyBundles()
 		if err != nil {
 			return nil, err
 		}
@@ -342,6 +413,11 @@ func ReapplyAllOwnerBundles(ctx context.Context, runner Runner, bundles []OwnerB
 	}
 	var ran []int
 	for _, bundle := range bundles {
+		// M2 in-loop guard: never reapply the DDL-revoke bundle, even if a caller
+		// passed the full unfiltered list.
+		if !isNonRevokeBundle(bundle.Version) {
+			continue
+		}
 		if err := applyOneOwnerBundle(ctx, runner, bundle, daemonVersion); err != nil {
 			return ran, wrapOwnerBundleApplyError(bundle, err)
 		}

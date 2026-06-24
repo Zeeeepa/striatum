@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -349,6 +350,61 @@ func ConnectAndMigrate(ctx context.Context, postgresURL string, daemonVersion st
 	if err := CheckOwnerBundleWatermark(ctx, pool.Runner); err != nil {
 		pool.Close()
 		return nil, 0, err
+	}
+	// RFC 0142 P4 (deploy activation gate, A): evaluated AFTER W and BEFORE
+	// ApplyMigrations, mutating nothing. It decides whether this boot may
+	// auto-apply/self-record on serve-boot. Inert for a no-revoke flag-OFF binary
+	// over no transcript (cursorState none → serve_legacy → the legacy path below
+	// runs byte-identically). A revoke-embedding binary with the flag OFF halts
+	// awaiting_deploy_config here (M3); a decoupled binary serves verify-only on a
+	// complete/in-sync cursor (NO ApplyMigrations, NO :399) and halts awaiting_deploy
+	// on a pending/incomplete one (BC-N2 / A3).
+	revokeEmbedded, err := RevokeBundleEmbedded()
+	if err != nil {
+		pool.Close()
+		return nil, 0, err
+	}
+	decoupled := DeployDecoupledEnabled()
+	decision, cursor, err := CheckDeployActivation(ctx, pool.Runner, revokeEmbedded, decoupled)
+	if err != nil {
+		pool.Close()
+		return nil, 0, err
+	}
+	// Forward-watermark barrier (b), re-anchored to 21: a NO-revoke binary must not
+	// serve a database that already applied the DDL-revoke (owner bundle 21). W
+	// tolerates a forward owner watermark for the legacy serve-boot path; the
+	// decoupling re-anchors this single refusal here so the flag-OFF legacy path
+	// stays byte-identical for applied_owner <= 20 (the only state it ever sees).
+	if !revokeEmbedded {
+		applied, verErr := OwnerBundleVersion(ctx, pool.Runner)
+		if verErr != nil {
+			pool.Close()
+			return nil, 0, verErr
+		}
+		if applied >= DDLRevokeOwnerBundleVersion {
+			pool.Close()
+			return nil, 0, &AwaitingDeployError{CursorState: cursor.State,
+				Reason: "this binary does not embed the DDL-revoke but the database already applied owner bundle " + strconv.Itoa(DDLRevokeOwnerBundleVersion)}
+		}
+	}
+	switch decision {
+	case DeployServeVerify:
+		// Decoupled, complete, in-sync: serve verify-only. NO ApplyMigrations, NO
+		// :399 self-record. The watermark interlock + drift gate already passed
+		// (W above; the fingerprint match is what made this serve_verify).
+		version, verErr := ReadSchemaVersion(ctx, pool.Runner)
+		if verErr != nil {
+			pool.Close()
+			return nil, 0, verErr
+		}
+		return pool, version, nil
+	case DeployServeLegacy:
+		// Fall through to the legacy ApplyMigrations + drift + self-record path
+		// (cursorState none / a complete-in-sync no-revoke idempotent rewrite).
+	default:
+		// awaiting_deploy / awaiting_deploy_config: refuse-to-serve, DB untouched.
+		pool.Close()
+		return nil, 0, decision.DecisionError(cursor.State)
 	}
 	version, err := ApplyMigrations(ctx, pool.Runner, daemonVersion)
 	if err != nil {

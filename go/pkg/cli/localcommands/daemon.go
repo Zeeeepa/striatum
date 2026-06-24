@@ -61,7 +61,7 @@ const daemonTomlScaffold = `# Striatum daemon configuration (scaffolded by ` + "
 // systemd user unit, scaffold daemon.toml, and report runtime layout.
 func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db|owner-ddl} [flags]")
+		_, _ = fmt.Fprintln(stderr, "usage: striatum daemon {install|uninstall|status|migrate-db|owner-ddl|deploy} [flags]")
 		return 2
 	}
 	switch args[0] {
@@ -75,6 +75,8 @@ func RunDaemon(args []string, stdout, stderr io.Writer, version string) int {
 		return runDaemonMigrate(args[1:], stdout, stderr, version)
 	case "owner-ddl":
 		return runDaemonOwnerDDL(args[1:], stdout, stderr, version)
+	case "deploy":
+		return runDaemonDeploy(args[1:], stdout, stderr, version)
 	default:
 		_, _ = fmt.Fprintf(stderr, "unknown daemon command: %s\n", args[0])
 		return 2
@@ -154,6 +156,102 @@ func runDaemonOwnerDDL(args []string, stdout, stderr io.Writer, version string) 
 		_, _ = fmt.Fprintf(stdout, "owner-ddl already current; owner_bundle_version=%d (dsn source: %s)\n", bundleVersion, cfg.Source)
 	} else {
 		_, _ = fmt.Fprintf(stdout, "owner-ddl applied versions %v; owner_bundle_version=%d (dsn source: %s)\n", applied, bundleVersion, cfg.Source)
+	}
+	return 0
+}
+
+// runDaemonDeploy runs the RFC 0142 P4 one-shot deployer: it lifts schema
+// mutation OUT of serve-boot into an explicit, ordered, resumable,
+// provenance-tracked operation. It applies pending owner bundles → runtime
+// migrations → the terminal DDL-revoke (0021) over the owner/admin connection,
+// materializing an immutable plan transcript first (BC-N1) and resuming off it on
+// a re-run. Owner DSN resolution mirrors `daemon owner-ddl` (--owner-url /
+// --admin-url, then STRIATUM_DAEMON_ADMIN_DB_URL, then the normal daemon DSN).
+//
+// Flags: --dry-run (report the plan, apply nothing), --abort (mark an in-flight
+// cursor aborted), --json. A binary that embeds the DDL-revoke must be deployed
+// with STRIATUM_DEPLOY_DECOUPLED=1 set (the M3 activation preflight), so the
+// subsequent serve-boot takes the verify-only path rather than crash-looping the
+// legacy mutate path.
+func runDaemonDeploy(args []string, stdout, stderr io.Writer, version string) int {
+	ownerURL := ""
+	jsonOutput := false
+	dryRun := false
+	abort := false
+	for i := 0; i < len(args); i++ {
+		key, value, hasValue := strings.Cut(args[i], "=")
+		switch key {
+		case "--owner-url", "--admin-url":
+			if hasValue {
+				ownerURL = value
+			} else if i+1 < len(args) {
+				i++
+				ownerURL = args[i]
+			}
+		case "--dry-run":
+			dryRun = true
+		case "--abort":
+			abort = true
+		case "--json":
+			jsonOutput = true
+		default:
+			_, _ = fmt.Fprintf(stderr, "unknown daemon deploy flag: %s\n", args[i])
+			return 2
+		}
+	}
+	if ownerURL == "" {
+		ownerURL = os.Getenv(EnvDaemonAdminDBURL)
+	}
+	cfg := db.ResolveConfig(ownerURL)
+	if cfg.URL == "" {
+		_, _ = fmt.Fprintln(stderr, "daemon deploy: no Postgres DSN; pass --owner-url, set STRIATUM_DAEMON_ADMIN_DB_URL, or configure daemon.toml")
+		return 1
+	}
+	if version == "" {
+		version = "dev"
+	}
+	// M3 activation preflight: a revoke-embedding binary must run on the decoupled
+	// path. Refuse to deploy the DDL-revoke unless the operator has opted in, so the
+	// subsequent serve-boot serves verify-only instead of halting awaiting_deploy_config.
+	revokeEmbedded, err := db.RevokeBundleEmbedded()
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon deploy: inspect embedded bundles: %v\n", err)
+		return 1
+	}
+	if revokeEmbedded && !db.DeployDecoupledEnabled() && !dryRun {
+		_, _ = fmt.Fprintf(stderr,
+			"daemon deploy: this binary embeds the DDL-revoke (owner bundle %d); set %s=1 before deploying it so serve-boot takes the verify-only path\n",
+			db.DDLRevokeOwnerBundleVersion, db.EnvDeployDecoupled)
+		return 1
+	}
+	pool, err := db.Connect(context.Background(), cfg.URL, version)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon deploy connect failed: %v\n", err)
+		return 1
+	}
+	defer pool.Close()
+	deployer := &db.Deployer{DaemonVersion: version, DryRun: dryRun, Abort: abort}
+	result, err := deployer.Apply(context.Background(), pool.Runner)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "daemon deploy failed: %v\n", err)
+		return 1
+	}
+	if jsonOutput {
+		return writeDaemonJSON(stdout, stderr, map[string]any{"ok": true, "data": map[string]any{
+			"plan_hash":       result.PlanHash,
+			"state":           result.State,
+			"applied_indices": result.AppliedIndices,
+			"resumed":         result.Resumed,
+			"steps_total":     result.StepsTotal,
+			"dry_run":         result.DryRun,
+			"dsn_source":      cfg.Source,
+		}})
+	}
+	if result.DryRun {
+		_, _ = fmt.Fprintf(stdout, "deploy dry-run: plan_hash=%s steps=%d (dsn source: %s)\n", result.PlanHash, result.StepsTotal, cfg.Source)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "deploy %s: plan_hash=%s applied=%v steps=%d resumed=%t (dsn source: %s)\n",
+			result.State, result.PlanHash, result.AppliedIndices, result.StepsTotal, result.Resumed, cfg.Source)
 	}
 	return 0
 }
