@@ -1,0 +1,144 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0163-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0163-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0163-staged-not-adopted-offline-consolidation.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0163-design/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0163 design SPEC: staged-not-adopted offline self-improvement (a nightly consolidation: harvest run transcripts -> mine recurring tasks -> replay -> GATE -> stage proposal -> human adopts) that can NEVER ship an unreviewed change, plus an attested noise-robust gate. Read the v1 SEED and RFC 0163 in full first. CRITICAL FRAMING: this RFC carries an UNRESOLVED PRODUCT DECISION (the maintainer has NOT decided striatum should do offline self-improvement at all). Your SPEC must SURFACE that product question explicitly as the top open question — present the design as 'IF the product decision is yes, here is the safe-by-construction mechanism' — and must NOT assume adoption or land any default. Harden the two coupled mechanisms as FALSIFIABLE assertions + tests: (1) STAGED-NOT-ADOPTED BY CONSTRUCTION — adoption is UNREPRESENTABLE, not merely denied: a `MergeToken` Go type whose only constructor is an unexported `mintMergeToken(...)` callable solely from the human-cleared lane's keyring package; a nightly-optimizer packet carries `Capability = ProposeOnly` and has NO `MergeToken` value to pass to `Adopt(tok MergeToken, sig OperatorSignature, replay AssertImprovesReceipt)`; adoption needs TWO keys (operator signature + a fresh adopt-time deterministic `--assert-improves` replay that agrees with the staged verdict). MAP these new capability/merge-token types onto striatum's ACTUAL machine-cleared/human-cleared gate representation (the literal terms are NOT in go/pkg today — confirm the real type; anchor to go/pkg/lanehealth, go/pkg/supervisor, go/pkg/agentloop, go/pkg/verifier, go/pkg/mutations). (2) ATTESTED NOISE-ROBUST GATE — accept a candidate only when it beats the incumbent BEYOND measured noise on a freshly-resampled check-set, and chain a SIGNED verdict-receipt (partition-hash + incumbent re-score + noise-margin) into the append-only provenance ledger so a faked or rotted gate is detectable after the fact. PRESERVE the product boundary HARD: local-first, no hosted services / cloud / external persistence / durable transcript export (AGENTS.md) — the consolidation runs on-box against local provenance only. Define the P0 slice. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0163-design/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0163. Your lens is STAGED-NOT-ADOPTED STRUCTURAL SOUNDNESS. Attack the claim that self-adoption is UNREPRESENTABLE (not merely denied): can a nightly-optimizer/propose-only packet obtain or forge a `MergeToken` by ANY route — the unexported constructor reachable via reflection/test-only export/another package, a zero-value `MergeToken{}` passing `Adopt`, a serialized token rehydrated, the keyring package importable by a non-human-cleared lane? Does the two-key adoption (operator signature + fresh adopt-time `--assert-improves` replay) actually require BOTH, and is the fresh replay genuinely independent of the staged verdict (or can a stale/forged staged verdict satisfy it)? Does the new `MergeToken`/`Capability=ProposeOnly` model map onto striatum's ACTUAL gate representation, or is it a parallel scheme that the real machine-cleared/human-cleared boundary doesn't enforce (the literal types aren't in go/pkg — is the mapping real)? Construct the bypass. If self-adopt is representable by any path or the type-boundary doesn't bind to the real gate, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (staged-not-adopted structural lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0163-design/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0163. Your lens is the GATE SOUNDNESS + PRODUCT-BOUNDARY + the PRODUCT DECISION itself. Attack: is the noise-robust gate actually sound — is 'beats incumbent beyond measured noise on a freshly-resampled check-set' statistically meaningful (sample size, multiple-comparisons, a flailing optimizer p-hacking the check-set), or can a no-op/regression candidate pass? Is the signed verdict-receipt unforgeable and is 'detectable after the fact' real (partition-hash + incumbent re-score + noise-margin chained into the append-only ledger — can it be rotted, replayed, or back-dated)? PRODUCT BOUNDARY: does any part of this reach beyond local-first — hosted services, cloud APIs, telemetry, durable transcript capture/export, external persistence (all forbidden by AGENTS.md)? Does mining/replaying past run transcripts require durable transcript capture the product explicitly does NOT keep (D028 — stdout/stderr off by default; PTY logs are private diagnostics, not workflow state)? Finally, is the PRODUCT QUESTION honestly surfaced (the SPEC must not smuggle in adoption as a default)? Construct the failing case. If the gate can pass a non-improvement, the receipt is forgeable, the design crosses the product boundary (esp. requiring durable transcript capture), or it assumes the product decision, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (gate-soundness/product-boundary lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0163-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0163 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0163 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). NOTE: a clearing verdict here ratifies the DESIGN's safety-by-construction CONDITIONAL on the maintainer's product decision (which the SPEC must surface, not assume) — it does NOT itself adopt offline self-improvement. A clearing verdict REQUIRES: self-adoption is genuinely UNREPRESENTABLE (no `MergeToken` forge/bypass route; two-key adoption binds; the type model maps onto striatum's REAL gate); the noise-robust gate is statistically sound and cannot pass a non-improvement; the signed verdict-receipt is unforgeable and after-the-fact detectable; the design stays inside the local-first product boundary (NO hosted services / durable transcript export — and if mining needs durable transcripts that D028 forbids, that is a blocking finding); and the product question is honestly surfaced. Record per mechanism whether SOUND and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if self-adopt is representable, the gate is unsound/forgeable, the design crosses the product boundary, or it assumes the product decision. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0163-design/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0163 design SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the design buildable contract-first IF the maintainer's product decision is yes: the staged-not-adopted-by-construction capability model (`MergeToken` unexported constructor, `Capability=ProposeOnly`, two-key `Adopt`) mapped onto striatum's real machine-cleared/human-cleared gate, and the attested noise-robust gate (beyond-noise acceptance + signed verdict-receipt chained into the append-only ledger). Lead with the SURFACED PRODUCT DECISION as the gating precondition. State each mechanism as a falsifiable assertion + its test, anchored to the real go/pkg gate types. Keep strictly inside the local-first product boundary. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements once the product decision lands.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0163-design/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0163 design: the ledger verdict, the SURFACED product decision (this design is conditional on it), how staged-not-adopted is unrepresentable + the noise-robust attested gate is sound, how the local-first product boundary is preserved, which falsifier challenges were rebutted, and the consolidated SPEC + named tests the rfc-0163-build run would implement IF the product decision is yes.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0163-design/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0163-design",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0163-design",
+  "workflow_version": "2026-06-24"
+}

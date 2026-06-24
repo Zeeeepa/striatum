@@ -1,0 +1,144 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0052-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0052-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0052-committee-deliberation-workflow.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0052-design/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0052 design SPEC: a committee deliberation workflow SHAPE — N producer roles deliberate to convergence under a named arbitrator, with typed front-mattered durable debate-turn artifacts, before a downstream consumer reads their output. Read the v1 SEED and RFC 0052 in full first. The RFC targets two costs the dogfood ledger surfaces: ITERATION LATENCY (every disagreement is an artifact round-trip publish->claim->ack->read->verdict) and REVIEWER CO-BLINDNESS (D095-D102: same-lane implementer+reviewer share blind spots and rubber-stamp; cross-lane posture-mismatch treats real findings as baseline) — solved by LANE COMPOSITION, not posture labels (RFC 0018). Harden as FALSIFIABLE assertions + tests: (1) the committee SHAPE as a generatable workflow shape (like the existing falsification_gate/implementation_panel/cross_examination shapes in the catalog) — its jobs/edges/phases/roles, how debate turns are typed front-mattered durable artifacts (a new artifact_kind?), how it composes on the existing workflow.v1.1 schema + the daemon RPC the shape compiles to; (2) the ARBITRATOR role with BOUNDED authority — record consensus / escalate to a panel / declare stalemate / sustain or end deliberation — define its authority precisely so it cannot over-reach (arbitrator capture) and deliberation provably TERMINATES (no infinite debate; a turn/round bound); (3) co-blindness solved by lane composition — the shape must structurally prevent same-lane producer+arbitrator and ensure cross-model diversity. ANCHOR to the real shape-generation machinery (striatum workflow templates / the shape catalog), the workflow.v1.1 schema, and the daemon mutation registry. Note this is DEFERRED/UNSCHEDULED (D225) — the maintainer re-confirmed it's wanted by launching this run; scope a P0 that proves the shape end-to-end. Define the P0 slice. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0052-design/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0052. Your lens is SHAPE SOUNDNESS + TERMINATION + ARBITRATOR AUTHORITY. Attack: does the committee shape actually TERMINATE — is there a hard turn/round bound, or can deliberation loop forever (two producers never converging, the arbitrator never declaring stalemate)? Is the arbitrator's authority genuinely BOUNDED — can it over-reach (impose a verdict producers didn't reach = arbitrator capture), or under-reach (rubber-stamp non-consensus as consensus)? Does the typed debate-turn artifact + the escalate-to-panel / stalemate / sustain-or-end transitions compose correctly on the workflow.v1.1 schema and compile to real daemon RPC, or is it a shape the engine can't actually run (an edge/phase/cycle the compiler rejects)? Does it deadlock under max_active_jobs / disjoint-write-scope constraints? Construct the failing case (a non-terminating debate; an arbitrator over-reach; a schema-invalid shape). If the shape doesn't terminate, the arbitrator can capture/rubber-stamp, or the shape can't compile/run, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (shape-soundness/termination lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0052-design/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0052. Your lens is CO-BLINDNESS EFFICACY + VALUE-vs-EXISTING-SHAPES + PROVENANCE. Attack: does lane composition ACTUALLY solve reviewer co-blindness (D095-D102), or can the committee still rubber-stamp — can same-model producers in the committee share blind spots the arbitrator can't catch; does the shape STRUCTURALLY enforce cross-model diversity + producer!=arbitrator, or merely recommend it? Does the committee shape add REAL value over the existing falsification_gate / implementation_panel / cross_examination / adjudicated_constraint_extraction shapes, or is it isomorphic to one of them (the cross_examination isomorphism trap — see prior shape-graduation lessons)? Does the latency claim hold — does first-class deliberation actually beat publish->claim->verdict round-trips, or just move the cost? Are the typed debate-turn artifacts genuinely auditable/replayable durable provenance (front-matter schema-valid, anchored), not a transcript (which the product boundary forbids capturing — D028)? Construct the failing case (a co-blind committee that rubber-stamps; an isomorphism to an existing shape; a debate turn that's really a transcript). If co-blindness isn't structurally solved, the shape duplicates an existing one, or the debate turns are transcript-not-provenance, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (co-blindness/value/provenance lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0052-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0052 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0052 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: the committee shape provably TERMINATES (hard turn/round bound, arbitrator can declare stalemate); the arbitrator's authority is BOUNDED (no capture, no rubber-stamp); the shape COMPILES + runs on the real workflow.v1.1 schema + daemon RPC (a generatable shape, not a schema-invalid sketch); co-blindness is STRUCTURALLY solved by lane composition (cross-model diversity + producer!=arbitrator enforced, not recommended); the shape adds real value over the existing falsification_gate/implementation_panel/cross_examination/adjudicated_constraint_extraction shapes (NOT isomorphic to one); and the typed debate turns are schema-valid durable provenance, not a transcript (D028). Record per claim whether HELD and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if the shape doesn't terminate, the arbitrator can capture/rubber-stamp, the shape can't compile, co-blindness isn't structurally solved, it duplicates an existing shape, or the debate turns are transcript-not-provenance. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0052-design/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0052 design SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the committee deliberation workflow shape buildable contract-first by the rfc-0052-build run: the generatable shape (jobs/edges/phases/roles compiling on workflow.v1.1 + the daemon RPC), the typed front-mattered durable debate-turn artifact_kind, the bounded arbitrator role (consensus/panel-escalation/stalemate/sustain-or-end with a hard termination bound), and the lane-composition rule that structurally solves co-blindness (cross-model diversity + producer!=arbitrator). State each as a falsifiable assertion + its test, anchored to the real shape catalog / schema / registry, and state explicitly how it differs from the existing shapes. Define the P0 slice that proves the shape end-to-end. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0052-design/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0052 design: the ledger verdict, how the committee shape terminates + the arbitrator is bounded, how it compiles on the real schema, how lane composition structurally solves co-blindness, how it differs from the existing shapes, and the consolidated SPEC + named tests the rfc-0052-build run will implement.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0052-design/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0052-design",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0052-design",
+  "workflow_version": "2026-06-24"
+}

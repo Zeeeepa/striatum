@@ -1,0 +1,144 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0136-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0136-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0136-range-partition-events-audit-log-by-time.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0136-design/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0136 implementation SPEC: range-partition the owner-held append-only chained tables `events` and `audit_log` by `created_at`, with partition DETACH/DROP as the retention path that subsumes #386. Read the v1 SEED and RFC 0136 in full first. The hard core to PROVE: declarative range partitioning FORCES a PK/unique-key reshape on these two tables, and that reshape preserves every existing integrity guarantee. Specify each as a FALSIFIABLE assertion + the test that would refute it: (1) the PK reshape — `events` PK `(repository_id, event_id)` and `audit_log` PK `(audit_id)` + `row_hash UNIQUE` must gain `created_at` to be partition-legal (Postgres requires the partition key in every unique constraint), WITHOUT breaking the six `events` FKs, the `audit_log` `segment_id` FK, or `audit_segments`/`audit_chain_head`; (2) the DEFERRABLE INITIALLY DEFERRED FK `repo_event_chain_heads (repository_id, last_event_id) -> events(repository_id, event_id)` (0006:72) must still resolve across partitions; (3) the in-DB hash chain (`append_event_row`/`event_v3_row_hash`; `append_audit_row`/`audit_v3_row_hash`) and the append-only triggers (`events_no_update`/`events_no_delete`; `audit_log_no_update`/`audit_log_no_delete`) must remain intact and chain-correct across partition boundaries; (4) OWNER-DDL DISCIPLINE — the reshape is owner DDL (owner bundle 0020, re-fetch the next-free ordinal per D236/D239), NEVER a runtime migration (the `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL` guard + the D187/#244 two-role crash-loop); (5) partition DETACH/DROP retention SUBSUMES #386 (the delete-time RI seq-scan does not happen at all for the retention path). Be explicit about the DEPENDENCY on 0142 P5 (the highest-risk owner-DDL reshape is un-rehearsable without P5's ephemeral two-role clone + expand/contract) — state what P0 of this design can specify ahead of P5 and what must wait for P5's rehearsal harness. Anchor every claim to the named source. Keep the local-first boundary. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0136-design/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0136. Your lens is RESHAPE CORRECTNESS + CHAIN/RI INTEGRITY. Attack: does the PK/unique-key reshape (adding `created_at`) actually preserve every constraint — can the six `events` FKs, the `audit_log` `segment_id` FK, and the DEFERRABLE chain-head FK to `events(repository_id, event_id)` still resolve once the parent is partitioned (Postgres FK-to-partitioned-table and cross-partition unique semantics)? Does the in-DB hash chain stay correct across a partition boundary — can `append_event_row`/`append_audit_row` advance `repo_event_chain_heads`/`audit_chain_head` correctly when the latest row and its predecessor land in different partitions, and do the append-only `no_update`/`no_delete` triggers still fire on every partition? Does adding `created_at` to the PK change row identity / break any existing query or covering index (#386 `0015`)? Is there a window during the reshape where the chain can fork or a duplicate `row_hash` slip in? Construct the failing case for each. If the reshape breaks an FK, the hash chain, an append-only guarantee, or row identity, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (reshape/chain-integrity lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0136-design/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0136. Your lens is OWNER-DDL SAFETY + RETENTION + the 0142 P5 DEPENDENCY. Attack: is the reshape correctly an owner bundle (0020, next-free re-fetched) and NOT a runtime migration — would it trip `TestFutureRuntimeMigrationsDoNotCarryOwnerDDL` or crash-loop a two-role production daemon (D187/#244)? Is the ALTER-to-partitioned-table mechanism actually executable on the ~13.5M-row `events` table without an unbounded exclusive-lock outage, or does it need a P5-style expand/contract / shadow-table migration (and is THAT rehearsable only under 0142 P5)? Does partition DETACH/DROP as retention genuinely SUBSUME #386 (no delete-time RI seq-scan), and does dropping a partition respect the append-only triggers + the hash chain (you cannot DROP a chained segment without breaking verifiability)? Is the reshape REHEARSABLE — the RFC itself says the highest-risk owner DDL is un-rehearsable without 0142 P5; does the SPEC honestly scope what is designable now vs gated on P5, or does it over-claim build-readiness ahead of its blocker? Construct the failing case for each. If the reshape is unsafe as owner DDL, the retention path breaks the chain, or it over-claims readiness ahead of P5, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (owner-DDL/retention/P5-dependency lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0136-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0136 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0136 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: the PK/unique-key reshape preserves every FK (incl. the DEFERRABLE chain-head FK), the in-DB hash chain, the append-only triggers, and row identity across partitions; the reshape is correctly OWNER DDL (bundle 0020) that will not crash-loop a two-role daemon; partition DETACH/DROP retention subsumes #386 without breaking the chain; and the SPEC HONESTLY scopes what is designable now vs gated on 0142 P5's rehearsal harness (no over-claim of build-readiness ahead of its blocker). Record per claim whether HELD and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if any integrity guarantee breaks, the owner-DDL safety is unproven, the retention path breaks the chain, or the SPEC over-claims readiness ahead of P5. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (who spins a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0136-design/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0136 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the design buildable contract-first by the rfc-0136-build code_change run (gated on 0142 P5): the PK/unique-key reshape on `events` + `audit_log` (adding `created_at`, all FKs/chain-head FK/hash chain/append-only triggers preserved), the owner bundle 0020 (next-free re-fetched) carrying the reshape, the partition DETACH/DROP retention path subsuming #386, and the explicit P5-rehearsal dependency boundary (what lands now vs after P5's ephemeral two-role clone + expand/contract). State each as a falsifiable assertion + its test, anchored to the named source. Note the migration/owner-bundle and the P5 gate. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0136-design/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0136 design: the ledger verdict, how the PK reshape preserves chain/FK/append-only integrity, how owner-DDL safety + the partition-DROP retention (#386 subsumption) hold, the honest 0142 P5 dependency boundary, which falsifier challenges were rebutted, and the consolidated SPEC + named tests the rfc-0136-build run (gated on P5) will implement.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0136-design/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0136-design",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0136-design",
+  "workflow_version": "2026-06-24"
+}
