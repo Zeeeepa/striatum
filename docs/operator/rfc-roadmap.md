@@ -68,7 +68,7 @@ gets a Striatum workflow").
 
 | # | RFC | Theme | What it is | Stage | Track |
 |---|---|---|---|---|---|
-| 1 | **0142 P4** | 🛡 | One-shot `striatum daemon deploy` — make it the only schema mutator; lift auto-apply out of serve-boot; revoke serving-role DDL | 🔵 design-run iterating (v8 `needs_revision` on M7 = sibling complete/decoupled/revoke cell un-derived → v9 makes row 16 conditional like rows 13/15) | #571 |
+| 1 | **0142 P4** | 🛡 | One-shot `striatum daemon deploy` — make it the only schema mutator; lift auto-apply out of serve-boot; revoke serving-role DDL | ✅ **Design done (D262)** — v9 `falsification_gate` cleared `accept_with_findings` (M7 row-16 derived from A like rows 13/15); build-ready spec `rfc-0142-p4-design-v9/commit/proposal/PROPOSAL.md`; finding B1 folded as build acceptance criteria. **Build next** (`rfc-0142-p4-build`, `code_change`/TDD). | #571 |
 | 2 | **0143** | 🛡 | Lane credential survival across a daemon boot-epoch rotation (reseal without the owner-only client-token) | ✅ **split D261**: Slice A (legible `session_unrecoverable_across_rotation` floor, pure daemon-side observability) **accepted, ships now**; Slice B (`CapabilityReseal`) **blocked on RFC 0168** | #512 |
 | 2b | **0168** | 🛡 | Per-lane OS uid (pooled) as the lane security principal — dissolves the shared-uid `BC1-W1-ORACLE` wall the 0143 gate hit; **RFC 0143 Slice-B prerequisite** | 🟡 proposed (direction ratified D261; spec pending `falsification_gate`) | #512 / RFC 0143 Slice B blocker |
 | 3 | **0165** | 🛡 | Claude provider-cred freshness + spawn-time hydration (supervisor side; complements the host cred-resync timer) | 🔵 design v2 quarantined → needs v3 | #583 |
