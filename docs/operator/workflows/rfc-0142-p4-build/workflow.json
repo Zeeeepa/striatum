@@ -60,6 +60,14 @@
     {
       "path": "go/cmd/striatumd/authority_bootstrap.go",
       "required": false
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-build/review/REVIEW_v2_needs_revision.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-build/BUILD_STATUS.md",
+      "required": true
     }
   ],
   "coordinator": {
@@ -99,7 +107,7 @@
       ],
       "id": "draft",
       "lane_id": "author",
-      "objective": "Implement RFC 0142 P4 (the one-shot `striatum daemon deploy` decoupler) test-first following PROPOSAL.md §6 seven-step build order; publish DRAFT.md describing the source changes.",
+      "objective": "Implement RFC 0142 P4 (the one-shot `striatum daemon deploy` decoupler) test-first following PROPOSAL.md \u00a76 seven-step build order; publish DRAFT.md describing the source changes.",
       "role_id": "author",
       "task_prompt": {
         "path": "prompts/draft.md"
@@ -133,7 +141,7 @@
       "fresh_session_required": true,
       "id": "review",
       "lane_id": "reviewer",
-      "objective": "Review the P4 build against PROPOSAL.md §5 assertions, §6.5 acceptance criteria (a)-(l), and finding B1 (B1.1/B1.2); record a finding verdict.",
+      "objective": "Review the P4 build against PROPOSAL.md \u00a75 assertions, \u00a76.5 acceptance criteria (a)-(l), and finding B1 (B1.1/B1.2); record a finding verdict.",
       "role_id": "reviewer",
       "task_prompt": {
         "path": "prompts/review.md"

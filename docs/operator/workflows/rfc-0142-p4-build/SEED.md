@@ -28,29 +28,61 @@ source** in this repo.
   `go/pkg/pgtest/two_role.go`, `go/cmd/striatumd/daemon.go`,
   `go/cmd/striatumd/authority_bootstrap.go`.
 
-## RECOVERY ADOPTION (this run only — read FIRST)
+## REVISION (this run = the D7' revision — read FIRST)
 
-A prior draft of this exact build already implemented the FULL contract test-first and
-self-verified it CLEAN (`go build`/`go vet`/CI `golangci-lint` green; non-PG tests green;
-pg-integration tests compile and skip without `STRIATUM_PG_TEST_URL`). That work could not
-be sealed only because the run's write_scope used the unsatisfiable pattern `go/**` (a
-daemon prefix-matcher footgun, GH #586) — a tooling defect, NOT a code problem. The verified
-implementation is preserved on branch **`backup/rfc-0142-p4-build-impl-2026-06-24`** (22
-files: migration `0044_deploy_cursor.sql`, owner bundle `0021_revoke_create_privilege.sql`,
-`go/pkg/db/deploy.go` + `deploy_apply.go` + `deploy_activation.go`, `doctor_deploy.go`, the
-`runDaemonDeploy` verb wiring, and the F1/F16/F18/B1.1/B1.2/M1/M3 tests, plus edits to
-`owner.go`/`connection.go`/`migrations.go`/`main.go`/`daemon.go`/`doctor.go`).
+A prior draft of this build already implemented the FULL contract test-first (build/vet/CI
+golangci-lint clean; non-PG tests green; pg-tests compile and skip), and a reviewer cleared
+most of it. It is preserved on **`backup/rfc-0142-p4-build-attempt2-2026-06-24`** — **adopt
+that branch as your starting point**, do NOT re-implement from scratch:
+`git fetch origin backup/rfc-0142-p4-build-attempt2-2026-06-24` then
+`git checkout origin/backup/rfc-0142-p4-build-attempt2-2026-06-24 -- go/`.
 
-**Your job: ADOPT and VERIFY that preserved implementation, do not re-implement from
-scratch.** In your worktree: `git fetch origin backup/rfc-0142-p4-build-impl-2026-06-24`,
-then bring its source into your worktree (e.g.
-`git checkout origin/backup/rfc-0142-p4-build-impl-2026-06-24 -- go/ docs/operator/artifacts/rfc-0142-p4-build/`).
-Then VERIFY against the PROPOSAL §5 assertions + §6.5 (a)-(l) + finding B1: run `go build
-./...`, `go vet ./...`, the CI `golangci-lint`, and `go test ./...` (non-PG) from `go/`.
-Read every adopted file critically against the contract; fix any gap you find against the
-spec (the prior draft is strong but you are the author of record — own it). Publish `DRAFT.md`
-describing the implementation, then `work.complete`. The write_scope is now `go/` (fixed), so
-the seal will succeed. The seven-step contract below is the spec the adopted code must satisfy.
+That branch has **real, do-not-regress** fixes (credited by the reviewer): the M1 DB-stamp arm
+(`VerifyAppliedDBStamps`), the per-step hash-chained `deploy_receipt`, Q3-A per-step
+atomicity, migration 0044 (additive runtime-owned), the M6/M7-correct decoupled-complete
+predicate (reads neither `applied_owner` NOR `revokeEmbedded`), `LatestOwnerBundleVersion` /
+`RequiredOwnerBundleVersion` STAY 20, `LatestDaemonDBVersion = 44`.
+
+**Your job: apply the ONE blocking fix (D7') + three follow-ups, then VERIFY.** The reviewer's
+findings are your input — read `docs/operator/artifacts/rfc-0142-p4-build/review/REVIEW_v2_needs_revision.md`
+and `docs/operator/artifacts/rfc-0142-p4-build/BUILD_STATUS.md` (both context docs).
+
+**D7' (BLOCKING — the reason the prior round failed):** attempt 2 EMBEDDED owner bundle
+`0021_revoke_create_privilege.sql` inside `ownerBundleFS` (`go/pkg/db/sql/owner/`), which
+flips `RevokeBundleEmbedded() → true` for the production binary. Then `DecideDeployActivation`
+step 0 (`RevokeEmbedded && !DecoupledEnabled → DeployHaltAwaitingConfig`, which fires for
+EVERY cursor state before the switch) makes the **flag-OFF default boot refuse to serve**
+(`awaiting_deploy_config`) — bricking production serve-boot, the entire `pgtest` CI suite
+(`pgtest.go:70` `ConnectAndMigrate` asserts `version == LatestDaemonDBVersion`), and B1.1's own
+live arm. This VIOLATES the SEED's hard shadow-first invariant ("0021 lands INERT; flag-OFF
+serve-boot UNCHANGED"). **Fix it the Option-B (shadow-first-faithful) way:**
+
+1. **UN-EMBED 0021.** Move `0021_revoke_create_privilege.sql` OUT of `ownerBundleFS` — into a
+   non-embedded staged dir (e.g. `go/pkg/db/sql/owner_staged_activation/`, NOT covered by the
+   `//go:embed sql/owner/*.sql` in `owner.go`) so `RevokeBundleEmbedded()` stays **`false`** and
+   the flag-OFF serve-boot path is **byte-identical** to today. The deployer still references
+   0021 by loading it from the staged dir for the activation plan; it just is not in the
+   serving binary's embedded owner-bundle FS. Re-scope F16b-production, the revoke-in-plan, and
+   §6.5 criterion (l) to the **activation/verify binary** per PROPOSAL **§4.3** (the documented
+   two-binary choreography) and say so in `DRAFT.md`.
+2. **Prove flag-OFF boot with a test that RUNS** (non-PG): a unit arm over
+   `DecideDeployActivation` asserting that for the production `RevokeBundleEmbedded()` value and
+   a `none` cursor with the flag OFF, the decision is `serve_legacy` (NOT `awaiting_deploy_config`);
+   and confirm the `pgtest` harness bootstraps green (`go test ./go/pkg/db/... -run ...` non-PG).
+3. **D1' — tighten B1.1 live arm:** seed the `==20` and `>=21` `owner_bundle_meta` buckets (not
+   only `==0`) and assert the mutating path is not entered via a real call-tracking spy on
+   `ApplyMigrations`/`RecordSchemaFingerprint` (not just the decision-value tautology). Keep it
+   pg-gated.
+4. **D6 — C3 §3.3b:** either wire the per-step ownership reconcile (snapshot new owner-owned
+   oids + `ALTER … OWNER TO striatumd_rw` + `has_schema_privilege` pre-step assertion) OR record
+   its explicit re-scope to the activation/verify run in `DRAFT.md` + the PROPOSAL roadmap
+   (criterion (l) depends on it — do not silently drop it).
+5. **Re-state the shadow-first claim accurately** in `DRAFT.md` (the `none`-cursor →
+   `serve_legacy` claim is only true once 0021 is un-embedded).
+
+Then VERIFY: `go build ./...`, `go vet ./...`, CI `golangci-lint`, `go test ./...` (non-PG)
+from `go/` — all green. Publish `DRAFT.md`, then `work.complete`. write_scope is `go/` (fixed,
+#586). The seven-step contract below is the spec the final code must satisfy.
 
 ## Scope — build ALL seven steps in PROPOSAL §6 order (contract-first)
 
