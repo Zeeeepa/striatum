@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/halbritt/striatum/go/pkg/admin"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 	"github.com/halbritt/striatum/go/pkg/verifier"
@@ -1053,13 +1054,37 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		confirmedBy = "daemon"
 	}
 	_ = autoConfirmCreated // recorded in the branch_confirmed event below
+	// RFC 0167 P0 D2: write-once run-origin stamp, resolved SERVER-SIDE from the
+	// LIVE token — never a client-supplied param. The authority prelude installs
+	// the caller's client id as striatum.principal_id (C-2); resolve the real
+	// principal_id through the resolve_principal_for_client SECURITY DEFINER
+	// projection (admin.ResolvePrincipalForClient over the bound tx) and bind it.
+	// created_by_handle_id is snapshotted via the operator_handles subquery keyed
+	// on app.session_id (the operator_session_id the prelude installs); it is NULL
+	// for callers with no live operator lease (auto-spawn / non-operator tokens),
+	// surfaced later by the doctor attribution_unknown advisory (OQ2).
+	var createdByPrincipalID any
+	if clientID := db.AuthorityFromContext(ctx).PrincipalID; clientID != "" {
+		if querier, ok := runner.(db.TxRunner); ok {
+			ref, found, rerr := admin.ResolvePrincipalForClient(ctx, querier, clientID)
+			if rerr != nil {
+				return nil, rerr
+			}
+			if found {
+				createdByPrincipalID = ref.PrincipalID
+			}
+		}
+	}
 	if err := exec.Exec(ctx, `
 		INSERT INTO striatumd.runs (
 		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
 		  branch_name, branch_base, branch_confirmed_at, branch_confirmed_by,
-		  created_at
+		  created_at, created_by_principal_id, created_by_handle_id
 		)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+		  (SELECT oh.handle_id FROM striatumd.operator_handles oh
+		    WHERE oh.leased_session_id = current_setting('app.session_id', true)
+		      AND oh.released_at IS NULL))`,
 		repositoryID,
 		runID,
 		snapshotID,
@@ -1070,6 +1095,7 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 		confirmedAt,
 		confirmedBy,
 		now,
+		createdByPrincipalID,
 	); err != nil {
 		return nil, err
 	}

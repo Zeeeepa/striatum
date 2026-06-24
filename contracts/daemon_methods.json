@@ -3,6 +3,7 @@
   "cli_routes": [
     {"command": "status", "subcommand": null, "method": "status", "params": "status"},
     {"command": "why", "subcommand": null, "method": "why", "params": "why"},
+    {"command": "whose", "subcommand": null, "method": "whose", "params": "whose"},
     {"command": "doctor", "subcommand": null, "method": "doctor", "params": "doctor"},
     {"command": "dashboard", "subcommand": null, "method": "dashboard", "params": "dashboard"},
     {"command": "git", "subcommand": "snapshot", "method": "git.snapshot", "params": "git_snapshot"},
@@ -252,6 +253,42 @@
     {
       "method": "why",
       "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "whose",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "operator.bootstrap",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "operator.heartbeat",
+      "required_capability": "admin",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "operator.close",
+      "required_capability": "admin",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",

@@ -169,7 +169,85 @@ func HandleStatus(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		result["selected_run_id"] = runID
 		result["next_actions"] = statusNextActions(claimable, openBlockers, humanCheckpoints, nonAccepting, hasOrphanSupervisor, hasStaleLeases, processHealth, supervisorStalls, autoFinalize)
 	}
+	// RFC 0167 P0 §9.6 / D6: the "your load this session" manifest. --mine lists
+	// the calling operator's own runs through the runs_for_origin_client DEFINER
+	// projection (origin principal = the live caller's principal), with a bare-id
+	// fallback when the token no longer dereferences to a live principal.
+	if mine, mErr := boolParamDefault(envelope, "mine", false); mErr != nil {
+		return nil, mErr
+	} else if mine {
+		mineBlock, err := statusMineManifest(ctx, runner, repositoryID)
+		if err != nil {
+			return nil, err
+		}
+		result["mine"] = mineBlock
+	}
 	return result, nil
+}
+
+// statusMineManifest builds the --mine "your load this session" block: the
+// caller's runs via runs_for_origin_client, plus the caller's rendered identity
+// (handle#suffix from their live lease, degrading to the bare principal id, then
+// to "unknown" when nothing resolves — the RFC's "name lapses to the id" rule).
+func statusMineManifest(ctx context.Context, runner db.Runner, repositoryID string) (map[string]any, error) {
+	auth := db.AuthorityFromContext(ctx)
+	secret := auth.Secret
+	clientID := auth.PrincipalID // the authority prelude installs the client id here (C-2)
+	mineRuns := []map[string]any{}
+	if secret != "" && clientID != "" {
+		rows, err := collectRows(ctx, runner,
+			`SELECT run_id, state, created_by_handle_id
+			   FROM striatumd.runs_for_origin_client($1, $2, $3)`,
+			secret, repositoryID, clientID,
+		)
+		if err != nil {
+			return nil, err
+		}
+		for _, r := range rows {
+			mineRuns = append(mineRuns, map[string]any{
+				"run_id": stringValue(r["run_id"]),
+				"state":  stringValue(r["state"]),
+			})
+		}
+	}
+	identity := statusMineIdentity(ctx, runner, repositoryID, secret, clientID, auth.SessionID)
+	return map[string]any{
+		"identity": identity,
+		"runs":     mineRuns,
+		"count":    len(mineRuns),
+	}, nil
+}
+
+// statusMineIdentity renders the caller's own handle#suffix. The principal id is
+// resolved through resolve_principal_for_client (denied to direct SELECT); the
+// live handle word is the caller's own operator lease (handle is column-granted).
+// Falls back to the bare id, then "unknown", so a revoked/expired token degrades
+// gracefully rather than lying.
+func statusMineIdentity(ctx context.Context, runner db.Runner, repositoryID, secret, clientID, sessionID string) string {
+	if secret == "" || clientID == "" {
+		return "unknown"
+	}
+	principalID := ""
+	if rows, err := collectRows(ctx, runner,
+		`SELECT principal_id FROM striatumd.resolve_principal_for_client($1, $2)`,
+		secret, clientID,
+	); err == nil && len(rows) > 0 {
+		principalID = stringValue(rows[0]["principal_id"])
+	}
+	if principalID == "" {
+		return "unknown"
+	}
+	handle := ""
+	if sessionID != "" {
+		if rows, err := collectRows(ctx, runner,
+			`SELECT handle FROM striatumd.operator_handles
+			  WHERE repository_id = $1 AND leased_session_id = $2 AND released_at IS NULL`,
+			repositoryID, sessionID,
+		); err == nil && len(rows) > 0 {
+			handle = stringValue(rows[0]["handle"])
+		}
+	}
+	return db.RenderOperatorIdentity(principalID, handle)
 }
 
 // statusTerminalRunStatesSQL is the SQL list literal of terminal run states.

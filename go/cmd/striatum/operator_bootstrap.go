@@ -39,6 +39,7 @@ type operatorBootstrapPacket struct {
 	Frontier      operatorFrontierSummary   `json:"frontier"`
 	OperatorBrief operatorBriefSummary      `json:"operator_brief"`
 	Skills        operatorSkillsSummary     `json:"skills"`
+	Operator      operatorIdentitySummary   `json:"operator_identity"`
 	NextActions   []string                  `json:"next_actions"`
 	ReadingPlan   []string                  `json:"reading_plan"`
 	Limits        map[string]int            `json:"limits"`
@@ -146,6 +147,31 @@ type operatorSkillsSummary struct {
 	RecoveryCommands []string `json:"recovery_commands,omitempty"`
 }
 
+// operatorIdentitySummary records the RFC 0167 P0 operator-session identity the
+// bootstrap mints + presents (§F F-2 / A45). The MINTED session-bound operator
+// token ({admin, read}, repo-scoped, TTL-bounded, close-revoked) is the ROUTINE
+// repo-admin credential for the launched operator process / MCP client; the
+// static `bootstrap-admin` token is NOT injected into this routine path — it
+// remains the segregated daemon-root credential and is used only to call
+// operator.bootstrap. The raw token is NEVER embedded here: it is written 0600
+// to PresentationPath and consumed via the STRIATUM_MCP_TOKEN_FILE env contract
+// (which agentloop.ResolveTokenMaterial reads at higher precedence than the
+// static runtime token).
+type operatorIdentitySummary struct {
+	Minted              bool     `json:"minted"`
+	Handle              string   `json:"handle,omitempty"`
+	Identity            string   `json:"identity,omitempty"`
+	OperatorSessionID   string   `json:"operator_session_id,omitempty"`
+	Capabilities        []string `json:"capabilities,omitempty"`
+	ExpiresAt           string   `json:"expires_at,omitempty"`
+	TokenPresented      bool     `json:"token_presented"`
+	PresentationPath    string   `json:"presentation_path,omitempty"`
+	PresentationEnvVar  string   `json:"presentation_env_var,omitempty"`
+	StaticTokenInjected bool     `json:"static_token_injected"`
+	RoutineCredential   string   `json:"routine_credential,omitempty"`
+	Error               string   `json:"error,omitempty"`
+}
+
 func runOperator(args []string, stdout io.Writer, stderr io.Writer, globals leadingGlobals) int {
 	if len(args) == 0 || routesHelp(args[0]) {
 		printOperatorHelp(stdout)
@@ -185,8 +211,9 @@ func routesHelp(arg string) bool {
 func printOperatorHelp(out io.Writer) {
 	_, _ = fmt.Fprintln(out, "usage: striatum operator bootstrap [--operator-docs-root <path>] [--limit N] [--markdown|--json]")
 	_, _ = fmt.Fprintln(out)
-	_, _ = fmt.Fprintln(out, "Read-only bounded cold-start packet for an AI operator.")
-	_, _ = fmt.Fprintln(out, "Composes daemon reads (repo.resolve, status, doctor) with local repo/doc probes.")
+	_, _ = fmt.Fprintln(out, "Bounded cold-start packet for an AI operator.")
+	_, _ = fmt.Fprintln(out, "Composes daemon reads (repo.resolve, status, doctor) with local repo/doc probes, and")
+	_, _ = fmt.Fprintln(out, "(RFC 0167 P0) calls operator.bootstrap to mint + present the session-bound operator token.")
 }
 
 func parseOperatorBootstrapArgs(args []string) (operatorBootstrapOptions, error) {
@@ -340,6 +367,14 @@ func buildOperatorBootstrap(ctx context.Context, globals leadingGlobals, options
 				packet.Doctor = summarizeDoctor(doctor, options.Limit)
 				packet.Skills = summarizeSkills(doctor, options.Limit)
 			}
+			// RFC 0167 P0 (§1(1), §F F-2 / A45): `striatum operator bootstrap`
+			// becomes the client of the operator.bootstrap RPC — it mints + leases +
+			// PRESENTS the session-bound operator token as the routine repo-admin
+			// credential. The daemon-root (static bootstrap) credential is used only
+			// to call operator.bootstrap; it is NOT injected into the routine path.
+			if packet.Daemon.Authorized {
+				packet.Operator = bootstrapOperatorIdentity(ctx, client, repositoryID, packet.Repository.Root)
+			}
 		}
 	}
 	if !packet.Frontier.Available {
@@ -387,6 +422,67 @@ func bootstrapTokenSource(config rpcclient.Config) (string, bool) {
 		return config.TokenFile, true
 	}
 	return config.TokenFile, false
+}
+
+// bootstrapOperatorIdentity mints + presents the RFC 0167 P0 session-bound
+// operator token (§F F-2 / A45). It calls the operator.bootstrap RPC — the
+// daemon client's existing (static daemon-root) credential is used ONLY to
+// bootstrap — then presents the MINTED session-bound operator token as the
+// routine repo-admin credential for the launched operator process / MCP client
+// by writing it 0600 to .striatum/scratch/operator-token (consumed via
+// STRIATUM_MCP_TOKEN_FILE, which agentloop reads at higher precedence than the
+// static runtime token). The static `bootstrap-admin` token is never written to
+// this routine channel, so its absence from the routine path is structural.
+func bootstrapOperatorIdentity(ctx context.Context, client rpcclient.Client, repositoryID, repoRoot string) operatorIdentitySummary {
+	summary := operatorIdentitySummary{
+		StaticTokenInjected: false,
+		RoutineCredential:   "session-bound operator token {admin, read} (repo-scoped, TTL-bounded, close-revoked)",
+	}
+	result, err := client.Invoke(ctx, "operator.bootstrap", map[string]any{"repository_id": repositoryID})
+	if err != nil {
+		summary.Error = err.Error()
+		return summary
+	}
+	summary.Minted = true
+	summary.Handle = stringField(result, "handle")
+	summary.Identity = stringField(result, "identity")
+	summary.OperatorSessionID = stringField(result, "operator_session_id")
+	summary.ExpiresAt = stringField(result, "expires_at")
+	summary.Capabilities = []string{"admin", "read"}
+	token := stringField(result, "token")
+	if token == "" {
+		summary.Error = "operator.bootstrap returned no token to present"
+		return summary
+	}
+	path, perr := presentOperatorToken(repoRoot, token)
+	if perr != nil {
+		summary.Error = "present operator token: " + perr.Error()
+		return summary
+	}
+	summary.TokenPresented = true
+	summary.PresentationPath = path
+	summary.PresentationEnvVar = "STRIATUM_MCP_TOKEN_FILE"
+	return summary
+}
+
+// presentOperatorToken writes the minted session-bound operator token to the
+// operator-local presentation file the launched operator process reads at higher
+// precedence than the static runtime token. It is operator-local scratch
+// (0600 under .striatum/scratch/), never durable workflow state, and never holds
+// the static daemon-root token.
+func presentOperatorToken(repoRoot, token string) (string, error) {
+	if strings.TrimSpace(repoRoot) == "" {
+		return "", fmt.Errorf("repository root is unknown")
+	}
+	dir := filepath.Join(repoRoot, ".striatum", "scratch")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "operator-token")
+	if err := os.WriteFile(path, []byte(token+"\n"), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func summarizeBootstrapDaemon(globals leadingGlobals) operatorDaemonSummary {
@@ -738,6 +834,19 @@ func renderOperatorBootstrap(packet operatorBootstrapPacket) string {
 	fmt.Fprintf(&b, "- mcp_endpoint: %s present=%t\n", blank(packet.Daemon.MCPEndpointPath), packet.Daemon.MCPEndpointFound)
 	if packet.Daemon.Error != "" {
 		fmt.Fprintf(&b, "- error: %s\n", packet.Daemon.Error)
+	}
+	if packet.Operator.Minted || packet.Operator.Error != "" {
+		fmt.Fprintf(&b, "\n## Operator Identity (RFC 0167 P0)\n\n")
+		if packet.Operator.Minted {
+			fmt.Fprintf(&b, "- identity: %s (handle=%s)\n", blank(packet.Operator.Identity), blank(packet.Operator.Handle))
+			fmt.Fprintf(&b, "- operator_session: %s expires=%s\n", blank(packet.Operator.OperatorSessionID), blank(packet.Operator.ExpiresAt))
+			fmt.Fprintf(&b, "- routine_credential: %s\n", blank(packet.Operator.RoutineCredential))
+			fmt.Fprintf(&b, "- token_presented: %t path=%s env=%s\n", packet.Operator.TokenPresented, blank(packet.Operator.PresentationPath), blank(packet.Operator.PresentationEnvVar))
+			fmt.Fprintf(&b, "- static_bootstrap_token_injected: %t (the static daemon-root token is NOT the routine repo-admin credential)\n", packet.Operator.StaticTokenInjected)
+		}
+		if packet.Operator.Error != "" {
+			fmt.Fprintf(&b, "- error: %s\n", packet.Operator.Error)
+		}
 	}
 	fmt.Fprintf(&b, "\n## Frontier\n\n")
 	fmt.Fprintf(&b, "- active_runs: %d\n", len(packet.Frontier.ActiveRuns))

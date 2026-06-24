@@ -20,7 +20,15 @@ import (
 // revokes — that the runtime role cannot perform. They are applied OUT-OF-BAND
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
-const LatestOwnerBundleVersion = 20
+//
+// RFC 0167 P0 (D260) advanced this to 22: the operator-identity/run-attribution
+// bundle (0022_operator_identity_run_attribution.sql) is a NORMAL apply-eligible
+// bundle that sits ABOVE the staged DDL-revoke (0021). Because a normal bundle now
+// lives above the revoke frontier, the revoke predicates below target the EXACT
+// revoke version (== DDLRevokeOwnerBundleVersion) rather than ">= the frontier" —
+// otherwise 0022 would be wrongly excluded from apply and the watermark MAX (22)
+// would be misread as "the revoke (21) was applied".
+const LatestOwnerBundleVersion = 22
 
 // DDLRevokeOwnerBundleVersion identifies the RFC 0142 P4 C3 DDL-revoke bundle
 // (0021, `REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw`). It is
@@ -32,10 +40,11 @@ const LatestOwnerBundleVersion = 20
 // to a pre-P4 binary). It is also EXCLUDED from every `owner-ddl apply` route via
 // OwnerDDLApplyBundles() + the in-loop isNonRevokeBundle guard, so its REVOKE can
 // ONLY ever be committed as the terminal `striatum daemon deploy` step (M2) by an
-// activation binary that embeds it (§4.3). LatestOwnerBundleVersion and
-// RequiredOwnerBundleVersion deliberately STAY 20 — the revoke is gated by the
-// deploy cursor + CheckDeployActivation + the STRIATUM_DEPLOY_DECOUPLED flag +
-// its terminal placement, NOT the owner-bundle watermark frontier.
+// activation binary that embeds it (§4.3). The revoke is gated by the deploy
+// cursor + CheckDeployActivation + the STRIATUM_DEPLOY_DECOUPLED flag + its
+// terminal placement, NOT the owner-bundle watermark frontier — so a normal
+// EMBEDDED owner bundle (RFC 0167 P0's 0022) may legitimately sit ABOVE this
+// staged ordinal. The frontier therefore advanced to 22 while this stays 21.
 const DDLRevokeOwnerBundleVersion = 21
 
 // isNonRevokeBundle reports whether an owner bundle version is a normal,
@@ -43,7 +52,11 @@ const DDLRevokeOwnerBundleVersion = 21
 // frontier). The DDL-revoke bundle (>= DDLRevokeOwnerBundleVersion) is the sole
 // exclusion: it must never be applied via the pending loop, the FMA-007 self-heal
 // reapply, a nil-fallback, or a test helper — only via the terminal deploy step.
-func isNonRevokeBundle(version int) bool { return version < DDLRevokeOwnerBundleVersion }
+//
+// The exclusion targets the EXACT revoke version, not ">= the frontier": RFC 0167
+// P0's normal bundle 0022 sits above the staged revoke 0021 and MUST stay
+// apply-eligible. Only 0021 itself is the deploy-plan-terminal exclusion.
+func isNonRevokeBundle(version int) bool { return version != DDLRevokeOwnerBundleVersion }
 
 // OwnerDDLApplyBundles returns the owner bundles eligible for `owner-ddl apply`:
 // the FULL embedded set with any DDL-revoke bundle (>= 0021) filtered OUT (M2). It
@@ -83,7 +96,9 @@ func RevokeBundleEmbedded() (bool, error) {
 		return false, err
 	}
 	for _, b := range bundles {
-		if b.Version >= DDLRevokeOwnerBundleVersion {
+		// EXACT match, not ">=": a normal bundle above the revoke (RFC 0167 P0's
+		// 0022) must NOT flip this true. Only the revoke (0021) being embedded does.
+		if b.Version == DDLRevokeOwnerBundleVersion {
 			return true, nil
 		}
 	}
@@ -256,6 +271,7 @@ var ownerBundleLabels = map[int]string{
 	19: "transfer supervisor-pointer table cohort ownership to striatumd_rw so runtime migration 0039 can reshape idx_process_supervisor_pointers_run (RFC 0139 / GH #421)",
 	20: "runtime read grant on owner_bundle_meta for owner-bundle watermark boot interlock (RFC 0142 Layer 2 / GH #581)",
 	21: "serving-role create-DDL revocation: REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw (RFC 0142 P4 C3, deploy-plan-terminal / D262)",
+	22: "operator identity & run attribution: operator_handles + operator_sessions + runs write-once origin stamp + DEFINER identity projections + composed-route read closure (RFC 0167 P0 / D260)",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.
@@ -363,6 +379,30 @@ func OwnerBundleVersion(ctx context.Context, runner Runner) (int, error) {
 		return 0, err
 	}
 	return version, nil
+}
+
+// IsOwnerBundleApplied reports whether a SPECIFIC owner-bundle version is recorded
+// as applied in owner_bundle_meta — decoupled from the MAX watermark. It exists
+// because, since RFC 0167 P0's normal bundle 0022 sits above the staged DDL-revoke
+// (0021), MAX(version) >= 21 no longer implies "the revoke was applied" (it is 22
+// with 21 absent). The forward-watermark serve barrier (connection.go) must ask
+// "was 0021 specifically applied?", which this answers. Returns false (no error)
+// on a fresh / single-role database with no owner_bundle_meta table.
+func IsOwnerBundleApplied(ctx context.Context, runner Runner, version int) (bool, error) {
+	present, err := runner.QueryScalar(ctx,
+		"SELECT (to_regclass('striatumd.owner_bundle_meta') IS NOT NULL)::text")
+	if err != nil {
+		return false, err
+	}
+	if present != "true" {
+		return false, nil
+	}
+	value, err := runner.QueryScalar(ctx,
+		"SELECT EXISTS(SELECT 1 FROM striatumd.owner_bundle_meta WHERE version = $1)::text", version)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(value) == "true", nil
 }
 
 // ApplyOwnerBundles applies every owner bundle newer than the recorded version,
@@ -600,6 +640,38 @@ var readScopeReasserts = map[string][]string{
 		`GRANT SELECT (client_id, linked_at, unlinked_at)
 		  ON striatumd.principal_clients TO striatumd_rw`,
 		"GRANT INSERT, UPDATE, DELETE ON striatumd.principal_clients TO striatumd_rw",
+	},
+	// Bundle 0022 (RFC 0167 P0): the composed-route read closure. Restated as
+	// REVOKE-then-column-GRANT so the reassert converges to the same closed ACL
+	// whether or not a prior stray table-wide GRANT exists (drift-proof). runs is
+	// owner-held, so its REVOKE is irreversible by striatumd_rw; the operator_*
+	// tables are new + column-granted from creation but are restated here so a
+	// drift GRANT cannot widen them. The statement lists restate the bundle SQL
+	// verbatim — keep them in lockstep with 0022.
+	"operator_identity_run_attribution": {
+		// Route 2: runs column gate (created_by_principal_id excluded). The list is
+		// the live catalog MINUS created_by_principal_id: the 0005 baseline + 0025's
+		// completion_mode + 0026's completion_record_json + 0022's created_by_handle_id.
+		// Keep in lockstep with the 0022 bundle SQL (omitting 0025/0026 strands a
+		// 42501 on the run.summary / evidence.export runtime readers).
+		"REVOKE SELECT ON striatumd.runs FROM striatumd_rw",
+		`GRANT SELECT (
+		  repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		  branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
+		  started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id,
+		  completion_mode, completion_record_json,
+		  created_by_handle_id
+		) ON striatumd.runs TO striatumd_rw`,
+		// Route 1: operator_handles column gate (principal_id excluded).
+		"REVOKE SELECT ON striatumd.operator_handles FROM striatumd_rw",
+		`GRANT SELECT (handle_id, leased_session_id, handle, repository_id,
+		  released_at, leased_until, last_heartbeat_at)
+		  ON striatumd.operator_handles TO striatumd_rw`,
+		// operator_sessions column gate (C2'): principal_id AND client_id excluded.
+		"REVOKE SELECT ON striatumd.operator_sessions FROM striatumd_rw",
+		`GRANT SELECT (operator_session_id, repository_id, state, registered_at,
+		  last_heartbeat_at, expires_at, closed_at, close_reason)
+		  ON striatumd.operator_sessions TO striatumd_rw`,
 	},
 }
 

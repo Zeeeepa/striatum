@@ -115,7 +115,12 @@ func HandleArchiveCreate(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, err
 	}
 	runRows, err := collectRows(ctx, runner,
-		`SELECT r.*
+		// RFC 0167 P0 C2".2(d): explicit columns EXCLUDING created_by_principal_id —
+		// SELECT r.* would 42501 under the column-scoped runs grant (bundle 0022).
+		// Export carries no identity principal in P0.
+		`SELECT r.repository_id, r.run_id, r.workflow_snapshot_id, r.repo_root, r.state,
+		        r.branch_name, r.branch_base, r.branch_confirmed_at, r.branch_confirmed_by, r.created_at,
+		        r.started_at, r.completed_at, r.stop_reason, r.paused_at, r.paused_reason, r.cross_repo_run_id
 		   FROM striatumd.runs r
 		  WHERE r.repository_id = $1 AND r.run_id = $2`,
 		repositoryID, runID,

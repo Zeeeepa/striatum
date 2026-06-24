@@ -78,7 +78,12 @@ func TestWorkflowValidateIsNotGeneratedDaemonRoute(t *testing.T) {
 }
 
 func TestOperatorBootstrapIsNotGeneratedDaemonRoute(t *testing.T) {
+	// RFC 0167 P0: `operator bootstrap` is the client of the `operator.bootstrap`
+	// RPC (it mints + presents the session-bound operator token and composes reads
+	// + local probes), but it stays a custom CLI-local entrypoint rather than a
+	// generated 1:1 route — operator.bootstrap is a daemon method with no
+	// cli_routes entry, so it must not appear in the generated route table.
 	if route, _, ok := routes.Lookup([]string{"operator", "bootstrap"}); ok {
-		t.Fatalf("operator bootstrap must remain a local read composite unless a product decision adds an RPC method, got route %#v", route)
+		t.Fatalf("operator bootstrap must remain a custom CLI-local entrypoint, not a generated daemon route, got route %#v", route)
 	}
 }

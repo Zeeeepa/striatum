@@ -66,7 +66,34 @@ func TestReservationLedgerHasNoDuplicatesOrGaps(t *testing.T) {
 		t.Fatalf("parse RESERVATIONS.toml: %v", err)
 	}
 	assertContiguousNoDup(t, "runtime_migration", ledger.RuntimeMigrations)
-	assertContiguousNoDup(t, "owner_bundle", ledger.OwnerBundles)
+	assertOwnerBundleContiguity(t, ledger.OwnerBundles)
+}
+
+// assertOwnerBundleContiguity is the owner-bundle variant of assertContiguousNoDup:
+// the ledger must be a contiguous 1..N sequence with no duplicate EXCEPT it may skip
+// exactly DDLRevokeOwnerBundleVersion (0021) — the RFC 0142 P4 DDL-revoke, which is
+// reserved but STAGED outside sql/owner (Option B / D7'), so it carries no embedded
+// ledger row. RFC 0167 P0's normal bundle 0022 sits above it, making the embedded
+// ledger {1..20, 22} with a deliberate gap at 21.
+func assertOwnerBundleContiguity(t *testing.T, entries []ReservationEntry) {
+	t.Helper()
+	present := map[int]bool{}
+	highest := 0
+	for _, entry := range entries {
+		if present[entry.Ordinal] {
+			t.Fatalf("owner_bundle ordinal %d is reserved more than once (a duplicate)", entry.Ordinal)
+		}
+		present[entry.Ordinal] = true
+		if entry.Ordinal > highest {
+			highest = entry.Ordinal
+		}
+	}
+	for n := 1; n <= highest; n++ {
+		if present[n] || n == DDLRevokeOwnerBundleVersion {
+			continue
+		}
+		t.Fatalf("owner_bundle ordinals are not contiguous: ordinal %d is missing (a gap or out-of-order reservation)", n)
+	}
 }
 
 // TestParseReservationsRejectsMalformedLedgers proves the parser fails closed on

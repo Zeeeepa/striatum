@@ -70,7 +70,13 @@ func HandleRunDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		return nil, rpc.NewError("schema_invalid", "run.detail requires run_id", nil)
 	}
 	runs, err := collectRows(ctx, runner,
-		`SELECT *
+		// RFC 0167 P0 C2".2(d): explicit columns EXCLUDING created_by_principal_id —
+		// a SELECT * would require SELECT on every column and 42501 under the
+		// column-scoped runs grant (bundle 0022). Origin identity is surfaced only
+		// via the run_origin_identity DEFINER projection (whose), never this read.
+		`SELECT repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		        branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
+		        started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id
 		   FROM striatumd.runs
 		  WHERE repository_id = $1 AND run_id = $2`,
 		repositoryID, runID,
@@ -171,7 +177,13 @@ func HandleJobDetail(ctx context.Context, runner db.Runner, envelope rpc.Envelop
 		return nil, rpc.NewError("schema_invalid", "job.detail requires run_id and job_id", nil)
 	}
 	runs, err := collectRows(ctx, runner,
-		`SELECT *
+		// RFC 0167 P0 C2".2(d): explicit columns EXCLUDING created_by_principal_id —
+		// a SELECT * would require SELECT on every column and 42501 under the
+		// column-scoped runs grant (bundle 0022). Origin identity is surfaced only
+		// via the run_origin_identity DEFINER projection (whose), never this read.
+		`SELECT repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		        branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
+		        started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id
 		   FROM striatumd.runs
 		  WHERE repository_id = $1 AND run_id = $2`,
 		repositoryID, runID,

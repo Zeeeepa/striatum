@@ -113,9 +113,16 @@ agent-side bundles, register a repository, render a user service,
 repair local Postgres grants, or run smoke checks, but they do not
 become an alternate workflow-state authority.
 
-AI-operator cold start is guided by `striatum operator bootstrap`. The command
-is a CLI-local read composite, not a daemon RPC method and not a new live-state
-authority. Its stable JSON payload uses
+AI-operator cold start is guided by `striatum operator bootstrap`. The command is
+a custom CLI-local entrypoint — it is not a generated 1:1 daemon route — but under
+RFC 0167 P0 it is the client of the `operator.bootstrap` RPC: it mints and presents
+a session-bound operator token and leases the operator handle. The live
+operator-session/handle/token state is daemon-owned, created server-side by the
+RPC (the CLI is not itself a new live-state authority). The minted `{admin, read}`
+token is written `0600` to `.striatum/scratch/operator-token` and consumed by the
+launched operator process through `STRIATUM_MCP_TOKEN_FILE` (resolved at higher
+precedence than the static runtime token); the raw token is never embedded in the
+packet. Its stable JSON payload uses
 `schema_version: "striatum.operator_bootstrap.v1"` and is also rendered as a
 bounded Markdown-ish human summary by default. It composes daemon reads such as
 `repo.resolve`, `status`, and `doctor` with local probes for git identity,
@@ -214,6 +221,40 @@ read surface is inventoried in `go/pkg/db/read_authority_inventory.go` and
 guarded against unclassified table growth. #164 stays open for the remaining
 surfaces.
 The decision log records each per-phase decision on landing.
+
+### Operator identity and run attribution (RFC 0167 P0 / D260, D263)
+
+Operator identity is not a new identity system: the operator-id IS a
+`principals.principal_id` of kind `human`. Owner bundle **0022** adds a
+daemon-leased, memorable rendering layer over it — `striatumd.operator_handles`
+(`handle#suffix`, unique among LIVE handles per repository) and
+`striatumd.operator_sessions` (the pre-run operator-session lifecycle) — plus a
+**write-once** run-origin stamp: `runs.created_by_principal_id` (the origin
+principal, resolved server-side from the live token through the
+`resolve_principal_for_client` projection, never a client-supplied param) and
+`runs.created_by_handle_id` (a per-session handle snapshot). Write-once is
+enforced at the database by the `runs_origin_write_once` `BEFORE UPDATE` trigger.
+
+The attribution columns are read-closed at the column layer (the C2" composed-route
+closure): `striatumd_rw` loses `SELECT` on `runs.created_by_principal_id`,
+`operator_handles.principal_id`, and `operator_sessions.{principal_id, client_id}`,
+so neither the direct nor the composed `client_capabilities ⋈ operator_handles ⋈ runs`
+join can reconstruct `client_id → principal_id`. Every identity read rides a
+daemon-secret-gated `SECURITY DEFINER` projection — `run_origin_identity` (the
+`striatum whose <run-id>` reverse lookup), `runs_for_origin_client` (`status
+--mine`), and `runs_missing_origin` (the advisory `doctor` `attribution_unknown`
+rule). The handle pool is curated, lowercase, privacy-safe; the default is a hash
+of `principal_id` (reconnect-stable, never tty/pane/title/env), escalating to the
+next candidate on a live collision. The operator-bootstrap RPC mints a
+session-bound operator token (`{admin, read}`, repo-scoped, TTL-bounded,
+close-revoked) and leases the handle in one transaction. `striatum operator
+bootstrap` is the client of that RPC: it calls `operator.bootstrap` and presents
+the minted session-bound operator token to the launched operator process / MCP
+client (written to `.striatum/scratch/operator-token`, consumed through
+`STRIATUM_MCP_TOKEN_FILE`, which the agent loop resolves at higher precedence
+than the static runtime token). Per the honest blast-radius accounting the static
+`bootstrap-admin` token is used only to call the RPC and remains segregated to the
+daemon-root surface — it is **not** the routine operator repo-admin credential.
 
 ## Workflow Config
 
