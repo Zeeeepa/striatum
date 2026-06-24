@@ -93,21 +93,31 @@ closeout.
 
 ## The sequence
 
+> **2026-06-24 design fan-out — banked & resume-ready (⏸).** Six reliability/security
+> design runs (0136, 0164, 0165, 0166, 0168, 0169) were canceled when their operator
+> departed mid-fan-out; `striatum doctor` is green. Each run's dialogue (HOLDER design +
+> falsifier challenges + cycle-1 adjudicator ledger) is durably preserved on origin at
+> `backup/rfc-<id>-<vN>-2026-06-24`. The cycle-2 adjudicator verdicts did **not** survive
+> (revision-budget-exhaustion wedge, #587; cluster B 0136/0169 were blocked one stage
+> earlier on cross-user worktree perms, #612 — their prepared falsifier_2 was salvaged into
+> the backup). To pick one up: re-scaffold a fresh `-vN+1` run seeded from the banked
+> dialogue rather than re-running from scratch.
+
 ### Wave 0 — In flight (finish what's running; do **not** start a second run)
 
 | # | RFC | Theme | What it is | Stage | Track |
 |---|---|---|---|---|---|
 | 1 | **0142 P4** | 🛡 | One-shot `striatum daemon deploy` — make it the only schema mutator; lift auto-apply out of serve-boot; revoke serving-role DDL | ✅ **BUILT + LANDED** (`7a63d8a2`, 2026-06-24; migration 0044 `deploy_cursor`/`deploy_plan`/`deploy_receipt`, owner.go M2 surface, shadow-first default-OFF; D262 design + sealed go-build/vet receipts). Activation/verify run (arm `STRIATUM_DEPLOY_DECOUPLED` + B1/D1′/D6) is the follow-up; close #571. | #571 |
 | 2 | **0143** | 🛡 | Lane credential survival across a daemon boot-epoch rotation (reseal without the owner-only client-token) | ✅ **split D261**: Slice A (legible `session_unrecoverable_across_rotation` floor, pure daemon-side observability) **BUILT + LANDED** (`a6d5610f`, 2026-06-24; daemon-observed stale-epoch event → typed recovery class, observability-only / RFC-0168-bounded; v1+v2 gates converged the design; sealed go-build+go-vet receipts); Slice B (`CapabilityReseal`) **blocked on RFC 0168** | #512 |
-| 2b | **0168** | 🛡 | Per-lane OS uid (pooled) as the lane security principal — dissolves the shared-uid `BC1-W1-ORACLE` wall the 0143 gate hit; **RFC 0143 Slice-B prerequisite** | 🔵 **design v2 in flight** (`run_7274cd6a`, `striatum/rfc-0168-design-v2`) — v1 PROVED the hard core (per-lane uid dissolves BC1-W1-ORACLE) + OQ1/3/5/6, returned `needs_revision` on C1 (durable scrubbing/quarantined lease state + scrub postcondition + reaper) + C2 (`.striatum/` ACL carve-out); v2 discharges both. v1 cycle-1 dialogue banked. | #512 / RFC 0143 Slice B blocker |
-| 3 | **0165** | 🛡 | Claude provider-cred freshness + spawn-time hydration (supervisor side; complements the host cred-resync timer) | 🔵 **design v4 in flight** (`run_5b6bfca2`, `striatum/rfc-0165-design-v4`) — v3 returned `needs_revision` on C1 (daemon-owned state = only positive freshness authority, fail-closed) + C2 (same-user Claude fail-closed) + C3 (no raw-refresh-token custody by any route); v4 discharges all three. Kept **separate** from 0169 per operator. | #583 |
-| 3b | **0169** | 🛡 | Provider-agnostic lane credential-readiness spine — subsumes 0121/0162/0165 as assurance classes; spawn-fresh placement closes #583 by construction (converge Claude onto agy's daemon-minted model) | 🔵 **design v1 in flight** (`run_e4f752e6`, `striatum/rfc-0169-design`) — `falsification_gate` proving the registry refactor is behavior-preserving + spawn-fresh placement structurally closes #583 without CLI modification; Layer 3 tamper-proof vs untrusted lane | #583 |
+| 2b | **0168** | 🛡 | Per-lane OS uid (pooled) as the lane security principal — dissolves the shared-uid `BC1-W1-ORACLE` wall the 0143 gate hit; **RFC 0143 Slice-B prerequisite** | ⏸ **design v2 banked — run canceled 2026-06-24** (operator left mid-fan-out; dialogue at `backup/rfc-0168-design-v2-2026-06-24`; resume via fresh `-v3`) — v1 PROVED the hard core (per-lane uid dissolves BC1-W1-ORACLE) + OQ1/3/5/6, returned `needs_revision` on C1 (durable scrubbing/quarantined lease state + scrub postcondition + reaper) + C2 (`.striatum/` ACL carve-out); v2 discharges both. v1 cycle-1 dialogue banked. | #512 / RFC 0143 Slice B blocker |
+| 3 | **0165** | 🛡 | Claude provider-cred freshness + spawn-time hydration (supervisor side; complements the host cred-resync timer) | ⏸ **design v4 banked — run canceled 2026-06-24** (operator left mid-fan-out; dialogue at `backup/rfc-0165-design-v4-2026-06-24`; resume via fresh `-v5`) — v3 returned `needs_revision` on C1 (daemon-owned state = only positive freshness authority, fail-closed) + C2 (same-user Claude fail-closed) + C3 (no raw-refresh-token custody by any route); v4 discharges all three. Kept **separate** from 0169 per operator. | #583 |
+| 3b | **0169** | 🛡 | Provider-agnostic lane credential-readiness spine — subsumes 0121/0162/0165 as assurance classes; spawn-fresh placement closes #583 by construction (converge Claude onto agy's daemon-minted model) | ⏸ **design v1 banked — run canceled 2026-06-24** (operator left mid-fan-out; falsifier_2 blocked on cross-user worktree perms #612 — prepared challenge salvaged into the backup; dialogue at `backup/rfc-0169-design-2026-06-24`; resume via fresh `-v2`) — `falsification_gate` proving the registry refactor is behavior-preserving + spawn-fresh placement structurally closes #583 without CLI modification; Layer 3 tamper-proof vs untrusted lane | #583 |
 
 ### Wave 1 — Stop the bleeding (lane-health reliability that wedges live runs)
 
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
-| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | 🔵 **design v2 in flight** (`run_18b937d0`, `striatum/rfc-0166-design-v2`) — v1 ratified the AND-not-OR core, returned `needs_revision` on C1 (novelty-aware clock: one primitive for all reset surfaces, junk-artifact can't move the floor) + C2 (corrected no-false-kill for an alive-working lane); v2 discharges both | #576 |
+| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | ⏸ **design v2 banked — run canceled 2026-06-24** (operator left mid-fan-out; dialogue at `backup/rfc-0166-design-v2-2026-06-24`; resume via fresh `-v3`) — v1 ratified the AND-not-OR core, returned `needs_revision` on C1 (novelty-aware clock: one primitive for all reset surfaces, junk-artifact can't move the floor) + C2 (corrected no-false-kill for an alive-working lane); v2 discharges both | #576 |
 | 5 | **0162 + #569** | 🛡 | Lane auth silent-failure observability — detect absence-of-success; finish the detection layers + a live game-day | done (MVP shipped) | — | #569 |
 | 6 | **0133** | 🛡 | Fan-in deferred-join barrier cutover — wire `recordFaninFreezePoint`, flip `STRIATUM_BARRIER_FANIN`, retire `fanInIntegrateRunBranch` | done | equivalence run | #527 |
 
@@ -117,14 +127,14 @@ closeout.
 |---|---|---|---|---|---|---|
 | 7 | **0142 P3-arm** | 🛡 | Arm schema-drift refuse-to-serve (flip `STRIATUM_SCHEMA_DRIFT_REFUSE`) after a clean prod bake | done | one clean prod deploy cycle + P4 (#1) | #578 |
 | 8 | **0142 P5** | 🛡 | Rehearsal receipt + expand/contract on an ephemeral two-role clone (highest-risk owner DDL) | done (D258 scope) | P4 (#1) | #572 |
-| 9 | **0136** | 🛡 | Range-partition `events`/`audit_log` by `created_at`; partition `DROP` as the retention path | needs design | P5 (#8) | #387 |
+| 9 | **0136** | 🛡 | Range-partition `events`/`audit_log` by `created_at`; partition `DROP` as the retention path | ⏸ **design v1 banked — run canceled 2026-06-24** (operator left mid-fan-out; blocked at falsifier_2 on cross-user worktree perms #612 — prepared challenge salvaged; HOLDER + falsifier_1/2 + cycle-1 ledger at `backup/rfc-0136-design-2026-06-24`; resume via fresh `-v2`) — still gated on P5 | P5 (#8) | #387 |
 
 ### Wave 3 — Hardening tail (correctness + security)
 
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
 | 10 | **0158** | 🛡 | `verified_stale` staleness rung + `verifier resweep --builtins` (needs a sealed version basis + migration) | done (D252); migration sub-decision open | — | #577 |
-| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | 🔵 **design v2 in flight** (`run_ec809be2`, `striatum/rfc-0164-design-v2`) — v1 returned `needs_revision` on C1 (complete git-surface taxonomy: route every funnel incl. `runGitWorktreeCommand`/`integrateGit`, close `recovery_quarantine_lane.go:425` status→fsmonitor RCE + 3 corpus rows) + C2 (benign `[alias]`/`[pager]` never wedges); v2 discharges both | — |
+| 11 | **0164** | 🛡 | Untrusted-substrate hardening — read-side git neutralization + gate-evidence recovery contract | ⏸ **design v2 banked — run canceled 2026-06-24** (operator left mid-fan-out; dialogue at `backup/rfc-0164-design-v2-2026-06-24`; resume via fresh `-v3`) — v1 returned `needs_revision` on C1 (complete git-surface taxonomy: route every funnel incl. `runGitWorktreeCommand`/`integrateGit`, close `recovery_quarantine_lane.go:425` status→fsmonitor RCE + 3 corpus rows) + C2 (benign `[alias]`/`[pager]` never wedges); v2 discharges both | — |
 | 12 | **0095** | 🛡 | Revision-safe lifecycle — remaining phases past 1–3 | done (per-phase) | — | — |
 | 13 | **0100** | 🛡 | Self-describing artifact contracts — phases past 1 (packet + error ergonomics) | done | — | — |
 | 14 | **0113** | 🛡 | Runtime read-scope least-privilege remainder (mostly carried by accepted 0114; confirm residual) | done | re-confirm vs 0114 | — |
