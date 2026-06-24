@@ -1,0 +1,144 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0164-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0164-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0164-untrusted-substrate-read-side-git-hardening.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0164-design/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0164 P0 implementation SPEC: read-side git neutralization that closes the daemon-host-compromise gadget surface (a hostile target-repo .git/config/.gitmodules/.gitattributes/ambient GIT_* turning git log/diff/show/status into code execution under the daemon identity via core.pager/diff.external/core.hooksPath/core.sshCommand/url.insteadOf/textconv/alias). Read the v1 SEED and RFC 0164 in full first. The RFC's DECISION is settled (allowlist posture realized as LAYERED SEVERANCE, denylist demoted to telemetry) with a Slice 0-3 plan — do NOT re-litigate the posture; harden it into build-bearing constraints. Define P0 as the security floor: Slice 0 (the CleanRepoFor(repoRoot,laneID) chokepoint seam routing ALL ~6 bare read-side call sites through one function — git_snapshot.go:193-212, doctor_artifact_anchor.go:511/559, worktree_refs.go:393/399, status.go:388, run.go:920-956, verifier/receipt.go:606/609 — with zero behavior change) + Slice 1 (gitEnv() in go/pkg/safegit returning a fully-pinned cmd.Env that OMITS the GIT_CONFIG_COUNT/KEY_n/VALUE_n family [load-bearing: env config beats -c], pins GIT_CONFIG_NOSYSTEM/GLOBAL=/dev/null/SYSTEM=/dev/null + sacrificial HOME/XDG, hard-drops gadget env vars, bounds the subcommand allowlist, and REFUSES with a typed gitEnvUnavailable error rather than falling back to bare exec) + the red-team corpus (gate_corpus_test.go: one row per gadget asserting the sentinel is never created, with the in-repo .git/config row as an expected-fail against Layer 2 alone documenting exactly what Slice 2's clean.git closes) + the build-time invariant test failing the build if any exec.Command(git...) leaves cmd.Env nil or os.Environ()-sourced. State whether Layer 1 (minted objects-only clean.git, Slice 2) and Layer 3 (gate refs + gate.preflight_attested attestation + two-state machine-decay/human-accept recovery) are in P0 or named seams. PROVE the hard core: that the proposed neutralization makes EVERY read-side gadget inert by OMISSION (an unknown future gadget no-ops without being on a known-bad list) AND that legitimate reads still return correct answers (the alternates/refs/benign-key completeness risk that yields wrong answers not errors). State each constraint as a FALSIFIABLE assertion + the test/corpus row that would refute it; specify the argv_digest/env_allowlist_digest canonicalization as a golden-vector before any hashing. Anchor every claim to the named source sites. Keep the local-first boundary and the RFC's Non-Goals (no agent arbitrary-command sandboxing = RFC 0096; no rebuild of write-confinement or a repo-config validator = already solved; no cross-lane learned-immunity = rejected trap). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0164-design/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0164. Your lens is SEVERANCE COMPLETENESS (Layers 1+2 attack surface). Attack the claim that every read-side gadget is inert. Can a gadget STILL reach exec under the daemon identity by ANY route: a read-side git call site NOT routed through the CleanRepoFor chokepoint (is the ~6-site list actually exhaustive — grep-prove it, including indirect spawns and the verifier/doctor paths)? The agent's OWN bare git in the lane (is the lane environment truly born-neutralized via gitEnv, or only striatum's calls)? The GIT_CONFIG_COUNT/KEY_n/VALUE_n env family (verify env config beats -c and that OMISSION — not -c injection — is what neutralizes it)? A per-lane worktree attaching to clean.git but inheriting attacker config via common-dir / objects/info/alternates / a hook reachable through core.hooksPath in the shared object store? A benign-but-needed key missing from the clean.git template yielding WRONG ANSWERS (truncated graph -> merge-base/rev-parse silently resolve wrong — the RFC's sharp-edge risk)? Is the bounded-subcommand allowlist actually enforced before exec, and does Layer 2 REFUSE (typed error) rather than silently fall back to bare exec when the closed env can't be established? Construct the concrete exploit/corpus row for each gap. If any gadget can reach exec, any read can run un-severed, or severance yields wrong answers, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (severance-completeness lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0164-design/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0164. Your lens is the EVIDENCE + RECOVERY CONTRACT (Layer 3) + AUDITABILITY + FALSE-POSITIVE behavior. Attack: is the gate.preflight_attested attestation FORGEABLE — is the argv_digest / env_allowlist_digest / config_fingerprint canonicalization fully specified (arg order, repeated flags, path normalization, env sort + value policy) so a digest cannot be forged, and is the 'a git.* exec with no immediately-preceding gate.preflight_attested is a hard audit failure' rule actually unforgeable (can a KV append be back-dated or the ordering raced)? Is the fingerprint-decay TOCTOU genuinely closed — does decay only CLEAR the blocker while exec ALWAYS re-attests at fork time (present-clean-config-to-sweep then re-inject-before-fork must NOT authorize the next call)? Does the two-state split route correctly — a recognized-and-neutralized gadget to machine-clearable gate.read_gadget_detected (idempotent decay via recovery.sweep, no human), an UNKNOWN/unattested key to the human-cleared recovery.quarantine_lane — with NO path where an unknown gadget silently passes (the faked gate G2 forbids)? Does the red-team corpus actually CERTIFY (is corpus_green_hash load-bearing) and would the Slice 2 parity harness actually catch severance wrong-answers? Does a FALSE-POSITIVE on a benign [alias]/[pager] wedge a legit repo (G3 — must degrade observability only, never correctness, since Layers 1+2 already make config inert)? Construct the failing case for each gap. If attestation is forgeable, the TOCTOU is open, an unknown can pass silently, or a false-positive wedges real work, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (evidence/recovery-contract lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0164-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0164 P0 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0164 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: the SEVERANCE is COMPLETE (every read-side git call site routed through the chokepoint — the call-site list proven exhaustive; the agent's own lane git born-neutralized; GIT_CONFIG_COUNT-family OMITTED; no gadget reaches exec by any route) AND CORRECT (no wrong-answers from a truncated object/ref/alternates graph — the parity harness is specified); the ENV FLOOR refuses rather than degrades; the EVIDENCE contract is unforgeable (canonicalization specified as golden vectors; the no-attestation-before-exec rule is a hard audit failure) and the fingerprint-decay TOCTOU is closed (decay clears, exec re-attests); the two-state recovery routes known->machine-decay and unknown->human-accept with NO silent pass of an unknown; the red-team corpus certifies (corpus_green_hash load-bearing); and a false-positive degrades observability only, never correctness. Record per goal (G1-G4) whether MET and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if severance is incomplete or yields wrong answers, the env floor can fall back to bare exec, attestation is forgeable, the TOCTOU is open, an unknown gadget can pass silently, or a false-positive wedges legit work. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (who spins a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0164-design/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0164 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design buildable contract-first by the rfc-0164-build code_change run: the CleanRepoFor chokepoint seam (Slice 0, the exhaustive read-side call-site list it captures), the gitEnv() closed-environment builder + bounded-subcommand allowlist + typed-refusal (Slice 1, Layer 2), the red-team gadget corpus (each gadget row + the expected-fail/expected-pass layering claims), the build-time invariant test (no nil/os.Environ cmd.Env on any git exec), and whether the minted objects-only clean.git (Slice 2, Layer 1) + the gate-refs/attestation/two-state-recovery (Slice 3, Layer 3) are P0 or named downstream seams — with the alternates/refs/benign-key parity harness for Slice 2 and the digest canonicalization golden vectors. State each as a falsifiable assertion + its test/corpus row, anchored to the named source sites. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0164-design/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0164 P0 design: the ledger verdict, how severance-completeness + correctness and the evidence/recovery contract were proven, which falsifier challenges were rebutted, how goals G1-G4 are met, and the consolidated SPEC + named tests/corpus the rfc-0164-build run will implement (Slice 0-1 P0 security floor, with Slice 2-3 named as seams).",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0164-design",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0164-design",
+  "workflow_version": "2026-06-24"
+}
