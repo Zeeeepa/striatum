@@ -77,7 +77,7 @@ gets a Striatum workflow").
 
 | # | RFC | Theme | What it is | Design | Blocked-by | Track |
 |---|---|---|---|---|---|---|
-| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | drafted; needs RFC_REVIEW | — | #576 |
+| 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | 🔵 **design v1 in flight** (`run_671c0660`, `striatum/rfc-0166-design`; RFC snapshotted from review branch as context doc) — `falsification_gate` hardening the 4-part sealed-progress silence budget; ratifying the AND-not-OR no-false-kill safety decision | #576 |
 | 5 | **0162 + #569** | 🛡 | Lane auth silent-failure observability — detect absence-of-success; finish the detection layers + a live game-day | done (MVP shipped) | — | #569 |
 | 6 | **0133** | 🛡 | Fan-in deferred-join barrier cutover — wire `recordFaninFreezePoint`, flip `STRIATUM_BARRIER_FANIN`, retire `fanInIntegrateRunBranch` | done | equivalence run | #527 |
 
