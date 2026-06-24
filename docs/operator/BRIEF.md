@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-23_v2.36.0-release"
-supersedes: "brief_2026-06-22_v2.35.0-release"
+brief_id: "brief_2026-06-24_audit-closeout-gates"
+supersedes: "brief_2026-06-23_v2.36.0-release"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,16 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-24 delta — audit closeout gates
+
+The 2026-06-24 architecture-audit closeout added D264-D268. Operators must not
+launch new feature-wave RFC design/build work while `striatum doctor` is red.
+Use direct sync-guarded operator commits, not daemon dogfood flows, for narrow
+source/truth fixes until integrity is green again. `docs/operator/rfc-roadmap.md`
+now carries the active WIP cap, self-hosting-tax classification, and
+subtraction-release checklist. The immediate audit closeout set is #597, #598,
+#599, #600, #602, #603, #604, #605, #606, #607, #608, plus #584 and #527.
 
 ## 2026-06-24 delta — RFC 0167 P0 built + verified + integrated (deploy pending quiescence)
 

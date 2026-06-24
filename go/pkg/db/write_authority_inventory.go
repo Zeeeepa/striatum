@@ -106,14 +106,19 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	// + the SELECT/INSERT-only grant (UPDATE/DELETE revoked) — the same shape as
 	// the other "append-only via triggers" runtime_dml tables, NOT an SD-gated
 	// surface (it uses a plain refuse-trigger, not the assert_daemon_authority gate).
-	"fanin_freeze_points":         ClassRuntimeDML,
-	"interrogations":              ClassRuntimeDML,
-	"job_dependencies":            ClassRuntimeDML,
-	"job_recovery_state":          ClassRuntimeDML,
-	"job_workspaces":              ClassRuntimeDML,
-	"job_worktrees":               ClassRuntimeDML,
-	"jobs":                        ClassRuntimeDML,
-	"leases":                      ClassRuntimeDML,
+	"fanin_freeze_points": ClassRuntimeDML,
+	"interrogations":      ClassRuntimeDML,
+	"job_dependencies":    ClassRuntimeDML,
+	"job_recovery_state":  ClassRuntimeDML,
+	"job_workspaces":      ClassRuntimeDML,
+	"job_worktrees":       ClassRuntimeDML,
+	"jobs":                ClassRuntimeDML,
+	"leases":              ClassRuntimeDML,
+	// RFC 0167 P0 / owner bundle 0022: operator identity lifecycle tables.
+	// Runtime may INSERT/UPDATE lease/session state; identity reads are
+	// column-gated and routed through SECURITY DEFINER projections.
+	"operator_handles":            ClassRuntimeDML,
+	"operator_sessions":           ClassRuntimeDML,
 	"principal_clients":           ClassRuntimeDML,
 	"principals":                  ClassRuntimeDML,
 	"process_executions":          ClassRuntimeDML,

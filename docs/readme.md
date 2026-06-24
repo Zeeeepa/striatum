@@ -12,7 +12,7 @@ Start here:
 
 ## Planning
 
-- [TODO.md](reference/todo.md) - repo split checklist and product improvement backlog.
+- [TODO.md](reference/todo.md) - archived pointer to bootstrap, BRIEF, RFC roadmap, and open GitHub issues.
 
 ## Usage
 

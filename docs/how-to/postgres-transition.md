@@ -118,6 +118,19 @@ Both commands are local bootstrap helpers, not daemon RPC calls. `owner-ddl
 apply` is also the documented grant-drift repair action because it reasserts
 the protected read/write revokes after applying bundles.
 
+### Deploy Substrate Ownership
+
+D265 keeps three deploy substrates because they own different invariants:
+
+| Substrate | Owner | Invariant |
+|---|---|---|
+| Runtime migrations | Serving daemon runtime role | Forward-only schema evolution for runtime-owned objects. Above schema version 26, runtime migrations must not alter/drop owner-held tables or add foreign keys into owner-held tables unless an owner bundle first transfers ownership. |
+| Owner bundles | Database owner/admin DSN via `striatum daemon owner-ddl apply` | Owner-held DDL, SECURITY DEFINER functions, authority stamps, read/write grant closure, and ownership transfers that the runtime role must not perform. |
+| `striatum daemon deploy` (`deploy_cursor`, `deploy_plan`, `deploy_receipt`) | Local deploy command with owner/runtime ordering | Resumable ordered transcript for high-risk decoupled deploys: pending non-revoke owner bundles, pending runtime migrations, then any terminal staged revoke. The immutable plan/receipt trail is the evidence that boot did not mutate schema out of order. |
+
+Do not collapse these names in docs or code without preserving all three
+invariants and the tests that guard owner/runtime ordering.
+
 Regular runtime migrations after schema version 26 must stay applicable by the
 daemon runtime role: do not add owner-table `ALTER TABLE` or `DROP TABLE` DDL
 against existing `striatumd.*` tables to those migrations. Put owner-table

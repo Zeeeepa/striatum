@@ -372,6 +372,14 @@ cross-repo workflows. Cross-repo cycles must opt in with
 declare per-alias positive integer limits. Core workflow validation checks
 shape only; daemon-backed `run prepare` owns live repository registration and
 accessibility checks.
+
+Audit retention guard (D267 / #598): the cross-repo package and read/recovery
+routes are intentionally retained. They may not be deleted merely because the
+current operator frontier has no second-adopter cross-repo run in flight; a
+removal needs a fresh evidence pass over package callers, CLI routes, docs, and
+near-term roadmap references, plus one change that removes code, routes, tests,
+and docs together.
+
 `workflow validate` refuses lint-detected same-model implementer/reviewer
 pairings and revision cycles by default; operators can pass
 `--allow-same-model-pairing` to accept that workflow-authoring risk
@@ -1972,6 +1980,14 @@ expiry, optional process reconciliation, optional autonomous review-only requeue
 doctor flagging — and returns a structured envelope `{run_id, swept_at,
 run_state, policy_source, dry_run, actions, escalations, still_stuck}`. Workflows
 declare a `recovery_policy` block to opt into autonomous behavior.
+
+Audit retention guard (D268 / #599): the auto-finalize circuit breaker is an
+intentional recovery guard for repeated live auto-finalize failures on the same
+workflow job. It prevents the recovery loop from retrying a publish/verdict/
+finalize failure until the sweeper itself becomes the outage. Deleting the table
+or status surface requires a fresh evidence pass proving no sweep/status/doctor/
+operator path depends on it.
+
 Abandoned-run auto-cancel is the D184 exception to RFC 0020's earlier
 auto-cancel deferral: the resident scheduler and explicit `recovery.sweep` path
 may cancel a running run after the default 24h abandonment threshold when there
@@ -2417,6 +2433,20 @@ retired. Supervision state and delivery are daemon-owned; supervised lane
 processes default to the daemon OS user, or launch as the configured
 `STRIATUM_LANE_OS_USER` through noninteractive sudo when the host adopts the
 PG-less lane-user profile.
+
+Supervisor table split guard (D266 / #608): the current three-table split is
+intentional until an equivalence-tested collapse plan exists.
+
+| Table | Owned invariant |
+|---|---|
+| `process_supervisors` | Repo-scoped supervised lane record: session/run binding, adapter command, scratch/FIFO paths, pid, state, and heartbeat. |
+| `process_supervisor_pointers` | Mutable run/session pointer and delivery/liveness metadata used by attestation, packet delivery, recovery probes, and heartbeat coalescing. |
+| `daemon_supervisors` | Daemon-instance launch envelope: command hash, daemon instance id, cwd, stdin pipe, pid identity, and daemon-side custody. |
+
+The split must not be collapsed as a paperwork cleanup. Collapse requires
+stop/reap, heartbeat/progress, lane-attestation, and recovery-liveness
+equivalence tests.
+
 Before a supported Codex agent-loop lane is launched, `supervise.start` also
 applies the RFC 0121 lane provider-auth gate. The `provider_auth_gate` mode is
 `auto` by default, `required` to fail unsupported providers, and `off` only as

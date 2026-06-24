@@ -60,6 +60,35 @@ gets a Striatum workflow").
 - ✨ **Feature** — new product surface / capability. Sequenced after the
   reliability spine is solid.
 
+### Audit Closeout Budget And Subtraction Gate
+
+Decision D264 is the current operator rule for the 2026-06-24 architecture-audit
+closeout.
+
+- **Red-doctor budget:** while `striatum doctor` is red, do not start new
+  feature-wave RFC design/build work. Work may continue only when it reduces
+  integrity risk, recovery risk, source-of-truth drift, or an explicit audit
+  closeout ambiguity.
+- **RFC/WIP cap:** after doctor is green, start at most two new in-flight design
+  runs per wave before one ships, is canceled, or is explicitly quarantined.
+  Existing in-flight Wave 0/Wave 1 reliability designs are grandfathered: finish
+  or cancel them before launching more.
+- **Self-hosting tax vs. adopter-critical reliability:** classify each new
+  reliability item before sequencing it. Self-hosting tax protects Striatum's
+  own dogfood economics, such as many concurrent lanes on one shared host.
+  Adopter-critical reliability blocks a fresh target repository/operator on the
+  documented single-box path. Example classifications: RFC 0166 is self-hosting
+  tax until second-adopter evidence appears; RFC 0142 P4 and RFC 0133 fan-in are
+  adopter-critical because they protect schema deployment and final tree
+  correctness.
+- **Feature-wave fuse:** Wave 4 remains blocked until a subtraction release
+  closes or explicitly quarantines README/front-door truth, root record cleanup,
+  fan-in #527, crossrepo #598, auto-finalize #599, recovery split #600, branch
+  pruning #602, WIP budget #603, self-hosting classification #604, feature gate
+  #605, deploy substrate #606, TODO/changelog tax #607, and supervisor split
+  #608. Any exception must name the product reason and accepted risk in this
+  file before the work starts.
+
 ---
 
 ## The sequence

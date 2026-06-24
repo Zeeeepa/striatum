@@ -37,7 +37,7 @@ listed collectively via an aggregate directory row, not file by file.
 | [prd.md](reference/prd.md) | Product reader | The product requirements that drove the V1 design. |
 | [decision-log.md](decisions/decision-log.md) | Product / architecture reader | Every product and architecture decision (`D###` rows) with reason, consequences, and revisit triggers. |
 | [ubiquitous-language.md](reference/ubiquitous-language.md) | Anyone | Glossary of striatum-specific terms (run, session, lease, work packet, lane, etc.). |
-| [todo.md](reference/todo.md) | Maintainer | Product-improvement tracker. Verify current issue state against `operator/BRIEF.md` and GitHub before treating older entries as live work. |
+| [todo.md](reference/todo.md) | Maintainer | Archived pointer retained for older links; current work lives in `operator/BRIEF.md`, `operator/rfc-roadmap.md`, bootstrap output, and open GitHub issues. |
 | [roadmap.md](reference/roadmap.md) | Operator kicking off / resuming work | Forward-looking sequencing of TODO items, RFC follow-ups, and active runway. Use only after `operator/BRIEF.md`; live issue frontiers belong in the brief until roadmap refresh is mechanized. |
 | [releasing.md](how-to/releasing.md) | Maintainer | Versioning policy and release cadence: when to bump major/minor/patch, the pre-release checklist, and changelog discipline. |
 | [command-authority-matrix.md](reference/command-authority-matrix.md) | Maintainer | Inventory of CLI/RPC authority paths across Go daemon RPC route translations, capability scopes, and local PostgreSQL authority guardrails. |
