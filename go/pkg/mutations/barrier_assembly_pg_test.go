@@ -46,8 +46,9 @@ func insertBarrierAssemblyJob(ctx context.Context, runner execer, repoID, runID,
 // deployment-tolerance fence: the in-Go probe jobBarrierAssemblyTypePermitted
 // reports FALSE on a runtime-migrated-only database (owner bundle 0013 unapplied)
 // and TRUE once the bundle is applied — without itself raising a CHECK violation.
-// A behind-deployment must fall back to D206 (the opt-in is gated on this probe),
-// never persist a barrier_assembly job and crash the CHECK.
+// A behind-deployment must not persist an explicit barrier_assembly job and crash
+// the CHECK. The default D269 fan-in path assembles inline at the downstream gate
+// and does not require this owner-bundle probe.
 func TestBarrierAssemblyJobTypePermittedTracksOwnerBundle(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.Pool(t)
@@ -59,8 +60,8 @@ func TestBarrierAssemblyJobTypePermittedTracksOwnerBundle(t *testing.T) {
 	intgSeedRun(t, ctx, runner, repoID, runID, map[string]any{"workflow_id": "wf"})
 
 	// BEHIND-DEPLOYMENT (bundle < 13): the probe reports NOT permitted, and a
-	// barrier_assembly INSERT would CHECK-fail. The opt-in is gated on the probe, so
-	// D206 stays the path; nothing crashes.
+	// barrier_assembly INSERT would CHECK-fail. The explicit dispatcher is gated on
+	// the probe, so nothing crashes.
 	tx := beginBarrierTx(t, ctx, pool)
 	permitted, err := jobBarrierAssemblyTypePermitted(ctx, tx)
 	if err != nil {

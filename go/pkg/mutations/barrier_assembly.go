@@ -8,17 +8,16 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-// RFC 0135 P2 (D215/D216) — assembly as a recoverable `barrier_assembly` job with
-// two-phase journaling + N=1 unification (#346). This graduates the P1 opt-in
-// assembly plumbing (assembleFaninBarrier in barrier_fanin.go) into a first-class,
+// RFC 0135 P2 (D215/D216/D269) — recoverable fan-in assembly with two-phase
+// journaling + N=1 unification (#346). This graduates assembleFaninBarrier into a
 // CRASH-RECOVERABLE operation backed by the striatumd.barrier_state journal
 // (runtime migration 0030: sealed -> assembling -> committed|failed).
 //
-// CUTOVER DISCIPLINE (unchanged from P1): the shipped D206 per-completion
-// run-branch merge stays the DEFAULT path. The barrier_assembly job type and this
-// recoverable assembly are OPT-IN / shadow — a workflow flips onto them only after
-// the same-final-tree equivalence fixture (P1) proves byte-identical output. P2
-// does NOT flip the default.
+// CUTOVER DISCIPLINE: confirmed fan-in runs use this assembly by default at the
+// downstream gate. STRIATUM_BARRIER_FANIN=0 restores the D206 per-completion
+// run-branch merge. The explicit barrier_assembly job type remains as a compatibility
+// dispatcher surface and still requires owner bundle 0013 before such a job can be
+// persisted.
 //
 // TWO-STORE CONSISTENCY (RFC 0133 / RFC 0135 Risks). The PG state transition and
 // the git CAS that advances the run branch cannot share one transaction, so the

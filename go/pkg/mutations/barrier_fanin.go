@@ -12,19 +12,18 @@ import (
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
 
-// RFC 0135 P1 (D216) — the FIRST LIVE instance of the sealed expectation barrier:
+// RFC 0135 P1 (D216/D269) — the FIRST LIVE instance of the sealed expectation barrier:
 // fan-in with entity=job, seal=attempt (#345). This is RFC 0133's Slice 2 barrier,
 // lifted to consume the entity/seal-generic predicate P0 minted in
 // db.BarrierReadySQL.
 //
-// CUTOVER DISCIPLINE (RFC 0135 / RFC 0133 "Migration and rollout"): this is an
-// OPT-IN, shadow mechanism. The shipped D206 per-completion run-branch merge
-// (fanInIntegrateRunBranch in worktree.go) stays the DEFAULT path. The barrier and
-// the per-completion path produce the SAME final tree for any completion order —
-// proven by TestFaninBarrierSameFinalTreeAsPerCompletion (the same-final-tree
-// equivalence fixture) — before any workflow flips to the barrier. P2 (assembly +
-// the barrier_assembly job type) and the default-flip come later; nothing here
-// wires the barrier into the live completion path or changes the default.
+// CUTOVER DISCIPLINE (RFC 0135 / RFC 0133 "Migration and rollout"): this path is
+// live by default for confirmed fan-in runs, with STRIATUM_BARRIER_FANIN=0 as the
+// recoverable kill switch back to the shipped D206 per-completion run-branch merge
+// (fanInIntegrateRunBranch in worktree.go). The barrier and the per-completion path
+// produce the SAME final tree for any completion order — proven by
+// TestFaninBarrierSameFinalTreeAsPerCompletion and the live-wiring regression
+// TestFaninCutoverStagesPinsAndAssemblesBeforeDownstreamQueues.
 //
 // The trap-killer property (RFC 0133 synthesis trap #1, generalized to seal):
 // readiness JOINs each declared in-edge's staged contribution against the seat's
@@ -788,19 +787,16 @@ func voidFaninContribution(ctx context.Context, runner db.TxRunner, repoRoot, re
 
 // assembleFaninBarrier folds every live-staged sibling contribution onto the
 // frozen tip in canonical workflow_job_id order, producing ONE deterministic
-// assembled tree — the deferred post-completion join (RFC 0133 Slice 3, the part
-// P1 ships as the opt-in mechanism without yet promoting it to a barrier_assembly
-// job type). It reuses the EXACT merge-tree/commit-tree plumbing the D206
+// assembled tree — the deferred post-completion join (RFC 0133 Slice 3). It reuses
+// the EXACT merge-tree/commit-tree plumbing the D206
 // per-completion path uses (mergeTreeWriteTree → commit-tree), so the assembled
 // tree is byte-identical to the per-completion result for disjoint write scopes —
-// the property TestFaninBarrierSameFinalTreeAsPerCompletion asserts before any
-// workflow flips to the barrier.
+// the property TestFaninBarrierSameFinalTreeAsPerCompletion asserts.
 //
 // It returns the assembled tree sha, the resulting commit sha, and the ordered
 // in-edges it folded (for the manifest). It NEVER advances the run branch ref by
-// itself; the caller (the opt-in barrier_assembly path, P2) does the CAS
-// update-ref under the lock. P1 keeps the assembly OUT of the default completion
-// path — the default stays D206 per-completion.
+// itself; the caller (`runBarrierAssembly`, reached from the downstream gate or the
+// explicit barrier_assembly dispatcher) does the CAS update-ref under the lock.
 func assembleFaninBarrier(ctx context.Context, runner db.TxRunner, repoRoot, repositoryID, barrierID string) (treeSHA, commitSHA string, edges []faninManifestInEdge, err error) {
 	fp, err := loadFaninFreezePoint(ctx, runner, repositoryID, barrierID)
 	if err != nil {

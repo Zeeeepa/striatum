@@ -83,7 +83,7 @@ closeout.
   correctness.
 - **Feature-wave fuse:** Wave 4 remains blocked until a subtraction release
   closes or explicitly quarantines README/front-door truth, root record cleanup,
-  fan-in #527, crossrepo #598, auto-finalize #599, recovery split #600, branch
+  crossrepo #598, auto-finalize #599, recovery split #600, branch
   pruning #602, WIP budget #603, self-hosting classification #604, feature gate
   #605, deploy substrate #606, TODO/changelog tax #607, and supervisor split
   #608. Any exception must name the product reason and accepted risk in this
@@ -119,7 +119,7 @@ closeout.
 |---|---|---|---|---|---|---|
 | 4 | **0166** | 🛡 | Completion deadline for an alive-but-never-completing lane (sealed-progress silence budget) | ⏸ **design v2 banked — run canceled 2026-06-24** (operator left mid-fan-out; dialogue at `backup/rfc-0166-design-v2-2026-06-24`; resume via fresh `-v3`) — v1 ratified the AND-not-OR core, returned `needs_revision` on C1 (novelty-aware clock: one primitive for all reset surfaces, junk-artifact can't move the floor) + C2 (corrected no-false-kill for an alive-working lane); v2 discharges both | #576 |
 | 5 | **0162 + #569** | 🛡 | Lane auth silent-failure observability — detect absence-of-success; finish the detection layers + a live game-day | done (MVP shipped) | — | #569 |
-| 6 | **0133** | 🛡 | Fan-in deferred-join barrier cutover — wire `recordFaninFreezePoint`, flip `STRIATUM_BARRIER_FANIN`, retire `fanInIntegrateRunBranch` | done | equivalence run | #527 |
+| 6 | **0133** | 🛡 | Fan-in deferred-join barrier cutover — live default with `STRIATUM_BARRIER_FANIN=0` kill switch; stage+pin siblings and assemble before downstream join queues | ✅ **BUILT + PG-VERIFIED** (`D269`; source proof only while doctor is red) | live deployment equivalence after doctor green | #527 |
 
 ### Wave 2 — Deployment-safety chain (build on Wave 0's P4)
 

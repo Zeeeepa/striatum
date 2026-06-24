@@ -930,23 +930,26 @@ func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID st
 	runID := fmt.Sprint(job["run_id"])
 	jobID := fmt.Sprint(job["job_id"])
 	attempt := intValue(job["attempt"])
+	workflowJobID := strings.TrimSpace(fmt.Sprint(job["workflow_job_id"]))
+	if barrierFaninAssemblyEnabled() {
+		if tx, ok := runner.(db.TxRunner); ok && workflowJobID != "" && workflowJobID != "<nil>" {
+			barrierID, found, berr := faninBarrierForSeat(ctx, tx, repositoryID, runID, workflowJobID)
+			if berr != nil {
+				return nil, berr
+			}
+			if found {
+				return anchorFaninBarrierContribution(ctx, tx, repoRoot, repositoryID, runID, workflowJobID, jobID, barrierID, runBranch, worktree, attempt)
+			}
+		}
+	}
 	payload, err := anchorWorktreeCommitStack(ctx, repoRoot, runID, jobID, runBranch, worktree, attempt)
 	if err != nil {
 		return nil, err
 	}
-	// RFC 0135 P1 (#354, D246/D254) — the staging-at-completion hook. SHADOW: it is a
-	// strict no-op unless the fan-in fold is opted in (STRIATUM_BARRIER_FANIN=1) AND
-	// the completing seat is a declared in-edge of a recorded fan-in freeze point.
-	// On the default path no run declares a fan-in (the live fan-out caller
-	// recordRunFaninFreezePoints, #527, records a freeze point only when the same
-	// opt-in is on), so this never stages on a default-path run and the per-completion
-	// merge (done above by anchorWorktreeCommitStack) remains the sole fan-in path.
-	// It is ADDITIVE to the merge: it records the durable staging witness without
-	// changing how the run branch advanced. The per-job worktree HEAD the anchor
-	// recorded (payload["head"]) is the staged contribution commit.
+	// Non-fan-in path: D206 per-completion anchoring remains active. If no freeze
+	// point declares this seat, the staging hook no-ops.
 	if barrierFaninAssemblyEnabled() {
 		if tx, ok := runner.(db.TxRunner); ok {
-			workflowJobID := strings.TrimSpace(fmt.Sprint(job["workflow_job_id"]))
 			head := strings.TrimSpace(fmt.Sprint(payload["head"]))
 			if workflowJobID != "" && workflowJobID != "<nil>" && isFullGitSHA(head) {
 				stagedRef, serr := stageFaninContributionAtCompletion(ctx, tx, repoRoot, repositoryID, runID, workflowJobID, jobID, head, attempt)
@@ -960,6 +963,43 @@ func anchorActiveWorktreeForJob(ctx context.Context, runner any, repositoryID st
 		}
 	}
 	return payload, nil
+}
+
+func anchorFaninBarrierContribution(ctx context.Context, runner db.TxRunner, repoRoot, repositoryID, runID, workflowJobID, jobID, barrierID, runBranch string, worktree map[string]any, attempt int) (map[string]any, error) {
+	target, err := worktreeTarget(repoRoot, fmt.Sprint(worktree["worktree_path"]))
+	if err != nil {
+		return nil, err
+	}
+	head, err := gitRevParseCommit(ctx, target, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	runRef := "refs/heads/" + runBranch
+	payload := map[string]any{
+		"anchor":           "none",
+		"head":             head,
+		"worktree_id":      worktree["worktree_id"],
+		"worktree_path":    worktree["worktree_path"],
+		"run_branch":       runBranch,
+		"run_ref":          runRef,
+		"fanin_barrier_id": barrierID,
+	}
+	if runTip, rerr := gitRevParseCommit(ctx, repoRoot, runRef); rerr == nil {
+		payload["run_branch_tip"] = runTip
+	} else {
+		payload["run_branch_missing"] = true
+	}
+	stagedRef, err := stageFaninContribution(ctx, runner, repoRoot, repositoryID, barrierID, runID, workflowJobID, jobID, head, attempt)
+	if err != nil {
+		return nil, err
+	}
+	pinned, err := pinWorktreeCommitStack(ctx, repoRoot, runID, jobID, head, payload, attempt)
+	if err != nil {
+		return nil, err
+	}
+	pinned["fanin_staged_ref"] = stagedRef
+	pinned["run_branch_update"] = "deferred_until_fanin_barrier_commits"
+	return pinned, nil
 }
 
 func requireActiveWorktreeForJob(ctx context.Context, runner any, repositoryID string, job map[string]any, surface string) (map[string]any, error) {

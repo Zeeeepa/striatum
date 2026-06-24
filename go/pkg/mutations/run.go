@@ -1190,13 +1190,10 @@ func runPrepare(ctx context.Context, runner any, repositoryID string, workflowPa
 			return nil, err
 		}
 	}
-	// RFC 0133 fan-in barrier cutover — the live fan-out seam (#527). Record an
-	// immutable fan-in freeze point for every downstream join seat that has two or more
-	// upstream siblings, frozen at the confirmed run-branch tip. This is the missing
-	// production caller of recordFaninFreezePoint (D246's revisit trigger). It is a
-	// STRICT NO-OP unless STRIATUM_BARRIER_FANIN=1 (shadow default off) AND the branch
-	// is already confirmed, so on the default path it records nothing and the shipped
-	// D206 per-completion merge stays the sole, byte-for-byte-unchanged fan-in path.
+	// RFC 0133 fan-in barrier cutover (#527). Record an immutable fan-in freeze point
+	// for every downstream join seat that has two or more upstream siblings, frozen at
+	// the confirmed run-branch tip. STRIATUM_BARRIER_FANIN=0 is the recoverable kill
+	// switch back to the shipped D206 per-completion merge path.
 	frozenTip := ""
 	if state == "ready" && suggestedBranch != "" {
 		if tip, ferr := gitRevParseCommit(ctx, repoRoot, "refs/heads/"+suggestedBranch); ferr == nil {

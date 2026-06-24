@@ -14,13 +14,14 @@ author: operator-claude-opus-4-8-001
 
 ## 2026-06-24 delta — audit closeout gates
 
-The 2026-06-24 architecture-audit closeout added D264-D268. Operators must not
+The 2026-06-24 architecture-audit closeout added D264-D269. Operators must not
 launch new feature-wave RFC design/build work while `striatum doctor` is red.
 Use direct sync-guarded operator commits, not daemon dogfood flows, for narrow
 source/truth fixes until integrity is green again. `docs/operator/rfc-roadmap.md`
 now carries the active WIP cap, self-hosting-tax classification, and
-subtraction-release checklist. The immediate audit closeout set is #597, #598,
-#599, #600, #602, #603, #604, #605, #606, #607, #608, plus #584 and #527.
+subtraction-release checklist. D269 closes the #527 source cutover with PG/unit
+proof: fan-in is live by default, `STRIATUM_BARRIER_FANIN=0` is the kill switch,
+and live deployment equivalence is deferred until `striatum doctor` is green.
 
 ## 2026-06-24 delta — RFC 0167 P0 built + verified + integrated (deploy pending quiescence)
 

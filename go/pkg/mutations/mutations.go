@@ -1044,6 +1044,98 @@ func dependenciesSatisfied(ctx context.Context, runner any, repositoryID, jobID 
 			return false, nil
 		}
 	}
+	if len(deps) > 1 {
+		assembled, err := ensureFaninBarrierCommittedForGate(ctx, runner, repositoryID, jobID)
+		if err != nil {
+			return false, err
+		}
+		if !assembled {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func ensureFaninBarrierCommittedForGate(ctx context.Context, runner any, repositoryID, jobID string) (bool, error) {
+	if !barrierFaninAssemblyEnabled() {
+		return true, nil
+	}
+	gate, err := rowByID(ctx, runner, repositoryID, "jobs", "job_id", jobID, false)
+	if err != nil {
+		return false, err
+	}
+	runID := strings.TrimSpace(fmt.Sprint(gate["run_id"]))
+	workflowJobID := strings.TrimSpace(fmt.Sprint(gate["workflow_job_id"]))
+	if runID == "" || runID == "<nil>" || workflowJobID == "" || workflowJobID == "<nil>" {
+		return true, nil
+	}
+	rows, err := queryRows(ctx, runner, `
+		SELECT barrier_id
+		  FROM striatumd.fanin_freeze_points
+		 WHERE repository_id = $1
+		   AND run_id = $2
+		   AND downstream_workflow_job_id = $3
+		 ORDER BY barrier_id
+		 LIMIT 1`, repositoryID, runID, workflowJobID)
+	if err != nil {
+		return false, err
+	}
+	if len(rows) == 0 {
+		return true, nil
+	}
+	tx, ok := runner.(db.TxRunner)
+	if !ok {
+		return false, rpc.NewError("invalid_transition",
+			"fan-in barrier gate assembly requires a transaction; retry through the daemon completion path",
+			map[string]any{"job_id": jobID, "run_id": runID})
+	}
+	barrierID := strings.TrimSpace(fmt.Sprint(rows[0]["barrier_id"]))
+	if err := lockRun(ctx, tx, repositoryID, runID); err != nil {
+		return false, err
+	}
+	state, err := loadBarrierAssemblyState(ctx, tx, repositoryID, barrierID)
+	if err != nil {
+		return false, err
+	}
+	if state.Present && state.State == barrierStateCommitted {
+		return true, nil
+	}
+	ready, err := faninBarrierReady(ctx, tx, repositoryID, barrierID)
+	if err != nil {
+		return false, err
+	}
+	if !ready {
+		return false, nil
+	}
+	run, err := rowByID(ctx, tx, repositoryID, "runs", "run_id", runID, false)
+	if err != nil {
+		return false, err
+	}
+	runBranch := strings.TrimSpace(fmt.Sprint(run["branch_name"]))
+	if runBranch == "" || runBranch == "<nil>" || nullable(run["branch_confirmed_at"]) == nil {
+		return false, rpc.NewError("invalid_transition",
+			"fan-in barrier assembly requires a confirmed run branch",
+			map[string]any{"run_id": runID, "barrier_id": barrierID})
+	}
+	repoRoot, err := activeRepositoryRoot(ctx, tx, repositoryID)
+	if err != nil {
+		return false, err
+	}
+	result, err := runBarrierAssembly(ctx, tx, repoRoot, "refs/heads/"+runBranch, repositoryID, barrierID,
+		"barrier_assembly_"+workflowJobID, "barrier_assembly_"+jobID)
+	if err != nil {
+		return false, err
+	}
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, "barrier.assembled", nil, jobID, nil, nil, nil, map[string]any{
+		"barrier_id":       barrierID,
+		"workflow_job_id":  workflowJobID,
+		"commit_sha":       result.CommitSHA,
+		"tree_sha":         result.TreeSHA,
+		"mode":             result.Mode,
+		"assembly_surface": "downstream_gate",
+	}); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 

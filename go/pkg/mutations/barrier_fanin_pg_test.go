@@ -230,7 +230,7 @@ func TestSealedBarrierRequeueTombstone(t *testing.T) {
 }
 
 // TestFaninBarrierSameFinalTreeAsPerCompletion is the RFC 0135 / RFC 0133 cutover
-// discipline fence — the same-final-tree EQUIVALENCE FIXTURE. It proves the opt-in
+// discipline fence — the same-final-tree EQUIVALENCE FIXTURE. It proves the
 // barrier assembly (assembleFaninBarrier: fold staged refs onto the frozen tip in
 // canonical workflow_job_id order) produces a tree BYTE-IDENTICAL to the shipped
 // D206 per-completion run-branch merge (fanInIntegrateRunBranch), for two
@@ -264,7 +264,7 @@ func TestFaninBarrierSameFinalTreeAsPerCompletion(t *testing.T) {
 	}
 	d206Tree := gitRun(t, d206Root, "rev-parse", "refs/heads/"+runBranch+"^{tree}")
 
-	// --- Branch 2: the opt-in barrier assembly over the SAME staged contributions. ---
+	// --- Branch 2: the barrier assembly over the SAME staged contributions. ---
 	barrierRoot := t.TempDir()
 	bbase := gitInit(t, barrierRoot)
 	// Reproduce the same two sibling commits off the same base content. gitInit

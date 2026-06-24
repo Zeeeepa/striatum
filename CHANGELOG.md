@@ -190,22 +190,17 @@
   `workflow_json` field. Alternative A (the `in_flight_sibling_gating_seats`
   legibility count) shipped earlier in #549.
 
-- **RFC 0133 fan-in barrier: `recordFaninFreezePoint` is now wired into a live
-  fan-out, in SHADOW (#527, the last build leg of #354; D254).** At run
-  materialization (`run.prepare`) the daemon now records an immutable fan-in
-  freeze point for every downstream join seat with two or more upstream siblings
-  (a single-upstream chain edge is skipped), declaring the sibling set against
-  the confirmed run-branch tip. This is the missing production caller D246's
-  revisit trigger named: with it, an opted-in run finally exercises the fan-in
-  barrier end-to-end (recorder → staging-at-completion hook → `barrier_assembly`
-  dispatcher → assembly). It is a **strict no-op unless `STRIATUM_BARRIER_FANIN=1`**
-  (the existing shadow opt-in, default OFF) and is **additive** — it only writes
-  the freeze record; the shipped D206 per-completion run-branch merge stays the
-  sole, byte-for-byte-unchanged fan-in path for every non-opted-in run. **The
-  default is NOT flipped**; the operator go-live flip (apply owner bundle 0013,
-  confirm the same-final-tree fixture against a real deployment, set
-  `STRIATUM_BARRIER_FANIN=1`, retire `fanInIntegrateRunBranch`) remains, and #354
-  stays open until then.
+- **RFC 0133 fan-in barrier is live by default (#527/#354; D269).** Confirmed
+  fan-in runs now record immutable freeze points at materialization, complete
+  declared siblings by staging attempt-addressed contributions plus exact job
+  pins, and assemble the ready barrier through the two-phase `runBarrierAssembly`
+  path before the downstream join job queues. `STRIATUM_BARRIER_FANIN=0` is the
+  recoverable kill switch back to the D206 per-completion merge; unconfirmed
+  branches and non-declared fan-in seats also keep the legacy path. New PG
+  regression `TestFaninCutoverStagesPinsAndAssemblesBeforeDownstreamQueues`
+  covers stage+pin, no premature run-branch movement, barrier commit, and join
+  enqueue. Live daemon equivalence proof remains deferred while `striatum doctor`
+  is red; the closeout used PG/unit integration proof.
 - **Canonical operator read-surface `state_projection` (RFC 0157 / D251, #481).**
   `run summary --json`, `dashboard --once`, and `status --json` now all emit one
   additive, identical `state_projection` block — `{run_state, jobs:[{id,state}]}`

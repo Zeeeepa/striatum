@@ -11,15 +11,15 @@ import (
 )
 
 // withFaninAssemblyFlag runs fn with STRIATUM_BARRIER_FANIN forced to a known value,
-// restoring the prior env afterward. The flag default is OFF (shadow); the equivalence
-// fixture pins the opted-in (assembly) path against the legacy per-completion default.
+// restoring the prior env afterward. The flag default is ON; false forces the
+// recoverable D206 kill switch.
 func withFaninAssemblyFlag(t *testing.T, on bool, fn func()) {
 	t.Helper()
 	prior, had := os.LookupEnv("STRIATUM_BARRIER_FANIN")
 	if on {
-		_ = os.Setenv("STRIATUM_BARRIER_FANIN", "1")
-	} else {
 		_ = os.Unsetenv("STRIATUM_BARRIER_FANIN")
+	} else {
+		_ = os.Setenv("STRIATUM_BARRIER_FANIN", "0")
 	}
 	defer func() {
 		if had {
@@ -56,8 +56,8 @@ func seedFaninDispatchRepo(t *testing.T, ctx context.Context, runner interface {
 // DispatchBarrierAssembly folding them onto the frozen tip and CAS-advancing the run
 // branch — produces a run-branch tree BYTE-IDENTICAL to the shipped D206
 // per-completion merge (fanInIntegrateRunBranch), for two disjoint-write-scope
-// siblings. This is the gate that justifies a future operator flip of
-// STRIATUM_BARRIER_FANIN to live; the code ships in shadow (flag OFF) regardless.
+// siblings. This remains the equivalence proof behind the explicit dispatcher and
+// the downstream-gate live default.
 func TestFaninAssemblyDispatchSameFinalTreeAsPerCompletion(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
@@ -83,7 +83,7 @@ func TestFaninAssemblyDispatchSameFinalTreeAsPerCompletion(t *testing.T) {
 	}
 	d206Tree := gitRun(t, d206Root, "rev-parse", "refs/heads/"+runBranch+"^{tree}")
 
-	// --- The wired opt-in path: stage-at-completion + dispatch the assembly. ---
+	// --- The wired barrier path: stage-at-completion + dispatch the assembly. ---
 	barrierRoot := t.TempDir()
 	bbase := gitInit(t, barrierRoot)
 	runRef := "refs/heads/" + runBranch
@@ -113,7 +113,7 @@ func TestFaninAssemblyDispatchSameFinalTreeAsPerCompletion(t *testing.T) {
 
 	// Stage BOTH siblings through the production staging-at-completion hook (flag ON).
 	// The hook resolves each seat's fan-in barrier from the freeze record and stages
-	// the contribution; with the flag off it would be a strict no-op (asserted below).
+	// the contribution; with the kill switch on it is a strict no-op (asserted below).
 	withFaninAssemblyFlag(t, true, func() {
 		refA, err := stageFaninContributionAtCompletion(ctx, tx, barrierRoot, repoID, runID, "author_a", "job_a", bHeadA, 1)
 		if err != nil {
@@ -162,11 +162,10 @@ func TestFaninAssemblyDispatchSameFinalTreeAsPerCompletion(t *testing.T) {
 	}
 }
 
-// TestFaninAssemblyDispatchShadowDefaultIsNoOp proves the SHADOW default: with
-// STRIATUM_BARRIER_FANIN unset, the staging-at-completion hook is a strict no-op
-// (stages nothing, returns "") and the dispatcher REFUSES — so wiring these into the
-// completion path cannot change any current run's behavior.
-func TestFaninAssemblyDispatchShadowDefaultIsNoOp(t *testing.T) {
+// TestFaninAssemblyDispatchKillSwitchIsNoOp proves the recoverable kill switch:
+// with STRIATUM_BARRIER_FANIN=0, the staging-at-completion hook is a strict no-op
+// (stages nothing, returns "") and the dispatcher refuses.
+func TestFaninAssemblyDispatchKillSwitchIsNoOp(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not on PATH: %v", err)
 	}
@@ -196,15 +195,15 @@ func TestFaninAssemblyDispatchShadowDefaultIsNoOp(t *testing.T) {
 		t.Fatalf("record freeze point: %v", err)
 	}
 
-	// Default (flag OFF): the staging hook is a strict no-op EVEN for a declared
-	// in-edge with a recorded freeze point.
+	// Kill switch: the staging hook is a strict no-op EVEN for a declared in-edge
+	// with a recorded freeze point.
 	withFaninAssemblyFlag(t, false, func() {
 		ref, err := stageFaninContributionAtCompletion(ctx, tx, root, repoID, runID, "author_a", "job_a", head, 1)
 		if err != nil {
-			t.Fatalf("shadow staging hook errored (must be a clean no-op): %v", err)
+			t.Fatalf("disabled staging hook errored (must be a clean no-op): %v", err)
 		}
 		if ref != "" {
-			t.Fatalf("shadow staging hook staged a contribution (ref=%q); the default must not stage", ref)
+			t.Fatalf("disabled staging hook staged a contribution (ref=%q); kill switch must not stage", ref)
 		}
 	})
 	// No staging row was written.
@@ -215,14 +214,14 @@ func TestFaninAssemblyDispatchShadowDefaultIsNoOp(t *testing.T) {
 		t.Fatalf("read staged rows: %v", err)
 	}
 	if len(staged) != 0 {
-		t.Fatalf("shadow path wrote %d staging row(s); the default must stage nothing", len(staged))
+		t.Fatalf("kill-switch path wrote %d staging row(s); disabled path must stage nothing", len(staged))
 	}
 	_ = tx.Rollback(ctx)
 
-	// The dispatcher refuses on the default path (opt-in off).
+	// The dispatcher refuses when the kill switch is on.
 	withFaninAssemblyFlag(t, false, func() {
 		if _, err := DispatchBarrierAssembly(ctx, runner, repoID, runID, barrierID, "refs/heads/wf", "asm", "job_asm"); err == nil {
-			t.Fatal("DispatchBarrierAssembly must REFUSE with STRIATUM_BARRIER_FANIN unset (shadow default)")
+			t.Fatal("DispatchBarrierAssembly must REFUSE with STRIATUM_BARRIER_FANIN=0")
 		}
 	})
 }
@@ -230,8 +229,7 @@ func TestFaninAssemblyDispatchShadowDefaultIsNoOp(t *testing.T) {
 // TestFaninBarrierForSeatResolvesDeclaredInEdge proves faninBarrierForSeat resolves
 // the fan-in barrier a declared seat belongs to, and returns (found=false) for a seat
 // no freeze record declares — which is why the staging hook no-ops on every run that
-// declared no fan-in (every run today, since recordFaninFreezePoint has no live
-// fan-out caller).
+// declared no fan-in.
 func TestFaninBarrierForSeatResolvesDeclaredInEdge(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.Pool(t)

@@ -1,6 +1,6 @@
 # RFC 0133: Fan-in deferred join barrier and join manifest
 
-Status: accepted / implemented (D213; folded into RFC 0135 P1; barrier_assembly dispatcher + staging-at-completion wired in shadow behind `STRIATUM_BARRIER_FANIN`, D246/#354)
+Status: accepted / implemented (D213; folded into RFC 0135 P1/P2; live by default with `STRIATUM_BARRIER_FANIN=0` kill switch, D269/#527/#354)
 Date: 2026-06-17
 author: proposer-claude-opus-4-8-001
 Context:
@@ -8,13 +8,13 @@ Context:
   fan-in to a deferred post-completion join barrier + join manifest", kept open
   as a tracked enhancement (not a bug fix). This RFC is that graduation.
 - GitHub [#290](https://github.com/halbritt/striatum/issues/290) (closed) and
-  Decision [D206](../decisions/decision-log.md) — the **already-shipped**
-  per-completion fan-in integration. A non-fast-forwardable sibling is merged into
-  the run branch via an object-DB content merge (`fanInIntegrateRunBranch` in
+  Decision [D206](../decisions/decision-log.md) — the already-shipped
+  per-completion fan-in integration. A non-fast-forwardable sibling can be merged
+  into the run branch via an object-DB content merge (`fanInIntegrateRunBranch` in
   `go/pkg/mutations/worktree.go`), guarded by the `fanin_sibling_unintegrated`
   doctor warning (`go/pkg/reads/worktree_refs.go:85`). **The stranding bug is
-  fixed.** This RFC graduates the per-completion merge to the more robust barrier
-  form; it does not re-fix a live bug.
+  fixed.** D269 keeps D206 as the `STRIATUM_BARRIER_FANIN=0` kill-switch fallback
+  while this RFC's barrier path is the live default for confirmed fan-in runs.
 - Decisions [D208](../decisions/decision-log.md) / [D210](../decisions/decision-log.md)
   — the triage waves that named this graduation in their "Revisit Trigger".
 - The #290 design synthesis under
@@ -41,9 +41,9 @@ Context:
 
 ## Problem (framed as a graduation, not a bug)
 
-Today each fan-in sibling integrates into the run branch **at its own
-completion** (D206). This is correct and deployed. But it has three costs the
-#290 synthesis flagged as worth retiring:
+Before D269, each fan-in sibling integrated into the run branch **at its own
+completion** (D206). That was correct and remains the kill-switch fallback, but
+it had three costs the #290 synthesis flagged as worth retiring:
 
 1. **History is order-dependent.** N siblings produce N merges into the run
    branch, in whatever completion order happened, instead of one deterministic
@@ -249,7 +249,8 @@ every common run so it can never rot from disuse.
   the live tree first.
 - **Base drift** (#299/#306): the frozen tip diverging from the live branch.
   Handle as a recorded, recoverable extra `commit-tree` parent leg, not a CAS
-  wedge. **Implemented (#353, opt-in/shadow):** `classifyContributionBase`
+  wedge. **Implemented (#353; live when the fan-in barrier is enabled):**
+  `classifyContributionBase`
   distinguishes a **recoverable base drift** — the staged commit does not descend
   from the frozen tip but shares a real merge-base with it and folds in no foreign
   root (the run branch legitimately evolved under a sibling's feet) — from a
@@ -264,8 +265,10 @@ every common run so it can never rot from disuse.
   anchored at the merge-base, so no foreign graft can enter the recovered range.
   Regression: `TestFaninStagingRecoversBaseDrift` +
   `TestFaninStagingRefusesContaminatedBaseDrift`.
-- **Job-type CHECK ownership** (see Open Questions): adding `barrier_assembly`
-  touches the `jobs` table CHECK, which may be owner-held in production.
+- **Job-type CHECK ownership** (see Open Questions): the explicit
+  `barrier_assembly` dispatcher surface touches the `jobs` table CHECK, which may
+  be owner-held in production. The D269 default path assembles inline at the
+  downstream gate and does not require persisting that job type.
 
 ## Migration and rollout
 
@@ -276,10 +279,12 @@ every common run so it can never rot from disuse.
   record's append-only immutability and the staging table's live-attempt identity
   are the load-bearing schema constraints; referential integrity is enforced in
   Go, and each table carries its own explicit runtime grant.
-- Ship behind a workflow opt-in; existing runs keep the D206 per-completion merge
-  until they declare a barrier. The barrier and the per-completion path produce
-  the same final tree for any completion order — assert that equivalence in a
-  fixture before flipping any workflow over.
+- D246/D254 first shipped the machinery behind `STRIATUM_BARRIER_FANIN=1`.
+  D269 flipped confirmed fan-in runs to the live default: declared siblings stage
+  and pin, the downstream gate assembles, and `STRIATUM_BARRIER_FANIN=0` is the
+  rollback path to D206 per-completion merge. The barrier and the per-completion
+  path produce the same final tree for any completion order, covered by the
+  same-final-tree fixtures plus the live-wiring regression.
 
 ## Doctor and legibility
 

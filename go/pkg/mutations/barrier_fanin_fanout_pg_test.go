@@ -10,12 +10,10 @@ import (
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 )
 
-// TestRecordRunFaninFreezePointsShadowDefaultIsNoOp proves the SHADOW default of the
-// live fan-out seam (#527): with STRIATUM_BARRIER_FANIN unset, the fan-out recorder
-// writes NO freeze point even for a textbook fan-in topology, so the staging hook +
-// dispatcher stay no-ops and the shipped D206 per-completion merge remains the sole,
-// unchanged fan-in path.
-func TestRecordRunFaninFreezePointsShadowDefaultIsNoOp(t *testing.T) {
+// TestRecordRunFaninFreezePointsKillSwitchIsNoOp proves the recoverable kill switch:
+// with STRIATUM_BARRIER_FANIN=0, the fan-out recorder writes no freeze point even for
+// a textbook fan-in topology.
+func TestRecordRunFaninFreezePointsKillSwitchIsNoOp(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.Pool(t)
 	repoID := "repo_fanout_shadow"
@@ -33,21 +31,19 @@ func TestRecordRunFaninFreezePointsShadowDefaultIsNoOp(t *testing.T) {
 
 	withFaninAssemblyFlag(t, false, func() {
 		if err := recordRunFaninFreezePoints(ctx, tx, repoID, runID, frozenTip, edges); err != nil {
-			t.Fatalf("shadow fan-out recorder errored (must be a clean no-op): %v", err)
+			t.Fatalf("disabled fan-out recorder errored (must be a clean no-op): %v", err)
 		}
 	})
 	if n := countFreezePoints(t, ctx, tx, repoID, runID); n != 0 {
-		t.Fatalf("shadow default recorded %d freeze point(s); the default must record none", n)
+		t.Fatalf("kill switch recorded %d freeze point(s); disabled path must record none", n)
 	}
 }
 
-// TestRecordRunFaninFreezePointsRecordsDeclaredSiblingSet proves the OPT-IN live
-// fan-out path (#527): with STRIATUM_BARRIER_FANIN=1 and a confirmed frozen tip, the
+// TestRecordRunFaninFreezePointsRecordsDeclaredSiblingSet proves the live fan-out
+// path (#527): with the default-on fan-in barrier and a confirmed frozen tip, the
 // recorder writes exactly one freeze point per downstream join seat with >= 2
-// upstream siblings, declaring the sorted sibling set against the frozen tip — and a
-// plain chain edge (single upstream) records nothing. This is the missing production
-// caller of recordFaninFreezePoint that D246's revisit trigger named, and it wires
-// end-to-end into the staging-at-completion predicate (faninBarrierForSeat).
+// upstream siblings, declaring the sorted sibling set against the frozen tip. A
+// plain chain edge (single upstream) records nothing.
 func TestRecordRunFaninFreezePointsRecordsDeclaredSiblingSet(t *testing.T) {
 	ctx := context.Background()
 	pool := pgtest.Pool(t)
@@ -69,7 +65,7 @@ func TestRecordRunFaninFreezePointsRecordsDeclaredSiblingSet(t *testing.T) {
 
 	withFaninAssemblyFlag(t, true, func() {
 		if err := recordRunFaninFreezePoints(ctx, tx, repoID, runID, frozenTip, edges); err != nil {
-			t.Fatalf("opt-in fan-out recorder: %v", err)
+			t.Fatalf("live fan-out recorder: %v", err)
 		}
 	})
 
