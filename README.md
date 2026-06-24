@@ -80,7 +80,7 @@ token lives under the daemon runtime directory as `client-token`.
 │         runs · sessions · jobs · leases · verdicts             │
 │         artifacts · blockers · events · audit_log              │
 ├────────────────────────────────────────────────────────────────┤
-│              Postgres striatumd schema (schema 22)             │
+│       Postgres striatumd schema (runtime schema 44 / owner 0020)│
 │    append-only events + artifacts  ·  hash-chained audit rows  │
 │    serialized audit head  ·  per-repo event chain heads        │
 └────────────────────────────────────────────────────────────────┘
@@ -301,15 +301,15 @@ owner-only socket.
 
 | Area | Status |
 |------|--------|
-| Version | v2.33.0 — latest release published 2026-06-16; Go-only runtime, PostgreSQL daemon, supervised lane recovery, RFC 0118/0120/0125-era provenance gates, and D204/D205 doctor integrity legibility are live (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.36.0 — latest release published 2026-06-23; Go-only runtime, PostgreSQL daemon, supervised lane recovery, owner-bundle watermark interlock, checkpoint artifact-integrity preflight, and installed-CLI release gating are live (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |
 | CI | Go tests, frontend checks, archive checks, and Go-only smoke scripts |
 | Daemon substrate | Daemon-owned PostgreSQL is the live state substrate; repository files are durable provenance, not the message bus |
-| Schema | Managed by Go owner-bundle migrations; see `go/pkg/db/migrations.go` and `docs/reference/spec.md` for the current contract |
+| Schema | Managed by Go runtime migrations and owner bundles; current source is `go/pkg/db/migrations.go` (runtime schema 44), `go/pkg/db/owner.go` (owner bundle 0020), and `docs/reference/spec.md` |
 | Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
-| Active work | Reliability reset gate is active: keep closed #302/#308/#309/#329 regressions covered, triage #322-#327, bound doctor warnings, and keep current-state docs truthful before feature growth resumes |
+| Active work | Run `striatum operator bootstrap --markdown` for the live frontier; current state lives in `docs/operator/BRIEF.md`, `docs/operator/rfc-roadmap.md`, and the open GitHub issues |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
 
 ---

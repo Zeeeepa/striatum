@@ -14,8 +14,8 @@ this tree holds the time-ordered, write-once tail.
 
 | Kind | Path | Files | What |
 |---|---|---|---|
-| Frozen | [`_frozen/`](_frozen/) | ~214 md | Historical per-issue / per-review / design archive (was `docs/_archive/`). |
-| Audits | [`audits/`](audits/) | 8 | Dated whole-repo audits & retrospectives (`STRIATUM_<TASK>_<MODEL>_<DATE>.md`, previously loose at the repo root). |
+| Frozen | [`_frozen/`](_frozen/) | ~215 md | Historical per-issue / per-review / design archive (was `docs/_archive/`). |
+| Audits | [`audits/`](audits/) | 18 | Dated whole-repo audits & retrospectives (`STRIATUM_<TASK>_<MODEL>_<DATE>.md`, previously loose at the repo root). |
 
 ## Not folded here (intentional)
 

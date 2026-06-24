@@ -694,6 +694,20 @@ func escalatedJobIDs(raised []map[string]any) []any {
 // so the operator should inspect before assuming the work is lost. Every other
 // class (including an empty class) gets the generic remediation set.
 func suggestedOperatorActions(stallClass string) []any {
+	if stallClass == stallClassSessionUnrecoverableAcrossRotation {
+		// RFC 0143 Slice A (#512): the rotation-lockout refinement — the lane was
+		// locked out of resealing across a daemon boot-epoch rotation. Same
+		// complete-but-unsealed remediation shape as agent_exited_unsealed (the
+		// deliverable may be durable), but with a distinct, legible rotation reason so
+		// the operator knows WHY it stopped. The supported #512 recovery is an operator
+		// requeue (Slice B's automatic reseal is RFC-0168-bounded / out of scope).
+		return []any{
+			"session unrecoverable across a daemon boot-epoch rotation (#512): the lane lost its resealing path when the daemon restarted; its deliverable may be complete-but-unsealed on the run branch",
+			"if the deliverable IS already durable on the run branch: `recovery complete-stalled --job-id <job>` to finalize from the published artifact",
+			"if the deliverable is NOT durably present: `escalation resolve <id>` to re-dispatch the job with a fresh recovery budget, then let the run drive a fresh lane (launched against the CURRENT daemon) to re-author and seal (work.complete)",
+			"otherwise capture the worktree diff and `run cancel`",
+		}
+	}
 	if stallClass == stallClassAgentExitedUnsealed {
 		return []any{
 			"inspect the per-job worktree / published artifacts: the agent emitted output but exited before work.complete, so the work may be complete-but-unsealed",

@@ -139,6 +139,87 @@ func TestPostgresAuthorizerSurfacesSessionBinding(t *testing.T) {
 	}
 }
 
+// TestIdentifyBoundSessionGrantsNoCapability is the RFC 0143 Slice A A2-attrib / A4
+// invariant (#512): IdentifyBoundSession resolves a session-bound bearer to its
+// (repositoryID, sessionID) as a PURE IDENTITY read — it grants nothing — and refuses
+// (ok=false) for every UNATTRIBUTABLE bearer (absent / malformed / wrong-secret /
+// revoked / expired / session-UNBOUND operator grant). It reads no admin token.
+func TestIdentifyBoundSessionGrantsNoCapability(t *testing.T) {
+	ctx := context.Background()
+	runner := pgtest.DB(t)
+	now := time.Date(2026, 6, 24, 9, 0, 0, 0, time.UTC)
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.repositories (
+		  repository_id, repo_identity, repo_root, state_db_path, display_name,
+		  registered_at, last_schema_version, state
+		) VALUES ('repo_id','ident_id','/tmp/repo-id','/tmp/repo-id/.striatum','repo-id',$1,22,'active')`,
+		now,
+	); err != nil {
+		t.Fatalf("insert repository: %v", err)
+	}
+	// A genuine session-BOUND lane token.
+	insertClient(t, runner, "client_lane", "tok_lane", "secret", "salt", now, "", "")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities (
+		  capability_id, client_id, repository_id, capability, granted_at, session_id
+		) VALUES ('cap_lane','client_lane','repo_id',$1,$2,'sess_lane')`,
+		string(rpc.CapabilityWrite), now,
+	); err != nil {
+		t.Fatalf("insert bound capability: %v", err)
+	}
+	// A session-UNBOUND operator token (NULL session_id) — NOT attributable to a lane.
+	insertClient(t, runner, "client_op", "tok_op", "secret", "salt", now, "", "")
+	insertCapability(t, runner, "cap_op", "client_op", "repo_id", rpc.CapabilityWrite, now, "", "")
+	// A revoked and an expired token.
+	insertClient(t, runner, "client_rev", "tok_rev", "secret", "salt", now, "", now.Format(time.RFC3339))
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities (
+		  capability_id, client_id, repository_id, capability, granted_at, session_id
+		) VALUES ('cap_rev','client_rev','repo_id',$1,$2,'sess_rev')`,
+		string(rpc.CapabilityWrite), now,
+	); err != nil {
+		t.Fatalf("insert revoked-client capability: %v", err)
+	}
+	insertClient(t, runner, "client_exp", "tok_exp", "secret", "salt", now, now.Add(-time.Minute).Format(time.RFC3339), "")
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.client_capabilities (
+		  capability_id, client_id, repository_id, capability, granted_at, session_id
+		) VALUES ('cap_exp','client_exp','repo_id',$1,$2,'sess_exp')`,
+		string(rpc.CapabilityWrite), now,
+	); err != nil {
+		t.Fatalf("insert expired-client capability: %v", err)
+	}
+
+	auth := rpc.PostgresAuthorizer{Runner: runner, Clock: func() time.Time { return now }}
+
+	// The bound lane token identifies to its (repo, session) — and NOTHING else.
+	repoID, sessID, ok := auth.IdentifyBoundSession("tok_lane.secret")
+	if !ok || repoID != "repo_id" || sessID != "sess_lane" {
+		t.Fatalf("IdentifyBoundSession(lane) = (%q,%q,%v), want (repo_id,sess_lane,true)", repoID, sessID, ok)
+	}
+
+	// Every unattributable bearer is refused (ok=false), so nothing is recorded.
+	for _, tc := range []struct {
+		name  string
+		token string
+	}{
+		{"absent", ""},
+		{"malformed", "tok_only"},
+		{"unknown", "tok_missing.secret"},
+		{"wrong_secret", "tok_lane.wrong"},
+		{"revoked", "tok_rev.secret"},
+		{"expired", "tok_exp.secret"},
+		{"session_unbound_operator", "tok_op.secret"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, s, ok := auth.IdentifyBoundSession(tc.token)
+			if ok || r != "" || s != "" {
+				t.Fatalf("IdentifyBoundSession(%s) = (%q,%q,%v), want ('','',false) — unattributable", tc.name, r, s, ok)
+			}
+		})
+	}
+}
+
 func hmacHex(salt, secret string) string {
 	mac := hmac.New(sha256.New, []byte(salt))
 	mac.Write([]byte(secret))

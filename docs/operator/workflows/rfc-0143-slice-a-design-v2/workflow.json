@@ -1,0 +1,339 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0143-slice-a-design-v2"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0143-slice-a-design-v2/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_2.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v7/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the v1 RFC 0143 Slice A spec (docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/holder/HOLDER.md) to resolve the two v1 cycle_2 findings while carrying the credited skeleton forward unregressed. Per SEED.md: (FIX-1, SA-ROTATION-UNDERFIRE, gating) make the typed session_unrecoverable_across_rotation floor FIRE on the real #512 rotation path — a session-bound lane carrying STRIATUM_MCP_TOKEN (supervision_env.go:341-343) that presents a stale boot epoch the daemon rejects as stale_daemon_identity (http.go:166-169,:681-699). Recommended forge-resistant shape: a DAEMON-SIDE observation that records the presenting session as unrecoverable-across-rotation when validateBootEpoch rejects, then the recovery sweep records the typed class for a session observed presenting a stale epoch + complete-on-disk deliverable + lane-lost. RESOLVE the pre-auth attribution sub-question concretely (validateBootEpoch runs before bearer validation, http.go:159-169) without widening any token, no over-fire on an unattributable or legitimately-relaunched lane; route the codex wedge (loop.go:625-646) to the floor; or use the honestly-scoped lane-side stale_daemon_identity to 97 fallback. (FIX-2, SA-C2-TMUX-FORGE) make the TRUSTED carrier forge-resistant (the daemon-observed rejection or the direct-path agent_exited.exit_code from the wrapper Cmd.Wait); do NOT claim the tmux #{pane_dead_status} carrier is forge-resistant — corroborate it or honestly scope it RFC-0168-bounded; add TestProviderCannotRespawnPaneToForgeUnrecoverableAcrossRotation. State the observability-only clarification (the typed floor grants no new auto-seal authority; routing no-more-privileged than agent_exited_unsealed). Carry the v1-credited skeleton forward unregressed (§1 reserved code+sentinel; §2 Spot-1 narrowing; §3.2-3.4 exact-code classification; §3.5 launch dissolution; §3.6 #292 relationship; §4 direct-path C2; no-widening). Honor every HARD CONSTRAINT. Re-verify anchors against main. Open with an auditable 'Addressing the v1 findings' resolution map. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised Slice-A spec (v2)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the revised v2 HOLDER.md, SEED.md, the v1 cycle_2 ledger (SA-ROTATION-UNDERFIRE + SA-C2-TMUX-FORGE), the RFC 0143 Decision (D261), and the v7 BC1-W1-ORACLE finding. Your lens is the DECOUPLING / REACHABILITY lens (FIX-1). Verify the typed floor ACTUALLY FIRES on the real #512 path: a normal session-bound lane (carrying STRIATUM_MCP_TOKEN, supervision_env.go:341-343) that presents a stale boot epoch rejected as stale_daemon_identity (http.go:166-169,:681-699). Attack the daemon-side attribution: validateBootEpoch runs PRE-AUTH (http.go:159-169) — does the holder's mechanism cleanly attribute the rejection to a session WITHOUT widening any token, and does an UNATTRIBUTABLE rejection avoid over-firing (a legitimately-relaunched lane on a new epoch, a probe, a cross-run request)? Does any step still secretly need a Slice-B artifact or an inbound authenticated frame? Is the codex wedge (loop.go:625-646) routed? Construct a concrete rotation scenario where the floor still does NOT fire (under-fire) or fires on a healthy/relaunched lane (over-fire). Do NOT re-litigate the D261 split. If FIX-1 still under-fires on the central path or the attribution widens/over-fires, say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (decoupling / reachability lens, FIX-1)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the revised v2 HOLDER.md, SEED.md, the v1 cycle_2 ledger, the RFC 0143 Decision (D261), and the v7 BC1-W1-ORACLE finding. Your lens is the SECURITY / FORGE / REGRESSION lens (FIX-2 + carry-forward). Is the TRUSTED floor carrier forge-resistant (the daemon-observed rejection or the direct-path agent_exited.exit_code from the wrapper Cmd.Wait, helper.go:433 to supervision.go:425)? Is the tmux #{pane_dead_status} carrier (tmux_liveness.go:228) either corroborated against a forge-resistant signal or honestly RFC-0168-scoped — NOT claimed forge-resistant? Construct the same-uid `tmux respawn-pane -k -t <pane> -- sh -c 'exit 97'` forge (pty.go:98-112,:310-314,:459,:479-484,:620-633) and show whether it still drives the typed class. Does ANY path widen who can read the admin runtime client-token (ReadTokenFile owner-only guard token.go:75-92) or mint a credential carrying {admin, apply, recovery, surgical_recovery} (→ reject)? Does the observability-only framing hold (no new auto-seal authority; routing no-more-privileged than agent_exited_unsealed)? Are existing recovery/supervise/agentloop tests regressed, or is the v1-credited skeleton (§1/§2/§3.2-3.6/§4) reopened or weakened? Do NOT re-litigate the D261 split. A forge that still drives the class, a widening, an over-fire, or a regression of the credited skeleton is a standing falsification — say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (security / forge / regression lens, FIX-2)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for RFC 0143 Slice A v2 (the revised HOLDER.md and the two FALSIFIER.md challenges) plus SEED.md, with the v1 cycle_2 ledger (SA-ROTATION-UNDERFIRE + SA-C2-TMUX-FORGE + the credited set), the v1 HOLDER.md, the RFC 0143 Decision (D261), and the v7 BC1-W1-ORACLE finding as context. Publish the collaboration ledger verdict (accept, accept_with_findings, needs_revision, reject — clearing is accept or accept_with_findings, never clear). A clearing verdict REQUIRES all of: (1) FIX-1 resolved — the typed floor FIRES on the real #512 rotation path (a session-bound lane on a stale epoch rejected as stale_daemon_identity), via a forge-resistant daemon-side observation or the honestly-scoped lane-side fallback, with the pre-auth attribution (http.go:159-169) specified concretely, not widening any token and not over-firing on an unattributable/relaunched lane; codex wedge routed; named tests + no-over-fire negatives present; (2) FIX-2 resolved — the TRUSTED carrier is forge-resistant (daemon-observed rejection or direct-path agent_exited.exit_code), the tmux #{pane_dead_status} carrier corroborated or honestly RFC-0168-scoped (not claimed forge-resistant), TestProviderCannotRespawnPaneToForgeUnrecoverableAcrossRotation present, observability-only/no-new-auto-seal-authority stated, routing no-more-privileged than agent_exited_unsealed; (3) the v1-credited skeleton carried forward unregressed (§1 reserved code+sentinel; §2 Spot-1 narrowing; §3.2-3.4 exact-code classification; §3.5 launch dissolution; §3.6 #292; §4 direct-path C2; no-widening); (4) no HARD CONSTRAINT violated and no new material challenge standing. reject only if a path widens admin-token exposure / mints a credential carrying {admin, apply, recovery, surgical_recovery} / smuggles in Slice B; needs_revision if FIX-1 still under-fires on the central path, the daemon attribution widens or over-fires, FIX-2's trusted carrier is not forge-resistant or the tmux carrier is still claimed forge-resistant, the floor over-fires, a credited item is regressed, or a new material challenge lands. Record per finding and per carry-forward item whether RESOLVED/INTACT/OPEN. This is the single allowed revision cycle — a second needs_revision ends the gate uncleared; be exact.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance (v2)",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsification-hardened RFC 0143 Slice A implementation spec as PROPOSAL.md — the artifact the rfc-0143-slice-a-build code_change run consumes. Only after the adjudicator ledger records a clearing verdict. Start from the revised v2 HOLDER.md and fold in every challenge the adjudicator recorded as material-and-incorporated. Carry: FIX-1 (the forge-resistant daemon-side stale-epoch-rejection producer that FIRES on the real #512 path, with pre-auth session attribution specified, codex wedge routed, or the honestly-scoped lane-side fallback); FIX-2 (trusted carrier = daemon-observed rejection or direct-path agent_exited.exit_code; tmux #{pane_dead_status} corroborated or RFC-0168-scoped); the v1-credited skeleton (§1 reserved code+sentinel go/pkg/agentloop/exitcodes.go ExitUnrecoverableAcrossRotation — Slice A owns ONLY 97; §2 Spot-1 narrowing; §3.2-3.4 exact-code classification; §3.5 launch dissolution; §3.6 #292; §4 direct-path C2; no-widening); the observability-only clarification. Name the exact surfaces (token.go, endpoint.go, loop.go, exitcodes.go; mcp/http.go validateBootEpoch; supervisor/helper.go, tmux_liveness.go; mutations/supervision.go, supervision_launch.go, recovery_decision_tree.go, recovery_complete_stalled.go) with the precise edit per surface + the additive daemon-side durable record. Specify build slices in contract-first order with named Go tests, additive-only. State Acceptance Criteria with the game-day shapes: (a) a session-bound lane on a stale epoch surfaces the typed floor on the real rotation path; (b) a same-uid respawn-pane exit 97 does NOT forge the class; (c) an ordinary unsealed exit/healthy lane stays its existing class; (d) a provider child cannot drive the reserved code on the direct path. Restate the HARD CONSTRAINTS as build guardrails. Recommend write_scope go/ (NOT go/** — #586) and build context_docs (this PROPOSAL.md + the v2 design ledger + the RFC 0143 Decision + the v7 BC1-W1-ORACLE finding).",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared Slice-A proposal (v2)",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design-v2/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication for RFC 0143 Slice A v2.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run (v2)",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design-v2/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0143-slice-a-design-v2",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0143-slice-a-design-v2",
+  "workflow_version": "2026-06-24"
+}

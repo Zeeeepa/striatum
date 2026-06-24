@@ -105,6 +105,40 @@ func TestValidateReturnsAuthoringErrors(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsWriteScopeGlobPaths(t *testing.T) {
+	workflow := validWorkflow()
+	draft := workflow["jobs"].([]any)[0].(map[string]any)
+	scope := draft["write_scope"].(map[string]any)
+	scope["allowed_paths"] = []any{"src/**"}
+
+	err := Validate(workflow)
+	if err == nil {
+		t.Fatal("Validate accepted glob write_scope allowed_path")
+	}
+	for _, want := range []string{"src/**", "glob", "repo-relative prefixes", "src/"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Validate error %q missing %q", err.Error(), want)
+		}
+	}
+
+	workflow = validWorkflow()
+	draft = workflow["jobs"].([]any)[0].(map[string]any)
+	scope = draft["write_scope"].(map[string]any)
+	scope["allowed_paths"] = []any{"src/"}
+	if err := Validate(workflow); err != nil {
+		t.Fatalf("Validate rejected literal prefix write_scope: %v", err)
+	}
+
+	workflow = validWorkflow()
+	draft = workflow["jobs"].([]any)[0].(map[string]any)
+	scope = draft["write_scope"].(map[string]any)
+	scope["forbidden_paths"] = []any{".striatum/**"}
+	err = Validate(workflow)
+	if err == nil || !strings.Contains(err.Error(), ".striatum/**") || !strings.Contains(err.Error(), "glob") {
+		t.Fatalf("Validate forbidden glob error = %v", err)
+	}
+}
+
 // TestValidatePanelQuorum verifies RFC 0135 P4 (#338, D214): panel_role defaults to
 // gating, accepts gating|advisory on a review job, is rejected on a non-review job and
 // for unknown values; max_gating_abstentions must be a non-negative whole number and

@@ -48,6 +48,15 @@ type TmuxLiveness struct {
 	ObservedStartTok string
 	Detail           string
 	Failure          *TmuxProbeFailure
+	// PaneDeadStatus is the dead pane's exit status (tmux #{pane_dead_status}),
+	// populated ONLY when the pane is dead (pane_dead==1) and tmux reported a numeric
+	// status. It is the RFC 0143 Slice A (#512) best-effort, CORROBORATED-ONLY carrier:
+	// a #{pane_dead_status}==ExitUnrecoverableAcrossRotation (97) is NOT trusted on its
+	// own (a same-uid sibling can respawn the pane with `exit 97`); the recovery
+	// classifier records the typed floor from it ONLY when a forge-resistant daemon
+	// observation (T1) corroborates for the owning session. Additive: nil on every
+	// non-dead / pre-Slice-A probe, so existing classification is unchanged.
+	PaneDeadStatus *int
 }
 
 type TmuxProbeFailure struct {
@@ -225,7 +234,11 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 	if strings.TrimSpace(id.PaneID) == "" {
 		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneMissing, "tmux pane id missing", nil, 0)
 	}
-	out, err := r.Run(ctx, "display-message", "-p", "-t", id.PaneID, "#{pane_id}|#{pane_pid}|#{pane_dead}|#{pane_start_time}")
+	// RFC 0143 Slice A (#512): additionally request #{pane_dead_status} so a dead
+	// pane's exit status is observable (the corroborated-only carrier). It is the
+	// trailing field so a tmux build that does not populate it simply yields an empty
+	// trailing token and the existing dead/pid/start classification is unchanged.
+	out, err := r.Run(ctx, "display-message", "-p", "-t", id.PaneID, "#{pane_id}|#{pane_pid}|#{pane_dead}|#{pane_start_time}|#{pane_dead_status}")
 	if err != nil {
 		if tmuxProbeUnavailable(err) || !tmuxTargetMissing(err) {
 			return tmuxLivenessFailure(ctx, r, id, TmuxLivenessUnavailable, tmuxProbeDetail(err), err, 0)
@@ -255,7 +268,17 @@ func ProbeTmuxLiveness(ctx context.Context, r TmuxRunner, id TmuxIdentity) TmuxL
 		}
 	}
 	if strings.TrimSpace(parts[2]) == "1" {
-		return tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneDead, "tmux pane is dead", nil, observedPID)
+		dead := tmuxLivenessFailure(ctx, r, id, TmuxLivenessPaneDead, "tmux pane is dead", nil, observedPID)
+		// RFC 0143 Slice A (#512): capture the dead pane's exit status, when tmux
+		// reported a numeric #{pane_dead_status} (the 5th field). Populated ONLY on a
+		// dead pane; left nil otherwise. This is a best-effort, corroborated-only
+		// carrier — the recovery classifier never trusts it without a T1 observation.
+		if len(parts) >= 5 {
+			if status, perr := strconv.Atoi(strings.TrimSpace(parts[4])); perr == nil {
+				dead.PaneDeadStatus = &status
+			}
+		}
+		return dead
 	}
 	if observedPID != id.PanePID {
 		live := tmuxLivenessFailure(ctx, r, id, TmuxLivenessPanePIDMismatch, "tmux pane pid mismatch", nil, observedPID)

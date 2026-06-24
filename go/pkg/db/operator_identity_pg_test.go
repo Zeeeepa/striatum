@@ -43,8 +43,8 @@ func seedOperatorWorld(t *testing.T, ctx context.Context, owner db.Runner) (stri
 	principalID := "prin_p0_oi"
 	clientID := "client_p0_oi"
 	stmts := []string{
-		`INSERT INTO striatumd.repositories(repository_id, repo_root, state, registered_at)
-		   VALUES ('repo_p0_oi', '/tmp/repo_p0_oi', 'active', now())
+		`INSERT INTO striatumd.repositories(repository_id, repo_identity, repo_root, state_db_path, display_name, last_schema_version, state, registered_at)
+		   VALUES ('repo_p0_oi', 'ident_p0_oi', '/tmp/repo_p0_oi', '/tmp/repo_p0_oi/state.db', 'p0 oi repo', 17, 'active', now())
 		 ON CONFLICT (repository_id) DO NOTHING`,
 		`INSERT INTO striatumd.principals(principal_id, principal_kind, display_name, created_at)
 		   VALUES ('prin_p0_oi', 'human', 'p0 operator', now())
@@ -359,7 +359,17 @@ func TestOperatorSessionPreRunStampTwoRole(t *testing.T) {
 	db.SetAuthorityRuntime(operatorTestSecret, db.AuditHashFormatV2, "", false)
 	t.Cleanup(func() { db.SetAuthorityRuntime("", db.AuditHashFormatV2, "", false) })
 
-	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner}
+	// run.prepare emits the run.created event. In production the operator declares
+	// the full write boundary (RFC 0110 §7 P2), so the append routes through the
+	// owner-owned SECURITY DEFINER append_event_row; below PhaseFull it falls to a
+	// direct INSERT the runtime role cannot do (events INSERT is revoked from
+	// striatumd_rw, owner/0004_phase2_events.sql:169). Install the full boundary so
+	// the REAL run.prepare RPC writes events through the authorized SD path exactly
+	// as the production daemon does (restored on cleanup).
+	db.SetActiveWriteBoundary(db.PhaseFull)
+	t.Cleanup(func() { db.SetActiveWriteBoundary(db.PhaseNone) })
+
+	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner, AuthoritySecret: operatorTestSecret}
 	runPrepareCap := rpc.MethodRegistry["run.prepare"].RequiredCapability
 
 	type stamped struct{ runID, handleID, whose string }
@@ -463,7 +473,7 @@ func TestOperatorTokenAdminSurfaceTwoRole(t *testing.T) {
 	operatorSessionID, _ := boot["operator_session_id"].(string)
 	operatorClientID, _ := boot["client_id"].(string)
 
-	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner}
+	authz := &rpc.PostgresAuthorizer{Runner: fx.SUTPool.Runner, AuthoritySecret: operatorTestSecret}
 
 	// A40: the accepted operator repo-admin surface is AUTHORIZED through the real authorizer.
 	for _, method := range []string{"run.prepare", "checkpoint.resolve", "review.override", "branch.confirm"} {
@@ -721,7 +731,7 @@ func operatorWriteWorkflow(t *testing.T, path string) {
 		"jobs": []any{
 			map[string]any{
 				"id":                 "job_a",
-				"type":               "handoff",
+				"type":               "generic",
 				"role_id":            "worker",
 				"lane_id":            "lane_a",
 				"write_scope":        map[string]any{"allowed_paths": []any{"docs/"}},

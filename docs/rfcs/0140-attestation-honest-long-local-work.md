@@ -11,7 +11,7 @@ Context:
   `wedged_no_tool_progress` → its attestation drops → `artifact.publish` refuses
   the role byline **mid-work**. Labeled `rfc-0091` (the lane-health / liveness
   classification family).
-- Failure-mode audit, `STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md`
+- Failure-mode audit, `docs/records/audits/STRIATUM_FAILURE_MODE_AUDIT_OPUS_4_8_2026-06-19.md`
   §3 (FMA-009, severity **MINOR** — loud, operator-recoverable DX friction on
   honest slow work, not data corruption). The audit's "smallest next step":
   *"treat a fresh heartbeat as sufficient to keep attestation during
