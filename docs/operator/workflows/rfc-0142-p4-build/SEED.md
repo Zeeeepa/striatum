@@ -28,6 +28,30 @@ source** in this repo.
   `go/pkg/pgtest/two_role.go`, `go/cmd/striatumd/daemon.go`,
   `go/cmd/striatumd/authority_bootstrap.go`.
 
+## RECOVERY ADOPTION (this run only — read FIRST)
+
+A prior draft of this exact build already implemented the FULL contract test-first and
+self-verified it CLEAN (`go build`/`go vet`/CI `golangci-lint` green; non-PG tests green;
+pg-integration tests compile and skip without `STRIATUM_PG_TEST_URL`). That work could not
+be sealed only because the run's write_scope used the unsatisfiable pattern `go/**` (a
+daemon prefix-matcher footgun, GH #586) — a tooling defect, NOT a code problem. The verified
+implementation is preserved on branch **`backup/rfc-0142-p4-build-impl-2026-06-24`** (22
+files: migration `0044_deploy_cursor.sql`, owner bundle `0021_revoke_create_privilege.sql`,
+`go/pkg/db/deploy.go` + `deploy_apply.go` + `deploy_activation.go`, `doctor_deploy.go`, the
+`runDaemonDeploy` verb wiring, and the F1/F16/F18/B1.1/B1.2/M1/M3 tests, plus edits to
+`owner.go`/`connection.go`/`migrations.go`/`main.go`/`daemon.go`/`doctor.go`).
+
+**Your job: ADOPT and VERIFY that preserved implementation, do not re-implement from
+scratch.** In your worktree: `git fetch origin backup/rfc-0142-p4-build-impl-2026-06-24`,
+then bring its source into your worktree (e.g.
+`git checkout origin/backup/rfc-0142-p4-build-impl-2026-06-24 -- go/ docs/operator/artifacts/rfc-0142-p4-build/`).
+Then VERIFY against the PROPOSAL §5 assertions + §6.5 (a)-(l) + finding B1: run `go build
+./...`, `go vet ./...`, the CI `golangci-lint`, and `go test ./...` (non-PG) from `go/`.
+Read every adopted file critically against the contract; fix any gap you find against the
+spec (the prior draft is strong but you are the author of record — own it). Publish `DRAFT.md`
+describing the implementation, then `work.complete`. The write_scope is now `go/` (fixed), so
+the seal will succeed. The seven-step contract below is the spec the adopted code must satisfy.
+
 ## Scope — build ALL seven steps in PROPOSAL §6 order (contract-first)
 
 This run implements the FULL P4 contract from PROPOSAL.md §6 in the prescribed seven-step
@@ -134,7 +158,7 @@ Not the prose group labels — the enum values.
   `Deployer.Apply` engine.
 - Migration SQL goes under `go/pkg/db/sql/` (modeled on `0043_schema_state.sql`); owner
   bundle SQL under `go/pkg/db/sql/owner/` (modeled on existing owner bundles).
-- Stay in write_scope (`go/**`, `docs/operator/artifacts/rfc-0142-p4-build/**`). Do not
+- Stay in write_scope (`go/`, `docs/operator/artifacts/rfc-0142-p4-build/`). Do not
   touch `.striatum/` or `docs/operator/workflows/**`.
 - Match `expected_artifacts[].author_line` exactly if any artifact's title block
   specifies `author:`.

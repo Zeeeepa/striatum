@@ -109,7 +109,7 @@
       "write_scope": {
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0142-p4-build/",
-          "go/**"
+          "go/"
         ],
         "forbidden_paths": [
           ".striatum/",
@@ -173,7 +173,7 @@
       "write_scope": {
         "allowed_paths": [
           "docs/operator/artifacts/rfc-0142-p4-build/",
-          "go/**"
+          "go/"
         ],
         "forbidden_paths": [
           ".striatum/",
