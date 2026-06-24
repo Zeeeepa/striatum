@@ -1,0 +1,323 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0169-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0169-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0169-provider-agnostic-lane-credential-readiness.md", "required": true },
+    { "path": "docs/rfcs/0165-claude-provider-credential-freshness.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0165-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0169-design/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0169 P0-P2 implementation SPEC: a provider-agnostic lane credential-readiness contract (the spine that subsumes RFC 0121 codex-gate + RFC 0162 observability + RFC 0165 Claude-freshness as three assurance-class slices) PLUS the ephemeral fresh-per-spawn placement that converges the copied-OAuth provider (Claude) onto agy's already-working daemon-minted model. Read the v1 SEED, RFC 0169 in full, RFC 0165, and the 0165 v1 ledger first. The audit reframe is RATIFIED: claude copies rotating OAuth it cannot self-refresh (#583, the odd one out); codex owns+self-refreshes (RFC 0121, fine); agy has no provider OAuth (daemon mints ephemeral per spawn, the target). Keep 0165 SEPARATE (per operator) — this is the SPINE altitude; cite 0165 as the OAUTH_COPIED detail, do not re-derive its Claude mechanics. PROVE the two hard claims: (1) the ProviderReadinessAdapter registry is a BEHAVIOR-PRESERVING refactor — it replaces the ~5 switch sites (agentloop/loop.go, supervision_lane_config.go, laneproviderauth/{resolver,expiry,lane_provider_auth}.go), collapses supervise.start (go/pkg/mutations/supervision_provider_auth.go) to one lookup + ValidateReadiness refuse-closed on error/timeout/panic, makes an unregistered provider a typed refusal (provider_readiness_unregistered not a fall-through), with the codex OAUTH_LANE_OWNED_SELF_REFRESH predicate = RFC 0121 Check VERBATIM (zero change) and agy EPHEMERAL_DAEMON_MINTED = no-op; (2) spawn-fresh placement makes #583 STRUCTURALLY IMPOSSIBLE WITHOUT modifying the provider CLI — the CLIs read FILES (no fd-injection), so keep a real file but re-mint it spawn-fresh, lane-private, 0600 every launch via CredentialPlacer (agy writeEphemeralGeminiSettings = first impl zero-change; ClaudeCredentialPlacer added), with a lane-private HOME/XDG_CONFIG_HOME prefix the claude CLI actually reads, and a source-rotation-race guard (read operator source before AND after copy; refuse provider_credential_source_unstable on mid-copy rotation). DISCHARGE the six open questions as build-bearing constraints + tests: OQ1 runtime-freshness closure (admission != runtime; the mid-run-expiry half of #583 — heartbeat re-validate and/or cleanup-as-lease-boundary; GATE property); OQ2 placement default (atomic chown-write vs per-lane tmpfs+setuid-helper); OQ3 generation identity for opaque codex (monotonic-dispatch-seq + advisory-STALE-only, never authoritative-FRESH from a lane); OQ4 min expiry lead time; OQ5 run-dependency-or-launch-time (surface, don't over-commit P0); OQ6 subsumption (kept separate → 0165 stays the OAUTH_COPIED detail). HARDEN Layer 3 against an untrusted compromised lane: custody fingerprints + breaker counters ONLY in daemon state (no lane-readable file → no spoof-via-touch, no exfil), the placer holds a short-lived job-scoped single-use daemon-minted capability (closes the privilege-bridge/replay), destination owned by exactly the lane user 0600 via fd/atomic-rename or per-lane namespace (defeats symlink/TOCTOU), no credential bytes/OAuth tokens/full operator path/provider stdout in DB/repo/metrics/events/doctor. Preserve the RFC 0096/#135/#296 trust boundary. State each constraint as a FALSIFIABLE assertion + the test that refutes it; anchor to the named source sites. Define the P0 fixtures + P1 pure-refactor + P2 placement slice precisely; surface P3/P4 seams. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0169-design/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, RFC 0169, RFC 0165, and the 0165 v1 ledger. Your lens is STRUCTURAL-PREVENTION + CLI-COMPATIBILITY + RUNTIME-FRESHNESS CLOSURE. Attack hard claim 2: does spawn-fresh placement ACTUALLY close #583 given the third-party CLIs (claude/codex/gemini) read credential FILES and call vendor APIs directly, and Striatum cannot modify them? Does a lane-private HOME/XDG_CONFIG_HOME override REALLY make the claude CLI read the placed 0600 file rather than a global ~/.claude/.credentials.json (verify against how the claude CLI resolves its credential path)? Does the source-rotation-during-placement race truly close (read operator source before AND after copy → provider_credential_source_unstable), or is there a window that blesses a mixed/torn generation? RUNTIME-FRESHNESS (OQ1, GATE): a spawn-only gate proves freshness only at spawn — does the proposed closure (heartbeat re-validate and/or cleanup-as-lease-boundary) actually catch the operator-source-expires-MID-RUN case (the other half of #583, where the lane 401s with no self-recovery), or is there a window where it wedges? Is cleanup-as-lease-boundary (remove cred → SIGTERM) race-free? Is the placement strategy (OQ2) sound — atomic chown-write defeating symlink/TOCTOU? If spawn-fresh placement does not structurally close #583, the HOME override does not actually redirect the CLI, the rotation race stands, or runtime expiry is not closed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0169-design/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, RFC 0169, RFC 0165, and the 0165 v1 ledger. Your lens is REFACTOR-SOUNDNESS + TAMPER-RESISTANCE + CARRY-FORWARD. Attack hard claim 1: is the ProviderReadinessAdapter registry GENUINELY behavior-preserving — does collapsing the ~5 switch sites change the codex predicate (must be RFC 0121's offline Check VERBATIM) or agy's behavior (must be a no-op receipt)? Is the seam proven BEFORE new logic lands (P1 pure refactor with zero behavior change), or does P1 smuggle in new behavior? Does an unregistered/UNKNOWN provider truly refuse-closed (provider_readiness_unregistered) rather than fall through to assume-it-works? TAMPER-RESISTANCE (a lane is sandboxed but UNTRUSTED): is Layer 3 genuinely tamper-proof — can a compromised lane read/reset/decrement the circuit breaker, spoof a custody receipt via touch/mtime, use custody as an exfil side channel, or replay the placer's capability? Are custody fingerprints + breaker counters truly daemon-state-only with NO lane-readable file? Does the placer's privilege bridge (operator account → lane account) over-grant — arbitrary lane-supplied path write, symlink/TOCTOU, cross-provider credential read, or a non-single-use/non-job-scoped capability? GENERATION (OQ3): does the (provider, lane_user, generation) key work for opaque codex without ever trusting a lane's authoritative-FRESH claim (advisory-STALE-only)? Does the change preserve the RFC 0096/#135/#296 trust boundary (no daemon/admin token, no minting authority, no cross-provider credential to the lane)? If the refactor changes codex/agy behavior, the breaker/custody is lane-tamperable, the placer over-grants, or an unknown provider can launch, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0169-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0169 P0-P2 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0169 / RFC 0165 / the 0165 v1 ledger as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: hard claim 1 PROVEN (the registry refactor is behavior-preserving — codex predicate = RFC 0121 Check verbatim, agy = no-op, seam proven before new logic, unknown provider refuse-closed); hard claim 2 PROVEN (spawn-fresh placement structurally closes #583 WITHOUT modifying the CLI — the lane-private HOME override actually redirects the claude CLI's credential read, the source-rotation race is closed); the RUNTIME-FRESHNESS closure (OQ1) genuinely catches mid-run operator-source expiry; Layer 3 is TAMPER-PROOF against an untrusted lane (breaker/custody daemon-state-only, single-use job-scoped placer capability, no symlink/TOCTOU/cross-provider read); the generation key (OQ3) works for opaque codex with advisory-STALE-only; and the RFC 0096 trust boundary is preserved. Record per open-question (OQ1-OQ6) whether RESOLVED, per hard-claim whether PROVEN, and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if either hard claim is unproven, runtime-freshness is not closed, Layer 3 is lane-tamperable, the placer over-grants, or any falsifier challenge lands materially. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (who spins a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0169-design/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0169 P0-P2 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE spine design (not just deltas), buildable contract-first by the rfc-0169-build code_change run: the ProviderReadinessAdapter interface + ProviderRegistry + assurance-class constants (EPHEMERAL_DAEMON_MINTED/OAUTH_LANE_OWNED_SELF_REFRESH/OAUTH_COPIED/STATIC_API_KEY/UNKNOWN); the supervise.start gate collapse to one registry lookup + ValidateReadiness refuse-closed; the codex predicate = RFC 0121 Check verbatim (proven zero-change) + agy no-op; the CredentialPlacer interface (agy writeEphemeralGeminiSettings refactored zero-change + ClaudeCredentialPlacer) with lane-private HOME/XDG_CONFIG_HOME + source-rotation guard; Layer 3 daemon-owned secret-free custody receipts + bad-generation immune memory + tamper-proof breaker + reseed_required recovery de-dup; and the runtime-freshness closure (OQ1). State each as a falsifiable assertion + its test (unknown-provider refusal; codex-predicate-identical-post-refactor; spawn-fresh-vs-aged-copy; source-rotation race; bad-generation refusal; breaker folds N failures into one escalation; secret/path redaction). Define the P0 fixtures + P1 pure-refactor + P2 placement slice; surface P3/P4 + OQ5 scheduler-dependency seams. Note 0165 stays the OAUTH_COPIED detail (kept separate). Anchor to the named source sites. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0169-design/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0169 P0-P2 design: the ledger verdict, how the two hard claims were proven (registry refactor behavior-preserving; spawn-fresh placement structurally closes #583 without CLI modification), how each open question (OQ1-OQ6) was resolved, how Layer 3 was made tamper-proof against an untrusted lane, which falsifier challenges were rebutted, and the consolidated SPEC + named tests the rfc-0169-build run will implement (noting 0165 stays the OAUTH_COPIED detail).",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0169-design/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0169-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0169-design",
+  "workflow_version": "2026-06-24"
+}

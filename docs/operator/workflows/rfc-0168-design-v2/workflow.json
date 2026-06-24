@@ -1,0 +1,323 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-design-v2"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-design-v2/SEED.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0168-design/dialogue/holder/HOLDER.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0168-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the v1 RFC 0168 P0 SPEC to discharge the TWO binding cycle-1 constraints, carrying forward UNREGRESSED everything v1 cleared. Start from the v1 HOLDER.md (a required context doc) — do NOT rewrite from scratch; the v1 cycle-1 COLLABORATION_LEDGER (also required) gives the exact prescribed fixes. CARRY FORWARD UNREGRESSED (v1 PROVEN, do NOT reopen): the structural hard core HC-A1..A5 (a per-lane uid dissolves BC1-W1-ORACLE on this host under Yama ptrace_scope=1 — distinct run-as uids land on tmux's per-uid 0700 socket; a different uid fails ptrace_may_access for ptrace/setns//proc; a 0600/0700 lane-owned file is cross-uid-unreadable; SO_PEERCRED uid discriminator), OQ1 (host-global pool sizing + typed fail-closed refuse-and-requeue default), OQ3 (static host-runbook pool; daemon holds only the launch-as `(%striatum-lanes)` grant, NO useradd/userdel authority), OQ5 (leased-uid + monotonic generation token anti-recycle), OQ6 (per-spawn per-uid hydration with scrub-on-return), and the NARROWING invariant (no admin-token widening, no lane-readable shared reseal bearer). DISCHARGE C1 (OQ2 lease lifecycle — verdict-driving): the durable lease state machine cannot represent a returned-but-dirty uid. v1 schema is only `state active|returned`; prose relies on an unrepresented `quarantined`; the free predicate is `no active lease row`; `mark returned only after scrub 1-3 succeed` rests on command exit codes (`kill -KILL -1`==0 does NOT prove an empty per-uid kill domain; a process can survive/reappear/recreate HOME files after the command returns). A scrub failure forces a state the table cannot express → re-lease a dirty uid (same-uid cross-lease residue leak, the exact class 0168 must eliminate) OR a zombie-active lease with no recovery path, no doctor surface, false exhaustion accounting. The revised SPEC must specify: a durable `scrubbing`/`quarantined` state in the lease schema; an allocation/scrub TRANSACTION boundary; a scrub POSTCONDITION proof (prove the per-uid kill domain is empty + HOME/cred-store/tmux-server scrubbed, not just exit==0); the leaked / failed-scrub REAPER recovery path; a doctor surface for a quarantined uid; and exhaustion accounting (OQ1) that EXCLUDES quarantined uids from the free set. DISCHARGE C2 (OQ4 ACL over-grant — verdict-driving): the recursive DEFAULT group ACL `setfacl -R -m g:striatum-lanes:rX <repo>` over the repo ROOT reaches `.striatum/` — daemon/operator-private control-plane (the 0600 MCP bearer at `.striatum/scratch`, mcpconfig.go:550-571; PTY logs; token cache; foreign worktrees). scratch_acl.go:31-48 grants `.striatum` only `u:<lane>:--x` traverse under a `never broaden read access to private operator state` invariant; the whole-group `g:striatum-lanes:rX -R` breaks it (a pool uid not leased to this repo gets group read on another lane's session-bound bearer; `-R ...:rX` adds group `r` even to existing 0600 files). The revised SPEC must specify: an ACL grant that EXCLUDES `.striatum/` (preserve the `u:<lane>:--x` traverse-only carve-out), grants exactly-enough to the LEASED uid without over-granting unleased pool uids, plus a load-bearing test asserting `.striatum/`/MCP-config/PTY-log/foreign-worktree NON-exposure to an unleased pool uid. Open the revised SPEC with an auditable 'Addressing the v1 constraints' map (C1 RESOLVED how, C2 RESOLVED how, carry-forwards INTACT). Keep the local-first boundary. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v2) holder SPEC, the v1 HOLDER.md, and the v1 cycle-1 ledger (its C1 finding). Your lens is C1 / OQ2 LEASE LIFECYCLE + SCRUB POSTCONDITION + the structural hard core's regression. FIRST verify C1 is GENUINELY resolved: does the durable lease state machine now represent a returned-but-dirty uid (a real `scrubbing`/`quarantined` state), with an allocation/scrub TRANSACTION boundary and a scrub POSTCONDITION proof that actually proves the per-uid kill domain is empty + HOME/cred-store/tmux-server scrubbed (NOT just `kill -KILL -1`==0)? On scrub FAILURE, is the dirty uid provably excluded from the free set (no re-lease residue leak) AND is there a reaper + doctor surface + correct exhaustion accounting (a quarantined uid is not counted free)? Construct the failing case: a process that survives the scrub command / recreates a HOME file after exit==0 — does the design still re-lease that uid or leak its residue? THEN regression: did the C1 fix perturb the proven hard core HC-A1..A5 (per-lane uid isolation), OQ1 sizing, OQ3 provisioning boundary, OQ5 generation token, OQ6 hydration, or the no-widening narrowing invariant? If the quarantine state is missing, the scrub postcondition still rests on exit codes, a dirty uid can be re-leased, or any carry-forward regressed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v2) holder SPEC, the v1 HOLDER.md, and the v1 cycle-1 ledger (its C2 finding). Your lens is C2 / OQ4 ACL EXACTNESS + the structural hard core's regression. FIRST verify C2 is GENUINELY resolved: does the revised ACL grant EXCLUDE `.striatum/` and preserve the `u:<lane>:--x` traverse-only carve-out (scratch_acl.go:31-48), so an unleased pool uid gets NO group read on another lane's 0600 MCP bearer (`.striatum/scratch`, mcpconfig.go:550-571), PTY logs, token cache, or foreign worktrees? Confirm the grant is to the LEASED uid (not a whole-group `g:striatum-lanes:rX -R` over repo root) and does NOT add group `r` to existing 0600 files. Is the non-exposure TEST real (plant another lane's 0600 control-plane file; assert an unleased pool uid cannot read it)? Construct the failing case: a pool uid not leased to this repo attempting to read another lane's session-bound bearer or foreign worktree. THEN regression: did the C2 ACL change perturb the proven hard core HC-A1..A5, the lane sandbox runbook's `.striatum/` carve-out, OQ1/OQ3/OQ5/OQ6, or the narrowing invariant? If `.striatum/` is still group-readable, the grant over-reaches unleased uids, the test is fake, or any carry-forward regressed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0168 P0 v2 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v1 HOLDER.md and the v1 cycle-1 ledger (its C1 and C2 findings) as context for what the revision had to fix. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES BOTH: C1 GENUINELY DISCHARGED — a durable `scrubbing`/`quarantined` lease state + allocation/scrub transaction boundary + a scrub POSTCONDITION proof (not exit codes) + a failed-scrub reaper + doctor surface + exhaustion accounting that excludes quarantined uids, so a dirty uid can NEVER be re-leased; AND C2 GENUINELY DISCHARGED — an ACL that EXCLUDES `.striatum/` (preserves the `u:<lane>:--x` carve-out), grants exactly-enough to the leased uid without over-granting unleased pool uids, with a real non-exposure test for the `.striatum/` MCP-bearer/PTY-log/foreign-worktree surface; AND no carry-forward regressed (the proven hard core HC-A1..A5, OQ1/OQ3/OQ5/OQ6, the narrowing invariant); AND no new material challenge stands unrebutted. Record per constraint C1 and C2 whether RESOLVED, per carry-forward whether INTACT, per new challenge whether it stands. needs_revision if either constraint remains open (dirty uid can be re-leased / scrub postcondition still rests on exit codes / `.striatum/` still group-readable / ACL over-reaches unleased uids), if any carry-forward regressed, or if a new material challenge lands. This is the single allowed v2 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (a fresh -v3 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, revised falsifiable RFC 0168 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design (not just the C1/C2 deltas), buildable contract-first by the rfc-0168-build code_change run: the per-lane uid pool (size + exhaustion policy excluding quarantined uids), the daemon lease lifecycle with the durable `scrubbing`/`quarantined` state + scrub-transaction boundary + scrub-postcondition proof + failed-scrub reaper + doctor surface (C1), the provisioning-ownership decision (host runbook; daemon launch-as-only grant), the per-leased-uid ACL grant that excludes `.striatum/` (C2), the lane_attestation re-binding + monotonic generation token, the per-uid credential store + hydration scrub-on-return, and the EXACT P0 slice boundary that unblocks RFC 0143 Slice B's lane-uid-owned 0600 reseal token. State each as a falsifiable assertion + its test (the BC1-W1-ORACLE negative control; the dirty-uid-not-re-leased test; the `.striatum/` non-exposure test; restart-survival). Anchor to source (pty.go, tmux_liveness.go, scratch_acl.go, mcpconfig.go, lane-sandbox.md). Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0168-design-v2/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0168 P0 v2 revision: the ledger verdict, how C1 (durable quarantine lease state + scrub postcondition + reaper) and C2 (`.striatum/`-excluding per-leased-uid ACL) were discharged, which carry-forwards (hard core HC-A1..A5, OQ1/OQ3/OQ5/OQ6) stayed intact, and the consolidated SPEC + named tests the rfc-0168-build run will implement, plus the RFC 0143 Slice B unblock.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design-v2/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-design-v2",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0168-design-v2",
+  "workflow_version": "2026-06-24"
+}

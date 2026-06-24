@@ -1,0 +1,146 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0164-design-v2"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0164-design-v2/SEED.md", "required": true },
+    { "path": "docs/rfcs/0164-untrusted-substrate-read-side-git-hardening.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0164-design/dialogue/holder/HOLDER.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0164-design/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0164-design-v2/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the v1 RFC 0164 P0 SPEC (untrusted-substrate read-side git hardening) to discharge the TWO standing cycle-1 constraints, carrying forward UNREGRESSED everything v1 cleared. Read the v2 SEED, the v1 HOLDER.md (the base — do NOT rewrite from scratch), and the v1 cycle-1 collaboration ledger (its constraints C1/C2 + verification.gate are the exact prescribed fixes) in full first. DISCHARGE C1 (severance not complete, gate-critical): the v1 'exhaustive' C-2 surface OMITS the runGitWorktreeCommand/integrateGit mutation funnel, which runs gadget-bearing git under the daemon identity against attacker-controlled repos/worktrees (status->core.fsmonitor, add->filter.clean, commit->core.hooksPath, plus for-each-ref/rev-parse/merge-base/rev-list/show), including a LIVE recovery_quarantine_lane.go:425 status->fsmonitor RCE the v1 SPEC implies is closed but is NOT. FIX: replace the C-2 site-list with a COMPLETE git-surface TAXONOMY enumerating every funnel (localGit.output, readGitOutput, runGitWorktreeCommand, integrateGit, runGitWithEnv, direct helper-package calls), classify each route (read-only / ref-plumbing / index-or-worktree mutation / lane-side / CLI-only), route every daemon-run route through the closed env, and route every in-repo-config-sensitive route (status/add/commit/write-tree/diff + textconv/filter/hook/fsmonitor carriers) through a minted config OR a typed pre-exec refusal. Reconcile §4/A12 with the funnel HONESTLY (the compile-time invariant MUST inspect helper call sites; the P0 §11 manifest + green-build claim must be made TRUE, or A2/A12 retracted to a scoped claim with the residual stated like §1). Explicitly close recovery_quarantine_lane.go:425. Add the three corpus rows quarantine_status_fsmonitor, porter_add_filter_clean, porter_commit_hookspath (red-before / green-after). DISCHARGE C2 (false-positive wedges legit work, gate-critical): a benign-but-retained [alias]/[pager] is flagged as a recognized gadget and written as a machine-clearable blocker whose only clear condition is fingerprint decay (never fires on stable benign config) -> wedged until a human edits benign config; the SPEC also self-contradicts (calls it a 'blocker' while claiming observability-only). FIX: either (a) split recognized detections into a non-blocking gate.read_gadget_observed state for neutralized/benign-safe keys and reserve a blocking state for conditions that genuinely require recovery, OR (b) define a precise benign safe-list/parser for [alias]/[pager] where safe benign keys create no blocking pin — state WHICH; keep unknown/unattested keys on the hard-refuse-into-human-cleared path (no silent unknown-pass). Make false_positive_benign_test load-bearing (plant the benign config, run an allowlisted read, assert no job/run blocker, no recovery.quarantine_lane ref, second read proceeds with no repo edit and no human clear; paired negative: an unknown/unattested key still hard-refuses). CARRY FORWARD UNREGRESSED (cleared in v1): the layered-severance posture (do NOT re-litigate), the GIT_CONFIG_COUNT omission-IS-neutralization reasoning (A7/A16), the typed ErrGitEnvUnavailable refuse-not-degrade env floor (A8), the Slice-0 no-truncated-graph property + the alternates/refs/benign-key parity harness as the Slice-2 gate (A21/A21b), the evidence-contract mechanics (canonicalization golden vectors A22, no-attestation-before-exec hard doctor barrier A25, decay-TOCTOU re-attest A23), and the four §0 source corrections C-1..C-4. Open the revised SPEC with an auditable 'Addressing the cycle-1 constraints' map (C1 RESOLVED how, C2 RESOLVED how, carry-forwards INTACT). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold revised P0 SPEC (v2)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0164-design-v2/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v2) holder SPEC, the v1 HOLDER.md, and the v1 cycle-1 ledger (its C1 constraint). Your lens is C1 / SEVERANCE-COMPLETENESS. FIRST verify C1 is GENUINELY discharged: is the git-surface TAXONOMY actually COMPLETE — does it enumerate AND route EVERY daemon-process git funnel (localGit.output, readGitOutput, runGitWorktreeCommand, integrateGit, runGitWithEnv, direct helper-package calls)? Re-grep the tree yourself for any daemon-run read/ref/mutation git exec OUTSIDE the chokepoint + sanctioned allowlist. Is recovery_quarantine_lane.go:425 status->fsmonitor actually closed now (not just claimed)? Do the three corpus rows quarantine_status_fsmonitor / porter_add_filter_clean / porter_commit_hookspath go red-before/green-after for real? Does the compile-time invariant (A12) actually inspect helper call sites, and is the §11 manifest + green-build claim now TRUE (or honestly retracted)? Hunt NEW gaps: any in-repo-config-sensitive route still reaching git with nil or os.Environ()-sourced env; any funnel that mutates the index/worktree under the daemon identity without a minted config or typed refusal. If the taxonomy is still incomplete, the RCE still open, a corpus row fake, or A2/A12 still overclaimed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1 (C1 / severance-completeness lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0164-design-v2/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v2) holder SPEC, the v1 HOLDER.md, and the v1 cycle-1 ledger (its C2 constraint). Your lens is C2 / FALSE-POSITIVE-NO-WEDGE + CARRY-FORWARD REGRESSION. FIRST verify C2 is GENUINELY discharged: can a benign-but-retained [alias]/[pager] still WEDGE a run by ANY route — is the recognized-benign detection now truly non-blocking (a gate.read_gadget_observed state) or covered by a precise benign safe-list, with NO machine-clearable-blocker-that-never-clears? Is the blocker-vs-observability contradiction resolved (one coherent state model)? Is false_positive_benign_test load-bearing and real (plant benign config -> allowlisted read -> NO job/run blocker, NO recovery.quarantine_lane ref, second read proceeds with no repo edit / no human clear)? Does the paired NEGATIVE case still hard-refuse an unknown/unattested key (no silent unknown-pass)? THEN spend the rest on REGRESSION — verify each v1 carry-forward survives unregressed: the layered-severance posture, the GIT_CONFIG_COUNT omission reasoning (A7/A16), the ErrGitEnvUnavailable floor (A8), the Slice-0 no-truncated-graph property + Slice-2 parity harness (A21/A21b), the evidence-contract mechanics (A22/A23/A25), and the four §0 corrections. Confirm the C1 taxonomy/routing change did not weaken the false-positive handling or the evidence contract. If a benign config can still wedge, the negative control is fake, or any carry-forward regressed, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2 (C2 / false-positive + carry-forward lens)",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0164-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0164 P0 v2 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v1 HOLDER.md and the v1 cycle-1 ledger (its C1/C2 constraints) as context for what the revision had to fix. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES BOTH: C1 GENUINELY DISCHARGED — the git-surface taxonomy is COMPLETE and every daemon-run route is closed (minted config or typed refusal), recovery_quarantine_lane.go:425 is closed, the three corpus rows are red-before/green-after, and §4/A12 + the §11 manifest are TRUE (or honestly scoped); AND C2 GENUINELY DISCHARGED — a benign [alias]/[pager] can never wedge (non-blocking observed state or precise safe-list), the blocker-vs-observability contradiction is resolved, false_positive_benign_test is load-bearing, and unknown keys still hard-refuse; AND no carry-forward regressed (layered severance, A7/A8/A16, A21/A21b, A22/A23/A25, the §0 corrections); AND no new material challenge stands unrebutted. Record per constraint C1 and C2 whether RESOLVED, per carry-forward whether INTACT, per new challenge whether it stands. needs_revision if either remains open (taxonomy still incomplete / RCE still open / corpus row fake / a benign config can still wedge / negative control fake), if any carry-forward regressed, or if a new material challenge lands. This is the single allowed v2 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0164-design-v2/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, revised falsifiable RFC 0164 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design (not just the deltas), buildable contract-first by the rfc-0164-build code_change run: the read-side git chokepoint + gitEnv() omission severance, the COMPLETE git-surface taxonomy with every daemon-run route closed (minted config or typed pre-exec refusal) including recovery_quarantine_lane.go:425, the compile-time invariant inspecting helper call sites, the two-state recovery + the non-blocking benign-observed state (or benign safe-list), the evidence/attestation contract (canonicalization golden vectors, no-attestation-before-exec, decay re-attest), and the red-team corpus (incl. the three new rows + false_positive_benign_test). State each as a falsifiable assertion + its named test. Anchor to verified source (file:line). Note the Slice-2/Slice-3 seams P0 leaves. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared P0 SPEC (v2)",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0164-design-v2/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0164 P0 v2 revision: the ledger verdict, how C1 (complete git-surface taxonomy + funnel routing + recovery_quarantine_lane.go:425 closure) and C2 (benign-config no-wedge) were discharged, which carry-forwards stayed intact, and the consolidated SPEC + named tests/corpus rows the rfc-0164-build run will implement.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0164-design-v2/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0164-design-v2",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0164-design-v2",
+  "workflow_version": "2026-06-24"
+}
