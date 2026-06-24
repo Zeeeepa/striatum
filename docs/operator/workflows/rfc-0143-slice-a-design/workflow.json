@@ -1,0 +1,331 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0143-slice-a-design"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0143-slice-a-design/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0143-lane-credential-survival-across-boot-epoch-rotation.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0143-design-v7/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "Publish the falsifiable implementation spec for RFC 0143 Slice A — the maintainer-ratified (D261) Option-4 typed `session_unrecoverable_across_rotation` floor, as PURE daemon-side observability (mints no credential, widens no token, no Slice B). Per SEED.md: specify (1) the reserved agentloop floor exit code (go/pkg/agentloop/exitcodes.go, e.g. ExitUnrecoverableAcrossRotation=97; Slice A owns ONLY this code — NOT reseal-98/resealInFlightJob/connect-out channel/kernel-token capture/CapabilityReseal/owner-bundle-0021, all Slice B); (2) Spot 1 credential-chain narrowing at ResolveTokenMaterial/ResolveTokenMaterialFresh (go/pkg/agentloop/token.go:31-42,:75-92; endpoint.go:110-135; callers loop.go:37/:78/:602) — a non-owner lane reaching the owner-only admin runtime client-token gets a typed sentinel → clean reserved-code exit, NEVER reading the admin token (owner process unaffected); (3) Spot 2 daemon observation + typed-class recovery routing — observe the reserved code via #{pane_dead_status}/processExitCode, record session_unrecoverable_across_rotation in supervision (go/pkg/mutations/supervision.go:217-234) + the recovery sweep (recovery_decision_tree.go:171-197 recoverStuckJobs/isNecrosisStallClass), make the launch/attach-failure path (supervision_launch.go:562-591 waitForHelperAgentStart; helper.go:157-173 helper_error phase launch) record the typed class instead of a raw error when the floor applies, fall back to the existing agent_exited_unsealed on a silent death (NO over-fire), and state the relationship to HandleRecoveryCompleteStalled (#292, recovery_complete_stalled.go). State each load-bearing claim as a falsifiable assertion paired with its named test (A1-A6 in SEED.md, incl. the no-over-fire negative and C2 forge-resistance TestProviderExitCodeCannotDriveReservedAgentloopResealOrBlocker). Honor every HARD CONSTRAINT (no token widening, no Slice-B artifact, daemon-side/process state only, no over-fire, no raw-error leak, additive-only, product-boundary-safe). Re-verify every source anchor against current main. Open with an auditable 'how this honors the decoupling premise + HARD CONSTRAINTS' map. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold Slice-A implementation spec",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published Slice-A HOLDER.md, SEED.md, the RFC 0143 Decision (D261), and the v7 BC1-W1-CAPTURE-FLOOR finding. Your lens is the DECOUPLING / DAEMON-SIDE lens. Verify the holder's concrete wiring computes EVERY predicate and the floor signal from daemon-side durable/process state with NO inbound authenticated frame: find any step that secretly needs the W1 connect-out channel, a kernel-token capture (PaneKernelStartToken), a reseal-token file, resealInFlightJob, or any other Slice-B artifact (a single such dependency is a standing falsification — Slice A must ship without Slice B). Probe the boot-epoch gap: there is NO durable per-lease/per-job epoch record (main.go:713-763 — daemonBootEpoch() is in-memory per-process); does the spec silently assume one? Probe attribution: does Spot 2 attribute the typed floor ONLY from the reserved exit code, or does it wrongly infer it from ambiguous 'complete-on-disk + lane-lost' alone (which would over-fire on ordinary unsealed exits)? Do NOT re-litigate the D261 split or the 'Slice A is decoupled' conclusion (ratified) — attack the holder's WIRING. If any spot depends on an inbound frame / a Slice-B artifact, if the boot-epoch gap is glossed, or if Spot 2 over-/under-attributes, say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (decoupling / daemon-side lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published Slice-A HOLDER.md, SEED.md, the RFC 0143 Decision (D261), and the v7 BC1-W1-CAPTURE-FLOOR finding. Your lens is the SECURITY / LEGIBILITY / REGRESSION lens. Does ANY path widen who can read the admin runtime client-token, or mint a credential carrying any of {admin, apply, recovery, surgical_recovery} (→ this is reject)? Check ReadTokenFile's owner-only guard (token.go:75-92) is not relaxed and no group-read is introduced. Does any floor-covered miss still leak a raw helper_error / 'PTY helper failed before attach' / generic permission error as the terminal explanation (legibility failure)? Does the typed floor over-fire — misclassify an ordinary agent_exited_unsealed (lane died with complete-on-disk deliverable but NO reserved code) or a healthy/in-progress lane? Are existing recovery (recoverStuckJobs, isNecrosisStallClass, HandleRecoveryCompleteStalled) / supervise / agentloop tests regressed, or is an existing event-type/stall-class/exit-code's MEANING changed (it must be additive)? Can a provider child forge the reserved floor code (C2 — TestProviderExitCodeCannotDriveReservedAgentloopResealOrBlocker)? Are A1-A6 all stated with named tests, incl. the no-over-fire negative (A3) and C2 (A5)? Do NOT re-litigate the D261 split. A widening, a credential mint, a raw-error leak, an over-fire, a regression, a meaning-change, or a missing assertion is a standing falsification — say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (security / legibility / regression lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for RFC 0143 Slice A (the HOLDER.md spec and the two FALSIFIER.md challenges) plus SEED.md, with the RFC 0143 Decision (D261) and the v7 BC1-W1-CAPTURE-FLOOR finding as context. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never the literal word clear). A clearing verdict REQUIRES all of: (1) both spots (credential-chain narrowing + daemon-observation/typed-class recovery routing) specified concretely with file:line anchors and the reserved floor exit code, BOTH computed from daemon-side durable/process state with NO inbound authenticated frame (decoupling premise honored in the actual wiring); (2) NO HARD CONSTRAINT violated — no admin-token widening, no minted credential carrying {admin,apply,recovery,surgical_recovery}, no Slice-B artifact (no CapabilityReseal/connect-out channel/kernel-token capture/reseal-token file/reseal-98/owner-bundle-0021), no over-fire (an ordinary agent_exited_unsealed / healthy lane with no reserved code stays its existing class), no raw-error leak, additive (existing recovery/supervise/agentloop tests pass unchanged, no existing event/class/exit-code meaning changed), daemon-side/process state only; (3) every falsifiable assertion A1-A6 stated and paired with a named test, incl. the no-over-fire negative (A3) and C2 forge-resistance (A5); (4) the relationship to the existing agent_exited_unsealed class and HandleRecoveryCompleteStalled (#292) stated (routes/escalates legibly, does not duplicate/override); (5) no new material challenge stands unrebutted. reject only if a path widens admin-token exposure or mints a credential carrying any of {admin,apply,recovery,surgical_recovery} or smuggles in Slice B; otherwise needs_revision if any spot depends on an inbound frame / Slice-B artifact, if the floor over-fires or leaks a raw error/silent exit, if any falsifiable assertion or its named test is missing, if an existing class is regressed, or if any new material challenge lands. Record per HARD CONSTRAINT and per assertion A1-A6 whether it is RESOLVED/INTACT/OPEN. This is the single allowed revision cycle — a second needs_revision ends the gate uncleared; be exact.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsification-hardened implementation spec for RFC 0143 Slice A as PROPOSAL.md — the artifact the rfc-0143-slice-a-build code_change run consumes. Only after the adjudicator ledger records a clearing verdict. Start from HOLDER.md and fold in every challenge the adjudicator recorded as material-and-incorporated. Carry as first-class build-ready design: the reserved agentloop floor exit code (go/pkg/agentloop/exitcodes.go ExitUnrecoverableAcrossRotation; Slice A owns ONLY this — reseal-98/resealInFlightJob/connect-out/kernel-token/CapabilityReseal/owner-bundle-0021 are Slice B, OUT OF SCOPE, blocked on RFC 0168/#585); Spot 1 credential-chain narrowing (exact function, non-owner detection, typed sentinel, agentloop reserved-code-exit mapping, no-admin-token-widening invariant explicit, owner unaffected); Spot 2 daemon observation + typed-class recovery routing (#{pane_dead_status}/processExitCode observation, the new typed helper-event/recorder branch / recovery-class wiring, launch/attach-failure path records the typed class not a raw helper_error, silent-death fallback to agent_exited_unsealed, recoverStuckJobs/isNecrosisStallClass classification, relationship to HandleRecoveryCompleteStalled #292). Name the exact surfaces with the precise edit per surface. Specify build slices in contract-first order (smallest safe first) with named Go tests, additive-only. State Acceptance Criteria with the two game-day shapes (non-owner lane hitting admin-token fallback → typed floor not silent unsealed exit, owner still resolves; capture-boundary miss → typed class not raw helper_error) plus the negatives (ordinary unsealed exit stays agent_exited_unsealed; provider child cannot forge the reserved code). Restate the HARD CONSTRAINTS as build guardrails. Recommend write_scope go/ (NOT go/** — #586) and build context_docs (this PROPOSAL.md + the RFC 0143 Decision + the v7 BC1-W1-CAPTURE-FLOOR finding).",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared Slice-A proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0143-slice-a-design/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication for RFC 0143 Slice A.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0143-slice-a-design/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0143-slice-a-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0143-slice-a-design",
+  "workflow_version": "2026-06-24"
+}
