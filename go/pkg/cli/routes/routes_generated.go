@@ -5,6 +5,7 @@ package routes
 var generatedRoutes = []Route{
 	{Command: "status", Subcommand: "", Method: "status", ParamsGroup: "status", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "why", Subcommand: "", Method: "why", ParamsGroup: "why", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
+	{Command: "whose", Subcommand: "", Method: "whose", ParamsGroup: "whose", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "doctor", Subcommand: "", Method: "doctor", ParamsGroup: "doctor", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "dashboard", Subcommand: "", Method: "dashboard", ParamsGroup: "dashboard", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},
 	{Command: "git", Subcommand: "snapshot", Method: "git.snapshot", ParamsGroup: "git_snapshot", RequiredCapability: "read", RepositoryScopeMode: "single_repo", Deprecated: false},

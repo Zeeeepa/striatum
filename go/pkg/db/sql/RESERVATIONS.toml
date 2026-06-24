@@ -281,8 +281,14 @@ file = "0020_owner_bundle_watermark_read.sql"
 # embedded owner_bundle entry under Option B (build, D7'). It is STAGED outside
 # ownerBundleFS at sql/owner_staged_activation/ so RevokeBundleEmbedded() stays
 # false and the flag-OFF serve-boot path is byte-identical to a pre-P4 binary.
-# The embedded owner-bundle frontier (and this ledger's owner_bundle ordinals)
-# therefore top out at 20 (== maxEmbeddedOwnerVersion(OwnerBundles()) ==
-# LatestOwnerBundleVersion). A future EMBEDDED owner bundle must NOT reuse
-# ordinal 21: it is claimed by the staged DDL-revoke (re-scoped to the
-# activation/verify binary per PROPOSAL §4.3).
+# It is therefore a deliberate GAP in this ledger's owner_bundle sequence — the
+# owner-bundle contiguity guard tolerates exactly ordinal 21 (the staged revoke).
+# A future EMBEDDED owner bundle must NOT reuse ordinal 21.
+
+# owner ordinal 22 — RFC 0167 P0 (D260) operator identity & run attribution — is a
+# NORMAL apply-eligible EMBEDDED owner bundle that sits ABOVE the staged revoke 21.
+# It is the highest embedded bundle, so the embedded frontier
+# (== maxEmbeddedOwnerVersion(OwnerBundles()) == LatestOwnerBundleVersion) is now 22.
+[[owner_bundle]]
+ordinal = 22
+file = "0022_operator_identity_run_attribution.sql"

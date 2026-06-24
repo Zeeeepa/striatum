@@ -84,6 +84,14 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"job_worktrees":               ReadClassRuntimeSensitive,
 	"jobs":                        ReadClassRuntimeSensitive,
 	"leases":                      ReadClassRuntimeSensitive,
+	// RFC 0167 P0 / owner bundle 0022: operator identity surfaces. Both keep a
+	// COLUMN gate (the principal_clients precedent) — principal_id (and client_id
+	// on operator_sessions) is denied so a leaked runtime credential cannot
+	// reconstruct client->principal; the remaining lease/lifecycle columns stay
+	// selectable for the lease walk / heartbeat / close. Identity reads ride the
+	// run_origin_identity / runs_for_origin_client DEFINER projections.
+	"operator_handles":            ReadClassRuntimeSensitive,
+	"operator_sessions":           ReadClassRuntimeSensitive,
 	"principal_clients":           ReadClassRuntimeSensitive,
 	"process_executions":          ReadClassRuntimeSensitive,
 	"process_supervisor_pointers": ReadClassRuntimeSensitive,
@@ -180,5 +188,11 @@ func RuntimeDeniedReadColumns() map[string][]string {
 	return map[string][]string{
 		"clients":           {"token_hash", "token_salt"},
 		"principal_clients": {"principal_id"},
+		// RFC 0167 P0 / owner bundle 0022 column gates (the composed-route closure):
+		// runs.created_by_principal_id (C2" Route 2), operator_handles.principal_id
+		// (C2" Route 1), operator_sessions.{principal_id,client_id} (C2').
+		"runs":              {"created_by_principal_id"},
+		"operator_handles":  {"principal_id"},
+		"operator_sessions": {"principal_id", "client_id"},
 	}
 }

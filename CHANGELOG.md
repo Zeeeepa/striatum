@@ -2,6 +2,48 @@
 
 ## Unreleased
 
+### Added
+
+- **Operator identity & run attribution (RFC 0167 P0 / D260, D263).** A single
+  human driving many concurrent terminal operators can now tell which operator
+  owns which run. Operator-id is a `principals.principal_id` of kind `human`;
+  owner bundle **0022** adds `operator_handles` (a daemon-leased, memorable
+  `handle#suffix` rendering layer, unique-per-repo-while-live) + `operator_sessions`
+  (pre-run lifecycle) + a **write-once** `runs.created_by_principal_id` /
+  `created_by_handle_id` origin stamp (a `BEFORE UPDATE` trigger refuses changes).
+  New `striatum whose <run-id>` resolves the origin operator through the
+  `run_origin_identity` SECURITY DEFINER projection; `status --mine` lists the
+  caller's runs through `runs_for_origin_client`; an advisory `doctor`
+  `attribution_unknown` rule surfaces non-terminal runs with no resolvable origin.
+  Identity reads never touch tty/pane/title/env.
+- **Operator-bootstrap mint+lease RPC.** `operator.bootstrap` mints a
+  session-bound operator token (`{admin, read}`, repo-scoped) and leases a handle
+  in one transaction; `operator.heartbeat` renews the lease/session/token (a
+  guarded UPDATE, never release-then-reacquire); `operator.close` gracefully
+  closes the session, releases the handle, and revokes the operator token.
+
+### Security
+
+- **Composed-route read closure (RFC 0167 P0 C2").** The runtime role can no
+  longer reconstruct `client_id → principal_id` over the ACL graph: owner bundle
+  0022 REVOKEs `SELECT` on `striatumd.runs` and re-GRANTs every column except
+  `created_by_principal_id`, column-scopes `operator_handles`/`operator_sessions`
+  SELECT to exclude `principal_id` (and `client_id`), and routes every identity
+  read through daemon-secret-gated SECURITY DEFINER projections. The three `runs`
+  star-readers (`run.detail`, `job.detail`, archive export) are converted to
+  explicit non-identity column lists. The gates are registered in
+  `readScopeReasserts` so drift repair re-closes them.
+
+### Changed
+
+- **Owner-bundle frontier predicates target the exact revoke version.** Because
+  RFC 0167 P0's normal bundle 0022 sits above the staged RFC 0142 P4 DDL-revoke
+  (0021), `LatestOwnerBundleVersion`/`RequiredOwnerBundleVersion` advance to 22
+  and the revoke exclusion is retargeted from "`>=`/`<` the frontier" to "`==`/`!=`
+  the exact revoke version" (`isNonRevokeBundle`, `RevokeBundleEmbedded`, and a new
+  `IsOwnerBundleApplied` helper replacing the `connection.go` boot barrier's
+  `applied >= 21`), so 0022 applies cleanly and the revoke stays deploy-plan-terminal.
+
 ## v2.36.0 — 2026-06-23
 
 ### Fixed

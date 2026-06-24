@@ -324,6 +324,13 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	problems = append(problems, eventSegmentProblems...)
 	problemRecords = append(problemRecords, eventSegmentRecords...)
 
+	// RFC 0167 P0 D7: the attribution_unknown advisory — non-terminal runs with no
+	// resolvable origin operator. ADVISORY (warning, never a hard problem) so it
+	// surfaces misattribution debt without blocking a dogfood.
+	attributionBlock, attributionWarnings, attributionWarningRecords := doctorAttributionUnknown(ctx, runner, repositoryID)
+	warnings = append(warnings, attributionWarnings...)
+	warningRecords = append(warningRecords, attributionWarningRecords...)
+
 	result := map[string]any{
 		"ok":                           len(problems) == 0,
 		"schema_version":               schemaVersion,
@@ -349,6 +356,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"recovery_escape_valve":        recoveryGateBlock,
 		"job_stuck_no_live_session":    stuckJobBlock,
 		"event_chain_segment_seams":    eventSegmentBlock,
+		"attribution_unknown":          attributionBlock,
 		"owner_bundle_watermark":       ownerBundleWatermarkBlock,
 		"schema_drift":                 schemaDriftBlock,
 		"schema_deploy":                deployUnrecordedBlock,

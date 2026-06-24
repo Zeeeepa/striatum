@@ -376,12 +376,17 @@ func ConnectAndMigrate(ctx context.Context, postgresURL string, daemonVersion st
 	// decoupling re-anchors this single refusal here so the flag-OFF legacy path
 	// stays byte-identical for applied_owner <= 20 (the only state it ever sees).
 	if !revokeEmbedded {
-		applied, verErr := OwnerBundleVersion(ctx, pool.Runner)
+		// Ask whether the DDL-revoke (0021) SPECIFICALLY was applied, not whether
+		// MAX(watermark) >= 21. Since RFC 0167 P0's normal bundle 0022 sits above the
+		// staged revoke, MAX can be 22 with 21 absent — a MAX-based check would
+		// false-positive and refuse a healthy post-0022 database for this no-revoke
+		// binary.
+		revokeApplied, verErr := IsOwnerBundleApplied(ctx, pool.Runner, DDLRevokeOwnerBundleVersion)
 		if verErr != nil {
 			pool.Close()
 			return nil, 0, verErr
 		}
-		if applied >= DDLRevokeOwnerBundleVersion {
+		if revokeApplied {
 			pool.Close()
 			return nil, 0, &AwaitingDeployError{CursorState: cursor.State,
 				Reason: "this binary does not embed the DDL-revoke but the database already applied owner bundle " + strconv.Itoa(DDLRevokeOwnerBundleVersion)}

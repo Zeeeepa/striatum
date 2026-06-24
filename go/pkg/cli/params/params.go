@@ -235,6 +235,9 @@ func positionalNames(group string) []string {
 		return []string{"workflow"}
 	case "why":
 		return []string{"target_id"}
+	case "whose":
+		// RFC 0167 P0 §9.6: `striatum whose <run-id>` -> the run's origin operator.
+		return []string{"run_id"}
 	case "join_verify":
 		// RFC 0135 P3 (#347): `striatum join verify <barrier-id>` verifies one
 		// sealed expectation barrier's integrity (read-only).

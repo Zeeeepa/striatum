@@ -23,6 +23,10 @@
 | `daemon.describe` | `read` | `daemon_global` | 1 | 1 | no |
 | `status` | `read` | `single_repo` | 1 | 1 | no |
 | `why` | `read` | `single_repo` | 1 | 1 | no |
+| `whose` | `read` | `single_repo` | 1 | 1 | no |
+| `operator.bootstrap` | `admin` | `single_repo` | 1 | 1 | no |
+| `operator.heartbeat` | `admin` | `single_repo` | 1 | 1 | no |
+| `operator.close` | `admin` | `single_repo` | 1 | 1 | no |
 | `doctor` | `read` | `single_repo` | 1 | 1 | no |
 | `join.verify` | `read` | `single_repo` | 1 | 1 | no |
 | `doctor.blob_block` | `read` | `daemon_global` | 1 | 1 | no |
@@ -164,6 +168,7 @@
 |---|---|---|---|
 | `status` | `status` | `read` | `single_repo` |
 | `why` | `why` | `read` | `single_repo` |
+| `whose` | `whose` | `read` | `single_repo` |
 | `doctor` | `doctor` | `read` | `single_repo` |
 | `dashboard` | `dashboard` | `read` | `single_repo` |
 | `git snapshot` | `git.snapshot` | `read` | `single_repo` |
@@ -204,6 +209,7 @@
 | `block` | `work.block` | `write` | `single_repo` |
 | `complete` | `work.complete` | `write` | `single_repo` |
 | `publish-artifact` | `artifact.publish` | `write` | `single_repo` |
+| `artifact get-content` | `artifact.get_content` | `read` | `single_repo` |
 | `verdict` | `review.verdict` | `review` | `single_repo` |
 | `submit-review` | `review.submit` | `review` | `single_repo` |
 | `override-verdict` | `review.override` | `admin` | `single_repo` |

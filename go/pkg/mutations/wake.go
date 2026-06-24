@@ -165,6 +165,22 @@ func (tx *wakeTx) ExecBound(ctx context.Context, sql string, args ...any) error 
 	return bound.ExecBound(ctx, sql, args...)
 }
 
+// QueryRowBound forwards the extended-protocol single-row read to the wrapped
+// runner so identity-projection reads (admin.ResolvePrincipalForClient ->
+// queryIdentityRow) executed inside a mutation transaction take the bound
+// SECURITY DEFINER path (secret in Bind, not query text) rather than falling back
+// to the direct SQL that 42501s on a two-role deploy (RFC 0167 P0 run-origin
+// stamp). Falls back to the unbound QueryRow when the runner is not bound-capable.
+func (tx *wakeTx) QueryRowBound(ctx context.Context, sql string, args ...any) pgx.Row {
+	bound, ok := tx.TxRunner.(interface {
+		QueryRowBound(context.Context, string, ...any) pgx.Row
+	})
+	if !ok {
+		return tx.QueryRow(ctx, sql, args...)
+	}
+	return bound.QueryRowBound(ctx, sql, args...)
+}
+
 func (tx *wakeTx) EncodesJSONBAsText() bool {
 	if enc, ok := tx.TxRunner.(db.JSONBTextEncoder); ok {
 		return enc.EncodesJSONBAsText()
