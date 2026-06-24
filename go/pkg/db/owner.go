@@ -24,11 +24,15 @@ const LatestOwnerBundleVersion = 20
 
 // DDLRevokeOwnerBundleVersion identifies the RFC 0142 P4 C3 DDL-revoke bundle
 // (0021, `REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw`). It is
-// DEPLOY-PLAN-TERMINAL ONLY: it ships embedded in OwnerBundles() (so
-// ExpectedFingerprint, revokeEmbedded, and BuildPlan all see it) but is EXCLUDED
-// from every `owner-ddl apply` route via OwnerDDLApplyBundles() + the in-loop
-// isNonRevokeBundle guard, so its REVOKE can ONLY ever be committed as the
-// terminal `striatum daemon deploy` step (M2). LatestOwnerBundleVersion and
+// DEPLOY-PLAN-TERMINAL ONLY and, under the build's Option B (D7'), STAGED rather
+// than embedded: its SQL lives in sql/owner_staged_activation/ (loaded by
+// StagedRevokeBundle), NOT in ownerBundleFS — so OwnerBundles() does NOT list it,
+// ExpectedFingerprint() does NOT hash it, and RevokeBundleEmbedded() stays FALSE
+// for this inert-landing binary (the flag-OFF serve-boot path is byte-identical
+// to a pre-P4 binary). It is also EXCLUDED from every `owner-ddl apply` route via
+// OwnerDDLApplyBundles() + the in-loop isNonRevokeBundle guard, so its REVOKE can
+// ONLY ever be committed as the terminal `striatum daemon deploy` step (M2) by an
+// activation binary that embeds it (§4.3). LatestOwnerBundleVersion and
 // RequiredOwnerBundleVersion deliberately STAY 20 — the revoke is gated by the
 // deploy cursor + CheckDeployActivation + the STRIATUM_DEPLOY_DECOUPLED flag +
 // its terminal placement, NOT the owner-bundle watermark frontier.
@@ -42,12 +46,13 @@ const DDLRevokeOwnerBundleVersion = 21
 func isNonRevokeBundle(version int) bool { return version < DDLRevokeOwnerBundleVersion }
 
 // OwnerDDLApplyBundles returns the owner bundles eligible for `owner-ddl apply`:
-// the FULL embedded set with the DDL-revoke bundle (0021) filtered OUT (M2). It
-// is the single named filter every `owner-ddl apply` route loads, so 0021 can
-// never be committed through the owner-ddl path. The non-apply consumers
-// (ExpectedFingerprint, revokeEmbedded, BuildPlan, RuntimeOwnedTablesAlterable)
-// keep using the full OwnerBundles() loader so the revoke remains part of the
-// fingerprint and the deploy plan.
+// the FULL embedded set with any DDL-revoke bundle (>= 0021) filtered OUT (M2). It
+// is the single named filter every `owner-ddl apply` route loads, so a revoke can
+// never be committed through the owner-ddl path. Under Option B (D7') the revoke
+// (0021) is STAGED out of ownerBundleFS, so for THIS inert-landing binary
+// OwnerBundles() already lacks it and the filter is a no-op; the in-loop guard +
+// this filter remain the load-bearing exclusion for an activation binary that
+// embeds 0021 (where they must filter it from every apply route).
 func OwnerDDLApplyBundles() ([]OwnerBundle, error) {
 	bundles, err := OwnerBundles()
 	if err != nil {
@@ -65,9 +70,13 @@ func OwnerDDLApplyBundles() ([]OwnerBundle, error) {
 // RevokeBundleEmbedded reports whether this binary embeds the DDL-revoke bundle
 // (0021) in ownerBundleFS — the `revokeEmbedded` predicate the boot-path deploy
 // activation gate (CheckDeployActivation) reads. It is derived from FILE PRESENCE
-// at DDLRevokeOwnerBundleVersion, NOT from `LatestOwnerBundleVersion >= 21`
-// (which stays 20): an inert-landing binary that does not ship 0021 returns
-// false, a revoke-embedding activation binary returns true.
+// in OwnerBundles() at DDLRevokeOwnerBundleVersion, NOT from
+// `LatestOwnerBundleVersion >= 21` (which stays 20). Under Option B (D7') this
+// build STAGES 0021 outside ownerBundleFS (sql/owner_staged_activation/, loaded by
+// StagedRevokeBundle), so for the inert-landing binary OwnerBundles() does not list
+// it and this returns FALSE — the shadow-first invariant that keeps the flag-OFF
+// serve-boot path byte-identical. An activation binary that embeds 0021 in
+// ownerBundleFS returns true and must run on the decoupled path (§3.3a step 0).
 func RevokeBundleEmbedded() (bool, error) {
 	bundles, err := OwnerBundles()
 	if err != nil {
@@ -215,6 +224,16 @@ func CheckOwnerBundleWatermark(ctx context.Context, runner Runner) error {
 //go:embed sql/owner/*.sql
 var ownerBundleFS embed.FS
 
+// stagedActivationFS holds the RFC 0142 P4 DDL-revoke bundle (0021) STAGED OUTSIDE
+// ownerBundleFS (Option B / D7'). It is a SEPARATE embed.FS, so OwnerBundles() /
+// ExpectedFingerprint() / RevokeBundleEmbedded() (which read ownerBundleFS) never
+// see it and the flag-OFF serve-boot path stays byte-identical to a pre-P4 binary.
+// The deployer still references 0021 from here (StagedRevokeBundle) for the
+// activation/verify binary's plan (§4.3 two-binary choreography).
+//
+//go:embed sql/owner_staged_activation/*.sql
+var stagedActivationFS embed.FS
+
 var ownerBundleLabels = map[int]string{
 	1:  "authority schema + v3 hash + phase 0 audit_only (RFC 0110 N+1)",
 	2:  "runtime read grant on schema_authority for capability parity (RFC 0110 N+1)",
@@ -281,6 +300,46 @@ func OwnerBundles() ([]OwnerBundle, error) {
 	}
 	sort.Slice(bundles, func(i, j int) bool { return bundles[i].Version < bundles[j].Version })
 	return bundles, nil
+}
+
+// StagedRevokeBundle loads the DDL-revoke bundle (0021) from stagedActivationFS —
+// the staged-but-not-embedded home it lives in under Option B (D7'). It returns
+// (bundle, true, nil) when a staged revoke file is present (this binary keeps the
+// activation SQL version-controlled and loadable for the activation/verify run's
+// deploy plan), and (zero, false, nil) when the staged dir holds no revoke file.
+// It is the seam the SEED names ("the deployer still references 0021 by loading it
+// from the staged dir"): the activation/verify binary's BuildPlan / VerifyStoredTranscript
+// resolve the terminal revoke through here, while serve-boot (which reads only
+// ownerBundleFS via OwnerBundles/RevokeBundleEmbedded) never sees it.
+func StagedRevokeBundle() (OwnerBundle, bool, error) {
+	entries, err := stagedActivationFS.ReadDir("sql/owner_staged_activation")
+	if err != nil {
+		return OwnerBundle{}, false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		version, err := strconv.Atoi(strings.SplitN(entry.Name(), "_", 2)[0])
+		if err != nil {
+			return OwnerBundle{}, false, fmt.Errorf("staged activation bundle %s has no leading version: %w", entry.Name(), err)
+		}
+		if version < DDLRevokeOwnerBundleVersion {
+			// Only the revoke frontier (>= 21) is staged here; ignore anything else.
+			continue
+		}
+		body, err := stagedActivationFS.ReadFile("sql/owner_staged_activation/" + entry.Name())
+		if err != nil {
+			return OwnerBundle{}, false, err
+		}
+		return OwnerBundle{
+			Version: version,
+			Label:   ownerBundleLabels[version],
+			Path:    "sql/owner_staged_activation/" + entry.Name(),
+			SQL:     string(body),
+		}, true, nil
+	}
+	return OwnerBundle{}, false, nil
 }
 
 // OwnerBundleVersion returns the highest owner bundle version applied to the

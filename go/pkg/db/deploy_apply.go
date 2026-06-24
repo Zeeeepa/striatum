@@ -165,13 +165,17 @@ func (d *Deployer) runFrom(ctx context.Context, runner Runner, plan *DeployPlan,
 // stamp + the cursor advance (→ step_committed(k)) + the hash-chained per-step
 // receipt all commit in ONE transaction, so a committed step always carries its
 // stamp and receipt (exactly-once), and a crash leaves the cursor at the last
-// fully-committed step (resume re-runs the next idempotently). C3 NOTE: the
-// per-step owner-oid snapshot + `ALTER … OWNER TO striatumd_rw` reconcile (§3.3b),
-// which keeps a runtime step's newly-created objects striatumd_rw-owned before the
-// terminal revoke commits, is NOT yet wired here. It is latent for the normal
-// base-20 activation (the only deployed step is the terminal 0021, which creates no
-// new ownable object) and is the documented apply-run follow-up (DRAFT.md "Known
-// remaining items" #1).
+// fully-committed step (resume re-runs the next idempotently). C3 NOTE (D6 —
+// EXPLICITLY RE-SCOPED): the per-step owner-oid snapshot + `ALTER … OWNER TO
+// striatumd_rw` reconcile + the pre-step `has_schema_privilege('striatumd_rw',
+// 'striatumd','CREATE')` assertion (§3.3b), which keep a runtime step's newly-created
+// objects striatumd_rw-owned before the terminal revoke commits, are NOT wired here.
+// They are latent for the base-20 activation (the only deployed step is the terminal
+// 0021, which creates no new ownable object) and are RE-SCOPED to the activation/verify
+// run alongside the live two-role CREATE-denial game-day — §6.5 criterion (l), which
+// depends on the reconcile (see DRAFT.md "Re-scoped (D6 / criterion l)"). A fresh-DB
+// deploy from base 0 (which would create new objects pre-revoke) is the verify run's
+// concern, not this inert-landing build's.
 func (d *Deployer) applyDeployStep(ctx context.Context, runner Runner, plan *DeployPlan, step DeployStep, prevHash string) (string, error) {
 	sql, label, version, err := stepRecord(step)
 	if err != nil {
@@ -359,6 +363,14 @@ func stepRecord(step DeployStep) (sql, label string, version int, err error) {
 			if baseName(b.Path) == step.StepID {
 				return b.SQL, b.Label, b.Version, nil
 			}
+		}
+		// Option B (D7'): resolve a staged terminal revoke (0021) from the staged dir
+		// when a transcript names it (the activation/verify-run plan). The inert-landing
+		// binary never builds a plan that includes it.
+		if staged, ok, sErr := StagedRevokeBundle(); sErr != nil {
+			return "", "", 0, sErr
+		} else if ok && baseName(staged.Path) == step.StepID {
+			return staged.SQL, staged.Label, staged.Version, nil
 		}
 		return "", "", 0, fmt.Errorf("owner bundle %q not embedded in this binary", step.StepID)
 	default:

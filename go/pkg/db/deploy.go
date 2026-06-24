@@ -166,15 +166,24 @@ func short(h string) string {
 // migration + owner-bundle sets, starting from the supplied applied watermarks.
 // Ordering (C3): pending non-revoke owner bundles (version in (baseOwner, 20]) →
 // pending runtime migrations (version > baseRuntime) → the terminal DDL-revoke
-// bundle 0021 LAST, if embedded and not yet applied. It uses the FULL OwnerBundles
-// loader (so 0021 is visible) but special-cases the revoke to terminal — 0021 is
-// NEVER an interior step.
+// bundle 0021 LAST, if present and not yet applied.
+//
+// Under Option B (D7') the revoke is the STAGED bundle (StagedRevokeBundle), NOT an
+// ownerBundleFS entry: for THIS inert-landing binary RevokeBundleEmbedded() is FALSE,
+// so the terminal revoke is OMITTED and RevokeStepIndex stays -1 (the revoke-in-plan
+// is re-scoped to the activation/verify binary per §4.3). An activation binary that
+// embeds 0021 flips RevokeBundleEmbedded() true and BuildPlan appends the staged
+// revoke as the terminal step. The revoke is NEVER an interior step.
 func BuildPlan(baseOwner, baseRuntime int) (*DeployPlan, error) {
 	bundles, err := OwnerBundles()
 	if err != nil {
 		return nil, err
 	}
 	migrations, err := Migrations()
+	if err != nil {
+		return nil, err
+	}
+	revokeEmbedded, err := RevokeBundleEmbedded()
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +196,8 @@ func BuildPlan(baseOwner, baseRuntime int) (*DeployPlan, error) {
 	idx := 0
 	var revokeBundle *OwnerBundle
 
-	// Pending non-revoke owner bundles (the revoke is held for terminal placement).
+	// Pending non-revoke owner bundles (a revoke embedded in ownerBundleFS is held
+	// for terminal placement; under Option B it is staged out, so none appears here).
 	for i := range bundles {
 		b := bundles[i]
 		if !isNonRevokeBundle(b.Version) {
@@ -208,6 +218,18 @@ func BuildPlan(baseOwner, baseRuntime int) (*DeployPlan, error) {
 			Transactional: true,
 		})
 		idx++
+	}
+
+	// Activation binary (revoke embedded in ownerBundleFS): the terminal revoke is
+	// sourced from the staged dir, the single home its SQL lives in (Option B). The
+	// inert-landing binary (RevokeBundleEmbedded()==false) skips this and emits no
+	// revoke step, keeping the plan revoke-free (re-scoped to §4.3).
+	if revokeEmbedded && revokeBundle == nil {
+		if staged, ok, sErr := StagedRevokeBundle(); sErr != nil {
+			return nil, sErr
+		} else if ok {
+			revokeBundle = &staged
+		}
 	}
 
 	// Pending runtime migrations.
@@ -294,6 +316,15 @@ func binaryStepSHA(step DeployStep) (string, bool, error) {
 			if filepath.Base(b.Path) == step.StepID {
 				return b.SHA256(), true, nil
 			}
+		}
+		// Option B (D7'): the terminal revoke (0021) is staged outside ownerBundleFS,
+		// so a transcript that names it (an activation/verify-run plan) resolves through
+		// the staged dir — the deployer "references 0021 by loading it from the staged
+		// dir". A serve-boot binary never builds such a transcript.
+		if staged, ok, sErr := StagedRevokeBundle(); sErr != nil {
+			return "", false, sErr
+		} else if ok && filepath.Base(staged.Path) == step.StepID {
+			return staged.SHA256(), true, nil
 		}
 		return "", false, nil
 	default:

@@ -150,6 +150,54 @@ func TestDeployActivationM3GateFiresForEveryCursorState(t *testing.T) {
 	}
 }
 
+// TestProductionInertBinaryFlagOffServesLegacy is the Option-B / D7' regression
+// guard that ACTUALLY RUNS (no pg cluster needed): it pins the PRODUCTION
+// RevokeBundleEmbedded() value of THIS binary and proves that, with the value the
+// real serve-boot path feeds CheckDeployActivation, a flag-OFF none-cursor boot
+// decides serve_legacy — NOT awaiting_deploy_config. The attempt-2 D7' regression
+// (0021 embedded → RevokeBundleEmbedded()==true → the §3.3a step-0 config gate
+// fires for every cursor state → flag-OFF boot halts awaiting_deploy_config,
+// bricking serve-boot and the pg-test harness) is exactly what this refutes. Because
+// it reads the real embed state, it reds the moment 0021 is re-embedded.
+func TestProductionInertBinaryFlagOffServesLegacy(t *testing.T) {
+	revokeEmbedded, err := RevokeBundleEmbedded()
+	if err != nil {
+		t.Fatalf("RevokeBundleEmbedded: %v", err)
+	}
+	// Shadow-first invariant: the inert-landing build must NOT embed the revoke, or
+	// the flag-OFF serve-boot path is not byte-identical to a pre-P4 binary.
+	if revokeEmbedded {
+		t.Fatal("RevokeBundleEmbedded() = true for the inert-landing build; the revoke must be staged out of ownerBundleFS (Option B / D7') so flag-OFF serve-boot serves legacy")
+	}
+
+	// The exact inputs the serve-boot path (ConnectAndMigrate) builds on a fresh /
+	// normal database with no deploy in flight and STRIATUM_DEPLOY_DECOUPLED unset.
+	got := DecideDeployActivation(DeployActivationInputs{
+		CursorState:      DeployStateNone,
+		DecoupledEnabled: false,
+		RevokeEmbedded:   revokeEmbedded, // the REAL production value, not a literal
+	})
+	if got == DeployHaltAwaitingConfig {
+		t.Fatal("flag-OFF none-cursor boot decided awaiting_deploy_config — the D7' regression; the legacy serve-boot path is bricked")
+	}
+	if got != DeployServeLegacy {
+		t.Fatalf("flag-OFF none-cursor boot decision = %s, want serve_legacy (the fresh-DB / inert-landing serve cell)", got)
+	}
+
+	// And the complete/in-sync no-revoke cursor still serves legacy (the idempotent
+	// :399 rewrite), while every non-complete cursor halts awaiting_deploy (BC-N2) —
+	// none halts awaiting_deploy_config for this inert binary at any cursor state.
+	for _, cursorState := range concreteCursorStates {
+		d := DecideDeployActivation(DeployActivationInputs{
+			CursorState: cursorState, DecoupledEnabled: false, RevokeEmbedded: revokeEmbedded,
+			FingerprintInSync: true, PlanHashMatch: true,
+		})
+		if d == DeployHaltAwaitingConfig {
+			t.Fatalf("cursor=%s: inert flag-OFF binary halted awaiting_deploy_config; the M3 config gate must NOT fire for a non-revoke-embedding binary", cursorState)
+		}
+	}
+}
+
 // TestDeployActivationDecisionErrorMapping guards the halt→typed-error mapping the
 // boot path uses to reach the non-restartable exit.
 func TestDeployActivationDecisionErrorMapping(t *testing.T) {

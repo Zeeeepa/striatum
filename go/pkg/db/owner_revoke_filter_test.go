@@ -112,67 +112,86 @@ func containsExec(execed []string, marker string) bool {
 	return false
 }
 
-// TestOwnerBundle0021ProductionEmbedListingSplit is the F16b production-phase
-// arm (M4, step 7): once 0021 is authored, production OwnerBundles() DOES embed
-// it (so ExpectedFingerprint, RevokeBundleEmbedded, and BuildPlan see it), but the
-// owner-ddl apply slice OwnerDDLApplyBundles() EXCLUDES it — the embed/listing
-// split. The forced FMA-007 self-heal two-role assertion is the pgtest arm
-// (deploy_pg_test.go), gated on STRIATUM_PG_TEST_URL.
-func TestOwnerBundle0021ProductionEmbedListingSplit(t *testing.T) {
+// TestOwnerBundle0021StagedForActivationNotEmbedded is the F16b arm RE-SCOPED for
+// the build's Option B (D7'): the DDL-revoke (0021) is STAGED outside ownerBundleFS,
+// not embedded. For THIS inert-landing binary the shadow-first invariant holds —
+// OwnerBundles() does NOT list 0021, RevokeBundleEmbedded() is FALSE, BuildPlan emits
+// NO revoke step — while the staged dir still version-controls the revoke SQL and
+// makes it loadable for the activation/verify binary's plan (§4.3). The production
+// EMBED assertion + the forced FMA-007 self-heal pgtest are re-scoped to that
+// activation binary (where RevokeBundleEmbedded() flips true), per the SEED's
+// Option-B re-scope. This is the dormant-production-assertion trade-off the reviewer
+// accepted, made explicit and tested in the un-embedded direction.
+func TestOwnerBundle0021StagedForActivationNotEmbedded(t *testing.T) {
+	// (a) production OwnerBundles() does NOT list the revoke (it is staged out).
 	bundles, err := OwnerBundles()
 	if err != nil {
 		t.Fatalf("OwnerBundles: %v", err)
 	}
-	var revoke *OwnerBundle
 	for i := range bundles {
-		if bundles[i].Version == DDLRevokeOwnerBundleVersion {
-			revoke = &bundles[i]
+		if bundles[i].Version >= DDLRevokeOwnerBundleVersion {
+			t.Fatalf("OwnerBundles() lists bundle %d (the DDL-revoke); Option B requires it staged OUT of ownerBundleFS so RevokeBundleEmbedded() stays false", bundles[i].Version)
 		}
 	}
-	if revoke == nil {
-		t.Fatalf("production OwnerBundles() does not embed bundle %d (the DDL-revoke); step 7 must author it", DDLRevokeOwnerBundleVersion)
-	}
-	if revoke.SHA256() == "" {
-		t.Fatal("DDL-revoke bundle has an empty SHA256")
-	}
-	if !strings.Contains(revoke.SQL, "REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw") {
-		t.Fatalf("DDL-revoke bundle SQL does not revoke CREATE from striatumd_rw:\n%s", revoke.SQL)
-	}
 
-	// (b) RevokeBundleEmbedded derives from file presence in the embed.
+	// (b) RevokeBundleEmbedded() is FALSE — the load-bearing shadow-first invariant
+	// (a none-cursor flag-OFF boot serves legacy instead of halting awaiting_deploy_config).
 	embedded, err := RevokeBundleEmbedded()
 	if err != nil {
 		t.Fatalf("RevokeBundleEmbedded: %v", err)
 	}
-	if !embedded {
-		t.Fatal("RevokeBundleEmbedded() = false but OwnerBundles() embeds the revoke")
+	if embedded {
+		t.Fatal("RevokeBundleEmbedded() = true for the inert-landing build; Option B requires the revoke staged out of ownerBundleFS (D7')")
 	}
 
-	// (c) production OwnerDDLApplyBundles() excludes 0021 (the listing split).
+	// (c) the staged dir DOES carry the revoke SQL (loadable for the activation plan):
+	// StagedRevokeBundle resolves it, with a non-empty content hash and the REVOKE DDL.
+	staged, ok, err := StagedRevokeBundle()
+	if err != nil {
+		t.Fatalf("StagedRevokeBundle: %v", err)
+	}
+	if !ok {
+		t.Fatal("StagedRevokeBundle() found no staged revoke; the deployer must be able to load 0021 from sql/owner_staged_activation/")
+	}
+	if staged.Version != DDLRevokeOwnerBundleVersion {
+		t.Fatalf("staged revoke version=%d, want %d", staged.Version, DDLRevokeOwnerBundleVersion)
+	}
+	if staged.SHA256() == "" {
+		t.Fatal("staged DDL-revoke bundle has an empty SHA256")
+	}
+	if !strings.Contains(staged.SQL, "REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw") {
+		t.Fatalf("staged DDL-revoke bundle SQL does not revoke CREATE from striatumd_rw:\n%s", staged.SQL)
+	}
+
+	// (d) OwnerDDLApplyBundles() excludes any revoke frontier (the listing split holds
+	// for both the inert binary — trivially, none present — and an activation binary).
 	apply, err := OwnerDDLApplyBundles()
 	if err != nil {
 		t.Fatalf("OwnerDDLApplyBundles: %v", err)
 	}
 	for _, b := range apply {
-		if b.Version == DDLRevokeOwnerBundleVersion {
-			t.Fatal("production OwnerDDLApplyBundles() surfaced the DDL-revoke; the listing split is broken")
+		if b.Version >= DDLRevokeOwnerBundleVersion {
+			t.Fatalf("OwnerDDLApplyBundles() surfaced revoke-frontier bundle %d; the listing split is broken", b.Version)
 		}
 	}
 
-	// (d) the watermark frontier stays 20 even though the highest embedded bundle
-	// is 21 — the revoke is deploy-plan-terminal, NOT a watermark advance.
+	// (e) the watermark frontier stays 20/20 — the revoke is deploy-plan-terminal, NOT
+	// a watermark advance — and the highest embedded owner bundle is now 20.
 	if LatestOwnerBundleVersion != 20 || RequiredOwnerBundleVersion != 20 {
-		t.Fatalf("watermark frontier moved: Latest=%d Required=%d, want 20/20 (the revoke must not advance the watermark)",
-			LatestOwnerBundleVersion, RequiredOwnerBundleVersion)
+		t.Fatalf("watermark frontier moved: Latest=%d Required=%d, want 20/20", LatestOwnerBundleVersion, RequiredOwnerBundleVersion)
+	}
+	if got := maxEmbeddedOwnerVersion(bundles); got != 20 {
+		t.Fatalf("highest EMBEDDED owner bundle = %d, want 20 (the revoke is staged out)", got)
 	}
 
-	// (e) BuildPlan places the embedded revoke LAST as the terminal step.
+	// (f) BuildPlan emits NO revoke step for the inert-landing binary (revoke-in-plan
+	// re-scoped to the activation binary, §4.3): RevokeStepIndex == -1.
 	plan, err := BuildPlan(0, 0)
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}
-	if plan.RevokeStepIndex != len(plan.Steps)-1 {
-		t.Fatalf("BuildPlan RevokeStepIndex=%d, want terminal %d", plan.RevokeStepIndex, len(plan.Steps)-1)
+	if plan.RevokeStepIndex != -1 {
+		t.Fatalf("BuildPlan RevokeStepIndex=%d for the inert-landing binary, want -1 (no terminal revoke; re-scoped to the activation binary)", plan.RevokeStepIndex)
 	}
 }
 

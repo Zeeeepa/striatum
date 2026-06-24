@@ -274,7 +274,13 @@ file = "0019_supervisor_pointer_runtime_ownership.sql"
 ordinal = 20
 file = "0020_owner_bundle_watermark_read.sql"
 
-[[owner_bundle]]
-ordinal = 21
-file = "0021_revoke_create_privilege.sql"
-note = "RFC 0142 P4 C3 serving-role create-DDL revoke; deploy-plan-terminal, excluded from owner-ddl apply"
+# owner ordinal 21 — the RFC 0142 P4 C3 serving-role create-DDL revoke
+# (0021_revoke_create_privilege.sql) — is RESERVED but deliberately NOT an
+# embedded owner_bundle entry under Option B (build, D7'). It is STAGED outside
+# ownerBundleFS at sql/owner_staged_activation/ so RevokeBundleEmbedded() stays
+# false and the flag-OFF serve-boot path is byte-identical to a pre-P4 binary.
+# The embedded owner-bundle frontier (and this ledger's owner_bundle ordinals)
+# therefore top out at 20 (== maxEmbeddedOwnerVersion(OwnerBundles()) ==
+# LatestOwnerBundleVersion). A future EMBEDDED owner bundle must NOT reuse
+# ordinal 21: it is claimed by the staged DDL-revoke (re-scoped to the
+# activation/verify binary per PROPOSAL §4.3).

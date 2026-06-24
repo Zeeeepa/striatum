@@ -30,18 +30,21 @@ func TestRunDaemonDeployDispatch(t *testing.T) {
 	}
 }
 
-// TestRunDaemonDeployM3PreflightRefusesWithoutDecoupled is the M3 (e) verb arm:
-// THIS binary embeds the DDL-revoke (owner bundle 0021), so `daemon deploy` with
-// STRIATUM_DEPLOY_DECOUPLED unset must refuse BEFORE connecting, naming the flag —
-// the activation preflight that keeps a revoke-embedding binary off the legacy
-// mutate path.
+// TestRunDaemonDeployM3PreflightRefusesWithoutDecoupled is the M3 (e) verb arm: a
+// binary that embeds the DDL-revoke (owner bundle 0021) must refuse `daemon deploy`
+// with STRIATUM_DEPLOY_DECOUPLED unset BEFORE connecting, naming the flag — the
+// activation preflight that keeps a revoke-embedding binary off the legacy mutate
+// path. Under the build's Option B (D7') THIS inert-landing binary STAGES 0021 out
+// of ownerBundleFS, so RevokeBundleEmbedded() is false and this arm is inert here;
+// it is the activation binary's executable assertion (re-scoped per §4.3) and reds
+// the moment 0021 is embedded.
 func TestRunDaemonDeployM3PreflightRefusesWithoutDecoupled(t *testing.T) {
 	embedded, err := db.RevokeBundleEmbedded()
 	if err != nil {
 		t.Fatalf("RevokeBundleEmbedded: %v", err)
 	}
 	if !embedded {
-		t.Skip("this binary does not embed the DDL-revoke (pre-step-7 build); M3 verb preflight is inert")
+		t.Skip("inert-landing binary (Option B): the DDL-revoke is staged out of ownerBundleFS, so the M3 verb preflight is inert; this arm fires for the activation binary")
 	}
 	t.Setenv(db.EnvDeployDecoupled, "")
 
