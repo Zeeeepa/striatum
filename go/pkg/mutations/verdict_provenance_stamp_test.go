@@ -324,7 +324,7 @@ func TestVerdictWriteSurfacesAreClassified(t *testing.T) {
 		// #144 stale-lease sweep — lane-evidence transcription: truthful
 		// unattested stamp, NO override basis; the completion gate disposes of it
 		// (TestSweepAutoPublishReviewRecordsVerdictAndFiresDownstream).
-		"recovery.go": {applyVerdictCalls: 1},
+		"recovery_auto.go": {applyVerdictCalls: 1},
 		// recovery auto-finalize — recovery surface; MUST declare
 		// ProvenanceOverrideBasis (TestRecordVerdictProvenanceOverrideBasisStampsOverride;
 		// basis declaration asserted below).
