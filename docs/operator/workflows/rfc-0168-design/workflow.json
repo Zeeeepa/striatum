@@ -1,0 +1,322 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0143-design-v7/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0168-design/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0168 P0 implementation SPEC: a pre-provisioned pool of per-lane OS uids, leased per lane, as the lane security principal — the structural fix for the shared-striatum-lane-uid BC1-W1-ORACLE wall that made RFC 0143's authenticated reseal channel unsolvable (D261). Read the v1 SEED, RFC 0168 in full, and the RFC 0143 v7 adjudicator ledger (the BC1-W1-ORACLE finding) first. The DIRECTION is RATIFIED (D261, pooled per-lane uid) — do NOT re-litigate it against namespace-inode / AppArmor-hat / private-socket-alone (all rejected). Your job is to harden the SPEC into build-bearing constraints answering the six design-gate open questions, each as a FALSIFIABLE assertion + the test/check that would refute it: (OQ1) POOL SIZE + EXHAUSTION — concrete sizing vs max_active_jobs/concurrent-lane ceilings across ALL runs; the exhaustion policy (block/grow/refuse) + the safe default. (OQ2) LEASE LIFECYCLE — daemon-leased per session like the session lease; the EXACT return+scrub steps (home dir, ~/.claude credential store, the uid-owned tmux server, stray/daemonized processes via the per-uid kill domain); the leaked/never-returned-uid REAPER; and RESTART-SURVIVAL — how lease<->uid bindings are reconstructed after a daemon boot-epoch rotation (the exact RFC 0143 case) given no in-memory binding survives. (OQ3) PROVISIONING OWNERSHIP — host-setup runbook artifact vs daemon-managed create/destroy; pick one and justify against the daemon privilege boundary (daemon-managed = daemon holds uid-management authority, a larger blast radius). (OQ4) ACL INTERACTION — how per-target-repo ACLs (#537/#539, docs/how-to/lane-sandbox.md setfacl) cover EVERY pool uid (DEFAULT ACL on a lane group vs per-uid grants) without over-granting a uid not leased to that repo. (OQ5) ATTESTATION — how lane_attestation/lane_attestation_reason change for a pooled uid; whether a recycled uid needs a generation/epoch token to prevent cross-lease confusion. (OQ6) CREDENTIAL STORE — each pool uid's own provider-credential store and how the RFC 0165 spawn-time hydrator (#583) populates per-uid stores without N stale copies or cross-uid leak. PROVE THE HARD CORE: that a per-lane uid actually dissolves BC1-W1-ORACLE on THIS host (Yama ptrace_scope=1) — a sibling lane (different uid) cannot respawn-pane/open/setns/ptrace/read the target's tmux pane, control socket, or 0600 file; name and close any residual same-uid surface (shared parent, shared tmux server, world/group-readable path, the daemon bridging uids). ANCHOR every claim to source: the run-as launch path (commandInvocationWithEnvFile / `sudo -n -u <runAsUser> -- env -i ...` in go/pkg/supervisor/pty.go; RunAsTmuxRunner in tmux_liveness.go:125-133), the lane sandbox convention (docs/how-to/lane-sandbox.md), the lane attestation fields, the recovery sweep, the credential-resolution chain. Define the P0 SLICE precisely (the minimum provisioning+lease+scrub+attestation that unblocks RFC 0143 Slice B's lane-uid-owned 0600 reseal token) and name the seams left to later slices. Keep the local-first boundary (one host, one PostgreSQL, one daemon as single writer; no hosted services). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0168-design/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, RFC 0168, and the RFC 0143 v7 ledger (BC1-W1-ORACLE). Your lens is PROVISIONING + LEASE LIFECYCLE + POOL EXHAUSTION + RESTART-SURVIVAL. Attack: does the lease lifecycle actually SCRUB a returned uid completely (home dir, ~/.claude credential store, the uid-owned tmux server, stray/daemonized processes) — or can lane N's residue leak to the next lease of the SAME uid (a cross-lease data/credential leak)? Is the leaked-uid REAPER real for the daemon-died-mid-lease case (the boot-epoch rotation RFC 0143 is about)? Does the design SURVIVE A DAEMON RESTART — D261's load-bearing property — given the pool/lease<->uid bindings must be reconstructed after restart with no surviving in-memory binding (which uid is leased to which still-live lane)? Is POOL EXHAUSTION safe under concurrent-lane pressure across ALL runs (no deadlock, no silent lane refusal, no unbounded growth)? Does pool size correctly relate to max_active_jobs summed over concurrent runs, not one? Is the provisioning-ownership choice (host runbook vs daemon-managed) coherent with the daemon's existing privilege boundary — does daemon-managed uid create/destroy over-grant the daemon uid-admin authority (a privilege escalation)? Construct the failing case for each gap you find. If the scrub is incomplete, the reaper absent, restart-survival unproven, or exhaustion unsafe, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0168-design/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC, RFC 0168, and the RFC 0143 v7 ledger (BC1-W1-ORACLE). Your lens is the STRUCTURAL SECURITY CLAIM + ATTESTATION + CREDENTIAL STORE + ACL. FIRST verify the CORE CLAIM is GENUINELY true: does a per-lane uid ACTUALLY dissolve BC1-W1-ORACLE on THIS host (Yama ptrace_scope=1) — can a sibling lane (different uid) really NOT respawn-pane -k / open / setns / ptrace / read the target lane's tmux pane, control socket, or 0600 file? Hunt for ANY residual same-uid surface (a shared parent process, a shared tmux server instance, a world/group-readable path, the daemon itself bridging uids, a sudo rule that lets one pool uid act as another). ATTESTATION: does a RECYCLED uid create cross-lease confusion — can the daemon mistake lease epoch K for K+1 on the same reused uid (does it need a generation/epoch token, and is that specified)? Can a STALE attestation from a prior lease authenticate a NEW lease of that uid? CREDENTIAL STORE: does each pool uid's own store avoid N-stale-copies under the RFC 0165 hydrator (#583) — or does spawn-time hydration race or leak creds across uids? ACL: do per-uid (or DEFAULT-group) ACLs grant each pool uid EXACTLY the repo-tree access it needs WITHOUT widening access for a uid not currently leased to that repo (a confused-deputy / over-grant)? Confirm the change is a NARROWING (no new authority granted) as D261 claims, not a widening. Construct the failing case for each gap. If the structural claim has a residual hole, attestation can be replayed across leases, creds leak across uids, or ACLs over-grant, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0168-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0168 P0 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0168 and the RFC 0143 v7 ledger as context. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES: the STRUCTURAL CLAIM genuinely holds (a per-lane uid dissolves BC1-W1-ORACLE with no residual same-uid surface on this host under Yama ptrace_scope=1); the LEASE LIFECYCLE is complete and SCRUB-correct with a real leaked-uid reaper; RESTART-SURVIVAL is proven (pool/lease<->uid state reconstructable after a daemon boot-epoch rotation — the exact case RFC 0143 targets); POOL EXHAUSTION has a safe default; PROVISIONING-OWNERSHIP is chosen coherently with the daemon privilege boundary (no uid-admin over-grant); ATTESTATION re-binds to the pooled uid with recycled-uid cross-lease confusion prevented (a generation/epoch if needed) and no stale-attestation replay; the CREDENTIAL-STORE-per-uid model avoids stale-copy/cross-uid leak under the #583 hydrator; ACLs grant exactly-enough without over-grant; and the change is a narrowing. Record per open-question (OQ1-OQ6) whether RESOLVED, and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if the structural claim has a hole, the scrub/reaper is incomplete, restart-survival is unproven, exhaustion is unsafe, or any falsifier challenge lands materially. This is the single allowed v1 revision cycle; a second needs_revision ends the gate unCleared and routes to the operator (who spins a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0168-design/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0168 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design (not just deltas), buildable contract-first by the rfc-0168-build code_change run: the per-lane uid pool (size + exhaustion policy), the daemon lease lifecycle (allocate at lane launch, return+scrub on teardown, leaked-uid reaper, restart-survival reconstruction), the provisioning-ownership decision (host runbook vs daemon-managed, with the chosen blast radius), the per-pool-uid ACL grants (#537/#539), the lane_attestation re-binding + recycled-uid generation/epoch, the per-uid credential store + #583 hydrator interaction, and the EXACT P0 slice boundary that unblocks RFC 0143 Slice B's lane-uid-owned 0600 reseal token. State each as a falsifiable assertion + its test (host-provisioning checks, lease/scrub tests, the BC1-W1-ORACLE negative control proving a sibling uid cannot reach the target pane/socket/file, the restart-survival test). Anchor to source (pty.go run-as path, tmux_liveness.go, lane-sandbox.md, the attestation fields). Note the seams left for later slices and the RFC 0143 Slice B handoff. Reference the clearing ledger. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0168-design/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0168 P0 design: the ledger verdict, how the STRUCTURAL CLAIM (per-lane uid dissolves BC1-W1-ORACLE) was proven, how each open question (OQ1-OQ6: pool size/exhaustion, lease lifecycle + scrub + restart-survival, provisioning ownership, ACL, attestation, credential store) was resolved, which falsifier challenges were rebutted, and the consolidated SPEC + named tests the rfc-0168-build run will implement — plus the RFC 0143 Slice B unblock this enables.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-design/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0168-design",
+  "workflow_version": "2026-06-24"
+}
