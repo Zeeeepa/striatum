@@ -1,0 +1,335 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0142-p4-design-v9"
+  },
+  "context_docs": [
+    {
+      "path": "docs/operator/workflows/rfc-0142-p4-design-v9/SEED.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v8/dialogue/holder/HOLDER.md",
+      "required": true
+    },
+    {
+      "path": "docs/operator/artifacts/rfc-0142-p4-design-v8/dialogue/adjudicator/COLLABORATION_LEDGER_cycle_1.md",
+      "required": true
+    },
+    {
+      "path": "docs/rfcs/0142-safe-by-construction-database-change-deployment.md",
+      "required": true
+    }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "REVISE the RFC 0142 P4 implementation spec (the one-shot `striatum daemon deploy`) so it RESOLVES the single cycle-1 (design-v8) falsification-gate finding — M7 (LOAD-BEARING: §3.5 row 16 (`cursorState=complete`, `decoupledEnabled=true`, `revokeEmbedded=true`) gives the `==0` and `==20` columns UNCONDITIONAL `awaiting_deploy`, reasoned '0021 not yet applied → fingerprint ≠ → not in-sync', but A's §3.3a step-3 decoupled branch decides solely on `cursor.plan_hash == expected` + `LiveFingerprint == ExpectedFingerprint` (`schema_drift.go:145-161` reads the recorded `schema_state.fingerprint` singleton — orthogonal to `owner_bundle_meta`/`applied_owner`; `schema_drift.go:171-195` writes the binary's `ExpectedFingerprint()` — also orthogonal), so the in-sync row-16 cell is constructible and A serves verify-only there while the table says halt; the holder VIOLATED its OWN derivation rule (HOLDER.md:565-566: 'where A's outcome is conditional on the fingerprint-sync state … the cell is written conditionally') — row 16's outcome IS conditional on fingerprint-sync, yet the cell is written UNCONDITIONALLY; both v8 falsifiers, independently, constructed the concrete F18 refutation cell (cursorState=complete, decoupledEnabled=true, revokeEmbedded=true, applied_owner=0 or ==20, plan present, cursor.plan_hash == expected, LiveFingerprint(recorded) == ExpectedFingerprint(), owner_bundle_meta absent or version-20 — W passes, A returns nil (serve verify-only), but §3.5 row 16 requires awaiting_deploy); F18 is therefore a FALSE ORACLE for the in-sync row-16 `==0`/`==20` cells, OR the build must smuggle in an unstated `applied_owner`-dependent guard contradicting the W→A-independence claim) — while CARRYING FORWARD UNREGRESSED the eleven findings v8 already resolved (both v8 falsifiers + the v8 adjudicator conceded each): M6 (rows 13/15 mechanical derivation + §0.2 W→A-independence invariant + the four :399-reaching cells in §4.5/F18), M5(row-1) (the `{0/no authority, 1..19 authority shortfall, ==20, >=21}` split; cell 1/`==0` serves the fresh-DB bring-up; F18/F18a assert both cells; cell `==20` relabeled inert-landing), M3 (the hoisted step-0 `revokeEmbedded && !decoupledEnabled → awaiting_deploy_config` config gate for EVERY cursor state incl. `complete`, the no-revoke `complete` pre-`ApplyMigrations` pure-read comparison, tightened Universal Invariant B, F17/F11(g)/F18), M4 (the F16a synthetic-list pre-0021 + F16b production post-0021 phase split + the forced FMA-007 self-heal pgtest in F16b reaching `ReapplyAllOwnerBundles` via `isCrossBundleDependencyError`), M1 (full stored-transcript byte + already-applied DB-stamp verification on every resume AND as finalizer step 0, ANY mismatch → `deploy_plan_binary_mismatch`/`deploy_plan_db_stamp_mismatch` DB-untouched, F15 + extended F14), M2 (the single non-revoke filter `OwnerDDLApplyBundles()` + `isNonRevokeBundle` in-loop guards + the nil-fallback split bound across `ApplyOwnerBundles`/`applyPendingOwnerBundles`/`ReapplyAllOwnerBundles`/tests; the embed/listing split so `revokeEmbedded`/`ExpectedFingerprint` see 0021 but `owner-ddl apply` never iterates it, F16 + extended F12/`G-revoke-last`), BC-N1 (immutable `deploy_plan` transcript before step 0 + resume off the stored transcript + §1.3 + doctor + F14), BC-N2 (the universal `CheckDeployActivation` non-complete-cursor edge at `applied_owner == 20`, F11(e)/(f)), C1 (the `finalizing` state + idempotent finalizer + §1.3 row + F10; M1 adds a pre-finalizer gate), C2 (`CheckDeployActivation` before `ApplyMigrations`, typed halts, forward-watermark at `applied >= 21`, `RequiredOwnerBundleVersion` KEPT at its current-`main` value 20), and C3 (0021 special-cased + terminal + revoke-last). Start from the v8 HOLDER.md (a required context doc) and the v8 collaboration ledger (its `rationale:` 'Required fix' section and the M7 finding's `challenge` field give the exact prescribed M7 fix; §5 'What already cleared' gives the carry-forward set); do not re-litigate M6, M5(row-1), M3, M4, M1, M2, BC-N1, BC-N2, C1, C2, or C3 — those carry forward. Resolve M7 by adopting Option 1 (the clean fix, parallel to the M6 fix): (1) MAKE ROW 16 `==0`/`==20` CONDITIONAL on the same A3 complete/decoupled fingerprint predicate — 'SERVE-verify if in-sync, else `awaiting_deploy`' — exactly as the `==20` column; (2) write the `>=21` revoke-embedding cell conditional too for full derivation; (3) propagate the contract through §1.3, §3.3a, §3.5, §4.5, and F18; (4) make F18 PARAMETRIC over ALL complete-row cells (13/15/16 and their `>=21` variants) with the in-sync/out-of-sync sub-dimension, documenting that the normal reachable pre-0021 state is out-of-sync. The fix must NOT re-collapse the row-1 fresh-DB serve, weaken the M3 A0 config gate, regress the BC-N2 `==20` edge, or advance `RequiredOwnerBundleVersion`. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v9) holder proposal, the v8 HOLDER.md, and the v8 collaboration ledger (its `rationale:` 'Required fix' section, M7 finding, and §5 'What already cleared'). Your lens is the DECOUPLING-BOUNDARY / DECISION-TABLE lens (M7). FIRST verify M7 is GENUINELY resolved (not merely claimed): does the spec now make §3.5 row 16 (`complete`, decoupled ON, revoke-embedding) in the `==0`/`==20` columns CONDITIONAL on the A3 fingerprint predicate — 'SERVE-verify if in-sync, else `awaiting_deploy`' — exactly as A's §3.3a step-3 decoupled branch decides (`cursor.plan_hash == expected` + `LiveFingerprint == ExpectedFingerprint`, no `applied_owner` input)? Is the `>=21` revoke-embedding cell also made conditional for full derivation? Is F18 now PARAMETRIC over ALL complete-row cells (13/15/16 and `>=21` variants) with the in-sync/out-of-sync sub-dimension? Does the spec document that the normal reachable pre-0021 state is out-of-sync? Reproduce the v8 F18 refutation cell for row 16: cursorState=complete, decoupledEnabled=true, revokeEmbedded=true, applied_owner=0 (or ==20), `deploy_plan[plan_hash]` present, `cursor.plan_hash == expected`, `LiveFingerprint(recorded) == ExpectedFingerprint()`, `owner_bundle_meta` absent (or 20) — W passes (`owner.go:145,151-153`), A returns nil (serve verify-only on the decoupled complete branch, `schema_drift.go:145-161` has no `applied_owner` input); does §3.5 row 16/`==0` now say 'SERVE-verify if in-sync' (conditional)? Does F18 now assert the correct outcome for this cell? THEN verify the M7 fix does NOT weaken the M3 config gate (cells 2/6/10/14 still halt `awaiting_deploy_config` at A0 in EVERY column), does NOT regress the M6 rows-13/15 fix (those cells still conditional, §0.2 invariant still stated, the four :399-reaching cells still in §4.5/F18), does NOT regress the BC-N2 `applied_owner == 20` non-complete edge, does NOT advance `RequiredOwnerBundleVersion`, and does NOT re-collapse the M5 row-1 fresh-DB serve. Then hunt for any NEW material gap: a decision-table cell still asserted not derived; a complete-row cell where the in-sync/out-of-sync sub-dimension is still missing; a fresh-DB or inert-landing cell that now over-serves or halts incorrectly; F18 still a false oracle for some cell. If row 16 is still unconditional, if F18 is still not parametric over all complete-row cells, or if the fix introduces a new incoherence, say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1 (decoupling-boundary/decision-table lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v9) holder proposal, the v8 HOLDER.md, and the v8 collaboration ledger (its `rationale:` 'Required fix' section, M7 finding, and §5 'What already cleared'). Your lens is the CARRY-FORWARD / REGRESSION lens: verify the M7 row-16 conditional fix did NOT break any of the eleven v8-resolved findings or the decision table elsewhere. FIRST confirm M7 is at least addressed (row 16 `==0`/`==20` made conditional on the A3 fingerprint predicate, the `>=21` cell also conditional, F18 parametric over all complete-row cells with in-sync/out-of-sync sub-dimension, normal pre-0021 state documented as out-of-sync — see falsifier_1's lens), THEN spend your effort on regression. Verify each carry-forward survives the M7 fix unregressed: M6 — the §0.2 W→A-independence invariant still stated and anchored to `schema_drift.go:145-161`/`:171-195`; §3.5 rows 13 and 15 in the `==0` column still conditional matching `==20`; the four :399-reaching cells still in BOTH §4.5 AND the F18 spy list; the cross-row audit intact; the M7 fix must NOT regress the rows-13/15 repair. M5(row-1) — the `{0/no authority, 1..19, ==20, >=21}` split intact; cell 1/`==0` still serves the fresh-DB bring-up; F18/F18a dual assertion still present; the M7 fix must NOT re-collapse this. M3 — the hoisted step-0 config gate (every cursor state incl. `complete`), the no-revoke `complete` pre-`ApplyMigrations` pure-read comparison, the tightened Universal Invariant B, F17/F11(g)/F18 — must be intact; the M7 fix must not re-open the complete-cursor bypass. M4 — F16a (synthetic-list pre-0021, step 2) + F16b (production post-0021 + the forced FMA-007 self-heal reaching `ReapplyAllOwnerBundles` via `isCrossBundleDependencyError`, step 7) — must build green at every rollout step. M1 — `VerifyStoredTranscript` on resume AND finalizer step 0, typed halts, F15 + extended F14 — ungated and coherent. M2 — the single non-revoke filter `isNonRevokeBundle`/`OwnerDDLApplyBundles()` across every `owner-ddl apply` route, the embed/listing split. BC-N1 — immutable `deploy_plan` transcript, resume off the stored transcript, §1.3 + doctor + F14. BC-N2 — the universal non-complete edge at `applied_owner == 20`, F11(e)/(f); CRITICAL: M7 is in the COMPLETE/decoupled/revoke-embedding cell, not the non-complete edge — the M7 fix must NOT weaken the BC-N2 edge. C1 — `finalizing` + idempotent finalizer + §1.3 + F10. C2 — `CheckDeployActivation` before `ApplyMigrations`, typed halts, forward-watermark at `applied >= 21`, `RequiredOwnerBundleVersion = 20` (NOT advanced; `owner.go:35`). C3 — 0021 special-cased + terminal + revoke-last; F12/`G-revoke-last`. Verify the mechanically-derived decision table is COHERENT across all complete-row cells (13/15/16 and `>=21` variants) now that all three are conditional on fingerprint-sync. Then hunt for any NEW material gap: a cell in a different cursor-state group (none/in_progress/finalizing) that is still asserted not derived; a `>=21` post-revoke complete-row cell newly mis-derived; a build-time grep/test that the derivation breaks; scope creep into P5. If any carry-forward finding is regressed by the M7 fix, that is a standing falsification — say so explicitly and stop the revision from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2 (carry-forward/regression lens)",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read only the dialogue trajectory for the RFC 0142 P4 v9 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v8 HOLDER.md and v8 collaboration ledger (its `rationale:` 'Required fix' section, the M7 finding, and §5 'What already cleared') as context for what the revision had to fix. Publish the collaboration ledger verdict (one of accept, accept_with_findings, needs_revision, reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES all of: M7 genuinely resolved (§3.5 row 16 `==0`/`==20` conditional on the A3 fingerprint predicate — 'SERVE-verify if in-sync, else `awaiting_deploy`'; the `>=21` revoke-embedding cell also conditional for full derivation; F18 parametric over ALL complete-row cells (13/15/16 and `>=21` variants) with the in-sync/out-of-sync sub-dimension; normal pre-0021 state documented as out-of-sync; the v8 refutation cell correctly handled: W passes, A returns nil (serve verify-only), §3.5 row 16 now says SERVE-verify (conditional on in-sync)) AND the PROACTIVE-COMPLETENESS boot-path decision table COMPLETE (every cell derived from W and A, Invariant B proven in every cell, the legitimate fresh-DB/inert-landing cells still serving) AND the eleven carry-forward findings intact: M6 (§0.2 W→A-independence invariant still stated; rows 13/15 `==0` still conditional; the four :399-reaching cells still in both §4.5 and F18; cross-row audit intact; NOT regressed by the M7 fix), M5(row-1) (the `{0/no authority, 1..19, ==20, >=21}` split; cell 1/`==0` serves the fresh-DB bring-up; F18/F18a dual assertion; cell `==20` relabeled inert-landing; NOT re-collapsed), M3 (hoisted step-0 config gate + no-revoke `complete` pure-read comparison + tightened Invariant B + F17/F11(g)/F18; M7 fix must NOT weaken the conservative revoke-embedding + flag-OFF halt), M4 (F16a synthetic / F16b production + forced self-heal via `isCrossBundleDependencyError`), M1 (full stored-transcript byte + DB-stamp verification on resume AND as finalizer step 0; typed mismatch halts; F15 + F14), M2 (single non-revoke filter across every `owner-ddl apply` route; embed/listing split), BC-N1 (immutable `deploy_plan` transcript; resume off the stored transcript; §1.3 + doctor + F14), BC-N2 (universal non-complete-cursor edge at `applied_owner == 20`, F11(e)/(f) — M7 is the COMPLETE/decoupled/revoke-embedding cell, not the non-complete edge; do not let the M7 fix weaken the `applied_owner == 20` edge), C1 (`finalizing` + idempotent finalizer + §1.3 row + F10), C2 (`CheckDeployActivation` before `ApplyMigrations`, typed halts, forward-watermark at `applied >= 21`, `RequiredOwnerBundleVersion = 20` NOT advanced), C3 (0021 special-cased + terminal + revoke-last, F12/`G-revoke-last`) AND no new material challenge standing unrebutted. needs_revision if M7 remains open (row 16 `==0`/`==20` still unconditional; F18 not parametric over all complete-row cells; the `>=21` cell not conditional; normal pre-0021 state not documented; v8 refutation cell still wrong), if any carry-forward finding is regressed (especially M6 rows-13/15 regressed, M5 row-1 re-collapsed, M3 config gate weakened, BC-N2 edge regressed, `RequiredOwnerBundleVersion` advanced), if the decision table is not derived/complete, or if any new material challenge lands. Record per finding M7 / M6 / M5(row-1) / M3 / M4 / M1 / M2 / BC-N1 / BC-N2 / C1 / C2 / C3 and per new falsifier challenge whether it is RESOLVED / INTACT and whether the decision table is COMPLETE. This is the single allowed revision cycle for v9 — be exact; a second `needs_revision` ends the gate unCleared.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared falsifiable implementation spec for RFC 0142 P4 (resolving Q3 + Q4 with ALL findings fixed: C1 finalization-boundary sub-protocol, C2 fail-closed revoke-bundle+flag activation edge, C3 a chosen+tested runtime-object ownership policy compatible with the terminal DDL-revoke bundle, BC-N1 the immutable-transcript per-step deploy receipt whose (plan_hash, step_index) key is stable across crash-resume, BC-N2 a deploy_cursor authoritative before the terminal revoke so even a no-revoke deployer-aware binary at applied_owner==20 refuses awaiting_deploy on an incomplete cursor, M1 the FULL-stored-transcript byte verification on resume AND before the C1 finalizer self-records — including already-applied steps and their DB stamps, M2 a single non-revoke filter excluding the DDL-revoke bundle from EVERY `owner-ddl apply` route including the FMA-007 self-heal reapply, M3 the COMPLETE-cursor activation guard (the hoisted step-0 `revokeEmbedded && !decoupledEnabled → awaiting_deploy_config` config gate + the no-revoke `complete` pre-`ApplyMigrations` pure-read comparison) closing §4.5 Universal Invariant B across the complete-cursor window, M4 the phase-aware F16 split (F16a synthetic pre-0021 + F16b production post-0021), M5 the boot-path decision-table owner-watermark dimension SPLIT — `applied_owner ∈ {0/no authority serve-legacy, 1..19 awaiting_owner_ddl, ==20, >=21}` — so the fresh / single-role / no-authority bootstrap cell (`applied_owner == 0`, no transcript, no revoke) STILL SERVES the normal fresh bring-up matching `CheckOwnerBundleWatermark`'s `applied == 0` exception (`go/pkg/db/owner.go:145`), M6 the FULL 64-cell table derived MECHANICALLY from W (`CheckOwnerBundleWatermark`) and A (`CheckDeployActivation`) with the W→A-independence invariant stated explicitly and rows 13/15 `==0` conditional matching `==20`, and M7 the row-16 (`complete`, decoupled, revoke-embedding) `==0`/`==20` cells made CONDITIONAL on the A3 fingerprint predicate — 'SERVE-verify if in-sync, else `awaiting_deploy`' — closing the complete-row class fully so EVERY complete-row cell (13/15/16 and `>=21` variants) is derived from A's fingerprint-sync predicate rather than from an unstated `applied_owner`-dependent premise; F18 is parametric over all complete-row cells with the in-sync/out-of-sync sub-dimension; the normal pre-0021 state is documented as out-of-sync; the fix does NOT advance RequiredOwnerBundleVersion) only after the adjudicator ledger records a clearing verdict; this SPEC is the artifact the rfc-0142-p4-build run consumes. Keep the DDL-revoke owner bundle at the renumbered 0021 ordinal (0020 is `0020_owner_bundle_watermark_read.sql` / `LatestOwnerBundleVersion==20`). Apply the shadow-first convention for the new deploy path.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0142-p4-design-v9/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate and downstream publication.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0142-p4-design-v9/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0142-p4-design-v9",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0142-p4-design-v9",
+  "workflow_version": "2026-06-24"
+}
