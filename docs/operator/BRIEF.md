@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-24_v2.37.1-deployed"
-supersedes: "brief_2026-06-24_audit-closeout-gates"
+brief_id: "brief_2026-06-25_v2.38.0-release"
+supersedes: "brief_2026-06-24_v2.37.1-deployed"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 300
 retrieval_priority: "high"
@@ -11,6 +11,19 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-25 delta — v2.38.0 release
+
+**v2.38.0 (2026-06-25)** cuts the D270 subtraction release over v2.37.1.
+The supported cross-repo product surface is retired: `go/pkg/crossrepo`,
+`cross_repo.*` daemon RPC methods, `striatum cross-repo ...` CLI routes,
+daemon handlers, generated method tables, and current reference-doc support
+are removed. RFC 0128's single-repo write-scope guardrail remains.
+
+**Deploy note:** this release has no new DDL, runtime migration, or owner bundle.
+Upgraded databases may still contain historical RFC 0032 `cross_repo_*` tables
+and `runs.cross_repo_run_id`; those are compatibility/provenance schema only.
+Install/restart the v2.38.0 binaries to move the host from v2.37.1 to v2.38.0.
 
 ## 2026-06-24 delta — v2.37.1 hotfix release
 
@@ -189,15 +202,16 @@ older #212/#263-#267 text is historical only.
 
 ## State
 
-Latest release is **v2.37.1 (2026-06-24)** — hotfixes the v2.37.0 owner-bundle
-0022 capability-parity deploy skew after shipping operator identity/run
-attribution (RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap,
-RFC 0143 Slice A recovery legibility, D269 fan-in barrier default-live cutover,
-and the audit closeout gates. **v2.36.0 (2026-06-23)** was a bugfix-only cut over
+Latest release is **v2.38.0 (2026-06-25)** — retires the D270 cross-repo
+product surface without new DDL while preserving the single-repo write-scope
+guardrail. **v2.37.1 (2026-06-24)** hotfixed the v2.37.0 owner-bundle 0022
+capability-parity deploy skew after shipping operator identity/run attribution
+(RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap, RFC 0143
+Slice A recovery legibility, D269 fan-in barrier default-live cutover, and the
+audit closeout gates. **v2.36.0 (2026-06-23)** was a bugfix-only cut over
 v2.35.0 (#581 owner-bundle watermark deploy crash-loop, #582 release publish
 pipeline, doctor superseded-artifact false-red, checkpoint artifact-integrity;
-owner bundle 0020). **v2.35.0 (2026-06-22)** — a large feature-wave cut (207 commits
-since v2.34.1; ~12 RFC graduations incl. 0142 P0–P3; see the top delta).
+owner bundle 0020).
 **v2.34.1 (2026-06-18)** was a docs/maintenance cut (no code change). **v2.34.0
 (2026-06-18)** packaged six reliability/security fixes +
 the RFC 0135 sealed-barrier primitive (opt-in/shadow). The earlier
@@ -323,6 +337,6 @@ Open GitHub tracker state rechecked on 2026-06-24 after the v2.37.1 deploy.
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
 - `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
-- `CHANGELOG.md` (v2.10.0 → v2.37.1 + Unreleased)
+- `CHANGELOG.md` (v2.10.0 → v2.38.0 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)

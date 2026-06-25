@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- (No changes yet.)
+
+## v2.38.0 — 2026-06-25
+
 ### Removed
 
 - **Cross-repo product surface retired (D270).** Removed `go/pkg/crossrepo`,
