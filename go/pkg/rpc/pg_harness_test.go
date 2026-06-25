@@ -34,20 +34,6 @@ func TestStatefulDaemonMethodsStayRepositoryScoped(t *testing.T) {
 	}
 }
 
-func TestCrossRepoMethodsUseCrossRepoScope(t *testing.T) {
-	for _, entry := range SortedMethods() {
-		if !hasAnyPrefix(entry.Method, []string{"cross_repo."}) {
-			continue
-		}
-		if entry.RepositoryScopeMode != ScopeCrossRepo {
-			t.Fatalf("%s scope = %s, want cross_repo", entry.Method, entry.RepositoryScopeMode)
-		}
-		if entry.RequiredCapability == nil {
-			t.Fatalf("%s must declare a required capability", entry.Method)
-		}
-	}
-}
-
 func hasAnyPrefix(value string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		if len(value) >= len(prefix) && value[:len(prefix)] == prefix {

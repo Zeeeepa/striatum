@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-- (No changes yet.)
+### Removed
+
+- **Cross-repo product surface retired (D270).** Removed `go/pkg/crossrepo`,
+  the `cross_repo.*` daemon RPC methods, the `striatum cross-repo ...` CLI
+  routes, daemon handlers, and current reference-doc support. The RFC 0128
+  single-repo write-scope guardrail remains; historical RFC 0032 schema may
+  remain in upgraded databases but is no longer a supported operator surface.
 
 ## v2.37.1 — 2026-06-24
 

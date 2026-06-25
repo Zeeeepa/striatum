@@ -38,7 +38,6 @@ type ScopeMode string
 
 const (
 	ScopeSingleRepo   ScopeMode = "single_repo"
-	ScopeCrossRepo    ScopeMode = "cross_repo"
 	ScopeDaemonGlobal ScopeMode = "daemon_global"
 )
 

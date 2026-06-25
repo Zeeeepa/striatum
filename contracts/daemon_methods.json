@@ -86,10 +86,6 @@
     {"command": "supervise", "subcommand": "status", "method": "supervise.status", "params": "supervise_status"},
     {"command": "supervise", "subcommand": "list", "method": "supervise.list", "params": "supervise_list"},
     {"command": "supervise", "subcommand": "trajectory", "method": "supervise.trajectory", "params": "supervise_trajectory"},
-    {"command": "cross-repo", "subcommand": "list", "method": "cross_repo.list", "params": "cross_repo"},
-    {"command": "cross-repo", "subcommand": "describe", "method": "cross_repo.describe", "params": "cross_repo"},
-    {"command": "cross-repo", "subcommand": "why", "method": "cross_repo.why", "params": "cross_repo"},
-    {"command": "cross-repo", "subcommand": "cancel", "method": "cross_repo.cancel", "params": "cross_repo"},
     {"command": "trajectory", "subcommand": "export", "method": "trajectory.export", "params": "trajectory_export"},
     {"command": "trajectory", "subcommand": "watch", "method": "trajectory.watch", "params": "trajectory_watch"},
     {"command": "interrogation", "subcommand": "open", "method": "interrogation.open", "params": "interrogation_open"},
@@ -1379,42 +1375,6 @@
       "method": "daemon.migrate",
       "required_capability": "admin",
       "repository_scope_mode": "daemon_global",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": false
-    },
-    {
-      "method": "cross_repo.list",
-      "required_capability": "read",
-      "repository_scope_mode": "cross_repo",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": false
-    },
-    {
-      "method": "cross_repo.describe",
-      "required_capability": "read",
-      "repository_scope_mode": "cross_repo",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": false
-    },
-    {
-      "method": "cross_repo.why",
-      "required_capability": "read",
-      "repository_scope_mode": "cross_repo",
-      "params_schema_version": 1,
-      "audit_class": "metadata",
-      "min_envelope": 1,
-      "deprecated": false
-    },
-    {
-      "method": "cross_repo.cancel",
-      "required_capability": "recovery",
-      "repository_scope_mode": "cross_repo",
       "params_schema_version": 1,
       "audit_class": "metadata",
       "min_envelope": 1,

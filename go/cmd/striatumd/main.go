@@ -26,7 +26,6 @@ import (
 	"github.com/halbritt/striatum/go/pkg/agentloop"
 	daemonapply "github.com/halbritt/striatum/go/pkg/apply"
 	"github.com/halbritt/striatum/go/pkg/blob"
-	"github.com/halbritt/striatum/go/pkg/crossrepo"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/mcp"
 	"github.com/halbritt/striatum/go/pkg/metrics"
@@ -1035,7 +1034,6 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 		BlobClient:    options.BlobClient,
 	}.Register(server)
 	daemonapply.Service{Runner: runner}.Register(server)
-	registerCrossRepoHandlers(server, runner)
 	// RFC 0048 Phase B: register the Go-core read-surface handlers
 	// before the not-implemented stub loop so the loop's existence-check
 	// skips them. Mirrors src/striatum/daemon_pg/handlers/reads/ in
@@ -1076,108 +1074,10 @@ func registerHandlers(server *rpc.Server, runner db.Runner, opts ...handlerOptio
 	}
 }
 
-func registerCrossRepoHandlers(server *rpc.Server, runner db.Runner) {
-	local := localWorkflowRunner{runner: runner}
-	server.Register("cross_repo.list", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-		if runner == nil {
-			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
-		}
-		return crossrepo.ListRuns(ctx, runner)
-	})
-	server.Register("cross_repo.describe", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-		if runner == nil {
-			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
-		}
-		runID := param(envelope.Params, "cross_repo_run_id")
-		if runID == "" {
-			runID = param(envelope.Params, "run_id")
-		}
-		if runID == "" {
-			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
-		}
-		return crossrepo.DescribeRun(ctx, runner, runID)
-	})
-	server.Register("cross_repo.why", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-		if runner == nil {
-			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
-		}
-		runID := param(envelope.Params, "cross_repo_run_id")
-		if runID == "" {
-			runID = param(envelope.Params, "run_id")
-		}
-		if runID == "" {
-			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
-		}
-		return crossrepo.Why(ctx, runner, runID)
-	})
-	server.Register("cross_repo.cancel", func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
-		if runner == nil {
-			return nil, rpc.NewError("daemon_db_missing", "cross-repo routes require daemon PostgreSQL", nil)
-		}
-		runID := param(envelope.Params, "cross_repo_run_id")
-		if runID == "" {
-			runID = param(envelope.Params, "run_id")
-		}
-		if runID == "" {
-			return nil, rpc.NewError("schema_invalid", "cross-repo route requires cross_repo_run_id", nil)
-		}
-		reason := param(envelope.Params, "reason")
-		if reason == "" {
-			reason = "operator canceled cross-repo run"
-		}
-		return crossrepo.CancelRun(ctx, runner, runID, reason, local)
-	})
-}
-
-type localWorkflowRunner struct {
-	runner db.Runner
-}
-
-func (l localWorkflowRunner) Start(ctx context.Context, repositoryID string, localRunID string) error {
-	_, err := mutations.HandleRunStart(ctx, l.runner, rpc.Envelope{
-		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "cross_repo_start_" + localRunID,
-		Method:        "run.start",
-		Params: map[string]any{
-			"repository_id": repositoryID,
-			"run_id":        localRunID,
-		},
-	})
-	return err
-}
-
-func (l localWorkflowRunner) Cancel(ctx context.Context, repositoryID string, localRunID string, reason string) error {
-	active, err := l.runner.QueryScalar(ctx, "SELECT repo_root FROM striatumd.repositories WHERE repository_id = $1 AND state = 'active'", repositoryID)
-	if err != nil {
-		return err
-	}
-	if active == "" {
-		return fmt.Errorf("active repository not found: %s", repositoryID)
-	}
-	_, err = mutations.HandleRunCancel(ctx, l.runner, rpc.Envelope{
-		SchemaVersion: rpc.SupportedEnvelopeVersion,
-		RequestID:     "cross_repo_cancel_" + localRunID,
-		Method:        "run.cancel",
-		Params: map[string]any{
-			"repository_id": repositoryID,
-			"run_id":        localRunID,
-			"reason":        reason,
-		},
-	})
-	return err
-}
-
 func notImplementedHandler(method string) rpc.Handler {
 	return func(ctx context.Context, envelope rpc.Envelope) (map[string]any, error) {
 		return nil, rpc.NewError("not_implemented", fmt.Sprintf("%s is registered but not implemented in the Go daemon yet", method), nil)
 	}
-}
-
-func param(params map[string]any, key string) string {
-	if value, ok := params[key].(string); ok {
-		return value
-	}
-	return ""
 }
 
 func defaultSocketPath() string {

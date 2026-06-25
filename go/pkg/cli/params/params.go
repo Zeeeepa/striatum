@@ -351,8 +351,6 @@ func positionalNames(group string) []string {
 		return []string{"session_id", "packet_id"}
 	case "supervise_list":
 		return []string{"run_id"}
-	case "cross_repo":
-		return []string{"cross_repo_run_id"}
 	case "trajectory_export", "trajectory_watch":
 		return []string{"run_id", "profile"}
 	case "interrogation_open":

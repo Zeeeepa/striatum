@@ -123,7 +123,6 @@ func generateRPCRegistry(parsed contract, contractPath string) []byte {
 
 	scopeModeExpr := map[string]string{
 		"single_repo":   "ScopeSingleRepo",
-		"cross_repo":    "ScopeCrossRepo",
 		"daemon_global": "ScopeDaemonGlobal",
 	}
 

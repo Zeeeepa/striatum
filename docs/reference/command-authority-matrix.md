@@ -209,11 +209,6 @@ delivery bridge or the supervisor is restarted.
 | `daemon.key.rotate` | n/a | admin | daemon_global | not implemented in Python RPC | real | no | no | Go rotates the local Ed25519 sealed-apply fallback key file and returns key id/public-key metadata; full apply-gate mutation remains separate |
 | `daemon.shutdown` | RPC only; stop service out of band | admin | daemon_global | daemon lifecycle helper | real | no | no | Go process-cancel hook returns accepted shutdown response; handler still fails closed only when embedded without a hook |
 | `daemon.migrate` | RPC/admin migration method; CLI bootstrap helper is `daemon migrate-db` | admin | daemon_global | migration helper | real | no | no | Go applies embedded PostgreSQL migrations; no SQLite/Python dependency |
-| `cross_repo.list` | `cross-repo list` | read | cross_repo | direct cross-repo service | real | no | no | stable |
-| `cross_repo.describe` | `cross-repo describe` | read | cross_repo | direct cross-repo service | real | no | no | stable |
-| `cross_repo.why` | `cross-repo why` | read | cross_repo | direct cross-repo service | real | no | no | stable |
-| `cross_repo.cancel` | `cross-repo cancel` | recovery | cross_repo | daemon RPC + PG participant cancel | real | no | no | stable |
-
 ## Deprecated Alias Methods
 
 These pre-RFC-0043 method names remain registered so older clients receive a

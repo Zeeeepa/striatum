@@ -338,10 +338,6 @@ systemctl --user start|stop|restart|status striatumd
 striatum repo add <path> [--init] [--display-name <name>] [--no-migrate] [--apply-blob-creation]
 striatum repo list
 striatum repo remove <id>
-striatum cross-repo list
-striatum cross-repo describe <cross_repo_run_id>
-striatum cross-repo why <cross_repo_run_id>
-striatum cross-repo cancel <cross_repo_run_id> [--reason <text>]
 ```
 
 `striatum daemon install` renders the systemd user unit, scaffolds
@@ -482,19 +478,13 @@ The Go daemon rotates the local Ed25519 fallback signing key through the
 admin RPC method `daemon.key.rotate`; there is not yet a stable
 user-facing `striatum keys` CLI.
 
-RFC 0032 adds cross-repo workflow schema and daemon MCP mutation
-capability gating on the PostgreSQL daemon substrate. Cross-repo
-workflow files declare `repositories`, `primary_repository`, and
-per-job `repository` aliases. The daemon DB records canonical
-`cross_repo_run_id` rows under participating repository scopes.
-`cross-repo list|describe|why` inspect those daemon records according to
-capability scope. `cross-repo cancel` is the `cross_repo.cancel` recovery
-route: it cancels non-terminal participant runs through the PG-native
-participant runner, skips terminal participants and preparing participants
-that never created a local run, and returns `blocked` with diagnostics when a
-participant cannot be canceled. Daemon MCP `tools/list` is filtered by each
-token's effective capabilities and scope, and `tools/call` re-checks
-authorization and audits denials.
+D270 retires the cross-repo CLI surface. Current CLI workflows are
+single-repository units; there is no supported `striatum cross-repo ...`
+command family. Historical RFC 0032 schema may remain in upgraded databases,
+but no current CLI route exposes cross-repo lifecycle, read, or recovery
+behavior. Daemon MCP `tools/list` is filtered by each token's effective
+capabilities and scope, and `tools/call` re-checks authorization and audits
+denials.
 
 RFC 0036 adds no new CLI verb. Regenerate agent-facing MCP guidance with
 `striatum skills install` or `striatum plugin install`; chat workflow

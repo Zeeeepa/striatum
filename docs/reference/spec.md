@@ -22,10 +22,11 @@ RFC 0033, RFC 0043, and RFC 0048 establish the current substrate:
 daemon-owned PostgreSQL is authoritative for daemon-global state and
 per-repository workflow state; `.striatum/` next to a target repository
 is operational scratch only. RFC 0030 supplies the daemon RPC envelope,
-RFC 0031 supplies daemon-owned supervision/apply foundations, and RFC
-0032 supplies cross-repository workflow and MCP mutation capability
-foundations. Hosted service semantics and bundled PostgreSQL remain
-separate future product decisions.
+RFC 0031 supplies daemon-owned supervision/apply foundations, and RFC 0032's
+cross-repository workflow surface is retired by D270; its remaining durable
+value is historical schema and MCP mutation capability provenance. Hosted
+service semantics and bundled PostgreSQL remain separate future product
+decisions.
 
 The authoritative live state is the daemon-owned PostgreSQL instance
 (RFC 0033) under a `repository_id` scope per registered target
@@ -359,26 +360,15 @@ edges, bounded cycles, repo-relative artifact paths, valid shared-resource
 declarations, and declared parallelism with disjoint write scopes or
 review-only unique artifact paths.
 
-Workflows may opt into RFC 0032 cross-repo shape with a top-level
-`repositories` object and required `primary_repository` alias. Each
-repository entry names a daemon-registered `repo_id`. Cross-repo jobs must
-declare a `repository` alias explicitly; single-repo workflows must not
-declare job-level `repository`. Artifact path uniqueness and parallel
-write-scope overlap are checked per repository alias, not globally across
-all participants. `reviewer_access_scope:
-"cross_repo_artifact_augmented"` is valid only for review jobs in
-cross-repo workflows. Cross-repo cycles must opt in with
-`cross_repo_cycle: true`, and `parallelism.per_repo_max_active_jobs` may
-declare per-alias positive integer limits. Core workflow validation checks
-shape only; daemon-backed `run prepare` owns live repository registration and
-accessibility checks.
-
-Audit retention guard (D267 / #598): the cross-repo package and read/recovery
-routes are intentionally retained. They may not be deleted merely because the
-current operator frontier has no second-adopter cross-repo run in flight; a
-removal needs a fresh evidence pass over package callers, CLI routes, docs, and
-near-term roadmap references, plus one change that removes code, routes, tests,
-and docs together.
+Cross-repo workflow shape is retired by D270. Current workflow files are
+single-repository units: they must not declare top-level `repositories`,
+`primary_repository`, job-level `repository`, `cross_repo_cycle`, or
+`reviewer_access_scope: "cross_repo_artifact_augmented"` as a supported
+production shape. Operators who need multi-repository outcomes should run
+separate single-repository workflows and coordinate them outside the Striatum
+run scheduler. The RFC 0128 write-scope guardrail remains: authoring and
+dispatch surfaces fail fast or warn when a workflow attempts to reach outside
+the target repository instead of silently narrowing that intent.
 
 `workflow validate` refuses lint-detected same-model implementer/reviewer
 pairings and revision cycles by default; operators can pass
@@ -2376,11 +2366,11 @@ Ed25519 `0600` fallback signing-key file through `daemon.key.rotate`; full
 reviewed-patch mutation and stronger key custody are still separate
 apply-gate work.
 
-RFC 0032 extends the daemon V2 capability vocabulary to `read`, `write`,
-`review`, `claim`, `apply`, `admin`, and `recovery`, and each registry
-method declares a repository scope mode: `single_repo`, `cross_repo`, or
-`daemon_global`. Daemon MCP mutation tools are derived from that method
-registry when the PostgreSQL daemon substrate is active. `tools/list`
+The daemon V2 capability vocabulary is `read`, `write`, `review`, `claim`,
+`apply`, `admin`, `recovery`, and `surgical_recovery`, and each registry
+method declares a repository scope mode: `single_repo` or `daemon_global`.
+Daemon MCP mutation tools are derived from that method registry when the
+PostgreSQL daemon substrate is active. `tools/list`
 returns only the effective supported production tool set allowed by the
 token's capability, repository scope, and production-support visibility
 filter, while `tools/call` re-authorizes every request even if the tool was
@@ -2389,19 +2379,12 @@ tools are not treated as authorized. There is no V2 daemon MCP equivalent of
 the daemon web mutation gate. Per D103, this daemon MCP surface is mandatory for
 operator-driven workflow mutation, not an optional convenience wrapper.
 
-RFC 0032 also adds daemon DB tables for `cross_repo_runs`,
-`cross_repo_run_repositories`, `cross_repo_cycle_counters`, and
-`audit_repositories`, plus a per-repo `runs.cross_repo_run_id`
-back-reference. The daemon DB is canonical for the cross-repo run and for
-each participant repository's workflow state. Cross-repo lifecycle
-coordination is best-effort across local repos, not distributed
-filesystem atomicity. The dogfood-035 implementation shipped unit and
-mock-based lifecycle coverage. Dogfood-037 adds developer-only
-end-to-end coverage under `tests/_harness/`: `MultiRepoHarness` boots a
-daemon plus multiple registered target repositories on an ephemeral
-PostgreSQL daemon DB and exercises the RFC 0032 prepare/lifecycle/
-recovery/MCP capability/write-scope seams. The harness is test
-infrastructure, not a public operator API.
+Historical RFC 0032 migrations may leave `cross_repo_runs`,
+`cross_repo_run_repositories`, `cross_repo_cycle_counters`,
+`audit_repositories`, and `runs.cross_repo_run_id` in upgraded databases.
+After D270, these are historical compatibility schema, not supported
+production surface: no current daemon RPC method or CLI route exposes
+cross-repo run lifecycle, read, or recovery behavior.
 
 The foreground sweep process uses the existing `recovery auto` policy
 against active registered runs without requiring one `recovery watch`
