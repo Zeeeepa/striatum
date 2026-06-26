@@ -144,6 +144,22 @@
       "reason": "Superseded dogfood summary from the RFC 0115 agent-loop-telemetry run (run_5886381e, completed); blob-exhaust artifact whose blob key/sha is missing (blob GC'd) and whose path was removed from origin/main during workflow-output cleanup. Unrecoverable, immaterial historical loss from early runner-development dogfoods.",
       "acknowledged_by": "operator-claude-opus-4-8",
       "acknowledged_at": "2026-06-21"
+    },
+    {
+      "artifact_id": "art_c1e02c073ef9f690d16f150ab97c8ba3",
+      "repo_path": "docs/operator/artifacts/cc_rfc0142_p0/DRAFT.md",
+      "content_sha256": "e0e0cafbe548578c91ead225783c3071bb71328d5a4c5541d135f538248ab185",
+      "reason": "Process draft from the RFC 0142 P0 code_change dogfood (run_6e9c3943, completed; the P0 code deliverable landed via PR #553). Its durable git anchor was the run branch striatum/cc_rfc0142_p0, deleted in the 2026-06-25 stale-run-branch cleanup, so the file is absent from the live anchor. Content is preserved at commit ed61b70a on refs/backup/branch-cleanup-2026-06-25/striatum/cc_rfc0142_p0 (recoverable). Immaterial process draft from a completed, merged dogfood.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-26"
+    },
+    {
+      "artifact_id": "art_d91e15dcb3ff6e64d219ae552ee21bee",
+      "repo_path": "docs/operator/artifacts/cc_rfc0142_p0/SUMMARY.md",
+      "content_sha256": "2ea72d597749b2303e55addc9ff5a7e687acace0fb74fa052b565de7466ff9fe",
+      "reason": "Process summary from the RFC 0142 P0 code_change dogfood (run_6e9c3943, completed; the P0 code deliverable landed via PR #553). Its durable git anchor was the run branch striatum/cc_rfc0142_p0, deleted in the 2026-06-25 stale-run-branch cleanup, so the file is absent from the live anchor. Content is preserved at commit 9a3f0d12 on refs/backup/branch-cleanup-2026-06-25/striatum/cc_rfc0142_p0 (recoverable). Immaterial process summary from a completed, merged dogfood.",
+      "acknowledged_by": "operator-claude-opus-4-8",
+      "acknowledged_at": "2026-06-26"
     }
   ]
 }
