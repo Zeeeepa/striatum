@@ -2931,7 +2931,9 @@ func (tx *superviseControlFakeTx) Query(ctx context.Context, sql string, args ..
 			"state":             "active",
 		}}), nil
 	}
-	if strings.Contains(sql, "SELECT * FROM striatumd.runs") {
+	// rowByID projects explicit columns for the runs table (not SELECT *) under
+	// the bundle-0022 column grant, so match on the table target, not the star.
+	if strings.Contains(sql, "FROM striatumd.runs") {
 		return runPrepareRowsFromMaps([]map[string]any{{
 			"run_id":               "run_1",
 			"state":                "running",
