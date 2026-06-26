@@ -14,7 +14,8 @@ import (
 // that verifies the integrity of ONE sealed expectation barrier: that its manifest
 // (the per-seat sealed contributions) matches the staged refs at the live seal,
 // that the assembly-journal intent is consistent with the staged contributions, and
-// that no in-edge is a live BLOCKING contribution (the BARRIER_BLOCKED condition).
+// that no in-edge is a live intervention-needed contribution (the BARRIER_BLOCKED
+// condition; dependency-blocked seats are pending, not hard-blocked).
 //
 // It mirrors the read/verify verb shape of apply.receipt.verify (a read-only
 // (ctx, envelope) -> (map[string]any, error) handler registered through
@@ -106,8 +107,11 @@ func HandleJoinVerify(ctx context.Context, runner db.Runner, envelope rpc.Envelo
 	// BARRIER_BLOCKED: a live blocking in-edge cannot fire without intervention.
 	if row.BlockingSeats > 0 || row.Condition == barrierConditionBlocked {
 		blockedManifest = loadBlockedManifest(ctx, runner, repositoryID, row.RunID, row.BarrierID)
-		problems = append(problems, fmt.Sprintf(
-			"BARRIER_BLOCKED: %d live blocking in-edge(s) cannot fire without intervention", row.BlockingSeats))
+		row = normalizeBarrierBlockedView(row, len(blockedManifest))
+		if len(blockedManifest) > 0 {
+			problems = append(problems, fmt.Sprintf(
+				"BARRIER_BLOCKED: %d live blocking in-edge(s) cannot fire without intervention", row.BlockingSeats))
+		}
 	}
 
 	// Manifest matches staged refs at the live seal: every non-terminal-gap declared

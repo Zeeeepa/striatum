@@ -44,11 +44,12 @@ import (
 //     freeze record — a staging write that escaped its barrier (a freeze record was
 //     never written, or was meant to be but the staging happened first). The
 //     contribution can never be assembled; it is orphaned debris.
-//   - barrier_blocked: a barrier with a live BLOCKING in-edge (a blocked /
-//     waiting_human / failed seat, or an open blocking/human_checkpoint blocker on a
-//     seat) that cannot fire without intervention — NOT a clean terminal gap. This
-//     is the named BARRIER_BLOCKED condition; the blocked_manifest enumerates the
-//     blocking in-edges (which seat, why) in the verbose problem record.
+//   - barrier_blocked: a barrier with a live BLOCKING in-edge (waiting_human /
+//     failed, a dependency-satisfied blocked seat, or an open
+//     blocking/human_checkpoint blocker on a seat) that cannot fire without
+//     intervention — NOT a clean terminal gap or a dependency-blocked pending seat.
+//     This is the named BARRIER_BLOCKED condition; the blocked_manifest enumerates
+//     the blocking in-edges (which seat, why) in the verbose problem record.
 //
 // A sealed-but-not-yet-assembled barrier in a healthy in-flight run is NOT a
 // problem — sealing is normal and the assembly job runs asynchronously; only a
@@ -155,6 +156,23 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 			Condition:               stringFrom(raw, "condition"),
 		}
 
+		// BARRIER_BLOCKED: a live blocking in-edge that cannot fire without
+		// intervention. Surface it loudly with a blocked_manifest of the offending
+		// seats.
+		if row.BlockingSeats > 0 || row.Condition == barrierConditionBlocked {
+			manifest := loadBlockedManifest(ctx, runner, repositoryID, row.RunID, row.BarrierID)
+			row = normalizeBarrierBlockedView(row, len(manifest))
+			if len(manifest) > 0 {
+				message := fmt.Sprintf(
+					"barrier_blocked.%s: barrier has %d live blocking in-edge(s) that cannot fire without intervention (BARRIER_BLOCKED); resolve the blocked seat(s) or recover the run",
+					row.BarrierID, row.BlockingSeats,
+				)
+				appendBarrierProblemOrDebris(&problems, &records, &warnings, &warningRecords, row, "barrier_blocked", message, map[string]any{
+					"blocked_manifest": manifestToAny(manifest),
+				})
+			}
+		}
+
 		view := map[string]any{
 			"barrier_id":     row.BarrierID,
 			"run_id":         row.RunID,
@@ -164,20 +182,6 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 			"staged_seats":   row.StagedSeats,
 			"blocking_seats": row.BlockingSeats,
 			"assembly_state": row.AssemblyState,
-		}
-
-		// BARRIER_BLOCKED: a live blocking in-edge that cannot fire without
-		// intervention. Surface it loudly with a blocked_manifest of the offending
-		// seats.
-		if row.BlockingSeats > 0 || row.Condition == barrierConditionBlocked {
-			manifest := loadBlockedManifest(ctx, runner, repositoryID, row.RunID, row.BarrierID)
-			message := fmt.Sprintf(
-				"barrier_blocked.%s: barrier has %d live blocking in-edge(s) that cannot fire without intervention (BARRIER_BLOCKED); resolve the blocked seat(s) or recover the run",
-				row.BarrierID, row.BlockingSeats,
-			)
-			appendBarrierProblemOrDebris(&problems, &records, &warnings, &warningRecords, row, "barrier_blocked", message, map[string]any{
-				"blocked_manifest": manifestToAny(manifest),
-			})
 		}
 
 		switch row.AssemblyState {
@@ -465,10 +469,12 @@ func loadOrphanedStagingBarriers(ctx context.Context, runner any, repositoryID s
 	return counts, runs
 }
 
-// loadBlockedManifest enumerates the blocking in-edges of a barrier: each declared
-// seat whose job is in a blocking state (blocked / waiting_human / failed) or
-// carries an open blocking/human_checkpoint blocker. The classification is keyed on
-// the stable seat (workflow_job_id), never on job_id (RFC 0135).
+// loadBlockedManifest enumerates the hard-blocking in-edges of a barrier: each
+// declared seat whose latest job is waiting_human / failed, whose latest blocked
+// job has no unfinished dependency, or whose job carries an open
+// blocking/human_checkpoint blocker. Dependency-blocked jobs are ordinary scheduler
+// pre-queue state, not intervention-needed barrier blockers. The classification is
+// keyed on the stable seat (workflow_job_id), never on job_id (RFC 0135).
 func loadBlockedManifest(ctx context.Context, runner any, repositoryID, runID, barrierID string) []blockedInEdge {
 	rows, err := collectRows(ctx, runner, `
 		WITH declared AS (
@@ -476,18 +482,43 @@ func loadBlockedManifest(ctx context.Context, runner any, repositoryID, runID, b
 		      FROM striatumd.fanin_freeze_points fp,
 		           jsonb_array_elements_text(fp.declared_sibling_job_ids) AS sib(value)
 		     WHERE fp.repository_id = $1 AND fp.barrier_id = $2
-		), seat_state AS (
+		), latest_job AS (
 		    SELECT d.workflow_job_id,
-		           (SELECT j.state
-		              FROM striatumd.jobs j
-		             WHERE j.repository_id = $1 AND j.run_id = $3
-		               AND j.workflow_job_id = d.workflow_job_id
-		             ORDER BY j.attempt DESC
-		             LIMIT 1) AS job_state
+		           (
+		             SELECT j.job_id
+		               FROM striatumd.jobs j
+		              WHERE j.repository_id = $1 AND j.run_id = $3
+		                AND j.workflow_job_id = d.workflow_job_id
+		              ORDER BY j.attempt DESC
+		              LIMIT 1
+		           ) AS job_id,
+		           (
+		             SELECT j.state
+		               FROM striatumd.jobs j
+		              WHERE j.repository_id = $1 AND j.run_id = $3
+		                AND j.workflow_job_id = d.workflow_job_id
+		              ORDER BY j.attempt DESC
+		              LIMIT 1
+		           ) AS job_state
 		      FROM declared d
+		), seat_state AS (
+		    SELECT lj.workflow_job_id,
+		           lj.job_id,
+		           COALESCE(lj.job_state, '') AS job_state,
+		           COALESCE(EXISTS (
+		             SELECT 1
+		               FROM striatumd.job_dependencies dep
+		               JOIN striatumd.jobs upstream
+		                 ON upstream.repository_id = dep.repository_id
+		                AND upstream.job_id = dep.depends_on_job_id
+		              WHERE dep.repository_id = $1
+		                AND dep.job_id = lj.job_id
+		                AND upstream.state <> 'completed'
+		           ), false) AS has_unfinished_dependency
+		      FROM latest_job lj
 		)
 		SELECT ss.workflow_job_id,
-		       COALESCE(ss.job_state, '') AS job_state,
+		       ss.job_state,
 		       COALESCE((
 		         SELECT b.blocker_kind
 		           FROM striatumd.blockers b
@@ -501,7 +532,8 @@ func loadBlockedManifest(ctx context.Context, runner any, repositoryID, runID, b
 		          LIMIT 1
 		       ), '') AS blocker_kind
 		  FROM seat_state ss
-		 WHERE ss.job_state IN ('blocked','waiting_human','failed')
+		 WHERE ss.job_state IN ('waiting_human','failed')
+		    OR (ss.job_state = 'blocked' AND ss.has_unfinished_dependency = false)
 		    OR EXISTS (
 		         SELECT 1 FROM striatumd.blockers b
 		           JOIN striatumd.jobs j
@@ -532,6 +564,32 @@ func loadBlockedManifest(ctx context.Context, runner any, repositoryID, runID, b
 	}
 	sort.Slice(manifest, func(i, j int) bool { return manifest[i].WorkflowJobID < manifest[j].WorkflowJobID })
 	return manifest
+}
+
+func normalizeBarrierBlockedView(row barrierStatusRow, effectiveBlockingSeats int) barrierStatusRow {
+	row.BlockingSeats = effectiveBlockingSeats
+	if effectiveBlockingSeats > 0 || row.Condition != barrierConditionBlocked {
+		return row
+	}
+	row.Condition = barrierConditionWithoutBlocked(row)
+	return row
+}
+
+func barrierConditionWithoutBlocked(row barrierStatusRow) string {
+	switch row.AssemblyState {
+	case "committed":
+		return "COMMITTED"
+	case "failed":
+		return "FAILED"
+	case "assembling":
+		return "ASSEMBLING"
+	case "sealed":
+		return "SEALED"
+	}
+	if row.OutstandingSeats == 0 && row.DeclaredSeats > 0 {
+		return "READY"
+	}
+	return "PENDING"
 }
 
 // blockedReason renders a human-legible reason a seat blocks the barrier.

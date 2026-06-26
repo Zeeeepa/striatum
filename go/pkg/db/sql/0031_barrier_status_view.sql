@@ -61,18 +61,34 @@ WITH seat AS (
                 AND j.workflow_job_id = sib.value::text
            ), false) AS is_terminal_gap,
            -- Is the seat LIVE-BLOCKING? A job in a blocking, non-terminal, non-
-           -- complete state (blocked / waiting_human / failed) or carrying an open
-           -- blocking/human_checkpoint blocker is a live in-edge the barrier cannot
-           -- fire past — distinct from a clean terminal gap. A `stale_lease` /
-           -- `running` / `claimed` seat is merely slow, NOT blocking (silence from a
-           -- live lane is not consent — RFC 0132 D214b — but slowness is not a
-           -- BARRIER_BLOCKED condition either; only an unresolvable in-edge is).
+           -- complete state (waiting_human / failed, or blocked with its own
+           -- dependencies satisfied) or carrying an open blocking/human_checkpoint
+           -- blocker is a live in-edge the barrier cannot fire past — distinct from a
+           -- clean terminal gap. A dependency-blocked seat is merely not ready yet:
+           -- `blocked` is also the scheduler's ordinary pre-queue state for every job
+           -- waiting on upstream dependencies, so it MUST NOT redden doctor while an
+           -- upstream seat is still running.
            COALESCE((
-             SELECT bool_or(j.state IN ('blocked','waiting_human','failed'))
-               FROM striatumd.jobs j
-              WHERE j.repository_id = fp.repository_id
-                AND j.run_id = fp.run_id
-                AND j.workflow_job_id = sib.value::text
+             SELECT latest.state IN ('waiting_human','failed')
+                    OR (latest.state = 'blocked' AND NOT EXISTS (
+                         SELECT 1
+                           FROM striatumd.job_dependencies dep
+                           JOIN striatumd.jobs upstream
+                             ON upstream.repository_id = dep.repository_id
+                            AND upstream.job_id = dep.depends_on_job_id
+                          WHERE dep.repository_id = fp.repository_id
+                            AND dep.job_id = latest.job_id
+                            AND upstream.state <> 'completed'
+                       ))
+               FROM (
+                 SELECT j.job_id, j.state
+                   FROM striatumd.jobs j
+                  WHERE j.repository_id = fp.repository_id
+                    AND j.run_id = fp.run_id
+                    AND j.workflow_job_id = sib.value::text
+                  ORDER BY j.attempt DESC
+                  LIMIT 1
+               ) latest
            ), false)
            OR EXISTS (
              SELECT 1 FROM striatumd.blockers b

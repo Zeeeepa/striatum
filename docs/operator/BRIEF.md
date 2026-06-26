@@ -12,6 +12,28 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-26 delta — active RFC 0170 v2 false-red barrier diagnostic fixed
+
+Fresh RFC 0170 P0 design v2 is live as
+`run_3506471695cec27400eda2f3f33d4f6f` on
+`striatum/rfc-0170-p0-design-v2`; the holder lane is alive and revising the
+cycle-1 SPEC. `doctor` went red while the holder was still running because
+`barrier_status` counted the downstream `falsifier_1`/`falsifier_2`
+`jobs.state='blocked'` rows as hard `BARRIER_BLOCKED` seats. That state is also
+the scheduler's ordinary pre-queue state for dependency-blocked jobs, so the
+barrier was only pending on the live holder, not intervention-blocked.
+
+**Fixed in this change:** the barrier projection and blocked manifest now treat
+dependency-blocked seats as `PENDING`; a blocked seat is a hard barrier blocker
+only when its own dependencies are satisfied or it carries an open
+blocking/human-checkpoint blocker. `doctor` and `join verify` also normalize the
+old deployed view shape so upgraded databases stop false-reddening without a new
+DDL migration. Verification: `make -C go build`,
+`STRIATUM_PG_TEST_URL=postgres:///postgres go test ./pkg/reads -count=1`, and
+`STRIATUM_PG_TEST_URL=postgres:///postgres go test ./pkg/db -count=1` pass; the
+full `make -C go test` target also passes when the live Striatum daemon runtime
+environment is stripped from the test process.
+
 ## 2026-06-26 delta — SEV-1 runner outage fixed (rowByID SELECT * vs bundle 0022)
 
 The v2.38.0 restart (2026-06-25 19:17 UTC) silently took the whole workflow

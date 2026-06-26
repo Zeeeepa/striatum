@@ -108,6 +108,16 @@ func seedBarrierStaged(t *testing.T, ctx context.Context, runner db.Runner, repo
 	}
 }
 
+func seedBarrierDependency(t *testing.T, ctx context.Context, runner db.Runner, repoID, jobID, dependsOnJobID string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.job_dependencies (repository_id, job_id, depends_on_job_id)
+		VALUES ($1,$2,$3)`,
+		repoID, jobID, dependsOnJobID); err != nil {
+		t.Fatalf("insert dependency %s -> %s: %v", jobID, dependsOnJobID, err)
+	}
+}
+
 func seedCommittedManifestMismatch(t *testing.T, ctx context.Context, runner db.Runner, repoID, barrierID string) {
 	t.Helper()
 	if err := runner.Exec(ctx, `
@@ -303,6 +313,47 @@ func TestDoctorBarrierFiresOnBlockedBarrier(t *testing.T) {
 		t.Fatalf("view condition not BARRIER_BLOCKED: %v", rows)
 	}
 	_ = block
+}
+
+// TestDoctorBarrierIgnoresDependencyBlockedSeats covers the live RFC 0170 v2
+// shape: downstream fan-in seats start in jobs.state='blocked' while they are only
+// waiting for upstream dependencies. That scheduler-blocked state is not an
+// intervention-needed BARRIER_BLOCKED in-edge.
+func TestDoctorBarrierIgnoresDependencyBlockedSeats(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	repoID := "repo_bdoc_dependency_blocked"
+	runID := "run_bdoc_dependency_blocked"
+	barrierID := "barrier_bdoc_dependency_blocked"
+	repoRoot := t.TempDir()
+
+	seedBarrierRepo(t, ctx, runner, repoID, repoRoot)
+	seedBarrierRun(t, ctx, runner, repoID, runID, repoRoot)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_holder", "holder", "running", 1)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_falsifier_1", "falsifier_1", "blocked", 1)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_falsifier_2", "falsifier_2", "blocked", 1)
+	seedBarrierDependency(t, ctx, runner, repoID, "job_falsifier_1", "job_holder")
+	seedBarrierDependency(t, ctx, runner, repoID, "job_falsifier_2", "job_falsifier_1")
+	seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "adjudicate", []string{"holder", "falsifier_1", "falsifier_2"}, "0000000000000000000000000000000000000000")
+
+	_, problems, records, _, _ := doctorBarrierIntegrity(ctx, runner, repoID)
+	for _, p := range problems {
+		if strings.HasPrefix(p, "barrier_blocked.") {
+			t.Fatalf("dependency-blocked seat must not red doctor as barrier_blocked: problems=%v records=%v", problems, records)
+		}
+	}
+	rows, _ := collectRows(ctx, runner, `SELECT blocking_seats, condition FROM striatumd.barrier_status WHERE repository_id=$1 AND barrier_id=$2`, repoID, barrierID)
+	if len(rows) != 1 {
+		t.Fatalf("expected one barrier_status row, got %d", len(rows))
+	}
+	if got := intFromAny(rows[0]["blocking_seats"]); got != 0 {
+		t.Fatalf("blocking_seats = %d, want 0 for dependency-blocked seats", got)
+	}
+	if got := stringFrom(rows[0], "condition"); got != "PENDING" {
+		t.Fatalf("condition = %q, want PENDING", got)
+	}
 }
 
 func TestDoctorBarrierCommittedMismatchActiveRunStillReds(t *testing.T) {
@@ -538,6 +589,42 @@ func TestJoinVerifyFailsOnTamperedBarrier(t *testing.T) {
 	manifest, _ := rpcErr2.Details["blocked_manifest"].([]map[string]any)
 	if len(manifest) == 0 {
 		t.Fatalf("barrier_blocked error missing blocked_manifest detail")
+	}
+}
+
+func TestJoinVerifyDependencyBlockedBarrierIsIncompleteNotBlocked(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	repoID := "repo_jv_dependency_blocked"
+	runID := "run_jv_dependency_blocked"
+	barrierID := "barrier_jv_dependency_blocked"
+	repoRoot := t.TempDir()
+
+	seedBarrierRepo(t, ctx, runner, repoID, repoRoot)
+	seedBarrierRun(t, ctx, runner, repoID, runID, repoRoot)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_holder", "holder", "running", 1)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_falsifier", "falsifier", "blocked", 1)
+	seedBarrierDependency(t, ctx, runner, repoID, "job_falsifier", "job_holder")
+	seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "adjudicate", []string{"holder", "falsifier"}, "0000000000000000000000000000000000000000")
+
+	_, err := HandleJoinVerify(ctx, runner, rpc.Envelope{Params: map[string]any{
+		"repository_id": repoID, "barrier_id": barrierID,
+	}})
+	if err == nil {
+		t.Fatal("expected HandleJoinVerify to fail while the barrier is incomplete")
+	}
+	var rpcErr *rpc.Error
+	if !asRPCError(err, &rpcErr) {
+		t.Fatalf("expected an rpc.Error, got %T: %v", err, err)
+	}
+	if rpcErr.Code != "barrier_integrity_failed" {
+		t.Fatalf("error code = %q, want barrier_integrity_failed", rpcErr.Code)
+	}
+	manifest, _ := rpcErr.Details["blocked_manifest"].([]map[string]any)
+	if len(manifest) != 0 {
+		t.Fatalf("dependency-blocked barrier returned blocked_manifest=%v, want empty", manifest)
 	}
 }
 
