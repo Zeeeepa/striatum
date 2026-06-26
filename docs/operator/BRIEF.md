@@ -12,6 +12,30 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-26 delta — SEV-1 runner outage fixed (rowByID SELECT * vs bundle 0022)
+
+The v2.38.0 restart (2026-06-25 19:17 UTC) silently took the whole workflow
+engine **down for ~12h**: every run-scoped mutation returned
+`permission denied for table runs (SQLSTATE 42501)` and **zero events** were
+recorded. Root cause: owner bundle 0022 (RFC 0167 P0) REVOKEs table-level SELECT
+on `striatumd.runs` from `striatumd_rw` and re-GRANTs all columns except
+`created_by_principal_id`, but the mutation surface's shared `mutations.rowByID`
+helper still issued `SELECT *` (≈55 run-load call sites). The `reads` package had
+been migrated to explicit projections; `mutations` was missed, and the verify
+pgtests run as the owner pool so the runtime-role grant never bit in CI.
+
+**Fixed + deployed (this session):** `rowByID` projects explicit runs columns
+(commit `82bb94c2`); hermetic + two-role-grant regression guards added;
+`2c6add5a` fixes a test matcher. System daemon rebuilt/restarted 2026-06-26
+07:08 UTC — mutations succeed, events flow, recovery sweep active. Post-mortem:
+**#614** (open for the prevention follow-up: run mutations pgtests under the
+two-role grant). `doctor ok=true` after clearing the 5 pre-existing integrity
+problems via daemon paths (worktree anchor, accept-quarantined + force-release,
+and acknowledged-loss entries for two branch-cleanup-orphaned cc_rfc0142_p0
+process artifacts). VERSION stays **v2.38.0** (bugfix, no DDL); CHANGELOG
+Unreleased carries the fix. **RFC 0170 design→build→verify (the session's
+original mission) was NOT started** — the outage took precedence.
+
 ## 2026-06-25 delta — v2.38.0 release
 
 **v2.38.0 (2026-06-25)** cuts the D270 subtraction release over v2.37.1.
@@ -25,39 +49,19 @@ Upgraded databases may still contain historical RFC 0032 `cross_repo_*` tables
 and `runs.cross_repo_run_id`; those are compatibility/provenance schema only.
 Install/restart the v2.38.0 binaries to move the host from v2.37.1 to v2.38.0.
 
-## 2026-06-24 delta — v2.37.1 hotfix release
+## 2026-06-24 delta — v2.37.0 / v2.37.1 (superseded by v2.38.0)
 
-**v2.37.1 (2026-06-24)** supersedes v2.37.0 for deployment. The v2.37.0
-release artifact installed and owner bundle **0022** applied successfully, but
-the daemon then refused startup with
-`schema stamps capability "operator_identity_run_attribution" this binary does
-not support`: the new 0022 read-projection stamp was present in
-`readScopeReasserts` but missing from `SupportedAuthorityCapabilities()`.
-v2.37.1 adds that capability to the supported daemon-authority inventory and
-adds a unit guard that every write/read reassertion stamp is declared supported.
-
-**Local deploy status:** v2.37.1 is published and deployed on this host from the
-GitHub release artifact. The hosted release workflow passed the archive build,
-installed-CLI gate, and release publication. The linux-amd64 tarball checksum
-verified, owner bundle 0022 re-apply is idempotent, the system daemon is running
-v2.37.1 (`48aa4a17`, clean), and `doctor` is green with `problem_count=0`,
-owner bundle 22 in sync, schema version 44, and schema drift in sync.
-
-## 2026-06-24 delta — v2.37.0 release
-
-**v2.37.0 (2026-06-24)** cuts the post-v2.36.0 source state: RFC 0167 P0
-operator identity/run attribution, session-bound `operator.bootstrap`, owner
-bundle **0022**, RFC 0143 Slice A recovery legibility, D269/#527 fan-in barrier
-default-live cutover, and the D264-D269 audit closeout gates. The release also
-adds a mechanical README release-row gate:
-`scripts/check_release_version.py` runs through `make check-docs` and fails when
-`VERSION`, the README Project Status version row, and the matching CHANGELOG
-release header disagree.
-
-**Superseded deploy note:** do not deploy v2.37.0 after owner bundle 0022. It
-omits the `operator_identity_run_attribution` capability from the startup parity
-inventory and will refuse the schema after the DDL is applied. Deploy v2.37.1
-instead.
+**v2.37.0** cut the post-v2.36.0 source state: RFC 0167 P0 operator
+identity/run attribution + session-bound `operator.bootstrap` + owner bundle
+**0022**, RFC 0143 Slice A recovery legibility, the D269/#527 fan-in
+default-live cutover, the D264-D269 audit closeout gates, and the
+`scripts/check_release_version.py` README/VERSION/CHANGELOG agreement gate.
+**v2.37.1** hotfixed a deploy skew where the 0022
+`operator_identity_run_attribution` read-projection stamp was in
+`readScopeReasserts` but missing from `SupportedAuthorityCapabilities()`, so the
+daemon refused the schema after the DDL applied; v2.37.1 adds the capability +
+a parity guard. (Note: bundle 0022's runs SELECT-revoke later surfaced the
+SEV-1 `rowByID` outage above — see the 2026-06-26 delta / #614.)
 
 ## 2026-06-24 delta — audit closeout gates
 
