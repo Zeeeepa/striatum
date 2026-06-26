@@ -2,10 +2,13 @@ package mutations
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // RFC 0167 P0 / owner bundle 0022 regression guard (the daemon-wide outage of
@@ -77,4 +80,50 @@ func TestRowByIDRunsProjectionAvoidsRevokedColumn(t *testing.T) {
 	if len(q2.sql) != 1 || !strings.Contains(q2.sql[0], "SELECT * FROM striatumd.jobs") {
 		t.Fatalf("non-runs table should keep SELECT *, got %v", q2.sql)
 	}
+}
+
+func TestRunResumeReadsRunsUnderTwoRoleColumnGrant(t *testing.T) {
+	ctx := context.Background()
+	fx := pgtest.TwoRole(t)
+	repoID := "repo_two_role_runs_projection"
+	runID := "run_two_role_runs_projection"
+
+	intgSeedRepo(t, ctx, fx.OwnerPool.Runner, repoID)
+	intgSeedRun(t, ctx, fx.OwnerPool.Runner, repoID, runID, map[string]any{
+		"workflow_id": "wf",
+		"roles":       map[string]any{"author": map[string]any{}},
+		"lanes":       map[string]any{"codex": map[string]any{"capabilities": []any{"write"}}},
+	})
+
+	if err := fx.SUTPool.Runner.Exec(ctx, `
+		SELECT count(*)
+		  FROM (SELECT * FROM striatumd.runs
+		         WHERE repository_id = $1 AND run_id = $2) q`,
+		repoID, runID); !pgCode(err, "42501") {
+		t.Fatalf("precondition: SELECT * over runs must be 42501 under the two-role column grant, got %v", err)
+	}
+
+	result, err := HandleRunResume(ctx, fx.SUTPool.Runner, intgEnv(repoID, map[string]any{"run_id": runID}))
+	if err != nil {
+		t.Fatalf("run.resume under two-role runtime grant: %v", err)
+	}
+	if result["state"] != "running" || result["status"] != "not_paused" {
+		t.Fatalf("run.resume result = %#v, want running/not_paused", result)
+	}
+
+	run, err := oneRow(ctx, fx.OwnerPool.Runner, `
+		SELECT state, paused_reason
+		  FROM striatumd.runs
+		 WHERE repository_id = $1 AND run_id = $2`, repoID, runID)
+	if err != nil {
+		t.Fatalf("read run: %v", err)
+	}
+	if run["state"] != "running" || run["paused_reason"] != nil {
+		t.Fatalf("run row = %#v, want running and not paused", run)
+	}
+}
+
+func pgCode(err error, code string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == code
 }
