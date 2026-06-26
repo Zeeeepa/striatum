@@ -48,17 +48,21 @@ G4 forward-compat MET; **G1 + G2 unmet** with two precise binding constraints �
 cull-fold deadline + HANG regression test so a blocked `DecayTickSweep` can't
 stall the recovery goroutine. v1 dialogue snapshot `/tmp/rfc0170-v1-snapshot/`.
 
-**Friction (now blocking):** the `#587` cycle routed `needs_revision` to a futile
-falsifier re-attack; I `run cancel`-ed it **mid-strict-fanin-re-stage**, which
-**stranded the fan-in barrier** (`barrier_committed_manifest_mismatch` +
-`strict_fanin_required_seat_unrecoverable`) — `doctor` is **red with no sanctioned
-clear** (quarantine-lane needs `git worktree remove` on the dead seat's
-already-deregistered orphan worktree). Substantively benign (artifacts durably
-anchored). Filed **#616** (quarantine-lane must tolerate an already-removed
-worktree; doctor must suppress these codes for terminal runs). **Lesson: never
-`run cancel` a strict fan-in mid-revision-cycle — let it reach `needs_operator`.**
-**Next:** clear #616 (doctor green), then a fresh `-v2` revising holder discharges
-G1'/G2' → D271 → BUILD→VERIFY.
+**Friction resolved by #616:** the `#587` cycle routed `needs_revision` to a
+futile falsifier re-attack; I `run cancel`-ed it **mid-strict-fanin-re-stage**,
+which stranded the fan-in barrier (`barrier_committed_manifest_mismatch` +
+`strict_fanin_required_seat_unrecoverable`) against a canceled run and left the
+dead seat's worktree row pointing at an already-deregistered orphan directory.
+Substantively benign (artifacts durably anchored), but the old daemon kept
+`doctor` red. **Fixed + deployed 2026-06-26:** terminal-run fan-in barrier
+debris now reports as `barrier_debris_terminal_run` warnings, not ok-reddening
+problems, and `recovery quarantine-lane` retires already-unregistered worktree
+rows. Live recovery of
+`job_run_85afe0ffd067616db27edf0a3c4e4afa_falsifier_2` returned
+`already_removed=true` / `worktree_cleanup=already_unregistered`; `striatum
+doctor --json` is `ok=true`, `problem_count=0`. **Lesson: never `run cancel` a
+strict fan-in mid-revision-cycle — let it reach `needs_operator`.** **Next:**
+fresh `-v2` revising holder discharges G1'/G2' → D271 → BUILD→VERIFY.
 
 ## 2026-06-25 delta — v2.38.0 release
 

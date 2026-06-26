@@ -57,6 +57,16 @@ func seedBarrierRun(t *testing.T, ctx context.Context, runner db.Runner, repoID,
 	}
 }
 
+func setBarrierRunState(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, state string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.runs SET state = $3, completed_at = now()
+		 WHERE repository_id = $1 AND run_id = $2`,
+		repoID, runID, state); err != nil {
+		t.Fatalf("set run state %s: %v", state, err)
+	}
+}
+
 func seedBarrierJob(t *testing.T, ctx context.Context, runner db.Runner, repoID, runID, jobID, workflowJobID, state string, attempt int) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -95,6 +105,31 @@ func seedBarrierStaged(t *testing.T, ctx context.Context, runner db.Runner, repo
 		repoID, barrierID, runID, workflowJobID, attempt, jobID, ref,
 		"1111111111111111111111111111111111111111"); err != nil {
 		t.Fatalf("insert staged %s: %v", workflowJobID, err)
+	}
+}
+
+func seedCommittedManifestMismatch(t *testing.T, ctx context.Context, runner db.Runner, repoID, barrierID string) {
+	t.Helper()
+	if err := runner.Exec(ctx, `
+		INSERT INTO striatumd.barrier_state
+		  (repository_id, barrier_id, run_id, downstream_workflow_job_id, state,
+		   target_commit_sha, tree_sha, committed_at, updated_at)
+		SELECT repository_id, barrier_id, run_id, downstream_workflow_job_id,
+		       'committed',
+		       '2222222222222222222222222222222222222222',
+		       '3333333333333333333333333333333333333333',
+		       now(), now()
+		  FROM striatumd.fanin_freeze_points
+		 WHERE repository_id = $1 AND barrier_id = $2`,
+		repoID, barrierID); err != nil {
+		t.Fatalf("insert committed barrier_state: %v", err)
+	}
+	if err := runner.Exec(ctx, `
+		UPDATE striatumd.barrier_staged_contributions
+		   SET status = 'voided', voided_at = now(), void_reason = 'tamper'
+		 WHERE repository_id = $1 AND barrier_id = $2 AND workflow_job_id = 'author_b'`,
+		repoID, barrierID); err != nil {
+		t.Fatalf("void author_b staged row: %v", err)
 	}
 }
 
@@ -268,6 +303,95 @@ func TestDoctorBarrierFiresOnBlockedBarrier(t *testing.T) {
 		t.Fatalf("view condition not BARRIER_BLOCKED: %v", rows)
 	}
 	_ = block
+}
+
+func TestDoctorBarrierCommittedMismatchActiveRunStillReds(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	repoID := "repo_bdoc_mismatch_active"
+	runID := "run_bdoc_mismatch_active"
+	barrierID := "barrier_bdoc_mismatch_active"
+	repoRoot := t.TempDir()
+
+	seedBarrierRepo(t, ctx, runner, repoID, repoRoot)
+	seedBarrierRun(t, ctx, runner, repoID, runID, repoRoot)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_a1", "author_a", "completed", 1)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_b1", "author_b", "completed", 1)
+	seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "synth", []string{"author_a", "author_b"}, "0000000000000000000000000000000000000000")
+	seedBarrierStaged(t, ctx, runner, repoID, barrierID, runID, "author_a", "job_a1", 1)
+	seedBarrierStaged(t, ctx, runner, repoID, barrierID, runID, "author_b", "job_b1", 1)
+	seedCommittedManifestMismatch(t, ctx, runner, repoID, barrierID)
+
+	_, problems, _, warnings, _ := doctorBarrierIntegrity(ctx, runner, repoID)
+	found := false
+	for _, p := range problems {
+		if strings.HasPrefix(p, "barrier_committed_manifest_mismatch."+barrierID) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("active run mismatch must red doctor; problems=%v warnings=%v", problems, warnings)
+	}
+	for _, w := range warnings {
+		if strings.HasPrefix(w, "barrier_debris_terminal_run."+barrierID) {
+			t.Fatalf("active run mismatch must not be terminal debris: %q", w)
+		}
+	}
+}
+
+func TestDoctorBarrierCommittedMismatchTerminalRunIsWarning(t *testing.T) {
+	for _, terminalState := range []string{"canceled", "completed"} {
+		t.Run(terminalState, func(t *testing.T) {
+			ctx := context.Background()
+			pool := pgtest.Pool(t)
+			runner := pool.Runner
+
+			repoID := "repo_bdoc_mismatch_" + terminalState
+			runID := "run_bdoc_mismatch_" + terminalState
+			barrierID := "barrier_bdoc_mismatch_" + terminalState
+			repoRoot := t.TempDir()
+
+			seedBarrierRepo(t, ctx, runner, repoID, repoRoot)
+			seedBarrierRun(t, ctx, runner, repoID, runID, repoRoot)
+			seedBarrierJob(t, ctx, runner, repoID, runID, "job_a1", "author_a", "completed", 1)
+			seedBarrierJob(t, ctx, runner, repoID, runID, "job_b1", "author_b", "completed", 1)
+			seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "synth", []string{"author_a", "author_b"}, "0000000000000000000000000000000000000000")
+			seedBarrierStaged(t, ctx, runner, repoID, barrierID, runID, "author_a", "job_a1", 1)
+			seedBarrierStaged(t, ctx, runner, repoID, barrierID, runID, "author_b", "job_b1", 1)
+			seedCommittedManifestMismatch(t, ctx, runner, repoID, barrierID)
+			setBarrierRunState(t, ctx, runner, repoID, runID, terminalState)
+
+			_, problems, _, warnings, warningRecords := doctorBarrierIntegrity(ctx, runner, repoID)
+			for _, p := range problems {
+				if strings.HasPrefix(p, "barrier_committed_manifest_mismatch."+barrierID) {
+					t.Fatalf("terminal %s run mismatch must not red doctor: %v", terminalState, problems)
+				}
+			}
+			foundWarning := false
+			foundRecord := false
+			for _, w := range warnings {
+				if strings.HasPrefix(w, "barrier_debris_terminal_run."+barrierID) &&
+					strings.Contains(w, "barrier_committed_manifest_mismatch") {
+					foundWarning = true
+				}
+			}
+			for _, rec := range warningRecords {
+				if rec["check"] != "barrier_debris_terminal_run" {
+					continue
+				}
+				ctxMap, _ := rec["context"].(map[string]any)
+				if stringFrom(ctxMap, "original_check") == "barrier_committed_manifest_mismatch" &&
+					stringFrom(ctxMap, "run_state") == terminalState {
+					foundRecord = true
+				}
+			}
+			if !foundWarning || !foundRecord {
+				t.Fatalf("terminal mismatch must be warning debris; warnings=%v warningRecords=%v", warnings, warningRecords)
+			}
+		})
+	}
 }
 
 // TestDoctorBarrierFiresOnOrphanedStagingRef asserts a staged contribution with no

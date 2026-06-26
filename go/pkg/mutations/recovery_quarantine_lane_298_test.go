@@ -318,6 +318,99 @@ func TestQuarantineLaneCleanWorktreeIsReportedClean(t *testing.T) {
 	}
 }
 
+// TestQuarantineLaneRetiresAlreadyDeregisteredOrphanWorktree covers #616: cancel
+// can leave an active job_worktrees row pointing at a directory whose .git pointer is
+// already gone. The recovery verb must not wedge on `git status` / `git worktree
+// remove`; it should treat the git worktree cleanup as already done and retire the
+// row.
+func TestQuarantineLaneRetiresAlreadyDeregisteredOrphanWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "ql_orphan", true)
+	cancelSeededRun(t, ctx, runner, ids)
+
+	if err := os.Remove(filepath.Join(ids.worktreeRoot, ".git")); err != nil {
+		t.Fatalf("remove linked-worktree .git pointer: %v", err)
+	}
+	dirtyWorktreeFile(t, ids.worktreeRoot, "docs/orphan.md", "orphaned directory payload\n")
+
+	result, err := HandleRecoveryQuarantineLane(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"run_id": ids.runID,
+		"job_id": ids.jobID,
+	}))
+	if err != nil {
+		t.Fatalf("quarantine-lane orphan: %v", err)
+	}
+	if result["status"] != "clean" {
+		t.Fatalf("status = %#v, want clean/already removed", result["status"])
+	}
+	if result["already_removed"] != true {
+		t.Fatalf("already_removed = %#v, want true; result=%#v", result["already_removed"], result)
+	}
+	if got := quarantineEventCount(t, ctx, runner, ids.repoID, ids.runID, ids.jobID); got != 1 {
+		t.Fatalf("quarantine events = %d, want 1", got)
+	}
+	if state := worktreeStateValue(t, ctx, runner, ids.repoID, ids.worktreeID); state != "removed" {
+		t.Fatalf("worktree state = %q, want removed", state)
+	}
+	if _, err := os.Stat(ids.worktreeRoot); !os.IsNotExist(err) {
+		t.Fatalf("orphan worktree directory should be removed: %v", err)
+	}
+}
+
+func TestQuarantineLaneToleratesAlreadyDeregisteredRemoveAfterSnapshot(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not on PATH: %v", err)
+	}
+	ctx := context.Background()
+	runner := pgtest.Pool(t).Runner
+	repoRoot := t.TempDir()
+	ids := seedWorktreeRequiredJob(t, ctx, runner, repoRoot, "ql_remove_orphan", true)
+	cancelSeededRun(t, ctx, runner, ids)
+	body := "preserved before cleanup error\n"
+	dirtyWorktreeFile(t, ids.worktreeRoot, "docs/wip.md", body)
+
+	previous := runGitWorktreeCommand
+	t.Cleanup(func() { runGitWorktreeCommand = previous })
+	runGitWorktreeCommand = func(gctx context.Context, root string, args ...string) (gitWorktreeResult, error) {
+		if len(args) >= 3 && args[0] == "worktree" && args[1] == "remove" {
+			return gitWorktreeResult{
+				Stderr:   "fatal: '" + args[len(args)-1] + "' is not a working tree",
+				ExitCode: 128,
+			}, nil
+		}
+		return previous(gctx, root, args...)
+	}
+
+	result, err := HandleRecoveryQuarantineLane(ctx, runner, intgEnv(ids.repoID, map[string]any{
+		"run_id": ids.runID,
+		"job_id": ids.jobID,
+	}))
+	if err != nil {
+		t.Fatalf("quarantine-lane after not-a-working-tree remove: %v", err)
+	}
+	if result["status"] != "quarantined" {
+		t.Fatalf("status = %#v, want quarantined", result["status"])
+	}
+	if result["worktree_cleanup"] != "already_unregistered" {
+		t.Fatalf("worktree_cleanup = %#v, want already_unregistered", result["worktree_cleanup"])
+	}
+	quarantineRef, _ := result["quarantine_ref"].(string)
+	if !gitTreeContainsBlob(t, repoRoot, quarantineRef, "docs/wip.md", body) {
+		t.Fatalf("quarantine ref %s tree missing the uncommitted docs/wip.md", quarantineRef)
+	}
+	if state := worktreeStateValue(t, ctx, runner, ids.repoID, ids.worktreeID); state != "removed" {
+		t.Fatalf("worktree state = %q, want removed", state)
+	}
+	if _, err := os.Stat(ids.worktreeRoot); !os.IsNotExist(err) {
+		t.Fatalf("orphan worktree path should be removed after tolerated remove failure: %v", err)
+	}
+}
+
 // TestWorktreeGCSkipsDirtyTerminalWorktree is pgtest #5: gc does NOT
 // --force-discard a dirty terminal-run worktree — it skips with reason
 // dirty_uncommitted_work, leaves the worktree on disk, and reports the deferred

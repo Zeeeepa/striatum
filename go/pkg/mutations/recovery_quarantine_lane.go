@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/halbritt/striatum/go/pkg/db"
@@ -183,11 +184,32 @@ func HandleRecoveryQuarantineLane(ctx context.Context, runner db.Runner, envelop
 			return base, nil
 		}
 
+		// A linked per-job git worktree must carry a .git pointer at its root. If
+		// cancel/prune already deregistered the git worktree and left only an orphan
+		// directory under .striatum/, running `git status` there can walk up to the
+		// primary checkout and misclassify the orphan. Treat the cleanup as already
+		// done and retire the row through the recovery event path.
+		if !pathExists(filepath.Join(target, ".git")) {
+			if dryRun {
+				base["status"] = "would_quarantine"
+				base["dirty"] = false
+				base["already_removed"] = true
+				base["worktree_unregistered"] = true
+				base["changed_paths"] = []string{}
+				base["next_actions"] = []string{"recovery quarantine-lane (omit --dry-run to retire the unregistered worktree row)"}
+				return base, nil
+			}
+			return retireAlreadyRemovedQuarantineWorktree(ctx, tx, base, repositoryID, runID, jobID, attempt, worktreeID, leaseID, worktree["worktree_path"], target)
+		}
+
 		// Detect dirt with the same porcelain probe the publish guard parses
 		// (--porcelain=v1 -z --untracked-files=all, via parseGitPorcelainZ), so the
 		// changed-paths set matches what the lane left behind exactly.
 		changedPaths, err := quarantineWorktreeChangedPaths(ctx, target)
 		if err != nil {
+			if gitWorktreeAlreadyRemoved(err) {
+				return retireAlreadyRemovedQuarantineWorktree(ctx, tx, base, repositoryID, runID, jobID, attempt, worktreeID, leaseID, worktree["worktree_path"], target)
+			}
 			return nil, err
 		}
 		base["changed_paths"] = changedPaths
@@ -208,13 +230,17 @@ func HandleRecoveryQuarantineLane(ctx context.Context, runner db.Runner, envelop
 			if err != nil {
 				return nil, err
 			}
+			alreadyRemoved := gitWorktreeRemoveAlreadyClean(result)
 			if result.ExitCode != 0 && pathExists(target) {
-				return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+				if !alreadyRemoved {
+					return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+				}
+				_ = os.RemoveAll(target)
 			}
 			if err := markWorktreeRemoved(ctx, tx, repositoryID, worktreeID); err != nil {
 				return nil, err
 			}
-			if _, err := appendEvent(ctx, tx, repositoryID, runID, LaneQuarantinedEventType, nil, jobID, nil, nil, leaseID, map[string]any{
+			payload := map[string]any{
 				"run_id":        runID,
 				"job_id":        jobID,
 				"attempt":       attempt,
@@ -223,11 +249,18 @@ func HandleRecoveryQuarantineLane(ctx context.Context, runner db.Runner, envelop
 				"dirty":         false,
 				"changed_paths": []string{},
 				"source":        "recovery.quarantine_lane",
-			}); err != nil {
+			}
+			if alreadyRemoved {
+				payload["already_removed"] = true
+			}
+			if _, err := appendEvent(ctx, tx, repositoryID, runID, LaneQuarantinedEventType, nil, jobID, nil, nil, leaseID, payload); err != nil {
 				return nil, err
 			}
 			base["status"] = "clean"
 			base["dirty"] = false
+			if alreadyRemoved {
+				base["already_removed"] = true
+			}
 			base["next_actions"] = []string{"clean worktree gc'd; nothing to quarantine"}
 			return base, nil
 		}
@@ -285,20 +318,57 @@ func HandleRecoveryQuarantineLane(ctx context.Context, runner db.Runner, envelop
 		if err != nil {
 			return nil, err
 		}
+		alreadyRemoved := gitWorktreeRemoveAlreadyClean(result)
 		if result.ExitCode != 0 && pathExists(target) {
-			return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+			if !alreadyRemoved {
+				return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree remove failed", result), nil)
+			}
+			_ = os.RemoveAll(target)
 		}
 		if err := markWorktreeRemoved(ctx, tx, repositoryID, worktreeID); err != nil {
 			return nil, err
 		}
 
 		base["status"] = "quarantined"
+		if alreadyRemoved {
+			base["already_removed"] = true
+			base["worktree_cleanup"] = "already_unregistered"
+		}
 		base["next_actions"] = []string{
 			fmt.Sprintf("inspect the quarantined work with: git log -p %s", quarantineRef),
 			"the worktree is removed; the uncommitted work is preserved under the quarantine ref",
 		}
 		return base, nil
 	})
+}
+
+func retireAlreadyRemovedQuarantineWorktree(ctx context.Context, tx db.TxRunner, base map[string]any, repositoryID, runID, jobID string, attempt int, worktreeID string, leaseID any, worktreePath any, target string) (map[string]any, error) {
+	if err := markWorktreeRemoved(ctx, tx, repositoryID, worktreeID); err != nil {
+		return nil, err
+	}
+	_ = os.RemoveAll(target)
+	if _, err := appendEvent(ctx, tx, repositoryID, runID, LaneQuarantinedEventType, nil, jobID, nil, nil, leaseID, map[string]any{
+		"run_id":                runID,
+		"job_id":                jobID,
+		"attempt":               attempt,
+		"worktree_id":           worktreeID,
+		"worktree_path":         worktreePath,
+		"dirty":                 false,
+		"already_removed":       true,
+		"worktree_unregistered": true,
+		"changed_paths":         []string{},
+		"source":                "recovery.quarantine_lane",
+	}); err != nil {
+		return nil, err
+	}
+	base["status"] = "clean"
+	base["dirty"] = false
+	base["already_removed"] = true
+	base["worktree_unregistered"] = true
+	base["worktree_cleanup"] = "already_unregistered"
+	base["changed_paths"] = []string{}
+	base["next_actions"] = []string{"already-removed worktree row retired; nothing to quarantine"}
+	return base, nil
 }
 
 // quarantineLaneWorktree resolves the lane worktree row to quarantine for a job:
@@ -427,9 +497,33 @@ func quarantineWorktreeChangedPaths(ctx context.Context, worktreeRoot string) ([
 		return nil, err
 	}
 	if result.ExitCode != 0 {
+		if gitWorktreeRemoveAlreadyClean(result) {
+			return nil, alreadyRemovedWorktreeError{}
+		}
 		return nil, rpc.NewError("git_commit_apply_failed", gitWorktreeErrorMessage("git status probe failed for quarantine", result), nil)
 	}
 	return parseGitPorcelainZ([]byte(result.Stdout)), nil
+}
+
+type alreadyRemovedWorktreeError struct{}
+
+func (alreadyRemovedWorktreeError) Error() string {
+	return "worktree already removed from git registry"
+}
+
+func gitWorktreeAlreadyRemoved(err error) bool {
+	var already alreadyRemovedWorktreeError
+	return errors.As(err, &already)
+}
+
+func gitWorktreeRemoveAlreadyClean(result gitWorktreeResult) bool {
+	if result.ExitCode == 0 {
+		return false
+	}
+	output := strings.ToLower(result.Stdout + "\n" + result.Stderr)
+	return strings.Contains(output, "not a git repository") ||
+		strings.Contains(output, "not a working tree") ||
+		strings.Contains(output, "is not a working tree")
 }
 
 // runGitWithEnv runs a git command in repoRoot with extra environment (e.g.

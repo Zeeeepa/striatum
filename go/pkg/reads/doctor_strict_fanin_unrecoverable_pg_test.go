@@ -131,6 +131,59 @@ func TestDoctorFiresOnStrictFaninDeadRequiredSeat(t *testing.T) {
 	}
 }
 
+func TestDoctorStrictFaninDeadRequiredSeatTerminalRunIsWarning(t *testing.T) {
+	ctx := context.Background()
+	pool := pgtest.Pool(t)
+	runner := pool.Runner
+
+	repoID := "repo_bdoc_fanin_dead_canceled"
+	runID := "run_bdoc_fanin_dead_canceled"
+	barrierID := "barrier_bdoc_fanin_dead_canceled"
+	repoRoot := t.TempDir()
+
+	seedBarrierRepo(t, ctx, runner, repoID, repoRoot)
+	seedBarrierRun(t, ctx, runner, repoID, runID, repoRoot)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_a1", "author_a", "completed", 1)
+	seedBarrierJob(t, ctx, runner, repoID, runID, "job_dead1", "author_dead", "running", 1)
+	seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "synth", []string{"author_a", "author_dead"}, "0000000000000000000000000000000000000000")
+	seedBarrierStaged(t, ctx, runner, repoID, barrierID, runID, "author_a", "job_a1", 1)
+	seedDeadOwningSession(t, ctx, runner, repoID, runID, "job_dead1", "sess_dead_canceled", "lease_dead_canceled")
+	setBarrierRunState(t, ctx, runner, repoID, runID, "canceled")
+
+	_, problems, records, warnings, warningRecords := doctorBarrierIntegrity(ctx, runner, repoID)
+	for _, p := range problems {
+		if strings.HasPrefix(p, "strict_fanin_required_seat_unrecoverable."+barrierID) {
+			t.Fatalf("terminal run must not report strict_fanin_required_seat_unrecoverable as a problem: %v", problems)
+		}
+	}
+	for _, r := range records {
+		if r["check"] == "strict_fanin_required_seat_unrecoverable" {
+			t.Fatalf("terminal run must not emit strict-fanin problem record: %v", records)
+		}
+	}
+	foundWarning := false
+	foundRecord := false
+	for _, w := range warnings {
+		if strings.HasPrefix(w, "barrier_debris_terminal_run."+barrierID) &&
+			strings.Contains(w, "strict_fanin_required_seat_unrecoverable") {
+			foundWarning = true
+		}
+	}
+	for _, rec := range warningRecords {
+		if rec["check"] != "barrier_debris_terminal_run" {
+			continue
+		}
+		ctxMap, _ := rec["context"].(map[string]any)
+		if stringFrom(ctxMap, "original_check") == "strict_fanin_required_seat_unrecoverable" &&
+			stringFrom(ctxMap, "run_state") == "canceled" {
+			foundRecord = true
+		}
+	}
+	if !foundWarning || !foundRecord {
+		t.Fatalf("terminal strict-fanin issue must be warning debris; warnings=%v warningRecords=%v", warnings, warningRecords)
+	}
+}
+
 // TestDoctorQuietOnStrictFaninSlowSeat asserts the reason does NOT fire for a merely-
 // SLOW (not provably dead) outstanding required seat — silence from a live lane is not
 // the FMA-003 case (a slow seat is a healthy in-flight barrier).

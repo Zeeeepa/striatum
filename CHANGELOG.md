@@ -4,6 +4,17 @@
 
 ### Fixed
 
+- **Terminal fan-in barrier debris no longer keeps `striatum doctor` red
+  (#616).** A canceled or completed run can leave durable fan-in seal artifacts
+  whose original live-run invariant would have been
+  `barrier_committed_manifest_mismatch` or
+  `strict_fanin_required_seat_unrecoverable`; those now remain visible as
+  `barrier_debris_terminal_run` warnings instead of ok-reddening problems.
+  `recovery quarantine-lane` also tolerates the matching already-unregistered
+  lane worktree row, retires it through the recovery event path, and returns
+  `worktree_cleanup=already_unregistered` instead of wedging on `git status` or
+  `git worktree remove`.
+
 - **Daemon-wide run-mutation outage: `SELECT *` on `runs` 42501 under the
   bundle-0022 column grant.** RFC 0167 P0 / owner bundle 0022 REVOKEs
   table-level `SELECT` on `striatumd.runs` from the runtime role and re-GRANTs

@@ -53,13 +53,17 @@ import (
 // A sealed-but-not-yet-assembled barrier in a healthy in-flight run is NOT a
 // problem — sealing is normal and the assembly job runs asynchronously; only a
 // genuine integrity gap (an unreachable journaled target, a committed mismatch, an
-// orphan, or a hard block) reddens the doctor. This keeps the green baseline green
-// (the fires-on-bad / quiet-on-good discipline of D204/D205).
+// orphan, or a hard block) on a non-terminal run reddens the doctor. Once the owning
+// run is terminal, fan-in seal artifacts are archived debris: keep them visible as
+// warnings so a canceled/completed run cannot hold repo-wide doctor red after the
+// join is moot. This keeps the green baseline green (the fires-on-bad /
+// quiet-on-good discipline of D204/D205).
 
 // barrierStatusRow is one row of the migration-0031 striatumd.barrier_status view.
 type barrierStatusRow struct {
 	BarrierID               string
 	RunID                   string
+	RunState                string
 	DownstreamWorkflowJobID string
 	FrozenTipSHA            string
 	DeclaredSeats           int
@@ -102,17 +106,20 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 	// errors (e.g. relation does not exist), record it and skip — the rest of doctor
 	// stays green.
 	rows, err := collectRows(ctx, runner, `
-		SELECT barrier_id, run_id, downstream_workflow_job_id, frozen_tip_sha,
+		SELECT bs.barrier_id, bs.run_id, COALESCE(r.state, '') AS run_state,
+		       bs.downstream_workflow_job_id, bs.frozen_tip_sha,
 		       declared_seats, staged_seats, terminal_gap_seats, blocking_seats,
 		       outstanding_seats,
-		       COALESCE(assembly_state, '')              AS assembly_state,
-		       COALESCE(assembly_target_commit_sha, '')  AS assembly_target_commit_sha,
-		       COALESCE(assembly_tree_sha, '')           AS assembly_tree_sha,
-		       COALESCE(assembly_fail_reason, '')        AS assembly_fail_reason,
-		       condition
-		  FROM striatumd.barrier_status
-		 WHERE repository_id = $1
-		 ORDER BY barrier_id`,
+		       COALESCE(bs.assembly_state, '')              AS assembly_state,
+		       COALESCE(bs.assembly_target_commit_sha, '')  AS assembly_target_commit_sha,
+		       COALESCE(bs.assembly_tree_sha, '')           AS assembly_tree_sha,
+		       COALESCE(bs.assembly_fail_reason, '')        AS assembly_fail_reason,
+		       bs.condition
+		  FROM striatumd.barrier_status bs
+		  LEFT JOIN striatumd.runs r
+		    ON r.repository_id = bs.repository_id AND r.run_id = bs.run_id
+		 WHERE bs.repository_id = $1
+		 ORDER BY bs.barrier_id`,
 		repositoryID,
 	)
 	if err != nil {
@@ -125,12 +132,15 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 
 	problems := []string{}
 	records := []map[string]any{}
+	warnings := []string{}
+	warningRecords := []map[string]any{}
 	barrierViews := make([]map[string]any, 0, len(rows))
 
 	for _, raw := range rows {
 		row := barrierStatusRow{
 			BarrierID:               stringFrom(raw, "barrier_id"),
 			RunID:                   stringFrom(raw, "run_id"),
+			RunState:                stringFrom(raw, "run_state"),
 			DownstreamWorkflowJobID: stringFrom(raw, "downstream_workflow_job_id"),
 			FrozenTipSHA:            stringFrom(raw, "frozen_tip_sha"),
 			DeclaredSeats:           intFromAny(raw["declared_seats"]),
@@ -148,6 +158,7 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 		view := map[string]any{
 			"barrier_id":     row.BarrierID,
 			"run_id":         row.RunID,
+			"run_state":      row.RunState,
 			"condition":      row.Condition,
 			"declared_seats": row.DeclaredSeats,
 			"staged_seats":   row.StagedSeats,
@@ -160,13 +171,13 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 		// seats.
 		if row.BlockingSeats > 0 || row.Condition == barrierConditionBlocked {
 			manifest := loadBlockedManifest(ctx, runner, repositoryID, row.RunID, row.BarrierID)
-			problems = append(problems, fmt.Sprintf(
+			message := fmt.Sprintf(
 				"barrier_blocked.%s: barrier has %d live blocking in-edge(s) that cannot fire without intervention (BARRIER_BLOCKED); resolve the blocked seat(s) or recover the run",
 				row.BarrierID, row.BlockingSeats,
-			))
-			records = append(records, barrierProblemRecord("barrier_blocked", row, map[string]any{
+			)
+			appendBarrierProblemOrDebris(&problems, &records, &warnings, &warningRecords, row, "barrier_blocked", message, map[string]any{
 				"blocked_manifest": manifestToAny(manifest),
-			}))
+			})
 		}
 
 		switch row.AssemblyState {
@@ -176,13 +187,13 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 			// recovered from, never silently retried.
 			if row.AssemblyTargetCommitSHA != "" && repoRoot != "" &&
 				!gitCommitExists(ctx, repoRoot, row.AssemblyTargetCommitSHA) {
-				problems = append(problems, fmt.Sprintf(
+				message := fmt.Sprintf(
 					"barrier_assembling_target_unreachable.%s: barrier_state journaled assembly target %s is not a reachable commit in the run repo; the two-phase journal intent cannot be honored — recover the assembly (do not retry blindly)",
 					row.BarrierID, row.AssemblyTargetCommitSHA,
-				))
-				records = append(records, barrierProblemRecord("barrier_assembling_target_unreachable", row, map[string]any{
+				)
+				appendBarrierProblemOrDebris(&problems, &records, &warnings, &warningRecords, row, "barrier_assembling_target_unreachable", message, map[string]any{
 					"journaled_target": row.AssemblyTargetCommitSHA,
-				}))
+				})
 			}
 		case "committed":
 			// A committed barrier's journaled tree must agree with the staged refs at
@@ -194,15 +205,15 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 				expectedStaged = 0
 			}
 			if row.StagedSeats < expectedStaged {
-				problems = append(problems, fmt.Sprintf(
+				message := fmt.Sprintf(
 					"barrier_committed_manifest_mismatch.%s: committed barrier folded %d staged seat(s) but only %d of %d non-gap declared seat(s) are still staged at the live seal; the durable commit disagrees with its contributions (tampered/voided staged ref)",
 					row.BarrierID, expectedStaged, row.StagedSeats, expectedStaged,
-				))
-				records = append(records, barrierProblemRecord("barrier_committed_manifest_mismatch", row, map[string]any{
+				)
+				appendBarrierProblemOrDebris(&problems, &records, &warnings, &warningRecords, row, "barrier_committed_manifest_mismatch", message, map[string]any{
 					"expected_staged": expectedStaged,
 					"actual_staged":   row.StagedSeats,
 					"assembly_tree":   row.AssemblyTreeSHA,
-				}))
+				})
 			}
 		}
 
@@ -246,25 +257,33 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 	// pending), so without this scan it would surface as nothing at all.
 	unrecoverable := loadStrictFaninUnrecoverableBarriers(ctx, runner, repositoryID)
 	for _, u := range unrecoverable {
-		problems = append(problems, fmt.Sprintf(
+		message := fmt.Sprintf(
 			"strict_fanin_required_seat_unrecoverable.%s: strict fan-in barrier has %d provably-dead REQUIRED seat(s) (%s) with no automatic exit; the run parks in needs_operator. The barrier does not tolerate a sealed gap (RFC 0138 opt-in off). Recover via: %s",
 			u.BarrierID, len(u.Seats), strings.Join(u.Seats, ", "), strings.Join(u.RecoveryCommands, "; "),
-		))
+		)
+		contextMap := map[string]any{
+			"barrier_id":          u.BarrierID,
+			"run_id":              u.RunID,
+			"run_state":           u.RunState,
+			"unrecoverable_seats": u.Seats,
+			"recovery_commands":   u.RecoveryCommands,
+			"fma":                 "FMA-003",
+		}
+		if statusRunStateIsTerminal(u.RunState) {
+			warnings = append(warnings, barrierTerminalDebrisWarning(u.BarrierID, u.RunState, "strict_fanin_required_seat_unrecoverable", message))
+			warningRecords = append(warningRecords, barrierTerminalDebrisRecord(u.BarrierID, u.RunID, u.RunState, "strict_fanin_required_seat_unrecoverable", contextMap))
+			continue
+		}
+		problems = append(problems, message)
 		records = append(records, map[string]any{
-			"check": "strict_fanin_required_seat_unrecoverable",
-			"id":    u.BarrierID,
-			"context": map[string]any{
-				"barrier_id":          u.BarrierID,
-				"run_id":              u.RunID,
-				"unrecoverable_seats": u.Seats,
-				"recovery_commands":   u.RecoveryCommands,
-				"fma":                 "FMA-003",
-			},
+			"check":   "strict_fanin_required_seat_unrecoverable",
+			"id":      u.BarrierID,
+			"context": contextMap,
 		})
 	}
 
 	block["barriers"] = barrierViews
-	return block, problems, records, nil, nil
+	return block, problems, records, warnings, warningRecords
 }
 
 // strictFaninUnrecoverable is one strict fan-in barrier blocked on one or more
@@ -273,6 +292,7 @@ func doctorBarrierIntegrity(ctx context.Context, runner any, repositoryID string
 type strictFaninUnrecoverable struct {
 	BarrierID        string
 	RunID            string
+	RunState         string
 	Seats            []string
 	RecoveryCommands []string
 }
@@ -315,8 +335,10 @@ func loadStrictFaninUnrecoverableBarriers(ctx context.Context, runner any, repos
 		           jsonb_array_elements_text(fp.declared_sibling_job_ids) AS sib(value)
 		     WHERE fp.repository_id = $1
 		)
-		SELECT d.barrier_id, d.run_id, d.workflow_job_id
+		SELECT d.barrier_id, d.run_id, COALESCE(r.state, '') AS run_state, d.workflow_job_id
 		  FROM declared d
+		  LEFT JOIN striatumd.runs r
+		    ON r.repository_id = d.repository_id AND r.run_id = d.run_id
 		 WHERE (d.tolerates_gap = false OR d.max_gaps <= 0)
 		   -- OUTSTANDING: no completed job (no live seal).
 		   AND NOT EXISTS (
@@ -362,6 +384,7 @@ func loadStrictFaninUnrecoverableBarriers(ctx context.Context, runner any, repos
 			u = &strictFaninUnrecoverable{
 				BarrierID:        barrierID,
 				RunID:            stringFrom(r, "run_id"),
+				RunState:         stringFrom(r, "run_state"),
 				RecoveryCommands: strictFaninUnrecoverableRecoveryCommands(stringFrom(r, "run_id")),
 			}
 			byBarrier[barrierID] = u
@@ -536,6 +559,7 @@ func barrierProblemRecord(check string, row barrierStatusRow, extra map[string]a
 	ctxMap := map[string]any{
 		"barrier_id":     row.BarrierID,
 		"run_id":         row.RunID,
+		"run_state":      row.RunState,
 		"condition":      row.Condition,
 		"assembly_state": row.AssemblyState,
 		"declared_seats": row.DeclaredSeats,
@@ -549,6 +573,40 @@ func barrierProblemRecord(check string, row barrierStatusRow, extra map[string]a
 		"check":   check,
 		"id":      row.BarrierID,
 		"context": ctxMap,
+	}
+}
+
+func appendBarrierProblemOrDebris(problems *[]string, records *[]map[string]any, warnings *[]string, warningRecords *[]map[string]any, row barrierStatusRow, check, message string, extra map[string]any) {
+	if statusRunStateIsTerminal(row.RunState) {
+		*warnings = append(*warnings, barrierTerminalDebrisWarning(row.BarrierID, row.RunState, check, message))
+		*warningRecords = append(*warningRecords, barrierTerminalDebrisRecord(row.BarrierID, row.RunID, row.RunState, check, barrierProblemRecord(check, row, extra)["context"].(map[string]any)))
+		return
+	}
+	*problems = append(*problems, message)
+	*records = append(*records, barrierProblemRecord(check, row, extra))
+}
+
+func barrierTerminalDebrisWarning(barrierID, runState, originalCheck, originalMessage string) string {
+	return fmt.Sprintf(
+		"barrier_debris_terminal_run.%s: terminal %s run has archived fan-in barrier debris; original %s would be: %s",
+		barrierID, runState, originalCheck, originalMessage,
+	)
+}
+
+func barrierTerminalDebrisRecord(barrierID, runID, runState, originalCheck string, contextMap map[string]any) map[string]any {
+	contextCopy := map[string]any{
+		"barrier_id":     barrierID,
+		"run_id":         runID,
+		"run_state":      runState,
+		"original_check": originalCheck,
+	}
+	for k, v := range contextMap {
+		contextCopy[k] = v
+	}
+	return map[string]any{
+		"check":   "barrier_debris_terminal_run",
+		"id":      barrierID,
+		"context": contextCopy,
 	}
 }
 
