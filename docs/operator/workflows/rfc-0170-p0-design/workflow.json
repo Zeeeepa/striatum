@@ -1,0 +1,321 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0170-p0-design"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0170-p0-design/SEED.md", "required": true },
+    { "path": "docs/rfcs/0170-self-culling-repository-and-cull-workflow-class.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "PROPOSE the falsifiable RFC 0170 **P0** implementation SPEC: the smallest tracer-bullet slice of the self-culling repository — a `cullable_entity` candidacy ledger plus a read-only `DecayTickSweep` that nominates dead artifacts from the FREE Tier-1 supersession edge ONLY, with ZERO deletion. Read the v1 SEED and RFC 0170 in full first. The RFC's three pillars, shadow-first P0-P5 phasing, four rejected traps, and five Open Questions are settled framing — do NOT re-derive or re-litigate them; HARDEN P0 into build-bearing constraints. Define the P0 boundary precisely and prove it. P0 = (1) a runtime migration adding `cullable_entity(kind, ref, last_reinforced_at, decay_score, reachable_from_root, candidacy_state)` — confirm the next free runtime slot from a fresh `ls go/pkg/db/migrations` (the RFC guesses ~0045) and specify the grants so the runtime role can INSERT/UPDATE/SELECT it; (2) a `DecayTickSweep.SweepOnce` in `go/pkg/recovery` that piggybacks the existing recovery-sweep timer (`scheduler.go`/`sweep.go`) and, per tick, reads ONLY Tier-1 supersession edges — `verdicts.superseded_by_decision_id`/`superseded_at` (live in Postgres since RFC 0047 / migration 0007), the markdown `Status: superseded by …` convention, and `rfc-…-design-vN` superseded by a ratified `vN+1` — and UPSERTS a candidacy row for any entity that is superseded with a live successor; (3) read-only candidacy state only (observe; no tombstone, no deletion, no page, no run-admission effect). PROVE THE HARD CORE as falsifiable assertions, each paired with the concrete test/corpus row that would refute it: (A) **Tier-1 is EXACT — zero false positives across the live supersession corpus.** This is RFC Acceptance Criterion 1 and the load-bearing claim. You MUST confront the resurrectable-superseded class head-on: a `Status: superseded`/`tombstoned` artifact or a `rfc-…-design-vN`-with-later-`vN` branch is NOT necessarily dead. The repo right now preserves the six banked design branches `backup-branch rfc-{0136,0164,0165,0166,0168,0169}-design-v*-2026-06-24` explicitly as RESUME SEEDS (see `docs/operator/rfc-roadmap.md`), a superseded decision can still be CITED by a live one, and a superseded RFC can be REOPENED — naively nominating 'superseded ⇒ cullable' would wrongly flag load-bearing context. Specify the EXACT predicate that excludes the resurrectable/cited/banked set (e.g. an explicit protected-root + active-resume-seed + inbound-citation guard), and the corpus test that asserts P0 nominates the genuinely-dead superseded artifacts with zero hits on the preserved set. (B) **The sweep is provably READ-ONLY and ERROR-ISOLATED.** It writes nothing but the `cullable_entity` upsert, takes NO action on a candidacy in P0, and a Tier-1 query error or panic inside `DecayTickSweep` CANNOT suicide, stall, or wedge the recovery sweep it rides on (name the isolation seam — recover/log/continue — and the regression test; recall the historical sweep-error-daemon-suicide blocker). Bound its per-tick cost over the live corpus (169 RFCs, the verdicts table) and state `doctor` stays green across ticks. (C) **The substrate contract is correct.** The migration carries BOTH read and write authority-inventory rows for `cullable_entity` (`go/pkg/db/{read,write}_authority_inventory.go`) or it red-mains `Test{Read,Write}AuthorityInventoryComplete` and the non-PG `authority_inventory_static_test.go`; and any mutation-surface read of the new table avoids `SELECT *` over a column-scoped grant (the #614 bundle-0022 SEV-1: a `SELECT *` met a revoked column grant and 42501'd every run mutation for ~12h). (D) **Resolve Open Question 1 (peer vs phase) enough for P0 forward-compatibility.** State whether the P0 ledger is written by a sweep (peer-and-backlog) only, and show the schema + writer model do not preclude later adding the phase-and-toll model. Name — but do NOT build in P0 — `cull_tombstone`, the reaper, the soak window, the `cull_gate` shape, the `accretion_ledger` counterforce, and Tiers 2-4; state which RFC phase each lands in. Anchor every claim to the named source sites. Keep the local-first / D094 boundary and the RFC Non-Goals (no LLM-judged deadness; static and DB evidence only). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold leading proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0170. Your lens is **Tier-1 EXACTNESS — false positives that would cull live artifacts**. The holder claims P0 nominates dead artifacts from the supersession edge with ZERO false positives. Break it with a CONCRETE entity in THIS repo that the proposed predicate would wrongly nominate. Hunt: (1) the six banked design branches `backup-branch rfc-{0136,0164,0165,0166,0168,0169}-design-v*-2026-06-24` — each is a `rfc-…-design-vN` superseded by a later vN, yet `docs/operator/rfc-roadmap.md` preserves them as RESUME SEEDS; does the holder's predicate actually exclude them, or does it nominate load-bearing context for culling? (2) a `Status: superseded by D###`/`tombstoned` decision or RFC that is STILL CITED by a live decision/RFC/spec (grep the decision-log and `docs/rfcs` for back-references) — does P0 see the inbound citation? (3) a `verdicts.superseded_by_decision_id` row whose superseding decision is itself superseded or whose run is still live. (4) the `rfc-…-design-vN`→`vN+1` inference: is `vN+1` actually RATIFIED, or just a later draft — can a still-in-flight vN+1 make a needed vN look dead? (5) the markdown `Status: superseded` scan — false matches in quotes, examples, frozen provenance (`.check-docs-ignore`/`docs/records/_frozen`), or historical fixtures. (6) ambiguity: is 'live successor' defined precisely enough that two reasonable implementers agree on every corpus row? For each gap, name the exact entity ref and why it is load-bearing-but-nominated, and the corpus row that would expose it. If even one real artifact the project still depends on would be auto-nominated by P0, Tier-1 is NOT exact — say so explicitly and stop the gate from clearing. Do not invent entities that do not exist in the tree; ground every counterexample in a real path or ref.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published holder SPEC and RFC 0170. Your lens is **READ-ONLY SAFETY + SUBSTRATE INTEGRITY** — the ways a 'harmless observe-only' P0 sweep can still hurt the daemon. Attack: (1) ERROR ISOLATION — `DecayTickSweep` piggybacks the recovery-sweep timer (`go/pkg/recovery/scheduler.go`/`sweep.go`); trace the actual call path and show whether a panic, a Tier-1 query error, a nil row, or a slow query inside the cull sweep can suicide, stall, abort, or starve the recovery sweep (the daemon has a documented sweep-error-daemon-suicide failure mode). Is the cull tick wrapped in its own recover-and-error boundary, or does it share the recovery sweep's fate? (2) NOT-ACTUALLY-READ-ONLY — does any P0 path mutate beyond the `cullable_entity` upsert (touch `verdicts`, write events, change a candidacy into an action, emit a doctor RED or amber state, or feed run-admission)? P0 must observe only. (3) THE #614 TRAP — the new runtime table needs grants AND authority-inventory rows; does the SPEC give BOTH read and write inventory rows (else `Test{Read,Write}AuthorityInventoryComplete` + the non-PG `authority_inventory_static_test.go` red-main CI), and does any read of `cullable_entity` on the mutation surface use explicit columns rather than `SELECT *` over a column-scoped grant (the exact shape that caused the bundle-0022 42501 outage)? (4) MIGRATION SAFETY — is the claimed runtime slot actually free (the holder must `ls go/pkg/db/migrations`, not guess 0045), is it runtime (not an owner bundle), and does it collide with any in-flight migration? (5) COST AND STABILITY — does the per-tick Tier-1 scan over the verdicts table + a markdown-and-branch walk add unbounded latency or lock contention to every recovery sweep, and does `doctor` provably stay green across ticks? (6) SCOPE CREEP — does the holder smuggle any P1+ behavior (a tombstone, a reaper, a decay action, a counterforce, a Tier-2+ edge) into P0 under cover of 'observe only'? Construct the concrete failing case for each. If the cull sweep can destabilize recovery, is not provably read-only, mis-specifies the migration/grants/inventory, reintroduces a `SELECT *`-over-revoked-grant hazard, or smuggles deletion into P0, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0170 P0 design (the holder SPEC and the two FALSIFIER challenges), with RFC 0170 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). A clearing verdict REQUIRES all of: (G1 Tier-1 EXACTNESS) the holder PROVED zero-false-positive nomination across the live supersession corpus AND explicitly handles the resurrectable-superseded class — the banked `backup-branch rfc-<id>-design-v*` branches and any `Status: superseded`/`tombstoned` artifact the project still treats as load-bearing context (a resume seed, a still-cited decision, a reopened RFC) are NOT nominated; if either falsifier exhibited one real entity P0 would wrongly nominate, G1 is UNMET. (G2 READ-ONLY SAFETY) the DecayTickSweep is proven side-effect-free except the `cullable_entity` upsert, ERROR-ISOLATED from the recovery sweep it piggybacks (a panic or a Tier-1 query error cannot suicide or stall the recovery sweep — the historical sweep-error-daemon-suicide failure mode), bounded in cost over the live corpus, and provably triggers NO downstream action in P0 (no tombstone, no deletion, no page, no run-admission effect). (G3 SUBSTRATE CORRECTNESS) the runtime migration (next free slot, confirm with a fresh `ls go/pkg/db/migrations`) carries BOTH read and write authority-inventory rows for `cullable_entity` (or it red-mains `Test{Read,Write}AuthorityInventoryComplete` + the non-PG `authority_inventory_static_test.go`), the runtime role can DML it, and any mutation-surface read of it avoids `SELECT *` over a column-scoped grant (the #614 bundle-0022 SEV-1 lesson). (G4 FORWARD-COMPATIBILITY) the holder RESOLVED Open Question 1 (peer vs phase) and showed the P0 ledger schema + writer model do not preclude the chosen answer, and drew a crisp P0/P1+ boundary (P0 NAMES but does not build tombstone, reaper, soak, counterforce, or Tiers 2-4). Record per goal G1-G4 whether MET, and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if Tier-1 is not proven exact (a real wrong-nomination stands), the sweep can destabilize recovery or is not provably read-only, the migration/authority-inventory/no-SELECT-* contract is unspecified, or OQ1 is unresolved. This is the single allowed v1 revision cycle; a second needs_revision ends the gate uncleared and routes to the operator (who folds the findings into a fresh -v2 run with a revising holder).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0170 **P0** implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict (accept / accept_with_findings) — consolidating the whole P0 design as the single contract the downstream `rfc-0170-p0-build` `code_change` run implements. Fold in every accepted finding and constraint the adjudicator recorded (do NOT weaken them). The SPEC must specify, each as a falsifiable assertion + its test/corpus row, anchored to named source sites: the `cullable_entity` runtime migration (confirmed free slot, grants, BOTH read+write authority-inventory rows, no-`SELECT *` read discipline); the `DecayTickSweep.SweepOnce` in `go/pkg/recovery` (the recovery-timer piggyback + the error-isolation seam that protects the recovery sweep); the Tier-1-ONLY supersession predicate WITH the exact resurrectable/cited/banked exclusion guard that makes nomination zero-false-positive across the live corpus (naming the preserved `backup-branch rfc-…` resume-seed set and the inbound-citation guard); the read-only candidacy state machine (no deletion, no page, no run-admission effect in P0); the corpus test proving zero false positives + the error-isolation regression test + the doctor-stays-green assertion; and the resolved Open Question 1 (peer vs phase) with the forward-compatible ledger schema. Explicitly enumerate what P0 NAMES-BUT-DEFERS (tombstone, reaper, soak, `cull_gate`, counterforce/`accretion_ledger`, Tiers 2-4) and to which RFC phase each belongs. Reference the clearing ledger by path. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0170 P0 design: the ledger verdict, how Tier-1 exactness (zero false positives, including the resurrectable and banked-branch exclusion) and read-only error-isolated safety were proven, which falsifier challenges were rebutted vs folded as constraints, how goals G1-G4 are met, and the consolidated SPEC + named tests/corpus the `rfc-0170-p0-build` run will implement (the `cullable_entity` ledger + read-only Tier-1 `DecayTickSweep`), with the P1+ items (tombstone, reaper, `cull_gate`, counterforce, Tiers 2-4) named as the downstream seams P0 leaves.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0170-p0-design",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0170-p0-design",
+  "workflow_version": "2026-06-26"
+}

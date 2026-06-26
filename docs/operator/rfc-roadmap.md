@@ -137,6 +137,7 @@ closeout.
 | 12 | **0095** | 🛡 | Revision-safe lifecycle — remaining phases past 1–3 | done (per-phase) | — | — |
 | 13 | **0100** | 🛡 | Self-describing artifact contracts — phases past 1 (packet + error ergonomics) | done | — | — |
 | 14 | **0113** | 🛡 | Runtime read-scope least-privilege remainder (mostly carried by accepted 0114; confirm residual) | done | re-confirm vs 0114 | — |
+| 14b | **0170** | 🛡 | Self-culling repository — the CULL workflow class (detect + shed dead artifacts); the systemic answer to the 2026-06-24 accretion finding. **P0 = `cullable_entity` ledger + read-only Tier-1 (supersession) `DecayTickSweep`, no deletion.** | 🔵 **P0 design run in flight** (`falsification_gate`, scaffold `docs/operator/workflows/rfc-0170-p0-design/`; proves Tier-1 zero-false-positive exactness + read-only sweep safety; resolves the 5 OQs → D271) | — | #615 |
 
 ### Wave 4 — Features (once the reliability spine is solid)
 
