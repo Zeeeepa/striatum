@@ -1,0 +1,235 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-design-v4"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-design-v4/SEED.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v4/context/v3_HOLDER.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v4/context/v3_LEDGER_cycle_2.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "Revise the v3 HOLDER SPEC (context/v3_HOLDER.md, the base) to discharge the SINGLE standing v3 residual — C2-RESIDUAL (OQ4-ACL-PROVISIONING-TRANSITION), the only finding the v3 cycle-2 ledger (context/v3_LEDGER_cycle_2.md) left `open` — while carrying everything else forward UNREGRESSED. This is a narrow bearer-path fix, NOT a rewrite. The v3 failure: the v3 SPEC falsely asserted (marked CONFIRMED, citing mcpconfig.go:241/266) that the 0600 MCP bearer already lives under .striatum/scratch/<supervisor_id>/, but the live bearer is written by writeEphemeralMCPConfig (go/pkg/agentloop/mcpconfig.go:550-565 — dir := filepath.Join(repoRoot, '.striatum','scratch') at :555; os.CreateTemp(dir,'lane-mcp-config-*.json') at :559; chmod 0600 at :565) DIRECTLY under .striatum/scratch/ ROOT and does NOT thread STRIATUM_SUPERVISOR_ID; the cited :241/266 are the gemini-cli settings.json write + backup-marker dir, not the bearer. Consequences the v4 SPEC must fix: (1) the v3 final ACL (.striatum/scratch -> u:<leased-uid>:--x traverse-only, rwx only on .striatum/scratch/<supervisor_id>) BREAKS lane launch — scratch_acl.go:31-48 grants rwx+default on .striatum/scratch itself precisely because the writer CreateTemps there (supervision_control.go:114-126, issue #279), so a faithful --x-only-root build makes os.CreateTemp fail EACCES ('create ephemeral mcp config: permission denied'); (2) the A22 transition test is fake — it plants a fixture at .striatum/scratch/<S1>/lane-mcp-config-*.json while the real bearer is at .striatum/scratch/lane-mcp-config-*.json. The v4 fix has four source-anchored parts: (1) add as a REQUIRED P0 build step moving writeEphemeralMCPConfig (mcpconfig.go:550-565) from <repoRoot>/.striatum/scratch to <repoRoot>/.striatum/scratch/<supervisor_id>/ — threading STRIATUM_SUPERVISOR_ID exactly as loop.go:145 (the pty.log writer) and the gemini markers already do — BEFORE re-keying the scratch ACLs, so the --x-only-scratch-root / rwx-on-supervisor-subdir final state is achievable without the EACCES/#279 launch break; (2) make A22 TestPoolACLProvisioningNeverTransientlyExposesScratch DERIVE and exercise the exact path writeEphemeralMCPConfig resolves (not a hand-planted fixture) and assert there is NO residual root-level .striatum/scratch/lane-mcp-config-* bearer after the transition; (3) make the provider/token-cache forbidden top-level set EXPLICIT (.gemini, .claude, .codex, and configured credential caches) in the OQ4 allowlist so a re-provision cannot sweep a provider auth path into the source allowlist; (4) CORRECT the false source citation (the bearer is mcpconfig.go:550-559 / writeEphemeralMCPConfig, not :241/266). Keep A23 (the pure planner guard — necessary but not sufficient). CARRY FORWARD UNREGRESSED (do NOT reopen): the v1-proven hard core HC-A1..A5; the C1 four-state lease machine (active/scrubbing/quarantined/returned + uq_lane_uid_held + 3-tx boundary + reaper + dirty-excluding exhaustion); the ALREADY-DISCHARGED C1-RESIDUAL fail-closed P1 classifier (classifyPoolUIDTaskState -> {Reaped,Live,Unknown}, NOT the binary Z-only processZombie tmux_liveness.go:599-614, with /proc evidence in scrub_proof + A21); the credited C2 procedure fix (mandatory allowlist/exclude-at-traversal + forbidden raw-recursive-root + A23) and the C2 final .striatum/-excluding GROUP-ACL end-state invariant; and OQ1/OQ3/OQ5/OQ6 + the narrowing invariant. Build-run target: runtime migration 0046+ (0045 reserved by RFC 0170 P0; do not hardcode) + owner-bundle bump owner/0023+ for striatumd.lane_uid_leases. Open the SPEC with an auditable 'Addressing the v3 residual' map (C2-RESIDUAL RESOLVED how; all carry-forwards INTACT). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/dialogue/holder/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC (HOLDER.md), the v3 SPEC (context/v3_HOLDER.md), and the v3 cycle-2 ledger (context/v3_LEDGER_cycle_2.md, its OQ4-ACL-PROVISIONING-TRANSITION finding). Your lens is C2 BEARER-PATH REALNESS — the single standing residual. Attack the v4 C2 fix at its source, not its prose (the v3 failure was a false CONFIRMED citation). FIRST verify: is writeEphemeralMCPConfig (go/pkg/agentloop/mcpconfig.go:550-565) actually re-rooted to <repoRoot>/.striatum/scratch/<supervisor_id>/ and does it thread STRIATUM_SUPERVISOR_ID (as loop.go:145 and the gemini markers do)? Is the migrated writer mutually consistent with the --x-only-scratch-root / rwx-on-supervisor-subdir final ACL so os.CreateTemp does NOT EACCES (the #279 launch break, scratch_acl.go:31-48 + supervision_control.go:114-126)? Does .striatum/scratch/<supervisor_id>/ exist / get created before the writer runs? Verify A22 DERIVES the path from the live writer (not a hand-planted fixture) AND asserts NO residual root-level .striatum/scratch/lane-mcp-config-* bearer after the transition. Check the explicit provider/token-cache forbidden set (.gemini/.claude/.codex/credential caches) cannot be swept into the source allowlist on re-provision. Construct the concrete failing case. Land (gate does not clear) if any of: the writer is not really moved / does not thread the supervisor id, the final ACL still EACCES-breaks launch, A22 is non-derived or fake, the citation is still wrong, or a provider auth path can enter the source allowlist. Ground every counterexample in a real path/source site.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/dialogue/falsifier_1/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v4) holder SPEC (HOLDER.md), the v3 SPEC (context/v3_HOLDER.md), and the v3 cycle-2 ledger (context/v3_LEDGER_cycle_2.md). Your lens is NO-REGRESSION on the carry-forwards the v4 bearer-path fix must not break. Take the credited/intact set as the target and prove v4 did not quietly break it. Re-attack C1: confirm P1 is still the fail-closed classifyPoolUIDTaskState (NOT re-wired to processZombie / !processZombie), A21 intact, /proc evidence recorded in scrub_proof — try to find one non-zombie pool_uid survivor (T/t/unknown/unreadable-still-present) that can still reach `returned`. Re-attack the C2 procedure: confirm A23 still rejects raw `setfacl -R ...:rX <repoRoot>`-then-strip and the GROUP-ACL end-state invariant (no g:striatum-lanes access-or-default entry under .striatum/, .git/, token-cache; before/during/after) holds — the new explicit forbidden set must not weaken the planner guard. Re-check HC-A1..A5, the four-state lease machine + uq_lane_uid_held + 3-tx boundary + reaper + dirty-excluding exhaustion, OQ1/OQ3/OQ5/OQ6, restart-survival, and the narrowing invariant (no admin-token widening, no lane-readable shared reseal bearer, surface only removed). Verify the writer move did not alter the lease/launch/attestation path beyond the scratch sub-state. Construct the concrete failing case for any regression. Land (gate does not clear) if the C2 bearer-path fix regressed any carry-forward.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/dialogue/falsifier_2/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0168 P0 v4 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v3 SPEC (context/v3_HOLDER.md) and the v3 cycle-2 ledger (context/v3_LEDGER_cycle_2.md, its OQ4-ACL-PROVISIONING-TRANSITION finding) as context for what the revision had to fix. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). This is a REVISION gate scoped to the SINGLE standing C2 bearer-path residual; C1-RESIDUAL was already DISCHARGED in v3 and must only be checked for non-regression. A clearing verdict REQUIRES ALL of: (C2-RESIDUAL GENUINELY DISCHARGED) the bearer writer move is stated as a REQUIRED build step anchored to mcpconfig.go:550-559 (citation corrected; :241/266 no longer claimed); the final per-supervisor scratch ACL is internally consistent with the migrated writer (no EACCES/#279 launch break on a faithful build); A22 is a REAL transition test that derives the exact path the live writer resolves and asserts no residual root-level bearer; the provider/token-cache forbidden set is explicit; no falsifier exhibits a transient exposure window, a fake test/guard, or a launch-breaking final ACL. (C1-RESIDUAL STILL DISCHARGED) P1 = classifyPoolUIDTaskState, A21 intact, /proc evidence; no non-zombie survivor can re-lease. (NO CARRY-FORWARD REGRESSED) HC-A1..A5, the C1 lease machine, the C2 procedure fix + A23 + the GROUP-ACL end-state invariant, OQ1/OQ3/OQ5/OQ6, the narrowing invariant — all INTACT. (NO STANDING MATERIAL CHALLENGE and no admin-token widening / no lane-readable shared reseal bearer.) Record per residual whether DISCHARGED, per carry-forward whether INTACT, per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if the C2 residual is not discharged or any carry-forward regressed; reject only if the direction is wrong (it is not — D261 ratifies it). This is v4's single proper revision round; a needs_revision exhausts the gate and routes to the operator (do not ratchet). On a clearing verdict the committer publishes the consolidated SPEC and the operator ratifies D272 (D271 is reserved by the concurrent RFC 0170 P0 design; D272 is RFC 0168's free reservation).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate revised dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/dialogue/adjudicator/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, revised falsifiable RFC 0168 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design (not just the v4 bearer-path delta) as the single buildable contract the rfc-0168-build code_change run implements: the per-lane uid pool (host-global size + exhaustion excluding scrubbing AND quarantined uids); the daemon lease lifecycle with the durable active/scrubbing/quarantined/returned state machine + uq_lane_uid_held + 3-transaction boundary + the fail-closed scrub-postcondition proof (classifyPoolUIDTaskState; T/t/unknown/unreadable block return; /proc evidence in scrub_proof) + failed-scrub and leaked-active reaper + doctor surface; the provisioning-ownership decision (static host runbook; daemon launch-as %striatum-lanes grant only); the MANDATORY allowlist/exclude-at-traversal per-leased-uid ACL grant that never (even transiently) group-exposes .striatum/, WITH the v4 bearer-path fix (writeEphemeralMCPConfig moved to .striatum/scratch/<supervisor_id>/ threading STRIATUM_SUPERVISOR_ID, mcpconfig.go:550-565, before re-keying scratch ACLs, so the per-supervisor rwx / scratch-root --x final state does not EACCES-break lane launch per #279) + the explicit provider/token-cache forbidden set + the raw-recursive-root planner guard (A23); the lane_attestation re-binding + monotonic per-uid generation token; and the per-uid credential store + hydration scrub-on-return, plus the EXACT P0 slice boundary that unblocks RFC 0143 Slice B's lane-uid-owned 0600 reseal token. Name the implementation slots: the daemon-owned striatumd.lane_uid_leases table (owner-bundle bump owner/0023+) and the next FREE runtime-migration slot (0045 reserved by RFC 0170 P0 — use 0046+; do not hardcode). State each claim as a falsifiable assertion + its test, anchored to source: the BC1-W1-ORACLE negative control; A21 TestStoppedOrTracedUIDProcessBlocksReturn; TestScrubFailureQuarantinesAndIsNeverReLeased; TestCrashDuringScrubLeavesUIDHeldNotFree; TestQuarantineSurvivesRestartAndIsNonFree; TestExhaustionExcludesScrubbingAndQuarantined; A22 TestPoolACLProvisioningNeverTransientlyExposesScratch (path derived from the live writer, no residual root-level bearer); A23 TestACLPlannerRejectsRawRecursiveRootWhileScratchExists; anchored to pty.go, tmux_liveness.go, scratch_acl.go, repo_acl.go, mcpconfig.go, loop.go, supervision_control.go, recovery.go. Reference the clearing ledger by path. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/commit/proposal/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0168-design-v4/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0168 P0 v4 revision: the ledger verdict, how C2-RESIDUAL (the bearer-path realness fix: writeEphemeralMCPConfig moved under .striatum/scratch/<supervisor_id>/ threading STRIATUM_SUPERVISOR_ID before re-keying ACLs so the per-supervisor scratch ACL does not EACCES-break launch per #279; A22 derived from the live writer with no residual root-level bearer; explicit provider forbidden set; corrected citation) was discharged, that C1-RESIDUAL (fail-closed P1 classifier) stayed DISCHARGED, which carry-forwards (hard core HC-A1..A5, the C1 lease machine, the C2 procedure fix + A23 + the GROUP-ACL end-state invariant, OQ1/OQ3/OQ5/OQ6, the narrowing invariant) stayed intact, which falsifier challenges were rebutted vs folded, and the consolidated SPEC + named tests the rfc-0168-build run will implement, plus the RFC 0143 Slice B unblock (a lane-uid-owned 0600 reseal token is safe by HC-A2).",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v4/commit/final/"],
+        "forbidden_paths": [".striatum/"],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": ["write", "review", "synthesis"],
+      "command": ["claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8"],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": ["write", "review", "synthesis"],
+      "command": ["codex", "--yolo"],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-design-v4",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0168-design-v4",
+  "workflow_version": "2026-06-26c"
+}
