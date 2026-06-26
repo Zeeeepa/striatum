@@ -2,7 +2,23 @@
 
 ## Unreleased
 
-- (No changes yet.)
+### Fixed
+
+- **Daemon-wide run-mutation outage: `SELECT *` on `runs` 42501 under the
+  bundle-0022 column grant.** RFC 0167 P0 / owner bundle 0022 REVOKEs
+  table-level `SELECT` on `striatumd.runs` from the runtime role and re-GRANTs
+  every column except `created_by_principal_id` (C2" Route 2). The mutation
+  surface loads the run row through the shared `mutations.rowByID` helper, which
+  issued `SELECT *` — requiring the revoked column — so once the revoke went
+  fully live (the v2.38.0 restart's startup read-revoke reassertion), **every**
+  run-scoped mutation (`claim`, `run.start`, `work.complete`, `run.cancel`,
+  `worktree anchor`, recovery, scheduler, …) failed with
+  `permission denied for table runs (SQLSTATE 42501)` and the workflow engine
+  recorded zero events. Fix: `rowByID` now projects the explicit base/runtime
+  columns for the `runs` table (a subset of the grant, omitting both origin-stamp
+  columns) instead of `SELECT *`; the `reads` package was already migrated to the
+  same pattern. Hermetic SQL-shape guard plus a runtime-grant pgtest assertion
+  (the mutation projection reads while `SELECT *` 42501s) prevent regression.
 
 ## v2.38.0 — 2026-06-25
 

@@ -331,6 +331,27 @@ func TestOperatorWhoseStatusMineViaProjectionTwoRole(t *testing.T) {
 		`SELECT state FROM striatumd.runs WHERE run_id = 'run_w'`); got != "ready" {
 		t.Fatalf("non-identity runs SELECT must succeed under the column grant, got %q", got)
 	}
+
+	// Regression guard for the 2026-06-25 daemon-wide outage: the mutation
+	// surface loads a run row via mutations.rowByID, whose runs projection
+	// (mutations.runsRuntimeColumns — duplicated here because the db package
+	// cannot import mutations) must read under the runtime grant. A `SELECT *`
+	// 42501s (it would require the SELECT-revoked created_by_principal_id), which
+	// is exactly what wedged every run-scoped mutation. Assert BOTH halves: the
+	// projection reads, and `SELECT *` is denied.
+	const mutationRunProjection = `repository_id, run_id, workflow_snapshot_id, repo_root, state,
+		branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at,
+		started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id,
+		completion_mode, completion_record_json`
+	if _, err := fx.SUTPool.Runner.QueryScalar(ctx,
+		`SELECT count(*) FROM (SELECT `+mutationRunProjection+
+			` FROM striatumd.runs WHERE run_id = 'run_w') q`); err != nil {
+		t.Fatalf("mutation run-load projection must read under the runtime grant, got %v", err)
+	}
+	if _, err := fx.SUTPool.Runner.QueryScalar(ctx,
+		`SELECT count(*) FROM (SELECT * FROM striatumd.runs WHERE run_id = 'run_w') q`); !isSQLState(err, "42501") {
+		t.Fatalf("SELECT * over runs must be 42501 under the column grant (proves the revoke is live), got %v", err)
+	}
 }
 
 // 4. operator_session_pre_run_stamp — two operator sessions for one human, each

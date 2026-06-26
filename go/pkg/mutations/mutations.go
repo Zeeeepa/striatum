@@ -741,13 +741,39 @@ func lockRunForBlocker(ctx context.Context, runner db.TxRunner, repositoryID, bl
 	return lockRun(ctx, runner, repositoryID, fmt.Sprint(row["run_id"]))
 }
 
+// runsRuntimeColumns is the explicit column projection the mutation surface
+// reads from striatumd.runs. RFC 0167 P0 / owner bundle 0022 REVOKEd table-level
+// SELECT on runs from the runtime role (striatumd_rw) and re-GRANTed every
+// column EXCEPT created_by_principal_id (C2" Route 2), so a `SELECT *` on runs
+// 42501s for the runtime role and wedges every run-scoped mutation. This list is
+// the base/runtime-migration columns (through 0026) — the fields the mutation
+// surface actually reads (state/branch/completion). It deliberately omits BOTH
+// origin-stamp columns added by bundle 0022: created_by_principal_id (the
+// SELECT-revoked one — surfaced only via the run_origin_identity DEFINER
+// projection, never a runtime read) and created_by_handle_id (no mutation reads
+// it from this row; naming it here would 42703 against any pre-bundle-0022
+// schema, e.g. an owner-bundle-less test harness). Every column listed exists at
+// every daemon-supported schema version and is granted to striatumd_rw.
+const runsRuntimeColumns = "repository_id, run_id, workflow_snapshot_id, repo_root, state, " +
+	"branch_name, branch_base, branch_confirmed_at, branch_confirmed_by, created_at, " +
+	"started_at, completed_at, stop_reason, paused_at, paused_reason, cross_repo_run_id, " +
+	"completion_mode, completion_record_json"
+
 func rowByID(ctx context.Context, runner any, repositoryID, table, column, value string, forUpdate bool) (map[string]any, error) {
 	suffix := ""
 	if forUpdate {
 		suffix = " FOR UPDATE"
 	}
+	// runs is the only runtime-readable table with a column-scoped SELECT grant
+	// (bundle 0022). A `SELECT *` there would require SELECT on the revoked
+	// created_by_principal_id and 42501; project the granted columns explicitly.
+	projection := "*"
+	if table == "runs" {
+		projection = runsRuntimeColumns
+	}
 	return oneRow(ctx, runner, fmt.Sprintf(
-		"SELECT * FROM striatumd.%s WHERE repository_id = $1 AND %s = $2%s",
+		"SELECT %s FROM striatumd.%s WHERE repository_id = $1 AND %s = $2%s",
+		projection,
 		table,
 		column,
 		suffix,
