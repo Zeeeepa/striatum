@@ -1,0 +1,323 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0170-p0-design-v2"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v2/SEED.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v2/context/HOLDER_v1.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v2/context/LEDGER_cycle_1.md", "required": true },
+    { "path": "docs/rfcs/0170-self-culling-repository-and-cull-workflow-class.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "holder"
+  },
+  "cycles": [
+    {
+      "allow_same_lane": true,
+      "from": "adjudicate",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "falsifier_1"
+    }
+  ],
+  "edges": [
+    {
+      "from": "holder",
+      "on": "completed",
+      "to": "falsifier_1"
+    },
+    {
+      "from": "falsifier_1",
+      "on": "completed",
+      "to": "falsifier_2"
+    },
+    {
+      "from": "falsifier_2",
+      "on": "completed",
+      "to": "adjudicate"
+    },
+    {
+      "from": "adjudicate",
+      "on": "completed",
+      "to": "commit_proposal"
+    },
+    {
+      "from": "commit_proposal",
+      "on": "completed",
+      "to": "final_summary"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "holder_handoff",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/holder/HOLDER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "You are the REVISING holder for RFC 0170 P0. Cycle-1 (run_85afe0ff) returned `needs_revision` with two binding constraints. Read in full first: the v1 SPEC at `docs/operator/workflows/rfc-0170-p0-design-v2/context/HOLDER_v1.md`, the cycle-1 ledger at `docs/operator/workflows/rfc-0170-p0-design-v2/context/LEDGER_cycle_1.md` (its constraints C-G1-CITATION-EXACTNESS and C-G2-CULL-FOLD-DEADLINE and their `verification.gate` rows are authoritative), the v2 SEED, and RFC 0170. REPUBLISH the v1 SPEC as `HOLDER.md` with ONLY §3 (the Tier-1 predicate + the G1 corpus) and §4 (the sweep's latency boundary) rewritten to discharge G1' and G2'; keep §2 (substrate), §5 (OQ1), and §6 (the P0/P1+ boundary) intact — G3 and G4 cleared and no falsifier challenge stands; do NOT re-derive or weaken them. DISCHARGE G1' (cycle-1 falsifier_1 stood): the v1 corpus listed `rfc:0097` as a true positive, but the v1 clause 4 (no live inbound citation) withholds it — `docs/rfcs/0097-…md:3` is `Status: superseded by RFC 0116 / 0122 / 0124` AND live-cited by RFC 0101 (umbrella-of-record, live) and RFC 0103 (accepted, live) as a load-bearing baseline; clause 2 (a named live successor) collides with clause 4 because a supersession-chain successor cites the predecessor it supersedes. (1) Reconcile clause 2 vs clause 4 mechanically so two implementers read every corpus row identically with NO LLM judgment: the inbound-citation check MUST exclude the entity's own named-successor refs and the supersession `Status:` line itself, and MUST distinguish a disposable historical mention / see-also / reference-link from an active-baseline citation (the RFC 0101/0103 PROVEN-BASELINE / umbrella-of-record use) — state the exact greppable rule. (2) Re-derive the corpus to equal what the reconciled predicate produces: move `rfc:0097` to the preserved set (superseded but live-cited ⇒ load-bearing ⇒ never nominated); re-audit `rfc:0027`/`rfc:0041`/`rfc:0039` (and any other front-matter-superseded artifact with a resolving live successor) for live inbound citations under the reconciled rule; the genuine zero-citation set is the new true-positive set. (3) Re-prove the G1 corpus test: the reconciled predicate nominates EXACTLY the genuinely-dead superseded set with ZERO hits on the preserved set (`rfc:0097` now preserved, alongside `docs/reference/todo.md`, `rfc:0028`, the `backup/rfc-*` banked branches, the RFC-0170 body/SEED/workflow.json/decision-log prose, and `docs/records/_frozen/**`), every published true positive independently confirmed to carry no live inbound citation. DISCHARGE G2' (cycle-1 falsifier_2 stood): the v1 sweep proved panic and returned-error isolation but NOT a latency/stall bound — the fold is synchronous in the single recovery goroutine (`scheduler.go:55-80` re-enters `wait(interval)` only after `SweepOnce` returns); a blocked/slow `DecayTickSweep` scan neither panics nor returns, so the `recover()` seam and the discard-the-error fold never fire, the goroutine is held, the next recovery tick never starts, and after `doctorRecoveryCursorWedgedAfter = 5m` (`doctor.go:16`) doctor emits `recovery_sweep_cursor_wedged` → `ok:false`; the DB `statement_timeout` already equals the 60s cadence (`connection.go:289-290`) and the filesystem scan has no timeout at all. (1) Add a per-tick deadline (`context.WithTimeout` strictly below `DefaultSweepInterval = 60s`) covering BOTH the DB read (a `statement_timeout` below the recovery cadence) AND the filesystem/grep scan (bound it explicitly). (2) Add a skip-on-overrun policy so a slow/blocked tick is abandoned rather than holding the single recovery goroutine — name where the deadline is enforced and how a partial scan is discarded without a partial/torn write. (3) Add a HANG regression test in `go/pkg/recovery` mirroring `TestActiveRunSweepPanicDegradesRunAndContinues` but for a BLOCKING, non-returning scan (not a panic): inject a `DecayTickSweep` scan that blocks past `doctorRecoveryCursorWedgedAfter` and assert (i) the next recovery tick still runs and (ii) doctor does NOT emit `recovery_sweep_cursor_wedged` and stays `ok:true`. Keep every claim a falsifiable assertion + its refuting test/corpus row anchored to a named source site verified against the live tree. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": {
+        "path": "prompts/collaboration_holder.md"
+      },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/holder/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_1",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/falsifier_1/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED holder SPEC (`HOLDER.md`), the cycle-1 ledger (`context/LEDGER_cycle_1.md`), and RFC 0170. Your lens is **Tier-1 EXACTNESS — false positives that would cull live artifacts** — attacking the REVISED predicate and the RE-DERIVED corpus that discharge G1'. Hunt: (1) Is the clause-2/clause-4 reconciliation actually MECHANICAL and unambiguous, or does the holder's 'active-baseline vs disposable historical mention' distinction still require human/LLM judgment that two implementers would split on? Name the exact greppable rule the holder states and find a real citation in this tree it classifies wrong. (2) Did the holder correctly move `rfc:0097` to the preserved set, and does the re-audited true-positive set (`rfc:0027`/`rfc:0041`/`rfc:0039` or whatever survives) actually carry ZERO live inbound citations from non-superseded artifacts in the scanned roots? Grep the decision-log and `docs/rfcs` for back-references to each surviving true positive — if even one is still live-cited as load-bearing context, the zero-false-positive claim fails. (3) Does excluding the named-successor refs from the citation check open a new hole — e.g. a successor that is ALSO a live load-bearing consumer (not just a supersession backref)? (4) Did moving `rfc:0097` to preserved introduce a false negative or a corpus row two implementers would read differently? (5) Re-scan the markdown `Status:` predicate for false matches in quotes, examples, frozen provenance (`.check-docs-ignore`/`docs/records/_frozen`), or historical fixtures. Ground every counterexample in a real path/ref. If even one real artifact the project still depends on would be auto-nominated, or the reconciled predicate is still ambiguous, say so explicitly and stop the gate from clearing. Do not invent entities not in the tree.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/falsifier_1/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "falsifier_2",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/falsifier_2/FALSIFIER.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED holder SPEC (`HOLDER.md`), the cycle-1 ledger (`context/LEDGER_cycle_1.md`), and RFC 0170. Your lens is **READ-ONLY SAFETY (the G2' latency bound) + SUBSTRATE NO-REGRESSION**. Attack the LATENCY BOUND the holder added to discharge G2': (1) Does the per-tick deadline (`context.WithTimeout` below `DefaultSweepInterval = 60s`) truly cover the unbounded FILESYSTEM/grep scan, or only the DB read? A `statement_timeout` bounds the DB but the `docs/**` walk + inbound-citation grep have no DB timeout — trace whether the holder's mechanism (ctx checks between files, a bounded walker, an explicit per-scan deadline) actually interrupts a stuck filesystem scan. (2) Can skip-on-overrun leak a PARTIAL/TORN write (a half-computed candidacy set UPSERT) or leave a goroutine still blocked — note that `context.WithTimeout` does NOT abort a blocking syscall already in flight, only the next ctx check; does the holder account for that? (3) Does the HANG regression test actually inject a BLOCKING, non-returning scan and assert (i) the next recovery tick still runs and (ii) doctor stays `ok:true` with no `recovery_sweep_cursor_wedged` — or does it merely re-prove the panic path from v1? Verify the test shape against `go/pkg/recovery/sweep_panic_test.go` and `doctor.go:16`/`doctor.go:375-466`. (4) NO-REGRESSION on the cleared gates: confirm the revision did not reintroduce a `SELECT *` over `cullable_entity`, did not drop either authority-inventory row, did not change the runtime migration slot/grants, and did not smuggle any P1+ action (tombstone, deletion, page, doctor class, run-admission) into P0 under the rewrite. Construct the concrete failing case for each gap. If the latency bound does not actually cover the filesystem scan, skip-on-overrun can tear a write or strand a goroutine, the HANG test does not prove the property, or the revision regressed G3/G4, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": {
+        "path": "prompts/collaboration_falsifier.md"
+      },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/falsifier_2/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "collaboration_ledger",
+          "logical_name": "collaboration_ledger_${cycle}",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0170 P0 design v2 (the REVISED holder SPEC and the two FALSIFIER challenges) plus the cycle-1 ledger (`context/LEDGER_cycle_1.md`) for the two binding constraints, with RFC 0170 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). This is a REVISION gate: the holder was tasked to discharge exactly G1' and G2' while not regressing the cleared G3/G4. A clearing verdict REQUIRES all of: (G1' DISCHARGED) the reconciled predicate is mechanical and unambiguous (clause 2 vs clause 4 reconciled; the inbound-citation check excludes the named-successor refs and the supersession line and distinguishes a disposable mention from an active-baseline citation WITHOUT LLM judgment), and the RE-DERIVED corpus nominates exactly the genuinely-dead superseded set with ZERO hits on the preserved set — `rfc:0097` moved to preserved, every surviving true positive independently confirmed to have no live inbound citation; if falsifier_1 exhibits one real entity still wrongly nominated or one corpus row two implementers would read differently, G1' is UNMET. (G2' DISCHARGED) the cull fold has a real per-tick deadline (`context.WithTimeout` below `DefaultSweepInterval = 60s`) covering BOTH the DB read (sub-cadence `statement_timeout`) AND the filesystem/grep scan, a skip-on-overrun policy that does not tear a write or strand a goroutine, and a HANG regression test (mirroring `TestActiveRunSweepPanicDegradesRunAndContinues` for a BLOCKING non-returning scan) proving the next recovery tick still runs and doctor stays `ok:true`; if falsifier_2 shows the deadline does not cover the filesystem scan, skip-on-overrun tears a write, or the test only re-proves the panic path, G2' is UNMET. (G3 + G4 NOT REGRESSED) the revision kept §2/§5/§6 intact — no `SELECT *` reintroduced, both authority-inventory rows present, runtime slot/grants unchanged, OQ1/P0-P1+ boundary intact, no smuggled P1+ action. Record per constraint G1'/G2' whether DISCHARGED, per cleared gate G3/G4 whether STILL MET, and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if either binding constraint is not discharged or a cleared gate regressed. This is v2's single proper revision round; a needs_revision here exhausts the gate and routes the residual to the operator for a fresh -v3 (do not ratchet). On a clearing verdict the committer publishes the consolidated SPEC and the operator ratifies D271.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/adjudicate_collaboration.md"
+      },
+      "title": "Adjudicate revised dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/dialogue/adjudicator/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "commit_proposal",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/commit/proposal/PROPOSAL.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0170 **P0** implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict (accept / accept_with_findings) — consolidating the whole P0 design (the cleared v1 §2/§5/§6 plus the discharged §3/§4) as the single contract the downstream `rfc-0170-p0-build` `code_change` run implements. Fold in every accepted finding and constraint the adjudicator recorded (do NOT weaken them). The SPEC must specify, each as a falsifiable assertion + its test/corpus row, anchored to named source sites: the `cullable_entity` runtime migration (`go/pkg/db/sql/0045_cullable_entity.sql`, confirmed free slot, grants, BOTH read+write authority-inventory rows, no-`SELECT *` read discipline); the `DecayTickSweep.SweepOnce` in `go/pkg/recovery` (the recovery-timer piggyback + the error-isolation seam + the **G2' per-tick deadline over DB AND filesystem + skip-on-overrun**); the **reconciled** Tier-1-ONLY supersession predicate with the mechanical clause-2/clause-4 citation rule that makes nomination zero-false-positive across the live corpus (`rfc:0097` in the preserved set; the re-derived true-positive set); the read-only candidacy state machine (no deletion, no page, no run-admission effect in P0); the G1 corpus test proving zero false positives + the error-isolation regression test + the **G2' HANG regression test** + the doctor-stays-green assertion; and the resolved Open Question 1 (peer vs phase) with the forward-compatible ledger schema. Explicitly enumerate what P0 NAMES-BUT-DEFERS (tombstone, reaper, soak, `cull_gate`, counterforce/`accretion_ledger`, Tiers 2-4) and to which RFC phase each belongs. Reference the clearing ledger by path. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": {
+        "path": "prompts/collaboration_commit.md"
+      },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/commit/proposal/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "final_summary",
+          "path": "docs/operator/artifacts/rfc-0170-p0-design-v2/commit/final/FINAL_SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0170 P0 design v2: the ledger verdict, how G1' (the reconciled clause-2/clause-4 predicate + re-derived zero-false-positive corpus with `rfc:0097` preserved) and G2' (the per-tick deadline over DB and filesystem + skip-on-overrun + the HANG regression test) were discharged, that G3 substrate and G4 forward-compatibility remained MET (not regressed), which falsifier challenges were rebutted vs folded as constraints, and the consolidated SPEC + named tests/corpus the `rfc-0170-p0-build` run will implement (the `cullable_entity` ledger + read-only Tier-1 `DecayTickSweep` with the bounded cull fold), with the P1+ items (tombstone, reaper, `cull_gate`, counterforce, Tiers 2-4) named as the downstream seams P0 leaves.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": {
+        "path": "prompts/collaboration_final_summary.md"
+      },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0170-p0-design-v2/commit/final/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "claude",
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-opus-4-8"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0170-p0-design-v2",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "phases": [
+    {
+      "description": "Preserved-context challenge and adjudication",
+      "id": "dialogue",
+      "name": "Dialogue",
+      "synthesis_job_id": "adjudicate"
+    },
+    {
+      "description": "Downstream work gated by the collaboration ledger",
+      "id": "commit",
+      "name": "Commit",
+      "synthesis_job_id": "final_summary"
+    }
+  ],
+  "roles": {
+    "adjudicator": {
+      "definition_path": "roles/adjudicator.md"
+    },
+    "committer": {
+      "definition_path": "roles/committer.md"
+    },
+    "falsifier": {
+      "definition_path": "roles/falsifier.md"
+    },
+    "holder": {
+      "definition_path": "roles/holder.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0170-p0-design-v2",
+  "workflow_version": "2026-06-26b"
+}
