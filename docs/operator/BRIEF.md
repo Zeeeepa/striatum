@@ -23,12 +23,12 @@ cycle-1 SPEC. `doctor` went red while the holder was still running because
 the scheduler's ordinary pre-queue state for dependency-blocked jobs, so the
 barrier was only pending on the live holder, not intervention-blocked.
 
-**Fixed in this change:** the barrier projection and blocked manifest now treat
-dependency-blocked seats as `PENDING`; a blocked seat is a hard barrier blocker
-only when its own dependencies are satisfied or it carries an open
-blocking/human-checkpoint blocker. `doctor` and `join verify` also normalize the
-old deployed view shape so upgraded databases stop false-reddening without a new
-DDL migration. Verification: `make -C go build`,
+**Fixed in this change:** the doctor barrier invariant and blocked manifest now
+normalize dependency-blocked seats to `PENDING`; a blocked seat is a hard barrier
+blocker only when its own dependencies are satisfied or it carries an open
+blocking/human-checkpoint blocker. `doctor` and `join verify` normalize the old
+deployed view shape so upgraded databases stop false-reddening without rewriting
+an applied DDL migration. Verification: `make -C go build`,
 `STRIATUM_PG_TEST_URL=postgres:///postgres go test ./pkg/reads -count=1`, and
 `STRIATUM_PG_TEST_URL=postgres:///postgres go test ./pkg/db -count=1` pass; the
 full `make -C go test` target also passes when the live Striatum daemon runtime

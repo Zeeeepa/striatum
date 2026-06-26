@@ -338,20 +338,28 @@ func TestDoctorBarrierIgnoresDependencyBlockedSeats(t *testing.T) {
 	seedBarrierDependency(t, ctx, runner, repoID, "job_falsifier_2", "job_falsifier_1")
 	seedBarrierFreeze(t, ctx, runner, repoID, barrierID, runID, "adjudicate", []string{"holder", "falsifier_1", "falsifier_2"}, "0000000000000000000000000000000000000000")
 
-	_, problems, records, _, _ := doctorBarrierIntegrity(ctx, runner, repoID)
+	block, problems, records, _, _ := doctorBarrierIntegrity(ctx, runner, repoID)
 	for _, p := range problems {
 		if strings.HasPrefix(p, "barrier_blocked.") {
 			t.Fatalf("dependency-blocked seat must not red doctor as barrier_blocked: problems=%v records=%v", problems, records)
 		}
 	}
-	rows, _ := collectRows(ctx, runner, `SELECT blocking_seats, condition FROM striatumd.barrier_status WHERE repository_id=$1 AND barrier_id=$2`, repoID, barrierID)
-	if len(rows) != 1 {
-		t.Fatalf("expected one barrier_status row, got %d", len(rows))
+
+	barriers, _ := block["barriers"].([]map[string]any)
+	var row map[string]any
+	for _, b := range barriers {
+		if stringFrom(b, "barrier_id") == barrierID {
+			row = b
+			break
+		}
 	}
-	if got := intFromAny(rows[0]["blocking_seats"]); got != 0 {
+	if row == nil {
+		t.Fatalf("doctor block did not include barrier %s: %v", barrierID, block)
+	}
+	if got := intFromAny(row["blocking_seats"]); got != 0 {
 		t.Fatalf("blocking_seats = %d, want 0 for dependency-blocked seats", got)
 	}
-	if got := stringFrom(rows[0], "condition"); got != "PENDING" {
+	if got := stringFrom(row, "condition"); got != "PENDING" {
 		t.Fatalf("condition = %q, want PENDING", got)
 	}
 }

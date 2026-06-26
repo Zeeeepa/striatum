@@ -7,11 +7,12 @@
 - **Fan-in barrier diagnostics no longer mistake dependency-blocked seats for
   intervention-needed blockers.** `jobs.state='blocked'` is also the scheduler's
   normal pre-queue state for a job waiting on upstream dependencies. The
-  `barrier_status` projection, doctor barrier invariant, and `join verify`
-  blocked manifest now treat that state as `PENDING` unless the blocked seat has
-  no unfinished dependency or carries an open blocking/human-checkpoint blocker.
-  This keeps an active `falsification_gate` run with downstream seats waiting on
-  a live holder from reddening `striatum doctor` as `BARRIER_BLOCKED`.
+  doctor barrier invariant and `join verify` blocked manifest now normalize the
+  `barrier_status` projection and treat that state as `PENDING` unless the
+  blocked seat has no unfinished dependency or carries an open
+  blocking/human-checkpoint blocker. This keeps an active `falsification_gate`
+  run with downstream seats waiting on a live holder from reddening
+  `striatum doctor` as `BARRIER_BLOCKED`.
 
 - **Terminal fan-in barrier debris no longer keeps `striatum doctor` red
   (#616).** A canceled or completed run can leave durable fan-in seal artifacts
