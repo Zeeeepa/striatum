@@ -148,10 +148,8 @@
         "synthesis"
       ],
       "command": [
-        "claude",
-        "--dangerously-skip-permissions",
-        "--model",
-        "claude-opus-4-8"
+        "codex",
+        "--yolo"
       ],
       "display_model": "author",
       "supervision": {
