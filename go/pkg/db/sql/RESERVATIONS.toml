@@ -195,6 +195,11 @@ ordinal = 44
 file = "0044_deploy_cursor.sql"
 note = "RFC 0142 P4 deploy substrate: deploy_cursor + deploy_plan + deploy_receipt"
 
+[[runtime_migration]]
+ordinal = 45
+file = "0045_cullable_entity.sql"
+note = "RFC 0170 P0 observe-only cullable_entity candidacy ledger"
+
 # --- Owner bundles (go/pkg/db/sql/owner/NNNN_*.sql), applied out-of-band as owner ---
 [[owner_bundle]]
 ordinal = 1

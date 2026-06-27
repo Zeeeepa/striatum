@@ -76,14 +76,14 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	// panel-quorum dissent witness the quorum barrier SELECTs to BLOCK finalize
 	// wherever recovery moved a seat's lineage — coordination state keyed on the stable
 	// workflow_job_id, like the staging table above.
-	"dissent_ledger":              ReadClassRuntimeSensitive,
-	"interrogations":              ReadClassRuntimeSensitive,
-	"job_dependencies":            ReadClassRuntimeSensitive,
-	"job_recovery_state":          ReadClassRuntimeSensitive,
-	"job_workspaces":              ReadClassRuntimeSensitive,
-	"job_worktrees":               ReadClassRuntimeSensitive,
-	"jobs":                        ReadClassRuntimeSensitive,
-	"leases":                      ReadClassRuntimeSensitive,
+	"dissent_ledger":     ReadClassRuntimeSensitive,
+	"interrogations":     ReadClassRuntimeSensitive,
+	"job_dependencies":   ReadClassRuntimeSensitive,
+	"job_recovery_state": ReadClassRuntimeSensitive,
+	"job_workspaces":     ReadClassRuntimeSensitive,
+	"job_worktrees":      ReadClassRuntimeSensitive,
+	"jobs":               ReadClassRuntimeSensitive,
+	"leases":             ReadClassRuntimeSensitive,
 	// RFC 0167 P0 / owner bundle 0022: operator identity surfaces. Both keep a
 	// COLUMN gate (the principal_clients precedent) — principal_id (and client_id
 	// on operator_sessions) is denied so a leaked runtime credential cannot
@@ -129,8 +129,11 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"audit_repositories":             ReadClassRuntimeOperational,
 	"audit_segments":                 ReadClassRuntimeOperational,
 	"auto_finalize_circuit_breakers": ReadClassRuntimeOperational,
-	"cross_repo_cycle_counters":      ReadClassRuntimeOperational,
-	"daemon_meta":                    ReadClassRuntimeOperational,
+	// cullable_entity (RFC 0170 P0 / D271): observe-only candidacy bookkeeping
+	// read by the daemon; it carries no user/agent prose and drives no P0 action.
+	"cullable_entity":           ReadClassRuntimeOperational,
+	"cross_repo_cycle_counters": ReadClassRuntimeOperational,
+	"daemon_meta":               ReadClassRuntimeOperational,
 	// deploy_cursor / deploy_plan / deploy_receipt (RFC 0142 P4, migration 0044):
 	// the runtime-owned deploy-coordinator substrate. The serving daemon SELECTs
 	// deploy_cursor + deploy_plan on every decoupled boot (CheckDeployActivation),

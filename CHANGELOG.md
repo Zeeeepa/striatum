@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **RFC 0170 P0 observe-only culling substrate.** Added the runtime-owned
+  `cullable_entity` candidacy ledger and the read-only `DecayTickSweep` fold
+  that nominates Tier-1 superseded RFC/decision/doc candidates without
+  deletion, tombstones, paging, doctor state, or run-admission effects.
+
 ### Changed
 
 - **RFC 0168 P0 design accepted with follow-up (D272).** The per-lane pooled
