@@ -1,0 +1,146 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0170-p0-design-v5"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v5/SEED.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v5/context/HOLDER_v4.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v5/context/LEDGER_v4_cycle_1.md", "required": true },
+    { "path": "docs/rfcs/0170-self-culling-repository-and-cull-workflow-class.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "You are the CONSOLIDATING holder for RFC 0170 P0, v5 — the intended CLEARING round under a RE-SCOPED P0 bar (operator/product-owner decision, to be recorded as D271). Four prior rounds proved the architecture; the gate then kept surfacing ever-finer whole-tree Tier-1 corpus-exactness edge cases that barely matter for an OBSERVE-ONLY P0 (writes a candidacy ledger nothing acts on — no deletion, no page, no admission). Read in full first: the v4 SPEC at `docs/operator/workflows/rfc-0170-p0-design-v5/context/HOLDER_v4.md`, the v4 ledger at `docs/operator/workflows/rfc-0170-p0-design-v5/context/LEDGER_v4_cycle_1.md`, the v5 SEED (the binding re-scoped bar), and RFC 0170. REPUBLISH the v4 SPEC as `HOLDER.md`, reframed to the re-scoped bar and otherwise INTACT. Change exactly two things and document the deferrals: (1) G1 corpus assertion -> KNOWN-SET form: state that the predicate is mechanical/sound (pure greppable, no LLM, no external/mutable-outside-the-tree state), NEVER nominates the known preserved set (rfc:0097/0027/0039/0041, D174, the backup/rfc-* banked branches, docs/records/_frozen/**, the RFC-0170 body/SEED/workflow.json/decision-log prose) = ZERO false POSITIVES on the known set (the dangerous direction), and nominates the known genuinely-dead set; and EXPLICITLY DOCUMENT that exhaustive whole-tree exactness — including the status:frozen records outside docs/records/_frozen/ (e.g. docs/records/audits/*) that withhold D081 — is a P1 Tier-1-completeness item tracked in #618, a conservative false-NEGATIVE in the safe direction, NOT a P0 blocker. The corpus test asserts known-preserved-zero-hits + known-dead-nominated; it does NOT require exhaustive whole-tree nomination. (2) G2 safety assertion -> SAFETY-vs-LIVENESS split: state that the cull fold's READ-ONLY SAFETY is proven (recovery loop never blocked; persisted scheduler-cursor refresh not deferred because the fold runs off the wait-gating path; no torn write via skip-on-overrun + L4 compute-then-commit; panic/error isolation), and EXPLICITLY DOCUMENT that bounding a NON-COOPERATIVE (ctx-ignoring) filesystem hang — cull-slot liveness + a late-writer generation fence — is a P1 hardening item tracked in #619, read-only and restart-recoverable, NOT a P0 blocker. REMOVE the v4 self-contradiction (HOLDER_v4 ~:657-659 vs L3/B5 assertion 6) that claimed a non-cooperative blocking syscall self-terminates at the deadline; state plainly that context.WithTimeout bounds COOPERATIVE scans and the non-coop case is P1 (#619). Keep EVERYTHING ELSE intact and unweakened: §2 substrate (migration 0045 under go/pkg/db/sql/, both authority-inventory rows, striatumd_rw GRANT no owner DDL/FK >=27, no SELECT *), the mechanical kind=decision successor rule (D267->{D270}, D081->{D087,D094,D104}), the clause-4 active-baseline citation rule (preserved set untouched), the static tree-local protected pathspec (no external-state dependency), the latency safety machinery (DefaultCullFoldTimeout, watchdog, skip-on-overrun, L4 compute-then-commit, off-the-wait-path fold), §5 OQ1, §6 P0/P1+ boundary. ADD #618 and #619 to the §6 deferral table. Every claim stays a falsifiable assertion + its refuting test/corpus row anchored to a named source site verified against the live tree. This is the published claim the falsifiers re-attack against the re-scoped bar.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Consolidate SPEC under re-scoped P0 bar",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published v5 holder SPEC (`HOLDER.md`), the v4 ledger (`context/LEDGER_v4_cycle_1.md`), and the v5 SEED (the binding re-scoped P0 bar), with RFC 0170 as context. Your lens is **Tier-1 SOUNDNESS + the KNOWN-SET corpus test** — NOT exhaustive whole-tree exactness. The re-scoped P0 bar: the predicate must be mechanical and sound (pure greppable, no LLM, no external/mutable-outside-the-tree state) and must NEVER nominate a KNOWN preserved-set member (a real false POSITIVE is the dangerous direction and IS a P0 blocker). Attack: (1) Is the predicate still mechanical and free of external/mutable state (no open-issue/API/clock dependency)? (2) Does it EVER nominate a known preserved-set member — rfc:0097/0027/0039/0041, D174, the backup/rfc-* banked branches, docs/records/_frozen/**, the RFC-0170 body/SEED/workflow.json/decision-log prose? Any such false POSITIVE blocks the gate. (3) Is the known genuinely-dead set still nominated (D267, and D081 where reachable)? (4) Is the #618 deferral HONESTLY a safe-direction false-NEGATIVE (under-nomination), or does it actually hide a false POSITIVE or a soundness break? Ground every counterexample in a real path/ref. IMPORTANT: do NOT re-raise exhaustive whole-tree exactness (e.g. additional status:frozen records, obscure citation forms that merely WITHHOLD a true nominee) as P0-blocking — that is scoped to P1 (#618). Only stop the gate if you find a real false POSITIVE on the known preserved set, a soundness/mechanicality break, or a deferral that disguises a false positive.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published v5 holder SPEC (`HOLDER.md`), the v4 ledger (`context/LEDGER_v4_cycle_1.md`), and the v5 SEED (the binding re-scoped P0 bar), with RFC 0170 as context. Your lens is **READ-ONLY SAFETY + NO-REGRESSION** — NOT adversarial-hang liveness. The re-scoped P0 bar: the cull fold must be read-only SAFE (recovery loop never blocked, persisted scheduler-cursor refresh not deferred, no torn write, panic/error isolated, no daemon destabilization, no data loss). Attack: (1) Can the cull fold block the recovery loop, defer the next scheduler_cursors refresh, tear a write, or destabilize/suicide the daemon — a real P0 SAFETY break? Verify the safety claim is source-true against scheduler.go:55-80, sweep.go:114,246-263, doctor.go:383-390 (fold off the wait-gating path; cursor upserted before the fold; L4 compute-then-commit). (2) NO-REGRESSION: confirm the rewrite did not regress the mechanical decision-successor rule, the clause-4 citation rule, the static pathspec, G3 substrate (no `SELECT *`, both authority-inventory rows, runtime slot/grants), or G4 forward-compat (no smuggled P1+ tombstone/deletion/page/doctor class/run-admission). (3) Is the #619 deferral HONESTLY a read-only, restart-recoverable LIVENESS gap (a non-cooperative ctx-ignoring FS hang holding the cull slot), or does it actually hide a SAFETY break (data loss, daemon suicide, torn write, recovery-loop block)? IMPORTANT: do NOT re-raise the non-coop-FS-hang liveness bound as P0-blocking — that is scoped to P1 (#619). Only stop the gate if you find a real read-only SAFETY break, a G3/G4 regression, or a deferral that disguises a safety break.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0170 P0 design v5 (the v5 holder SPEC and the two FALSIFIER challenges) plus the v4 ledger and the v5 SEED (the binding RE-SCOPED P0 bar), with RFC 0170 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). This gate is judged AGAINST THE RE-SCOPED P0 BAR, not exhaustive whole-tree exactness. A clearing verdict REQUIRES: (G1) the Tier-1 predicate is MECHANICAL and SOUND (pure greppable, no LLM, no external/mutable state) and the KNOWN-SET corpus test holds — it NEVER nominates a known preserved-set member (rfc:0097/0027/0039/0041, D174, backup/rfc-* branches, docs/records/_frozen/**, RFC-0170 prose) = zero false POSITIVES on the known set, and it nominates the known genuinely-dead set; exhaustive whole-tree exactness (the status:frozen-outside-_frozen withholding of D081, etc.) is a documented P1 item (#618) and a conservative false-NEGATIVE is ACCEPTABLE in P0 — do NOT treat it as UNMET. (G2) the cull fold is READ-ONLY SAFE (recovery loop never blocked, cursor refresh not deferred, no torn write, panic/error isolated, no daemon destabilization), source-true against scheduler.go/sweep.go/doctor.go; the non-cooperative-FS-hang cull-LIVENESS bound is a documented P1 item (#619) and read-only/restart-recoverable — do NOT treat it as UNMET. (G3) substrate intact (no SELECT *, both authority-inventory rows, runtime slot/grants). (G4) forward-compat intact (no smuggled P1+ action). AND the two deferrals are HONESTLY scoped to P1 (a safe-direction false-negative #618; a restart-recoverable liveness gap #619) — not a disguised false POSITIVE or safety break. Record per gate MET/UNMET and per falsifier challenge STANDS/REBUTTED. needs_revision ONLY if: the predicate is unsound or non-mechanical, a KNOWN preserved-set member is nominated (a real false positive), read-only SAFETY is broken, G3/G4 regressed, or a deferral disguises a P0-blocking defect. Do NOT return needs_revision merely because a deferred whole-tree-exactness or non-coop-hang item exists — those are P1 (#618/#619) by operator decision. On a clearing verdict the committer publishes the consolidated SPEC and the operator ratifies D271 (recording the P0 scope boundary in the decision-log).",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate against re-scoped P0 bar",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0170 **P0** implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict (accept / accept_with_findings) — consolidating the whole P0 design (across all five rounds) as the single contract the downstream `rfc-0170-p0-build` `code_change` run implements. Fold in every accepted finding and the re-scoped P0 bar (do NOT weaken constraints). The SPEC must specify, each as a falsifiable assertion + its test/corpus row, anchored to named source sites: the `cullable_entity` runtime migration (`go/pkg/db/sql/0045_cullable_entity.sql`, free slot, grants, BOTH read+write authority-inventory rows, no-`SELECT *` read discipline); the `DecayTickSweep.SweepOnce` in `go/pkg/recovery` (recovery-timer piggyback, error-isolation seam, the latency safety machinery DefaultCullFoldTimeout over DB and filesystem + watchdog + skip-on-overrun + L4 compute-then-commit + off-the-wait-path fold so the cursor refresh is not deferred); the Tier-1-ONLY supersession predicate with the clause-4 active-baseline citation rule + the mechanical kind=decision successor rule + the static tree-local protected pathspec (no external-state dependency) — the KNOWN-SET corpus test (zero false positives on the known preserved set rfc:0097/0027/0039/0041 + D174; known dead set incl. D267 nominated); the read-only candidacy state machine (no deletion, no page, no run-admission in P0); the read-only-safety regression tests (loop-not-blocked, refresh-not-deferred, no-torn-write, panic isolation); and resolved Open Question 1 with the forward-compatible ledger schema. Enumerate the §6 P0/P1+ deferral table INCLUDING the two re-scoped deferrals: whole-tree Tier-1 exactness / status:frozen citation completeness (#618) and the non-cooperative-FS-hang cull-liveness + generation fence (#619), plus tombstone/reaper/soak/cull_gate/counterforce/Tiers-2-4. Reference the clearing ledger by path and note the P0 scope boundary recorded in D271. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0170-p0-design-v5/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0170 P0 design v5: the ledger verdict under the re-scoped P0 bar (mechanical+sound predicate + known-set corpus test with zero false positives on the known preserved set + read-only safety), how G1-G4 are met, the two P1-deferred items (#618 whole-tree Tier-1 / status:frozen citation completeness — a safe-direction false-negative; #619 non-cooperative-FS-hang cull-liveness + generation fence — read-only, restart-recoverable), which falsifier challenges were rebutted, and the consolidated SPEC + named tests/corpus the `rfc-0170-p0-build` run will implement (the `cullable_entity` ledger + read-only Tier-1 `DecayTickSweep` with the bounded, refresh-safe cull fold), with the P1+ items (tombstone, reaper, `cull_gate`, counterforce, Tiers 2-4, plus #618/#619) named as the downstream seams P0 leaves. Note the P0 scope boundary is recorded as D271.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v5/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0170-p0-design-v5",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0170-p0-design-v5",
+  "workflow_version": "2026-06-26e"
+}
