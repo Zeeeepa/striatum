@@ -1,6 +1,6 @@
 # RFC 0170 P0 Build Draft
 
-author: author-author-002
+author: author-author-001
 
 ## Scope
 
@@ -14,6 +14,7 @@ Implemented the RFC 0170 P0 observe-only self-culling substrate from the v5 clea
 - `go/pkg/recovery/decay_tick_sweep.go`: adds `DefaultCullFoldTimeout = 10 * time.Second`, `DecayTickSweep`, the detached single-in-flight off-wait-path fold, panic recovery in the detached goroutine, cooperative filesystem scan cancellation, bounded status-head reads, explicit-column `SELECT kind, ref, candidacy_state`, compute-then-commit delta assembly, all-or-nothing UPSERT/withdraw transactions, and title-block parsing for both `Status:` and `**Status:**`. Discharges G1 / A1-A8, G2 / B1-B5, C3, and D1.
 - `go/cmd/striatumd/main.go`: wires one persistent `DecayTickSweep` instance after the active recovery sweep at the existing metrics-fold position. The recovery sweep result and error are returned unchanged; cull fold failures are logged and discarded. Discharges G2 / B1 / B4 / B5.
 - `go/pkg/recovery/decay_tick_sweep_test.go`: adds the known-set corpus test, protected-path fixture, bare/bold status parser regression, timeout relation test, panic-isolation regression, off-path A/B refresh-not-deferred test plus wait-path negative control, cooperative timeout test, late-return-zero-write guard, and static SQL-shape/cost guards. Discharges BC-618 and BC-619 for P0.
+- `README.md`: updates the front-door substrate diagram and schema row from runtime schema 44 to runtime schema 45.
 - `CHANGELOG.md`: records the RFC 0170 P0 observe-only substrate under Unreleased.
 
 ## Gate Mapping
@@ -34,5 +35,6 @@ Implemented the RFC 0170 P0 observe-only self-culling substrate from the v5 clea
 - `go test ./pkg/recovery` passes.
 - `go test ./pkg/db` passes.
 - `go test ./pkg/recovery ./pkg/db ./cmd/striatumd` passes.
-- `go build ./... && go vet ./...` passes.
-- `go test ./...` was also run. It is not green because current tests require changes outside this packet's write scope: `cmd/striatum` expects README to say `runtime schema 45`, and `pkg/agentloop` has existing MCP boot-epoch header expectation drift around the `X-Striatum-Boot-Epoch` injected Codex MCP header. I did not edit those out-of-scope files in this draft lane.
+- `go build ./...` passes.
+- `go vet ./...` passes.
+- `go test ./...` was also run. It is not green because `pkg/agentloop` still expects the older Codex MCP argument list without the injected `X-Striatum-Boot-Epoch` header; all RFC 0170-focused packages and `cmd/striatum` passed.
