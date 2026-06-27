@@ -1,0 +1,128 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-design-v5"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-design-v5/SEED.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v5/context/v4_HOLDER.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v5/context/v4_LEDGER_cycle_1.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0168-design-v5/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "Revise the v4 HOLDER SPEC (context/v4_HOLDER.md, the base) to discharge the SINGLE standing v4 residual — the provider/credential-cache ANCESTRY sub-part of OQ4-ACL-PROVISIONING-TRANSITION, the only finding the v4 cycle-1 ledger (context/v4_LEDGER_cycle_1.md) left `open`. This is a tiny, surgical revision, NOT a rewrite. The v4 bearer-path sub-part is already DISCHARGED (the writeEphemeralMCPConfig move under .striatum/scratch/<supervisor_id>/, A22 derived from the live writer, citation corrected) — keep it verbatim. The open hole: the v4 'explicit forbidden provider set' assumed every forbidden path is a SIBLING of a source top-level, but a configured credential cache can NEST UNDER an allowlisted source top-level. Verified chain (from the v4 ledger): command_env CLAUDE_CONFIG_DIR is allowed (validateLaneCommandEnvKey bars only PATH/STRIATUM_*, supervision_lane_config.go:440-451), merged into the lane env (supervision_env.go:110-113), survives the run-as filter (sensitiveRunAsEnvKey drops only TOKEN/SECRET/PASSWORD/PASSWD/API_KEY/CREDENTIAL/DSN substrings; CLAUDE_CONFIG_DIR matches none, supervision_env.go:303-318), and resolver.go:78-85 places .credentials.json inside it. So CLAUDE_CONFIG_DIR=<repoRoot>/docs/.lane-auth/claude nests the cache UNDER allowlisted docs/, and the OQ4.1(a) mandatory form (top-level prune + recursive `setfacl -R` on each remaining source entry) sweeps a g:striatum-lanes access+default ACL onto that credential cache. The revised SPEC must make the forbidden set ANCESTRY-AWARE, via ONE coherent mechanism (pick and fully specify): (a) forbid provider credential/cache directories from resolving inside the repository (or beneath any group-ACL-allowlisted source top-level) at all; OR (b) extend the ACL planner AND A23 to reject any recursive g:striatum-lanes op whose target is equal-to, a descendant-of, OR an ANCESTOR-of any configured credential-cache path — the SAME ancestor semantics A23 already applies to .striatum/; OR (c) walk allowlisted source trees with exclude-at-traversal that PRUNES forbidden descendants before applying any grant. AND add a concrete test (extend A22/A23 or a new A25) that sets CLAUDE_CONFIG_DIR=<repoRoot>/docs/.lane-auth/claude, provisions ACLs, and asserts NO g:striatum-lanes access OR default ACL on that directory or its .credentials.json, before/during/after provisioning. Update the OQ4 invariant text to state the forbidden set is ancestry-enforced (no g:striatum-lanes entry equal-to/descendant-of/ancestor-of any forbidden path). CARRY FORWARD UNREGRESSED (do NOT reopen): the v4-discharged bearer-path fix; the DISCHARGED C1-RESIDUAL fail-closed P1 classifier (classifyPoolUIDTaskState, NOT processZombie, + /proc evidence + A21); the C1 four-state lease machine; the C2 procedure fix + A23 raw-recursive-root prohibition + the .striatum//.git/-excluding GROUP-ACL end-state invariant; the hard core HC-A1..A5; OQ1/OQ3/OQ5/OQ6; and the narrowing invariant. Build target: runtime migration 0046+ (0045 reserved by RFC 0170 P0) + owner-bundle bump owner/0023+ for striatumd.lane_uid_leases (do not hardcode). Open the SPEC with an auditable 'Addressing the v4 residual' map (provider-ancestry RESOLVED how; bearer-path + all carry-forwards INTACT). This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue", "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold revised proposal", "type": "build",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/dialogue/holder/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0168-design-v5/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder SPEC (HOLDER.md), the v4 SPEC (context/v4_HOLDER.md), and the v4 cycle-1 ledger (context/v4_LEDGER_cycle_1.md, its OPEN provider/credential-cache ancestry finding). Your lens is PROVIDER/CREDENTIAL-CACHE ACL ANCESTRY — the single standing residual. Attack at source: is the forbidden set now genuinely ANCESTRY-AWARE so that NO g:striatum-lanes access OR default ACL can land on a credential cache that nests UNDER an allowlisted source top-level? Construct the concrete failing case from the verified chain: a lane with command_env CLAUDE_CONFIG_DIR=<repoRoot>/docs/.lane-auth/claude (allowed by validateLaneCommandEnvKey supervision_lane_config.go:440-451; survives sensitiveRunAsEnvKey supervision_env.go:303-318; resolver.go:78-85 writes .credentials.json there) — does the chosen mechanism (planner+A23 ancestor rule / forbid-resolving-in-repo / exclude-at-traversal pruning) actually prevent the recursive `setfacl -R` on docs/ from sweeping a group ACL onto docs/.lane-auth/claude and its .credentials.json, before/during/after? Probe other nest sites (a credential cache under any other allowlisted top-level; a symlinked cache; a cache created AFTER provisioning). Verify the new test really sets CLAUDE_CONFIG_DIR inside the repo and asserts no g:striatum-lanes entry on the cache dir or its .credentials.json. Land (gate does not clear) if any nested credential cache can still receive a group ACL, the mechanism is prose-only/not enforced, or the test is fake/non-derived. Ground every counterexample in a real path/source site.",
+      "phase_id": "dialogue", "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1", "type": "build",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/dialogue/falsifier_1/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0168-design-v5/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published REVISED (v5) holder SPEC (HOLDER.md), the v4 SPEC (context/v4_HOLDER.md), and the v4 cycle-1 ledger (context/v4_LEDGER_cycle_1.md). Your lens is NO-REGRESSION — prove the v5 ancestry fix did not break any carry-forward. Re-attack: (1) the v4-DISCHARGED bearer-path fix (writeEphemeralMCPConfig under .striatum/scratch/<supervisor_id>/, A22 derives the live path, no residual root-level bearer, launch-consistent ACL / no #279 EACCES); (2) the C1-RESIDUAL fail-closed P1 classifier (classifyPoolUIDTaskState, NOT processZombie/!processZombie; A21; /proc evidence) — try to find one non-zombie pool_uid survivor that can reach `returned`; (3) the C2 procedure fix + A23 raw-recursive-root prohibition + the .striatum//.git/-excluding GROUP-ACL end-state invariant — confirm the new ancestry rule did not weaken A23 or the existing invariant; (4) the hard core HC-A1..A5; the C1 four-state lease machine + uq_lane_uid_held + 3-tx boundary + reaper + dirty-excluding exhaustion; OQ1/OQ3/OQ5/OQ6; restart-survival; the narrowing invariant (no admin-token widening, no lane-readable shared reseal bearer; surface only removed). Construct the concrete failing case for any regression. Land (gate does not clear) if the ancestry fix regressed any carry-forward.",
+      "phase_id": "dialogue", "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2", "type": "build",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/dialogue/falsifier_2/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0168-design-v5/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0168 P0 v5 REVISION (the revised HOLDER.md and the two FALSIFIER.md challenges), with the v4 SPEC (context/v4_HOLDER.md) and the v4 cycle-1 ledger (context/v4_LEDGER_cycle_1.md, its OPEN provider/credential-cache ancestry finding) as context for what the revision had to fix. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). This is a REVISION gate scoped to the SINGLE standing provider/credential-cache ancestry residual; the bearer-path sub-part and C1-RESIDUAL were already DISCHARGED and must only be checked for non-regression. A clearing verdict REQUIRES ALL of: (PROVIDER-ANCESTRY DISCHARGED) the forbidden set is genuinely ancestry-aware — no g:striatum-lanes access OR default ACL can land on a credential cache nested under an allowlisted source top-level (the CLAUDE_CONFIG_DIR=<repoRoot>/docs/.lane-auth/claude case), via an enforced mechanism (planner+A23 ancestor rule / forbid-resolving-in-repo / exclude-at-traversal), with a real concrete test; no falsifier exhibits a nested cache that still receives a group ACL. (BEARER-PATH STILL DISCHARGED) the writer move + real A22 intact. (C1-RESIDUAL STILL DISCHARGED) P1 = classifyPoolUIDTaskState, A21, /proc evidence. (NO CARRY-FORWARD REGRESSED) HC-A1..A5, the C1 lease machine, the C2 procedure fix + A23 + the GROUP-ACL end-state invariant, OQ1/OQ3/OQ5/OQ6, the narrowing invariant. (NO STANDING MATERIAL CHALLENGE; no admin-token widening; no lane-readable shared reseal bearer.) Record per residual whether DISCHARGED, per carry-forward whether INTACT, per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if the ancestry residual is not discharged or any carry-forward regressed; reject only if the direction is wrong (it is not — D261 ratifies it). This is v5's single proper revision round; a needs_revision exhausts the gate and routes to the operator (do not ratchet). On a clearing verdict the committer publishes the consolidated SPEC and the operator ratifies D272 (D271 is reserved by the concurrent RFC 0170 P0 design).",
+      "phase_id": "dialogue", "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate revised dialogue substance", "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/dialogue/adjudicator/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0168-design-v5/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, revised falsifiable RFC 0168 P0 implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict — consolidating the WHOLE P0 design (not just the v5 ancestry delta) as the single buildable contract the rfc-0168-build code_change run implements: the per-lane uid pool (host-global size + exhaustion excluding scrubbing AND quarantined uids); the daemon lease lifecycle with the durable active/scrubbing/quarantined/returned state machine + uq_lane_uid_held + 3-transaction boundary + the fail-closed scrub-postcondition proof (classifyPoolUIDTaskState; T/t/unknown/unreadable block return; /proc evidence) + failed-scrub and leaked-active reaper + doctor surface; the provisioning-ownership decision (static host runbook; launch-as %striatum-lanes grant only); the MANDATORY allowlist/exclude-at-traversal per-leased-uid ACL grant that never (even transiently) group-exposes .striatum/, WITH the bearer-path fix (writeEphemeralMCPConfig under .striatum/scratch/<supervisor_id>/ threading STRIATUM_SUPERVISOR_ID before re-keying ACLs, mcpconfig.go:550-565, no #279 EACCES) AND the ANCESTRY-AWARE forbidden set (no g:striatum-lanes access/default ACL equal-to/descendant-of/ancestor-of any .striatum//.git//provider-credential-cache path, incl. a CLAUDE_CONFIG_DIR nested under an allowlisted source top-level) + the raw-recursive-root planner guard (A23); the lane_attestation re-binding + monotonic per-uid generation token; and the per-uid credential store + hydration scrub-on-return, plus the EXACT P0 slice boundary that unblocks RFC 0143 Slice B's lane-uid-owned 0600 reseal token. Name the implementation slots: striatumd.lane_uid_leases (owner-bundle owner/0023+) and the next FREE runtime-migration slot (0045 reserved by RFC 0170 P0 — use 0046+; do not hardcode). State each claim as a falsifiable assertion + its test, anchored to source: the BC1-W1-ORACLE negative control; A21 TestStoppedOrTracedUIDProcessBlocksReturn; TestScrubFailureQuarantinesAndIsNeverReLeased; TestCrashDuringScrubLeavesUIDHeldNotFree; TestQuarantineSurvivesRestartAndIsNonFree; TestExhaustionExcludesScrubbingAndQuarantined; A22 TestPoolACLProvisioningNeverTransientlyExposesScratch (derived live path, no residual root-level bearer); A23 TestACLPlannerRejectsRawRecursiveRootWhileScratchExists; the new ancestry test (CLAUDE_CONFIG_DIR=<repoRoot>/docs/.lane-auth/claude → no g:striatum-lanes ACL on the cache); anchored to pty.go, tmux_liveness.go, scratch_acl.go, repo_acl.go, mcpconfig.go, loop.go, supervision_control.go, supervision_env.go, supervision_lane_config.go, resolver.go, recovery.go. Reference the clearing ledger by path. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit", "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal", "type": "synthesis",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/commit/proposal/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0168-design-v5/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0168 P0 v5 revision: the ledger verdict, how the provider/credential-cache ANCESTRY residual was discharged (forbidden set made ancestry-aware so a CLAUDE_CONFIG_DIR nested under an allowlisted source top-level can never receive a g:striatum-lanes ACL, with a concrete test), that the bearer-path fix and C1-RESIDUAL stayed DISCHARGED, which carry-forwards (hard core HC-A1..A5, the C1 lease machine, the C2 procedure fix + A23 + the GROUP-ACL end-state invariant, OQ1/OQ3/OQ5/OQ6, the narrowing invariant) stayed intact, which falsifier challenges were rebutted vs folded, and the consolidated SPEC + named tests the rfc-0168-build run will implement, plus the RFC 0143 Slice B unblock (a lane-uid-owned 0600 reseal token is safe by HC-A2).",
+      "phase_id": "commit", "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run", "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": ["docs/operator/artifacts/rfc-0168-design-v5/commit/final/"], "forbidden_paths": [".striatum/"], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process", "adapter_capabilities": { "agent_loop": true },
+      "capabilities": ["write", "review", "synthesis"],
+      "command": ["claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8"],
+      "display_model": "author", "supervision": { "transport": "pty_helper" }, "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process", "adapter_capabilities": { "agent_loop": true },
+      "capabilities": ["write", "review", "synthesis"],
+      "command": ["codex", "--yolo"],
+      "display_model": "reviewer", "supervision": { "transport": "pty_helper" }, "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-design-v5",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0168-design-v5",
+  "workflow_version": "2026-06-27"
+}
