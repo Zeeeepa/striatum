@@ -12,6 +12,25 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-27 delta — RFC 0168 design accepted; v6 run wedge cleared
+
+RFC 0168 P0 (per-lane pooled OS uid as lane security principal) is accepted
+with follow-up as **D272** after the v6 falsification gate converged. The
+decision artifact is
+`docs/operator/artifacts/rfc-0168-design-v6/decision/DECISION_override_to_build.md`.
+The v6 run `run_010c81ec8ca17ffd182e0bd7be3f28cc` was canceled after D272 to
+clear the Claude spend-limit / stale daemon-socket wedge and its stale
+adjudicate worktree row was retired through `recovery quarantine-lane`.
+`striatum doctor --json` is green (`ok=true`, no problems, no stale leases).
+
+Next RFC 0168 stage is BUILD from the v6 HOLDER spec plus D272's binding
+constraint: the OQ4.1.2 coverage-gap gate must discriminate provider-owned
+credential selectors from ordinary lane env selectors, keeping the typed
+provider credential-dir refusal while proving legitimate in-repo non-credential
+lane env still launches. Do not launch Claude lanes before 2026-06-30
+15:59 UTC unless credentials/credits are explicitly restored; use a Codex-only
+lane set or wait.
+
 ## 2026-06-26 delta — active RFC 0170 v2 false-red barrier diagnostic fixed
 
 Fresh RFC 0170 P0 design v2 is live as
