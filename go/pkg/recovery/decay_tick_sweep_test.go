@@ -212,6 +212,29 @@ func TestDecayTickKnownSetCorpus(t *testing.T) {
 	}
 }
 
+func TestDecayTickStructuralStatusParsesBareAndBoldTitleBlocks(t *testing.T) {
+	for name, lines := range map[string][]string{
+		"bare": {
+			"# RFC 0097",
+			"Status: superseded by RFC 0116 / 0122 / 0124",
+		},
+		"bold": {
+			"# RFC 0049",
+			"**Status:** deprecated - overtaken by RFC 0088",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			status := structuralStatusFromHead(lines)
+			if strings.HasPrefix(status, "**") {
+				t.Fatalf("status retained bold marker: %q", status)
+			}
+			if status == "" {
+				t.Fatalf("status was not parsed from %#v", lines)
+			}
+		})
+	}
+}
+
 func TestDecayTickProtectedPathspecIsTreeLocal(t *testing.T) {
 	protected := []string{
 		"docs/records/_frozen/example.md",

@@ -648,7 +648,7 @@ func protectedCullPath(rel string) bool {
 	return false
 }
 
-var statusLinePattern = regexp.MustCompile(`(?i)^\s*(?:\*\*)?status(?:\*\*)?\s*:\s*(.*)$`)
+var statusLinePattern = regexp.MustCompile(`(?i)^\s*(?:\*\*)?status\s*:\s*(?:\*\*)?\s*(.*)$`)
 
 func structuralStatusFromHead(lines []string) string {
 	for _, line := range lines {
