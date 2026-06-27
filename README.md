@@ -80,7 +80,7 @@ token lives under the daemon runtime directory as `client-token`.
 │         runs · sessions · jobs · leases · verdicts             │
 │         artifacts · blockers · events · audit_log              │
 ├────────────────────────────────────────────────────────────────┤
-│       Postgres striatumd schema (runtime schema 44 / owner 0022)│
+│       Postgres striatumd schema (runtime schema 45 / owner 0022)│
 │    append-only events + artifacts  ·  hash-chained audit rows  │
 │    serialized audit head  ·  per-repo event chain heads        │
 └────────────────────────────────────────────────────────────────┘
@@ -307,7 +307,7 @@ owner-only socket.
 | License | Apache-2.0 |
 | CI | Go tests, frontend checks, archive checks, and Go-only smoke scripts |
 | Daemon substrate | Daemon-owned PostgreSQL is the live state substrate; repository files are durable provenance, not the message bus |
-| Schema | Managed by Go runtime migrations and owner bundles; current source is `go/pkg/db/migrations.go` (runtime schema 44), `go/pkg/db/owner.go` (owner bundle 0022), and `docs/reference/spec.md` |
+| Schema | Managed by Go runtime migrations and owner bundles; current source is `go/pkg/db/migrations.go` (runtime schema 45), `go/pkg/db/owner.go` (owner bundle 0022), and `docs/reference/spec.md` |
 | Go runtime | Production runtime and release archive path for `striatum`, `striatumd`, and `striatum-supervisor-helper` |
 | Active work | Run `striatum operator bootstrap --markdown` for the live frontier; current state lives in `docs/operator/BRIEF.md`, `docs/operator/rfc-roadmap.md`, and the open GitHub issues |
 | Corpus export / augmentation | Corpus Contract V2 core landed; optional reference-only augmentation stays local and Striatum runs with external memory absent |
