@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v2.39.0 — 2026-06-27
+
 ### Added
 
 - **RFC 0170 P0 observe-only culling substrate.** Added the runtime-owned

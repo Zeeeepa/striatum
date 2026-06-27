@@ -301,7 +301,7 @@ owner-only socket.
 
 | Area | Status |
 |------|--------|
-| Version | v2.38.0 — latest release published 2026-06-25; Go-only runtime, PostgreSQL daemon, operator identity/run attribution, session-bound operator bootstrap, fan-in barrier cutover, owner-bundle 0022, and D270 cross-repo product-surface retirement are live (see [CHANGELOG.md](CHANGELOG.md)) |
+| Version | v2.39.0 — latest release published 2026-06-27; Go-only runtime, PostgreSQL daemon, runtime schema 45, RFC 0170 P0 observe-only culling substrate, RFC 0168 P0 design acceptance, session-bound operator bootstrap, owner-bundle 0022, and D270 cross-repo product-surface retirement are live (see [CHANGELOG.md](CHANGELOG.md)) |
 | Platforms | Linux + macOS Go binaries · Postgres 14+ |
 | Distribution | GitHub release archives with `SHA256SUMS` |
 | License | Apache-2.0 |

@@ -1,8 +1,8 @@
 ---
 schema_version: "striatum.operator_brief.v1"
 artifact_kind: "operator_brief"
-brief_id: "brief_2026-06-25_v2.38.0-release"
-supersedes: "brief_2026-06-24_v2.37.1-deployed"
+brief_id: "brief_2026-06-27_v2.39.0-release"
+supersedes: "brief_2026-06-25_v2.38.0-release"
 scope_links: ["docs/operator/plans/provenance-durability-campaign-2026-06-14.md", "docs/operator/plans/rfc-0126-0128-implementation-campaign-2026-06-14.md", "docs/rfcs/0126-multi-reviewer-revision-coherence.md", "docs/decisions/decision-log.md", "CHANGELOG.md"]
 context_budget_lines: 360
 retrieval_priority: "high"
@@ -11,6 +11,20 @@ status: "current"
 
 # Operator Brief
 author: operator-claude-opus-4-8-001
+
+## 2026-06-27 delta — v2.39.0 release
+
+**v2.39.0 (2026-06-27)** cuts the post-v2.38.0 reliability and RFC 0170 P0
+release. It includes the bundle-0022 `runs` projection outage fix, terminal
+fan-in debris doctor downgrades, RFC 0168 P0 design acceptance (D272), and RFC
+0170 P0 observe-only culling substrate/runtime schema **45**. GitHub `main` CI
+is green at `3b4ef294` before tagging; `striatum doctor --json` is green with no
+problems, stale leases, waiting humans, or operator-needed items.
+
+Deploy note: this release includes runtime migration **0045** and no new owner
+bundle. Install/restart the v2.39.0 binaries to move the host from v2.38.0 to
+v2.39.0; verify with `striatumd -describe`, `striatum doctor --json`, and the
+live release workflow result for tag `v2.39.0`.
 
 ## 2026-06-27 delta — RFC 0170 P0 built, verified, and integrated
 
@@ -99,9 +113,10 @@ pgtests run as the owner pool so the runtime-role grant never bit in CI.
 two-role grant). `doctor ok=true` after clearing the 5 pre-existing integrity
 problems via daemon paths (worktree anchor, accept-quarantined + force-release,
 and acknowledged-loss entries for two branch-cleanup-orphaned cc_rfc0142_p0
-process artifacts). VERSION stays **v2.38.0** (bugfix, no DDL); CHANGELOG
-Unreleased carries the fix. **RFC 0170 design→build→verify (the session's
-original mission) was NOT started** — the outage took precedence.
+process artifacts). VERSION stayed **v2.38.0** for that same-day bugfix window;
+v2.39.0 later packaged it with the RFC 0170 P0 migration. **RFC 0170
+design→build→verify (the session's original mission) was NOT started** — the
+outage took precedence.
 
 ## 2026-06-26 delta — RFC 0170 P0 design cycle-1 + a stranded-barrier runner defect (#616)
 
@@ -219,9 +234,11 @@ sequenced behind this P0 release/deploy.
 
 ## State
 
-Latest release is **v2.38.0 (2026-06-25)** — retires the D270 cross-repo
-product surface without new DDL while preserving the single-repo write-scope
-guardrail. **v2.37.1 (2026-06-24)** hotfixed the v2.37.0 owner-bundle 0022
+Latest release is **v2.39.0 (2026-06-27)** — ships runtime schema 45 with the
+RFC 0170 P0 observe-only culling substrate, RFC 0168 P0 design acceptance, and
+the post-v2.38.0 reliability fixes. **v2.38.0 (2026-06-25)** retired the D270
+cross-repo product surface without new DDL while preserving the single-repo
+write-scope guardrail. **v2.37.1 (2026-06-24)** hotfixed the v2.37.0 owner-bundle 0022
 capability-parity deploy skew after shipping operator identity/run attribution
 (RFC 0167 P0, owner bundle 0022), session-bound operator bootstrap, RFC 0143
 Slice A recovery legibility, D269 fan-in barrier default-live cutover, and the
@@ -251,10 +268,9 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 
 ## Current Frontier
 
-- **Reliability reset gate is active.** Do not start feature growth, new
-  workflow-shape graduation, broader auto-spawn authority, or release work until
-  the trust-restoration gates below are green or explicitly quarantined with
-  owner, reason, and removal condition.
+- **Reliability reset gate is green enough for release.** `striatum doctor` is
+  green and `main` CI passed at `3b4ef294`; keep the remaining recovery defects
+  ahead of feature growth and do not launch new dogfood runs on a red doctor.
 - **Recovery fixture gate:** #302/#308/#309 are closed, but their failure class
   remains load-bearing evidence: prove `agent_exited_unsealed` plus durable,
   valid artifacts reaches completion without renewed-lease waiting, then keep
@@ -302,22 +318,25 @@ and boundary-hygiene batch. **STILL OPEN:** P1 token-out-of-argv and
 3. **Bound doctor warnings:** keep `problem_count=0`, but turn the warning channel
    into named classes with allowed baselines/deltas.
 
-## Blockers / Open Issues (21)
+## Blockers / Open Issues (24)
 
-Open GitHub tracker state rechecked on 2026-06-24 after the v2.37.1 deploy.
+Open GitHub tracker state rechecked on 2026-06-27 before the v2.39.0 release.
 
-- **Active defects / recovery:** #612 cross-user falsifier handoff publish wedge,
-  #579 idle-stalled builder lane blocks downstream jobs, #576 lease-warmed lane
-  never completes, #512 boot-epoch rotation reseal blocked by shared-lane token
-  ownership, #506 reviewer over-rejection/blob-exhaust legibility.
-- **Reliability/security follow-ups:** #593 retrospective, #592 RFC 0142 P4
-  activation/verify run, #590 gate-compute timing, #589 structural-root precheck,
-  #588 falsification recursion tripwire, #587 auto-bank/rescaffold clean revision
-  cycles, #585 RFC 0143 Slice B blocked on per-lane security principal.
-- **Feature/design backlog:** #611/#610/#609 RFC 0167 P3/P2/P1, #578 schema-drift
-  refuse-to-serve flip, #577 verified-stale rung, #572 RFC 0142 P5 rehearsal
-  receipt, #569 provider-auth absence-of-success alerting, #387 events/audit-log
-  partitioning, #380 remaining git-hoist lock holders.
+- **Active defects / recovery:** #620 adjudicate ledger published but not
+  anchored, #617 running-run barrier mismatch variant, #612 cross-user
+  falsifier handoff publish wedge, #579 idle-stalled builder lane blocks
+  downstream jobs, #576 lease-warmed lane never completes, #512 boot-epoch
+  rotation reseal blocked by shared-lane token ownership, #506 reviewer
+  over-rejection/blob-exhaust legibility.
+- **Reliability/security follow-ups:** #592 RFC 0142 P4 activation/verify run,
+  #590 gate-compute timing, #589 structural-root precheck, #588 falsification
+  recursion tripwire, #587 auto-bank/rescaffold clean revision cycles, #585 RFC
+  0143 Slice B blocked on per-lane security principal.
+- **Feature/design backlog:** #619/#618 RFC 0170 P1 follow-ups, #611/#610/#609
+  RFC 0167 P3/P2/P1, #578 schema-drift refuse-to-serve flip, #577 verified-stale
+  rung, #572 RFC 0142 P5 rehearsal receipt, #569 provider-auth
+  absence-of-success alerting, #387 events/audit-log partitioning, #380
+  remaining git-hoist lock holders.
 
 ## Hazards / Do Not
 
@@ -354,6 +373,6 @@ Open GitHub tracker state rechecked on 2026-06-24 after the v2.37.1 deploy.
 - `docs/rfcs/0120-await-packet-idle-exit-and-wake-boundary.md`
 - `docs/rfcs/0116-zero-operator-touch-dag.md` / `0117-worktree-branch-ref-safety.md`
 - `docs/decisions/decision-log.md` (D161–D181 cover this brief's span)
-- `CHANGELOG.md` (v2.10.0 → v2.38.0 + Unreleased)
+- `CHANGELOG.md` (v2.10.0 → v2.39.0 + Unreleased)
 - `docs/reference/command-authority-matrix.md` (lags 16 live methods —
   reconcile on contact, per AGENTS rule)
