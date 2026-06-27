@@ -1,6 +1,6 @@
 # RFC 0170 P0 Build Draft
 
-author: author-author-001
+author: author-author-002
 
 ## Scope
 
@@ -11,9 +11,9 @@ Implemented the RFC 0170 P0 observe-only self-culling substrate from the v5 clea
 - `go/pkg/db/sql/0045_cullable_entity.sql`: verified `0045` was free before creation. Adds `striatumd.cullable_entity(kind, ref, last_reinforced_at, decay_score, reachable_from_root, candidacy_state)` with primary key `(kind, ref)`, the specified `kind` and `candidacy_state` checks, no foreign keys, no owner-held-table DDL, and guarded `GRANT SELECT, INSERT, UPDATE` to `striatumd_rw` with no `DELETE` grant. Discharges G3 / C2 / PC1 / PC2.
 - `go/pkg/db/sql/RESERVATIONS.toml` and `go/pkg/db/migrations.go`: reserve runtime ordinal 45 and advance `LatestDaemonDBVersion` with the RFC 0170 label. Discharges G3 / C1 / PC2.
 - `go/pkg/db/read_authority_inventory.go` and `go/pkg/db/write_authority_inventory.go`: add `readAuthorityInventory["cullable_entity"] = ReadClassRuntimeOperational` and `writeAuthorityInventory["cullable_entity"] = ClassRuntimeDML`. Discharges G3 / C1.
-- `go/pkg/recovery/decay_tick_sweep.go`: adds `DefaultCullFoldTimeout = 10 * time.Second`, `DecayTickSweep`, the detached single-in-flight off-wait-path fold, panic recovery in the detached goroutine, cooperative filesystem scan cancellation, bounded status-head reads, explicit-column `SELECT kind, ref, candidacy_state`, compute-then-commit delta assembly, and all-or-nothing UPSERT/withdraw transactions. Discharges G1 / A1-A8, G2 / B1-B5, C3, and D1.
+- `go/pkg/recovery/decay_tick_sweep.go`: adds `DefaultCullFoldTimeout = 10 * time.Second`, `DecayTickSweep`, the detached single-in-flight off-wait-path fold, panic recovery in the detached goroutine, cooperative filesystem scan cancellation, bounded status-head reads, explicit-column `SELECT kind, ref, candidacy_state`, compute-then-commit delta assembly, all-or-nothing UPSERT/withdraw transactions, and title-block parsing for both `Status:` and `**Status:**`. Discharges G1 / A1-A8, G2 / B1-B5, C3, and D1.
 - `go/cmd/striatumd/main.go`: wires one persistent `DecayTickSweep` instance after the active recovery sweep at the existing metrics-fold position. The recovery sweep result and error are returned unchanged; cull fold failures are logged and discarded. Discharges G2 / B1 / B4 / B5.
-- `go/pkg/recovery/decay_tick_sweep_test.go`: adds the known-set corpus test, protected-path fixture, timeout relation test, panic-isolation regression, off-path A/B refresh-not-deferred test plus wait-path negative control, cooperative timeout test, late-return-zero-write guard, and static SQL-shape/cost guards. Discharges BC-618 and BC-619 for P0.
+- `go/pkg/recovery/decay_tick_sweep_test.go`: adds the known-set corpus test, protected-path fixture, bare/bold status parser regression, timeout relation test, panic-isolation regression, off-path A/B refresh-not-deferred test plus wait-path negative control, cooperative timeout test, late-return-zero-write guard, and static SQL-shape/cost guards. Discharges BC-618 and BC-619 for P0.
 - `CHANGELOG.md`: records the RFC 0170 P0 observe-only substrate under Unreleased.
 
 ## Gate Mapping
@@ -30,7 +30,9 @@ Implemented the RFC 0170 P0 observe-only self-culling substrate from the v5 clea
 
 ## Verification
 
-- `ls go/pkg/db/sql/0045*` was empty before adding the migration; highest existing runtime migration was `0044_deploy_cursor.sql`.
-- `go test ./pkg/recovery ./pkg/db` passes.
+- The source delta adds `go/pkg/db/sql/0045_cullable_entity.sql` after verifying the free runtime slot in the run context; the current worktree now shows `0045_cullable_entity.sql` as the expected new migration and `0044_deploy_cursor.sql` as the previous runtime migration.
+- `go test ./pkg/recovery` passes.
+- `go test ./pkg/db` passes.
+- `go test ./pkg/recovery ./pkg/db ./cmd/striatumd` passes.
 - `go build ./... && go vet ./...` passes.
-- `go test ./...` was also run. It is not green because current tests require changes outside this packet's write scope: `cmd/striatum` expects README to say `runtime schema 45`, and `pkg/agentloop` has existing MCP boot-epoch header expectation drift. I did not edit those out-of-scope files in this draft lane.
+- `go test ./...` was also run. It is not green because current tests require changes outside this packet's write scope: `cmd/striatum` expects README to say `runtime schema 45`, and `pkg/agentloop` has existing MCP boot-epoch header expectation drift around the `X-Striatum-Boot-Epoch` injected Codex MCP header. I did not edit those out-of-scope files in this draft lane.
