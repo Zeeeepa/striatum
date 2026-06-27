@@ -1,6 +1,6 @@
 # RFC 0170: Self-culling repository — a CULL workflow class (detect and shed dead artifacts)
 
-Status: proposed
+Status: proposed / P0 implemented (D271; runtime schema 45)
 Date: 2026-06-25
 Context: deep architecture review 2026-06-24 (`docs/records/audits/STRIATUM_DEEP_ARCHITECTURE_REVIEW_CLAUDE_OPUS_4_8_2026-06-24.md`, "machine-speed accretion with no brake"); RFC 0020 (autonomous stalled-run recovery / the sweep), RFC 0122 (daemon auto-spawn scheduler), RFC 0106 (shape graduation + `falsification_gate`/`verification_gate`), RFC 0134/0141 (verifier sealed receipts), RFC 0136 (hash-chained `event_chain_segment`), RFC 0047 (verdict supersession columns), RFC 0117 (worktree/branch ref safety), RFC 0167 (operator identity & run attribution)
 author: proposer-claude-opus-4-8
@@ -13,6 +13,12 @@ author: proposer-claude-opus-4-8
 > hardened through Striatum's own design→build→verify pipeline (a `cull_gate`
 > design run is the natural first dogfood), and the authoritative spec then lives
 > in the committed design proposal, superseding this sketch where they differ.
+>
+> **P0 implementation.** D271 ratified the observe-only P0 slice, and
+> `run_992bd797fc136f1e3d782f443f9fb2ad` built and verified it on `main`
+> (`02a15e83`): runtime migration 0045 adds `cullable_entity`, and
+> `DecayTickSweep` now nominates/withdraws Tier-1 candidates without deletion,
+> paging, or run-admission effects. P1+ remain future work.
 
 ## Problem
 

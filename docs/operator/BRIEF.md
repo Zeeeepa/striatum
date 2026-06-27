@@ -12,6 +12,32 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-27 delta — RFC 0170 P0 built, verified, and integrated
+
+RFC 0170 P0 is on `main` as runtime schema **45** (`02a15e83`). The original
+Claude-backed build run `run_8ff1498595f29cee792314080e9606de` was canceled
+because Claude credits are unavailable until **2026-06-30 15:59 UTC**. The
+workflow was switched to Codex lanes, README scope was added, and the corrected
+Codex-only run `run_992bd797fc136f1e3d782f443f9fb2ad` completed with
+`accept_with_findings` and integrated through `run.integrate`.
+
+Implemented P0 surface: runtime migration `0045_cullable_entity.sql`,
+read/write authority inventory rows, the read-only `DecayTickSweep` attached to
+the recovery scheduler off the wait-gating path, README schema 45 status, and
+operator artifacts under `docs/operator/artifacts/rfc-0170-p0-build/`.
+Verification: strict verifier `builtin:go-build`/`builtin:go-vet` passed with
+agreement; `builtin:go-test` passed as ASSERTED with exit 0; `make lint` passed;
+`make typecheck` passed with live MCP endpoint env stripped; `make check-docs`
+passed; live two-role PG tests for runtime migration apply and forbidden owner
+FK passed under `STRIATUM_PG_TEST_URL=postgres://halbritt@/postgres?host=/var/run/postgresql`.
+`striatum doctor --json` is green.
+
+Issue #615 can close for the P0 design→build→verify tracer. P1 remains tracked
+by #618 (whole-tree frozen citation exactness) and #619 (non-cooperative
+filesystem-hang cull-slot fence). Do not launch Claude lanes before
+2026-06-30 15:59 UTC unless credentials/credits are explicitly restored; use
+Codex-only lane sets or wait.
+
 ## 2026-06-27 delta — RFC 0168 design accepted; v6 run wedge cleared
 
 RFC 0168 P0 (per-lane pooled OS uid as lane security principal) is accepted
