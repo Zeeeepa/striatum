@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Changed
+
+- **RFC 0168 P0 design accepted with follow-up (D272).** The per-lane pooled
+  OS uid design is accepted from the v6 HOLDER spec after the security-critical
+  concerns cleared. The build is bound to add the provider-owned credential
+  selector discriminator so legitimate non-credential lane env still launches
+  while uncovered provider credential directories resolving in-repo still
+  refuse.
+
 ### Fixed
 
 - **Fan-in barrier diagnostics no longer mistake dependency-blocked seats for
