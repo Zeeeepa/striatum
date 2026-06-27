@@ -884,17 +884,20 @@ func startRecoveryScheduler(ctx context.Context, cancel context.CancelFunc, runn
 		Runner: runner,
 		Author: "striatumd-go",
 	}.SweepOnce
-	sweepOnce := innerSweep
-	if metricsCollector != nil {
-		sweepOnce = func(sweepCtx context.Context) (map[string]any, error) {
-			result, sweepErr := innerSweep(sweepCtx)
-			if sweepCtx.Err() == nil {
+	decaySweep := recoverypkg.NewDecayTickSweep(runner)
+	sweepOnce := func(sweepCtx context.Context) (map[string]any, error) {
+		result, sweepErr := innerSweep(sweepCtx)
+		if sweepCtx.Err() == nil {
+			if metricsCollector != nil {
 				if foldErr := metricsCollector.Refresh(sweepCtx, time.Now().UTC()); foldErr != nil {
 					log.Printf("striatumd-go metrics snapshot fold failed; serving last-good snapshot: %v", foldErr)
 				}
 			}
-			return result, sweepErr
+			if _, foldErr := decaySweep.SweepOnce(sweepCtx); foldErr != nil {
+				log.Printf("striatumd-go decay tick sweep fold failed; recovery result unchanged: %v", foldErr)
+			}
 		}
+		return result, sweepErr
 	}
 	go func() {
 		// Per-run sweep panics are converted to degraded-cursor errors inside the

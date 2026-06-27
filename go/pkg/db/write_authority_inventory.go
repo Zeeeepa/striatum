@@ -83,8 +83,12 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"cross_repo_cycle_counters":      ClassRuntimeDML,
 	"cross_repo_run_repositories":    ClassRuntimeDML,
 	"cross_repo_runs":                ClassRuntimeDML,
-	"daemon_supervisors":             ClassRuntimeDML,
-	"escalation_inbox":               ClassRuntimeDML,
+	// cullable_entity (RFC 0170 P0 / D271): runtime-owned observe-only
+	// candidacy ledger. The DecayTickSweep UPSERTs nominations/withdrawals
+	// directly; later cull phases must remain additive.
+	"cullable_entity":    ClassRuntimeDML,
+	"daemon_supervisors": ClassRuntimeDML,
+	"escalation_inbox":   ClassRuntimeDML,
 	// deploy_cursor / deploy_plan / deploy_receipt (RFC 0142 P4, migration 0044):
 	// the runtime-owned deploy-coordinator substrate. Direct runtime DML — the
 	// single-role deployer INSERTs the immutable plan + per-step receipts and
