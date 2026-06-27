@@ -1,0 +1,146 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0170-p0-design-v4"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v4/SEED.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v4/context/HOLDER_v3.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0170-p0-design-v4/context/LEDGER_v3_cycle_1.md", "required": true },
+    { "path": "docs/rfcs/0170-self-culling-repository-and-cull-workflow-class.md", "required": true }
+  ],
+  "coordinator": { "lane_id": "author", "role_id": "holder" },
+  "cycles": [
+    { "allow_same_lane": true, "from": "adjudicate", "max_iterations": 1, "on_verdict": "needs_revision", "to": "falsifier_1" }
+  ],
+  "edges": [
+    { "from": "holder", "on": "completed", "to": "falsifier_1" },
+    { "from": "falsifier_1", "on": "completed", "to": "falsifier_2" },
+    { "from": "falsifier_2", "on": "completed", "to": "adjudicate" },
+    { "from": "adjudicate", "on": "completed", "to": "commit_proposal" },
+    { "from": "commit_proposal", "on": "completed", "to": "final_summary" }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "holder_handoff", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/holder/HOLDER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "holder",
+      "lane_id": "author",
+      "objective": "You are the REVISING holder for RFC 0170 P0, v4. The design has converged across three rounds; v3 (run_01b5b2d0) discharged the hardest parts and exhausted its cycle at needs_revision with TWO pinpoint residuals. Read in full first: the v3 SPEC at `docs/operator/workflows/rfc-0170-p0-design-v4/context/HOLDER_v3.md`, the v3 ledger at `docs/operator/workflows/rfc-0170-p0-design-v4/context/LEDGER_v3_cycle_1.md` (constraints C-G1-DECISION-SUCCESSOR-EXACTNESS [pathspec residual] and C-G2-HANG-DOCTOR-SEMANTICS [refresh-timing residual] and their `verification.gate` rows are authoritative), the v4 SEED, and RFC 0170. REPUBLISH the v3 SPEC as `HOLDER.md` with ONLY the two residuals closed; keep everything credited/cleared intact (the now-discharged kind=decision successor-extraction rule yielding D267->{D270} cell 3 and D081->{D087,D094,D104} cell 5; the clause-4 active-baseline citation rule preserving rfc:0097/0027/0039/0041 and D174; the entire latency machinery DefaultCullFoldTimeout=10s over DB read AND filesystem scan + watchdog child goroutine + single-in-flight skip-on-overrun + L4 compute-then-commit; §2 substrate; §5 OQ1; §6 P0/P1+ boundary). Do NOT re-derive or weaken any of it. DISCHARGE G1''' (v3 falsifier_1 stood): §3 clause 3's protected pathspec retains the bullet `any path referenced by an open GitHub issue` (HOLDER_v3 ~:373) with no subtraction of docs/rfcs/** or docs/decisions/**, contradicting the holder's own clause-3 claim (~:380-383) that those roots are not protected. That bullet is (i) a dynamic GitHub-API dependency, not a tree-local greppable cull predicate, and (ii) over-exposes: in current live issue state open #585 references docs/decisions/decision-log.md and open #615 references docs/rfcs/0170-...md, so the active decision log is protected RIGHT NOW and D267 (decision-log.md:38) / D081 (decision-log.md:220) get reachable_from_root=true and fail clause 3 before nomination, making the true-positive set non-derivable. Make clause 3 a FULLY STATIC, TREE-LOCAL pathspec: REMOVE the open-issue bullet from the cull predicate (keep any issue-linked preservation as an operator advisory OUTSIDE cullable_entity), OR explicitly subtract docs/rfcs/** and docs/decisions/**, OR replace it with a checked-in cull-specific protected-path manifest. Re-derive the G1 corpus with a fixture proving D267 and D081 are NOT protected while the frozen/provenance roots (docs/records/_frozen/**, the design-scaffold/fixture roots) STAY protected, and NO path classification depends on external (open-issue) state. DISCHARGE G2''' (v3 falsifier_2 stood): the A/B no-cull control does not yet prove `the cull fold does not make recovery/lane doctor state worse than baseline`. Carrier: doctor reads the PERSISTED scheduler_cursors.last_result_json (doctor.go:383-390), refreshed only by the next recovery sweep's upsertSchedulerCursor->recoveryCursorResultWithLatch (sweep.go:246-263,284-358); the cull fold runs synchronously inside SweepOnce, and RunScheduler calls wait(interval) only AFTER SweepOnce returns (scheduler.go:55-80), so a hung fold burning DefaultCullFoldTimeout DELAYS the next cursor refresh and opens a same-wall-clock window where doctor reads a staler (wedged) cursor under the cull variant than the control near the 5m threshold. v3's B5 (immediate fake Wait, assert Sweeps==2 and identical written cursor VALUES, static-fixture reads) tests eventual release + value-identity, not refresh timing. Close it with ONE of (prefer b): (a) a SAME-WALL-CLOCK A/B test (fake clock modeling SweepOnce duration + wait(interval); assert the cull variant is NOT doctor-red while the control is green at the SAME instant near the 5m threshold, and that it FAILS with the deadline removed); (b, PREFERRED) a DESIGN CHANGE that removes the carrier — make the cull fold unable to postpone the cursor refresh, e.g. UPSERT THE RECOVERY CURSOR AHEAD OF the cull fold, or move the fold OFF the wait-gating path — so a hung fold cannot delay the next scheduler_cursors refresh by construction, with a test proving the cursor refresh is not deferred by a hung fold; (c) an explicitly-declared, bounded refresh-delay doctor-semantics decision with its own coverage. Keep the credited deadline + watchdog + skip-on-overrun + L4 compute-then-commit unchanged. Keep every claim a falsifiable assertion + its refuting test/corpus row anchored to a named source site verified against the live tree. This is the published claim the falsifiers re-attack.",
+      "phase_id": "dialogue",
+      "role_id": "holder",
+      "task_prompt": { "path": "prompts/collaboration_holder.md" },
+      "title": "Hold revised proposal",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/holder/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_1", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/falsifier_1/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_1",
+      "lane_id": "reviewer",
+      "objective": "Read the published v4 holder SPEC (`HOLDER.md`), the v3 ledger (`context/LEDGER_v3_cycle_1.md`), and RFC 0170. Your lens is **Tier-1 EXACTNESS** — confirm the discharge of G1''' (the protected pathspec). (1) Is clause 3's protected pathspec now FULLY STATIC and TREE-LOCAL — no `open GitHub issue` bullet and NO other external-state dependency (no API, no mutable-outside-the-tree input) remaining in the cull predicate? Any residual external dependency fails the gate. (2) Run the corpus by hand over docs/decisions/decision-log.md and docs/rfcs/: are D267 (decision-log.md:38) and D081 (decision-log.md:220) now ELIGIBLE (not protected) and NOMINATED by the credited decision-successor rule, and is the preserved set (rfc:0097/0027/0039/0041, D174) untouched? (3) Does the new static pathspec still protect docs/records/_frozen/** and the design-scaffold/fixture roots (it must not now expose a frozen/provenance artifact to nomination)? (4) Did the rewrite re-break the preserved set, drop the decision-successor rule, or create a corpus row two implementers read differently? Ground every counterexample in a real path/ref; do not invent entities. If any external-state dependency remains, D267/D081 are still protected, a frozen artifact is exposed, or a new false positive appears, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 1",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/falsifier_1/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "handoff", "logical_name": "falsifier_2", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/falsifier_2/FALSIFIER.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "falsifier_2",
+      "lane_id": "reviewer",
+      "objective": "Read the published v4 holder SPEC (`HOLDER.md`), the v3 ledger (`context/LEDGER_v3_cycle_1.md`), and RFC 0170. Your lens is **READ-ONLY SAFETY (the cursor-refresh-timing carrier) + NO-REGRESSION** — confirm the discharge of G2'''. The v3 gap: doctor reads the PERSISTED scheduler_cursors.last_result_json (doctor.go:383-390), refreshed only by the next recovery sweep upsert (sweep.go:246-263,284-358); the cull fold runs synchronously inside SweepOnce and RunScheduler calls wait(interval) only AFTER SweepOnce returns (scheduler.go:55-80), so a hung fold DELAYS the next cursor refresh and opens a same-wall-clock window where doctor reads a staler cursor under cull than control near the 5m threshold. (1) Under option (b) DESIGN CHANGE: does the holder make the cursor upsert run BEFORE the cull fold (or off the wait-gating path) so a hung fold provably CANNOT defer the next scheduler_cursors refresh? Trace the proposed call order against scheduler.go:55-80 / sweep.go:246-263,284-358 — is the carrier actually removed by construction, and is there a test proving the cursor refresh is not deferred by a hung fold? (2) Under option (a) SAME-WALL-CLOCK A/B: does the fake clock actually model SweepOnce duration + wait(interval), assert the cull variant is NOT doctor-red while the control is green at the SAME instant near the 5m threshold, and FAIL with the deadline removed (not merely assert eventual release + value-identity like v3's B5)? (3) Under option (c): is the bounded refresh-delay doctor-semantics decision explicit, bounded, and covered? (4) NO-REGRESSION: confirm the rewrite did not regress the credited latency machinery (deadline over DB AND filesystem, watchdog, skip-on-overrun, L4 compute-then-commit), the clause-4 citation rule, G3 substrate (no `SELECT *`, both authority-inventory rows, runtime slot/grants), or G4 forward-compat (no smuggled P1+ action). If the carrier is not removed/bounded/proven, or the rewrite regressed a credited/cleared property, say so explicitly and stop the gate from clearing.",
+      "phase_id": "dialogue",
+      "role_id": "falsifier",
+      "task_prompt": { "path": "prompts/collaboration_falsifier.md" },
+      "title": "Falsifier 2",
+      "type": "build",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/falsifier_2/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "collaboration_ledger", "logical_name": "collaboration_ledger_${cycle}", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/adjudicator/COLLABORATION_LEDGER_${cycle}.md", "placement": "git_publication", "required": true }
+      ],
+      "fresh_session_required": true,
+      "id": "adjudicate",
+      "lane_id": "author",
+      "objective": "Read ONLY the dialogue trajectory for the RFC 0170 P0 design v4 (the v4 holder SPEC and the two FALSIFIER challenges) plus the v3 ledger (`context/LEDGER_v3_cycle_1.md`) for the two binding residuals, with RFC 0170 as context. Publish the collaboration ledger verdict (accept / accept_with_findings / needs_revision / reject — a clearing verdict is accept or accept_with_findings, never `clear`). This is a REVISION gate scoped to exactly two residuals; everything else is already credited/cleared and only checked for no-regression. A clearing verdict REQUIRES all of: (G1''' DISCHARGED) clause 3's protected pathspec is FULLY STATIC and TREE-LOCAL with no open-issue or any external-state dependency in the cull predicate, so D267 (decision-log.md:38) and D081 (decision-log.md:220) are eligible and the corpus nominates exactly {D267, D081} with zero hits on the preserved set (rfc:0097/0027/0039/0041, D174 preserved), while docs/records/_frozen/** and the scaffold/fixture roots stay protected; if falsifier_1 exhibits a residual external dependency, a still-protected D267/D081, an exposed frozen artifact, or a new false positive, G1''' is UNMET. (G2''' DISCHARGED) the cursor-refresh-timing carrier is closed — either (b) a design change so a hung cull fold provably cannot defer the next scheduler_cursors refresh (cursor upsert ahead of / off the wait-gating path, with a test that the refresh is not deferred), or (a) a same-wall-clock A/B test that asserts the cull variant is not doctor-red while the control is green at the same instant near the 5m threshold and FAILS with the deadline removed, or (c) an explicit bounded-delay doctor-semantics decision with coverage; if falsifier_2 shows the carrier remains (a hung fold can still defer the refresh) or the test only proves eventual release/value-identity, G2''' is UNMET. (NO REGRESSION) the credited latency machinery, the decision-successor rule, the clause-4 citation rule, G3 substrate (no SELECT *, both authority-inventory rows, runtime slot/grants), and G4 forward-compat (no smuggled P1+ action) are all intact. Record per residual G1'''/G2''' whether DISCHARGED, the no-regression check, and per falsifier challenge whether it STANDS or is REBUTTED. needs_revision if either residual is not discharged or a credited/cleared property regressed; reject only on a fundamental break. This is v4's single proper revision round; a needs_revision here exhausts the gate and routes to the operator for a fresh -v5 (do not ratchet). On a clearing verdict the committer publishes the consolidated SPEC and the operator ratifies D271.",
+      "phase_id": "dialogue",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/adjudicate_collaboration.md" },
+      "title": "Adjudicate revised dialogue substance",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/dialogue/adjudicator/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "commit_proposal", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/commit/proposal/PROPOSAL.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "commit_proposal",
+      "lane_id": "author",
+      "objective": "Publish the cleared, falsifiable RFC 0170 **P0** implementation SPEC — ONLY after the adjudicator ledger records a clearing verdict (accept / accept_with_findings) — consolidating the whole P0 design (across all four design rounds) as the single contract the downstream `rfc-0170-p0-build` `code_change` run implements. Fold in every accepted finding and constraint (do NOT weaken them). The SPEC must specify, each as a falsifiable assertion + its test/corpus row, anchored to named source sites: the `cullable_entity` runtime migration (`go/pkg/db/sql/0045_cullable_entity.sql`, free slot, grants, BOTH read+write authority-inventory rows, no-`SELECT *` read discipline); the `DecayTickSweep.SweepOnce` in `go/pkg/recovery` (recovery-timer piggyback + error-isolation seam + the credited latency machinery DefaultCullFoldTimeout=10s over DB and filesystem + watchdog + skip-on-overrun + L4 compute-then-commit + the G2''' cursor-refresh ordering/test that removes the refresh-timing carrier); the Tier-1-ONLY supersession predicate with the clause-4 active-baseline citation rule + the mechanical kind=decision successor-extraction rule + the FULLY STATIC tree-local protected pathspec (no external-state dependency) that make nomination zero-false-positive (rfc:0097/0027/0039/0041, D174 preserved; D267/D081 the genuinely-dead nominees); the read-only candidacy state machine (no deletion, no page, no run-admission in P0); the G1 corpus test + the error-isolation regression test + the source-true HANG regression test + the doctor-stays-green assertion; and resolved Open Question 1 with the forward-compatible ledger schema. Explicitly enumerate what P0 NAMES-BUT-DEFERS (tombstone, reaper, soak, `cull_gate`, counterforce/`accretion_ledger`, Tiers 2-4) and to which RFC phase each belongs. Reference the clearing ledger by path. This consolidated SPEC is the single source the build run implements.",
+      "phase_id": "commit",
+      "role_id": "committer",
+      "task_prompt": { "path": "prompts/collaboration_commit.md" },
+      "title": "Commit falsification-cleared proposal",
+      "type": "synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/commit/proposal/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    },
+    {
+      "expected_artifacts": [
+        { "kind": "synthesis", "logical_name": "final_summary", "path": "docs/operator/artifacts/rfc-0170-p0-design-v4/commit/final/FINAL_SUMMARY.md", "placement": "git_publication", "required": true }
+      ],
+      "id": "final_summary",
+      "lane_id": "reviewer",
+      "objective": "Summarize the cleared collaboration gate for the RFC 0170 P0 design v4: the ledger verdict, how G1''' (the fully static tree-local protected pathspec, no external-state dependency, with D267/D081 nominated and rfc:0097/0027/0039/0041 + D174 preserved) and G2''' (the closed cursor-refresh-timing carrier — cursor upsert ahead of the cull fold, or a same-wall-clock A/B test) were discharged, that the credited decision-successor rule, clause-4 citation rule, latency machinery, G3 substrate, and G4 forward-compat remained intact, which falsifier challenges were rebutted, and the consolidated SPEC + named tests/corpus the `rfc-0170-p0-build` run will implement (the `cullable_entity` ledger + read-only Tier-1 `DecayTickSweep` with the bounded, refresh-safe cull fold), with the P1+ items (tombstone, reaper, `cull_gate`, counterforce, Tiers 2-4) named as the downstream seams P0 leaves.",
+      "phase_id": "commit",
+      "role_id": "adjudicator",
+      "task_prompt": { "path": "prompts/collaboration_final_summary.md" },
+      "title": "Finalize collaboration run",
+      "type": "phase_synthesis",
+      "write_scope": { "allowed_paths": [ "docs/operator/artifacts/rfc-0170-p0-design-v4/commit/final/" ], "forbidden_paths": [ ".striatum/" ], "mode": "repo_write", "repo_write": true }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "claude", "--dangerously-skip-permissions", "--model", "claude-opus-4-8" ],
+      "display_model": "author",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": { "agent_loop": true },
+      "capabilities": [ "write", "review", "synthesis" ],
+      "command": [ "codex", "--yolo" ],
+      "display_model": "reviewer",
+      "supervision": { "transport": "pty_helper" },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0170-p0-design-v4",
+  "parallelism": { "max_active_jobs": 1, "mode": "declared", "require_disjoint_write_scopes": true },
+  "phases": [
+    { "description": "Preserved-context challenge and adjudication", "id": "dialogue", "name": "Dialogue", "synthesis_job_id": "adjudicate" },
+    { "description": "Downstream work gated by the collaboration ledger", "id": "commit", "name": "Commit", "synthesis_job_id": "final_summary" }
+  ],
+  "roles": {
+    "adjudicator": { "definition_path": "roles/adjudicator.md" },
+    "committer": { "definition_path": "roles/committer.md" },
+    "falsifier": { "definition_path": "roles/falsifier.md" },
+    "holder": { "definition_path": "roles/holder.md" }
+  },
+  "schema_version": "striatum.workflow.v1.1",
+  "workflow_id": "rfc-0170-p0-design-v4",
+  "workflow_version": "2026-06-26d"
+}
