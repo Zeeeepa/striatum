@@ -667,7 +667,7 @@ func readHeadLines(ctx context.Context, path string, limit int) ([]string, error
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := io.LimitReader(file, statusHeadByteLimit)
 	scanner := bufio.NewScanner(reader)
@@ -692,7 +692,7 @@ func readInboundLines(ctx context.Context, path string, rel string, sourceKey *c
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -721,7 +721,7 @@ func parseDecisionLog(ctx context.Context, path string) (map[cullableKey]decisio
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
