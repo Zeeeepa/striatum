@@ -21,14 +21,14 @@ import (
 // as the database owner via `striatum daemon owner-ddl apply`, never through the
 // runtime-role ApplyMigrations path (RFC 0079 §5).
 //
-// RFC 0167 P0 (D260) advanced this to 22: the operator-identity/run-attribution
-// bundle (0022_operator_identity_run_attribution.sql) is a NORMAL apply-eligible
-// bundle that sits ABOVE the staged DDL-revoke (0021). Because a normal bundle now
-// lives above the revoke frontier, the revoke predicates below target the EXACT
+// RFC 0167 P0 (D260) advanced this past the staged DDL-revoke with the normal
+// apply-eligible 0022 bundle. RFC 0168 P0 (D272) advances it again with the
+// normal 0023 lane-uid lease authority reassertion. Because normal bundles now
+// live above the revoke frontier, the revoke predicates below target the EXACT
 // revoke version (== DDLRevokeOwnerBundleVersion) rather than ">= the frontier" —
-// otherwise 0022 would be wrongly excluded from apply and the watermark MAX (22)
-// would be misread as "the revoke (21) was applied".
-const LatestOwnerBundleVersion = 22
+// otherwise normal bundles above 0021 would be wrongly excluded from apply and a
+// watermark MAX above 21 would be misread as "the revoke (21) was applied".
+const LatestOwnerBundleVersion = 23
 
 // DDLRevokeOwnerBundleVersion identifies the RFC 0142 P4 C3 DDL-revoke bundle
 // (0021, `REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw`). It is
@@ -43,8 +43,9 @@ const LatestOwnerBundleVersion = 22
 // activation binary that embeds it (§4.3). The revoke is gated by the deploy
 // cursor + CheckDeployActivation + the STRIATUM_DEPLOY_DECOUPLED flag + its
 // terminal placement, NOT the owner-bundle watermark frontier — so a normal
-// EMBEDDED owner bundle (RFC 0167 P0's 0022) may legitimately sit ABOVE this
-// staged ordinal. The frontier therefore advanced to 22 while this stays 21.
+// EMBEDDED owner bundle (RFC 0167 P0's 0022, RFC 0168 P0's 0023, or later) may
+// legitimately sit ABOVE this staged ordinal. The frontier therefore advances
+// independently while this stays 21.
 const DDLRevokeOwnerBundleVersion = 21
 
 // isNonRevokeBundle reports whether an owner bundle version is a normal,
@@ -272,6 +273,7 @@ var ownerBundleLabels = map[int]string{
 	20: "runtime read grant on owner_bundle_meta for owner-bundle watermark boot interlock (RFC 0142 Layer 2 / GH #581)",
 	21: "serving-role create-DDL revocation: REVOKE CREATE ON SCHEMA striatumd FROM striatumd_rw (RFC 0142 P4 C3, deploy-plan-terminal / D262)",
 	22: "operator identity & run attribution: operator_handles + operator_sessions + runs write-once origin stamp + DEFINER identity projections + composed-route read closure (RFC 0167 P0 / D260)",
+	23: "lane uid lease authority reassertion for RFC 0168 P0 / D272",
 }
 
 // OwnerBundle is one versioned owner-DDL bundle file.

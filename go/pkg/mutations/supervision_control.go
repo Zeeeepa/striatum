@@ -98,6 +98,9 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	if err != nil {
 		return nil, err
 	}
+	if err := enforceLaneCredentialDomain(ctx, config); err != nil {
+		return nil, err
+	}
 	if err := runSuperviseProviderAuthGate(ctx, runner, config, providerAuthGate); err != nil {
 		return nil, err
 	}
@@ -114,16 +117,6 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	eventPath := filepath.Join(scratch, "helper-events.jsonl")
 	if err := os.MkdirAll(scratch, 0o700); err != nil {
 		return nil, err
-	}
-	// #279: when the lane runs as a non-owner OS user (config.RunAsUser set —
-	// configuredLaneRunAsUser already collapses the owner case to ""), it can
-	// traverse `.striatum` but cannot create its ephemeral MCP config under
-	// `.striatum/scratch` (agentloop.writeEphemeralMCPConfig does os.CreateTemp
-	// there) without a writable-scratch ACL. Prepare that grant BEFORE launch so
-	// non-Codex lanes don't fail to start with "create ephemeral mcp config: ...
-	// permission denied". No-op for owner-run lanes.
-	if err := prepareScratchACLsForLaneUser(config.RepoRoot, config.RunAsUser); err != nil {
-		return nil, rpc.NewError("invalid_transition", "could not prepare lane scratch ACLs: "+err.Error(), nil)
 	}
 	// #445: install the RFC 0015 claude_code skill bundle into the lane user's
 	// ~/.claude/skills/ (user scope) so CLI-fallback-path agents have the
@@ -149,6 +142,14 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		}
 		if err := supersedeStaleSupervisorIfRequested(ctx, tx, repositoryID, sessionID, replace, startedAt); err != nil {
 			return nil, err
+		}
+		if _, err := allocateLaneUIDLeaseInTx(ctx, tx, repositoryID, &config, supervisorID); err != nil {
+			return nil, err
+		}
+		// Prepare scratch ACLs after any uid-pool allocation has selected the
+		// concrete lane user, and before the process is launched.
+		if err := prepareScratchACLsForLaneUser(config.RepoRoot, config.RunAsUser, supervisorID); err != nil {
+			return nil, rpc.NewError("invalid_transition", "could not prepare lane scratch ACLs: "+err.Error(), nil)
 		}
 		// RFC 0096 V2 / #135: mint a session-BOUND capability token and inject it
 		// into the lane env (below) so the lane authenticates as its own session,
@@ -279,6 +280,11 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 		if runAsUser := metadataString(launch.Metadata["run_as_user"]); runAsUser != "" {
 			payload["run_as_user"] = runAsUser
 		}
+		if uidLease := metadataString(launch.Metadata["lane_uid_lease_id"]); uidLease != "" {
+			payload["lane_uid_lease_id"] = uidLease
+			payload["lane_uid"] = launch.Metadata["lane_uid"]
+			payload["lane_uid_generation"] = launch.Metadata["lane_uid_generation"]
+		}
 		_, err := appendEvent(ctx, tx, repositoryID, config.RunID, "supervisor.started", sessionID, nil, nil, nil, nil, payload)
 		return nil, err
 	}); err != nil {
@@ -308,6 +314,11 @@ func HandleSuperviseStart(ctx context.Context, runner db.Runner, envelope rpc.En
 	}
 	if runAsUser := metadataString(launch.Metadata["run_as_user"]); runAsUser != "" {
 		result["run_as_user"] = runAsUser
+	}
+	if uidLease := metadataString(launch.Metadata["lane_uid_lease_id"]); uidLease != "" {
+		result["lane_uid_lease_id"] = uidLease
+		result["lane_uid"] = launch.Metadata["lane_uid"]
+		result["lane_uid_generation"] = launch.Metadata["lane_uid_generation"]
 	}
 	// #115: a prepared/running run uses its FROZEN workflow snapshot, so on-disk
 	// workflow.json edits are inert. Surface a warning when the lane just launched
@@ -528,30 +539,42 @@ func HandleSuperviseStop(ctx context.Context, runner db.Runner, envelope rpc.Env
 		return nil, err
 	}
 	if terminal != nil {
+		var result map[string]any
 		if terminal.State == "lost" {
-			return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+			result, err = withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 				return stopSupervisorInTx(ctx, tx, repositoryID, sessionID, reason, *terminal)
 			})
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			result = map[string]any{
+				"supervisor_id": terminal.SupervisorID,
+				"session_id":    sessionID,
+				"pid":           optionalIntValue(terminal.PID, terminal.HasPID),
+				"state":         "stopped",
+				"ended_at":      terminal.EndedAt,
+				"stop_reason":   terminal.StopReason,
+				"signal":        nil,
+				"note":          "supervisor was already " + terminal.State,
+			}
 		}
-		return map[string]any{
-			"supervisor_id": terminal.SupervisorID,
-			"session_id":    sessionID,
-			"pid":           optionalIntValue(terminal.PID, terminal.HasPID),
-			"state":         "stopped",
-			"ended_at":      terminal.EndedAt,
-			"stop_reason":   terminal.StopReason,
-			"signal":        nil,
-			"note":          "supervisor was already " + terminal.State,
-		}, nil
+		result["lane_uid_scrub"] = scrubLaneUIDLeasesForSession(ctx, runner, repositoryID, sessionID, "supervise.stop: "+reason)
+		return result, nil
 	}
 
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		supervisor, err := requireActiveControlSupervisor(ctx, tx, repositoryID, sessionID, true)
 		if err != nil {
 			return nil, err
 		}
 		return stopSupervisorInTx(ctx, tx, repositoryID, sessionID, reason, supervisor)
 	})
+	if err != nil {
+		return nil, err
+	}
+	result["lane_uid_scrub"] = scrubLaneUIDLeasesForSession(ctx, runner, repositoryID, sessionID, "supervise.stop: "+reason)
+	return result, nil
 }
 
 func stopSupervisorInTx(ctx context.Context, tx db.TxRunner, repositoryID, sessionID, reason string, supervisor supervisorControlRow) (map[string]any, error) {
@@ -852,6 +875,7 @@ func insertStartingSupervisorRows(ctx context.Context, runner db.TxRunner, repos
 	if config.RunAsUser != "" {
 		metadata["run_as_user"] = config.RunAsUser
 	}
+	addLaneUIDMetadata(metadata, config)
 	if config.Transport == supervisionTransportPTYHelper {
 		metadata["helper_events_path"] = eventPath
 		metadata["helper_events_offset"] = 0
@@ -1008,6 +1032,9 @@ func requireActiveControlSupervisor(ctx context.Context, runner any, repositoryI
 	row.Metadata = asMap(metadata)
 	if ts, ok := asTime(pointerUpdatedAt); ok {
 		row.PointerUpdatedAt = ts.UTC().Format(time.RFC3339)
+	}
+	if err := enforceLaneUIDLeaseFreshness(ctx, runner, repositoryID, row); err != nil {
+		return row, err
 	}
 	return row, nil
 }

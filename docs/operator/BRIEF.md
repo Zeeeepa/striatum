@@ -12,6 +12,31 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
+## 2026-06-28 delta — RFC 0168 P0 build v3 implemented
+
+RFC 0168 P0 build v3 is implemented in source pending review/verification.
+Runtime schema **47** adds `lane_uid_leases`; owner bundle **0023** reasserts
+its runtime authority. `supervise.start` can allocate a concrete OS user from
+`STRIATUM_LANE_UID_POOL`, writes the uid lease id/generation into supervisor
+metadata and lane env, and the active-supervisor control/attestation path fails
+closed if that generation no longer matches the active lease row.
+
+This v3 pass closes the final v2 blockers: uid return is gated on S1-S3 cleanup
+plus complete P1-P5 proof (including kill failure fail-closed, provider/home
+store absence, supervisor scratch absence, and no active lease worktrees or
+workspaces); `supervise.report` validates the live lease generation before
+heartbeat or terminal metadata writes; and relative provider credential
+selectors are resolved against the lane launch root / repo root before the
+in-repo refusal.
+
+The build also moves MCP bearer config files under private
+`.striatum/scratch/<supervisor_id>` directories, refuses provider-owned
+credential/cache selectors that resolve inside the target repository while
+allowing ordinary non-credential lane env, grants created job
+worktrees/workspaces to the selected lane user, and surfaces stuck/quarantined
+uid leases through recovery and `doctor`. Next step: review + verifier receipts,
+then update RFC 0143 Slice B's blocker state after shipping.
+
 ## 2026-06-28 delta — RFC 0171 accepted, first build slice shipped
 
 RFC 0171 is accepted as D273. It addresses the 2026-06-28 architecture-review

@@ -40,6 +40,7 @@ type worktreeCreateInputs struct {
 	// branch should fork from). It may be empty for pre-RFC 0117 runs; the
 	// ref-ensure path then falls back to HEAD (#183 compatibility).
 	BranchBase string
+	RunAsUser  string
 }
 
 type gitWorktreeResult struct {
@@ -49,6 +50,18 @@ type gitWorktreeResult struct {
 }
 
 var runGitWorktreeCommand = defaultRunGitWorktreeCommand
+
+var setJobWorkspaceACL = func(path, runAsUser string) error {
+	runAsUser = strings.TrimSpace(runAsUser)
+	if runAsUser == "" {
+		return nil
+	}
+	return exec.Command("setfacl", "-R", "-P",
+		"-m", "u:"+runAsUser+":rwx",
+		"-m", "d:u:"+runAsUser+":rwx",
+		path,
+	).Run()
+}
 
 func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {
 	repositoryID, err := requireRepositoryID(envelope)
@@ -122,6 +135,9 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 	if result.ExitCode != 0 {
 		return nil, rpc.NewError("invalid_transition", gitWorktreeErrorMessage("git worktree add failed", result), nil)
 	}
+	if err := grantJobWorkspaceToRunAsUser(target, inputs.RunAsUser); err != nil {
+		return nil, err
+	}
 
 	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		validated, err := validatedWorktreeCreateInputs(ctx, tx, repositoryID, sessionID, jobID, leaseID)
@@ -150,6 +166,7 @@ func HandleWorktreeCreate(ctx context.Context, runner db.Runner, envelope rpc.En
 			"worktree_id":   worktreeID,
 			"worktree_path": relative,
 			"base_branch":   validated.BaseBranch,
+			"run_as_user":   nullableString(validated.RunAsUser),
 		}); err != nil {
 			return nil, err
 		}
@@ -1463,6 +1480,7 @@ func validatedWorktreeCreateInputs(ctx context.Context, runner any, repositoryID
 		RunID:      fmt.Sprint(job["run_id"]),
 		BaseBranch: baseBranch,
 		BranchBase: branchBase,
+		RunAsUser:  activeSupervisorRunAsUser(ctx, runner, repositoryID, sessionID),
 	}, nil
 }
 
@@ -1572,6 +1590,36 @@ func worktreeTarget(repoRoot string, pathText string) (string, error) {
 // worktree path enforces.
 func workspaceTarget(repoRoot string, pathText string) (string, error) {
 	return confinedScratchTarget(repoRoot, pathText, workspacesSubdir, "workspace")
+}
+
+func grantJobWorkspaceToRunAsUser(path, runAsUser string) error {
+	runAsUser = strings.TrimSpace(runAsUser)
+	if runAsUser == "" {
+		return nil
+	}
+	if err := setJobWorkspaceACL(path, runAsUser); err != nil {
+		return rpc.NewError("invalid_transition", fmt.Sprintf("could not grant lane user %q access to job workspace %s: %v", runAsUser, path, err), map[string]any{
+			"path":        path,
+			"run_as_user": runAsUser,
+		})
+	}
+	return nil
+}
+
+func activeSupervisorRunAsUser(ctx context.Context, runner any, repositoryID, sessionID string) string {
+	rows, err := queryRows(ctx, runner, `
+		SELECT COALESCE(metadata_json->>'run_as_user', '') AS run_as_user
+		  FROM striatumd.process_supervisor_pointers
+		 WHERE repository_id = $1 AND session_id = $2
+		   AND state IN ('starting','attached','detached')
+		 ORDER BY updated_at DESC, supervisor_id DESC
+		 LIMIT 1`,
+		repositoryID, sessionID,
+	)
+	if err != nil || len(rows) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(rows[0]["run_as_user"]))
 }
 
 // confinedScratchTarget resolves a repository-relative scratch path to an
@@ -1731,6 +1779,10 @@ func handlePlainDirWorkspaceCreate(ctx context.Context, runner db.Runner, reposi
 		_ = os.RemoveAll(target)
 		return nil, err
 	}
+	if err := grantJobWorkspaceToRunAsUser(target, inputs.RunAsUser); err != nil {
+		_ = os.RemoveAll(target)
+		return nil, err
+	}
 
 	if _, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		validated, err := validatedWorktreeCreateInputs(ctx, tx, repositoryID, sessionID, jobID, leaseID)
@@ -1768,6 +1820,7 @@ func handlePlainDirWorkspaceCreate(ctx context.Context, runner db.Runner, reposi
 			"workspace_path": relative,
 			"base_branch":    validated.BaseBranch,
 			"base_tree_sha":  baseTreeSHA,
+			"run_as_user":    nullableString(validated.RunAsUser),
 		}); err != nil {
 			return nil, err
 		}

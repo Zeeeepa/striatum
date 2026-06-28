@@ -76,6 +76,21 @@ func TestCredResolverTracksLaunchEnvNotHomeDecoy(t *testing.T) {
 		t.Fatalf("claude path = %q; want %q (launch-env dir, not HOME decoy)", claude.Path, want)
 	}
 
+	secure, err := ResolveCredential(ProviderClaude, KindOAuth, []string{
+		"CLAUDE_SECURESTORAGE_CONFIG_DIR=/run/lane/securestorage",
+		"CLAUDE_CONFIG_DIR=/run/lane/claude-conf",
+		"HOME=/home/decoy",
+	})
+	if err != nil {
+		t.Fatalf("claude secure-storage resolve: %v", err)
+	}
+	if secure.EnvKey != EnvClaudeSecureStorageConfigDir {
+		t.Fatalf("claude secure-storage resolved via %q; want %q", secure.EnvKey, EnvClaudeSecureStorageConfigDir)
+	}
+	if want := "/run/lane/securestorage/" + ClaudeCredentialFileName; secure.Path != want {
+		t.Fatalf("secure-storage path = %q; want %q", secure.Path, want)
+	}
+
 	// codex: CODEX_HOME wins over HOME/.codex.
 	codex, err := ResolveCredential(ProviderCodex, KindOAuth, []string{
 		"CODEX_HOME=/run/lane/codex-conf",

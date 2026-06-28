@@ -47,6 +47,7 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if err != nil {
 		return nil, err
 	}
+	laneUIDRecovery := recoverLaneUIDLeases(ctx, runner, repositoryID, runID, dryRun, boolParam(envelope, "retry_quarantined_lane_uids"))
 	if !dryRun {
 		// Worktree anchoring shells out to git; compute it before lockRun so the
 		// sweep transaction only records the already-durable anchor payload.
@@ -84,15 +85,16 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}
 			if abandonedRun["status"] == "auto_canceled" {
 				return map[string]any{
-					"run_id":          runID,
-					"dry_run":         dryRun,
-					"published_count": 0,
-					"published":       []map[string]any{},
-					"skipped_count":   0,
-					"skipped":         []map[string]any{},
-					"helper_events":   helperEvents,
-					"liveness":        map[string]any{"skipped": true, "reason": abandonedRunAutoCancelReason},
-					"abandoned_run":   abandonedRun,
+					"run_id":            runID,
+					"dry_run":           dryRun,
+					"published_count":   0,
+					"published":         []map[string]any{},
+					"skipped_count":     0,
+					"skipped":           []map[string]any{},
+					"helper_events":     helperEvents,
+					"lane_uid_recovery": laneUIDRecovery,
+					"liveness":          map[string]any{"skipped": true, "reason": abandonedRunAutoCancelReason},
+					"abandoned_run":     abandonedRun,
 					"recovery_actions": map[string]any{
 						"acted_count":              0,
 						"actions":                  []map[string]any{},
@@ -346,15 +348,16 @@ func HandleRecoveryAuto(ctx context.Context, runner db.Runner, envelope rpc.Enve
 			}
 		}
 		return map[string]any{
-			"run_id":          runID,
-			"dry_run":         dryRun,
-			"published_count": len(published),
-			"published":       published,
-			"skipped_count":   len(skipped),
-			"skipped":         skipped,
-			"helper_events":   helperEvents,
-			"liveness":        liveness,
-			"abandoned_run":   abandonedRun,
+			"run_id":            runID,
+			"dry_run":           dryRun,
+			"published_count":   len(published),
+			"published":         published,
+			"skipped_count":     len(skipped),
+			"skipped":           skipped,
+			"helper_events":     helperEvents,
+			"lane_uid_recovery": laneUIDRecovery,
+			"liveness":          liveness,
+			"abandoned_run":     abandonedRun,
 			"recovery_actions": map[string]any{
 				"acted_count":              len(recoveryActions),
 				"actions":                  recoveryActions,

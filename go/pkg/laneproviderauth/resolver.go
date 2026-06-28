@@ -24,9 +24,10 @@ import (
 // Launch-env keys the resolver consults. These are the credential-home /
 // config-dir keys the lane CLI itself reads to locate its token.
 const (
-	EnvCodexHome       = "CODEX_HOME"
-	EnvClaudeConfigDir = "CLAUDE_CONFIG_DIR"
-	EnvHome            = "HOME"
+	EnvCodexHome                    = "CODEX_HOME"
+	EnvClaudeConfigDir              = "CLAUDE_CONFIG_DIR"
+	EnvClaudeSecureStorageConfigDir = "CLAUDE_SECURESTORAGE_CONFIG_DIR"
+	EnvHome                         = "HOME"
 
 	ProviderClaude = "claude"
 )
@@ -47,6 +48,65 @@ type ResolvedCredential struct {
 	EnvKey   string
 }
 
+// ResolveCredentialCandidates returns every credential/cache file path the
+// resolver models for a provider from the launch env. It is used by launch-time
+// security checks that must inspect all configured selectors, not only the one
+// ResolveCredential would sample first for freshness.
+func ResolveCredentialCandidates(provider, kind string, launchEnv []string) ([]ResolvedCredential, error) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	values := envValues(launchEnv)
+	candidates := []ResolvedCredential{}
+
+	switch provider {
+	case ProviderCodex:
+		if home := strings.TrimSpace(values[EnvCodexHome]); home != "" {
+			candidates = append(candidates, ResolvedCredential{
+				Provider: provider, Kind: kind,
+				Path:   filepath.Join(filepath.Clean(home), CodexAuthFileName),
+				EnvKey: EnvCodexHome,
+			})
+		}
+		if len(candidates) == 0 {
+			if home := strings.TrimSpace(values[EnvHome]); home != "" {
+				candidates = append(candidates, ResolvedCredential{
+					Provider: provider, Kind: kind,
+					Path: filepath.Join(filepath.Clean(home), ".codex", CodexAuthFileName),
+				})
+			}
+		}
+	case ProviderClaude:
+		if dir := strings.TrimSpace(values[EnvClaudeSecureStorageConfigDir]); dir != "" {
+			candidates = append(candidates, ResolvedCredential{
+				Provider: provider, Kind: kind,
+				Path:   filepath.Join(filepath.Clean(dir), ClaudeCredentialFileName),
+				EnvKey: EnvClaudeSecureStorageConfigDir,
+			})
+		}
+		if dir := strings.TrimSpace(values[EnvClaudeConfigDir]); dir != "" {
+			candidates = append(candidates, ResolvedCredential{
+				Provider: provider, Kind: kind,
+				Path:   filepath.Join(filepath.Clean(dir), ClaudeCredentialFileName),
+				EnvKey: EnvClaudeConfigDir,
+			})
+		}
+		if len(candidates) == 0 {
+			if home := strings.TrimSpace(values[EnvHome]); home != "" {
+				candidates = append(candidates, ResolvedCredential{
+					Provider: provider, Kind: kind,
+					Path: filepath.Join(filepath.Clean(home), ".claude", ClaudeCredentialFileName),
+				})
+			}
+		}
+	default:
+		return nil, ErrResolverMismatch
+	}
+	if len(candidates) == 0 {
+		return nil, ErrResolverMismatch
+	}
+	return candidates, nil
+}
+
 // ResolveCredential returns the credential file the lane CLI resolves from its
 // LAUNCH ENV per the provider's precedence, or ErrResolverMismatch (fail-closed)
 // when the runtime source cannot be proven. provider/kind are the closed-enum
@@ -55,45 +115,25 @@ type ResolvedCredential struct {
 // default — so a fresher HOME decoy is never preferred over the launch-env-
 // resolved credential (F2 / FA-F2).
 func ResolveCredential(provider, kind string, launchEnv []string) (ResolvedCredential, error) {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	values := envValues(launchEnv)
+	candidates, err := ResolveCredentialCandidates(provider, kind, launchEnv)
+	if err != nil {
+		return ResolvedCredential{}, err
+	}
+	return candidates[0], nil
+}
 
+// ModelsCredentialSelector reports whether the resolver has an explicit model
+// for a provider-owned credential selector key.
+func ModelsCredentialSelector(provider, key string) bool {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	key = strings.ToUpper(strings.TrimSpace(key))
 	switch provider {
-	case ProviderCodex:
-		if home := strings.TrimSpace(values[EnvCodexHome]); home != "" {
-			return ResolvedCredential{
-				Provider: provider, Kind: kind,
-				Path:   filepath.Join(filepath.Clean(home), CodexAuthFileName),
-				EnvKey: EnvCodexHome,
-			}, nil
-		}
-		if home := strings.TrimSpace(values[EnvHome]); home != "" {
-			return ResolvedCredential{
-				Provider: provider, Kind: kind,
-				Path: filepath.Join(filepath.Clean(home), ".codex", CodexAuthFileName),
-			}, nil
-		}
-		return ResolvedCredential{}, ErrResolverMismatch
 	case ProviderClaude:
-		if dir := strings.TrimSpace(values[EnvClaudeConfigDir]); dir != "" {
-			return ResolvedCredential{
-				Provider: provider, Kind: kind,
-				Path:   filepath.Join(filepath.Clean(dir), ClaudeCredentialFileName),
-				EnvKey: EnvClaudeConfigDir,
-			}, nil
-		}
-		if home := strings.TrimSpace(values[EnvHome]); home != "" {
-			return ResolvedCredential{
-				Provider: provider, Kind: kind,
-				Path: filepath.Join(filepath.Clean(home), ".claude", ClaudeCredentialFileName),
-			}, nil
-		}
-		return ResolvedCredential{}, ErrResolverMismatch
+		return key == EnvClaudeConfigDir || key == EnvClaudeSecureStorageConfigDir
+	case ProviderCodex:
+		return key == EnvCodexHome
 	default:
-		// No resolver entry for this provider — fail closed rather than guess a
-		// path (which would risk reading a decoy as green).
-		return ResolvedCredential{}, ErrResolverMismatch
+		return false
 	}
 }
 

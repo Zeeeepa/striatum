@@ -29,23 +29,31 @@ type scratchACLTarget struct {
 }
 
 // scratchACLTargets returns the ACL grants a non-owner lane user needs so a
-// supervised lane can create its ephemeral MCP config under the target repo's
-// `.striatum/scratch` (#279). The agent-loop wiring writes that file with
-// os.CreateTemp into <repoRoot>/.striatum/scratch (see
-// agentloop.writeEphemeralMCPConfig); when the lane runs as a non-owner OS user
-// it can traverse `.striatum` but cannot create the file unless `scratch` is
-// writable. We grant:
+// supervised lane can create private files under its own supervisor scratch
+// directory, while sibling lanes can only traverse the scratch roots. The Claude
+// MCP bearer is written under .striatum/scratch/<supervisor_id>, not directly
+// under .striatum/scratch, so the root no longer needs a writable/default ACL.
+// We grant:
 //   - `.striatum`        : u:<lane>:--x  (traverse only — never broaden read of
 //     private operator state; matches the working remediation)
-//   - `.striatum/scratch`: u:<lane>:rwx + a default ACL so the lane can create
-//     the ephemeral config and inherited files stay accessible
-func scratchACLTargets(repoRoot, laneUser string) []scratchACLTarget {
+//   - `.striatum/scratch`: u:<lane>:--x  (traverse only)
+//   - `.striatum/scratch/<supervisor_id>`: u:<lane>:rwx + a default ACL so lane
+//     private files are writable only in the lane's own subdir.
+func scratchACLTargets(repoRoot, laneUser, supervisorID string) []scratchACLTarget {
 	striatumDir := filepath.Join(repoRoot, ".striatum")
 	scratchDir := filepath.Join(striatumDir, "scratch")
-	return []scratchACLTarget{
+	targets := []scratchACLTarget{
 		{path: striatumDir, spec: "u:" + laneUser + ":--x"},
-		{path: scratchDir, spec: "u:" + laneUser + ":rwx", defACL: true},
+		{path: scratchDir, spec: "u:" + laneUser + ":--x"},
 	}
+	if strings.TrimSpace(supervisorID) != "" {
+		targets = append(targets, scratchACLTarget{
+			path:   filepath.Join(scratchDir, supervisorID),
+			spec:   "u:" + laneUser + ":rwx",
+			defACL: true,
+		})
+	}
+	return targets
 }
 
 // prepareScratchACLsForLaneUser grants the lane OS user the ACLs it needs to
@@ -55,7 +63,7 @@ func scratchACLTargets(repoRoot, laneUser string) []scratchACLTarget {
 // "") or on platforms without setfacl semantics. Only the daemon-managed scratch
 // directory is touched; broader private state is left alone (stay on the daemon
 // boundary). The caller is expected to have already created the scratch dir.
-func prepareScratchACLsForLaneUser(repoRoot, laneUser string) error {
+func prepareScratchACLsForLaneUser(repoRoot, laneUser, supervisorID string) error {
 	laneUser = strings.TrimSpace(laneUser)
 	if laneUser == "" || strings.TrimSpace(repoRoot) == "" {
 		return nil
@@ -65,7 +73,7 @@ func prepareScratchACLsForLaneUser(repoRoot, laneUser string) error {
 		// time; guard here too so the helper is safe to call unconditionally.
 		return nil
 	}
-	for _, target := range scratchACLTargets(repoRoot, laneUser) {
+	for _, target := range scratchACLTargets(repoRoot, laneUser, supervisorID) {
 		if err := setScratchACL(target.spec, target.path); err != nil {
 			return fmt.Errorf("grant scratch ACL %s on %s: %w", target.spec, target.path, err)
 		}

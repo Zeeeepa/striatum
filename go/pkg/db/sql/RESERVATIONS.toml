@@ -9,7 +9,7 @@
 # file, a DUPLICATE ordinal, or a GAP in the sequence. Two PRs can no longer
 # silently grab the same NNNN (the 0039 / 0041 collisions, RFC 0142 failure #4).
 #
-# Frontiers: runtime_migration = 0046, owner_bundle = 0020 (embedded). Owner
+# Frontiers: runtime_migration = 0047, owner_bundle = 0023 (embedded). Owner
 # ordinal 0021 is RESERVED but STAGED, not embedded (see the owner-bundle note
 # below) — the embedded frontier tops out at 20.
 #
@@ -205,6 +205,11 @@ ordinal = 46
 file = "0046_generated_records.sql"
 note = "RFC 0171 generated-record blob index"
 
+[[runtime_migration]]
+ordinal = 47
+file = "0047_lane_uid_leases.sql"
+note = "RFC 0168 P0 per-lane uid lease and scrub-proof ledger"
+
 # --- Owner bundles (go/pkg/db/sql/owner/NNNN_*.sql), applied out-of-band as owner ---
 [[owner_bundle]]
 ordinal = 1
@@ -297,8 +302,13 @@ file = "0020_owner_bundle_watermark_read.sql"
 
 # owner ordinal 22 — RFC 0167 P0 (D260) operator identity & run attribution — is a
 # NORMAL apply-eligible EMBEDDED owner bundle that sits ABOVE the staged revoke 21.
-# It is the highest embedded bundle, so the embedded frontier
-# (== maxEmbeddedOwnerVersion(OwnerBundles()) == LatestOwnerBundleVersion) is now 22.
 [[owner_bundle]]
 ordinal = 22
 file = "0022_operator_identity_run_attribution.sql"
+
+# owner ordinal 23 — RFC 0168 P0 (D272) lane uid lease authority reassertion — is
+# a NORMAL apply-eligible EMBEDDED owner bundle that sits ABOVE the staged revoke
+# 21. It is the highest embedded bundle, so the embedded frontier is now 23.
+[[owner_bundle]]
+ordinal = 23
+file = "0023_lane_uid_leases.sql"

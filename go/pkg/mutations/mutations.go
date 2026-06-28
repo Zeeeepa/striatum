@@ -1821,7 +1821,7 @@ func sessionLaneAttestation(ctx context.Context, runner any, repositoryID, sessi
 			"reason":        "no_attached_supervisor",
 		}
 	}
-	return lanehealth.LegacyMap(health)
+	return laneUIDAttestationOverlay(ctx, runner, repositoryID, sessionID, lanehealth.LegacyMap(health))
 }
 
 func appendEvent(

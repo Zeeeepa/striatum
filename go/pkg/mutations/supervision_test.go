@@ -236,6 +236,59 @@ func TestSuperviseReportMeaningfulProgressRefreshesActiveLease(t *testing.T) {
 	}
 }
 
+func TestSuperviseReportRejectsStaleLaneUIDGenerationBeforeHeartbeat(t *testing.T) {
+	tx := &superviseReportFakeTx{
+		supervisor: supervisorReportRow{
+			SupervisorID: "sup_1",
+			RunID:        "run_1",
+			SessionID:    "sess_1",
+			State:        "attached",
+			Metadata: map[string]any{
+				"lane_uid_lease_id":   "luid_1",
+				"lane_uid_generation": int64(7),
+			},
+		},
+		laneUIDLeaseRow: map[string]any{
+			"state":         "active",
+			"generation":    int64(8),
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+		},
+		activeLeaseID:       "lease_1",
+		activeLeaseResource: "job_1",
+	}
+	runner := &superviseReportFakeRunner{tx: tx}
+
+	_, err := HandleSuperviseReport(context.Background(), runner, rpc.Envelope{
+		SchemaVersion: rpc.SupportedEnvelopeVersion,
+		RequestID:     "req_supervise_progress_stale_uid",
+		Method:        "supervise.report",
+		Params: map[string]any{
+			"repository_id": "repo_1",
+			"supervisor_id": "sup_1",
+			"session_id":    "sess_1",
+			"event_type":    "progress",
+			"payload":       map[string]any{"bytes": 4096, "total_bytes": 4096, "meaningful": true},
+		},
+	})
+	var rpcErr *rpc.Error
+	if !errors.As(err, &rpcErr) || rpcErr.Code != "lane_uid_generation_mismatch" {
+		t.Fatalf("err = %v, want lane_uid_generation_mismatch", err)
+	}
+	if tx.sawExec("UPDATE striatumd.leases", "last_heartbeat_at") {
+		t.Fatalf("stale generation must not refresh lease heartbeat: %#v", tx.execs)
+	}
+	if tx.sawExec("UPDATE striatumd.sessions", "last_work_heartbeat_at") {
+		t.Fatalf("stale generation must not stamp session work heartbeat: %#v", tx.execs)
+	}
+	if events := tx.eventInserts(); len(events) != 0 {
+		t.Fatalf("stale generation must not append report events: %#v", events)
+	}
+	if !tx.rolledBack || tx.committed {
+		t.Fatalf("transaction commit/rollback = %v/%v", tx.committed, tx.rolledBack)
+	}
+}
+
 // TestSuperviseReportNonMeaningfulProgressLeavesLeaseAlone guards the rejection
 // side: a plain (spinner/redraw) progress event the helper did NOT flag must
 // not refresh the lease — we only keep a lane alive on real output evidence.
@@ -821,6 +874,7 @@ type superviseReportFakeTx struct {
 	// holds no active lease (pgx.ErrNoRows).
 	activeLeaseID       string
 	activeLeaseResource string
+	laneUIDLeaseRow     map[string]any
 	nextEvent           int64
 	execs               []superviseReportExec
 	committed           bool
@@ -839,6 +893,18 @@ type superviseReportExec struct {
 func (tx *superviseReportFakeTx) Exec(_ context.Context, sql string, args ...any) error {
 	tx.execs = append(tx.execs, superviseReportExec{sql: sql, args: append([]any(nil), args...)})
 	return nil
+}
+
+func (tx *superviseReportFakeTx) Query(_ context.Context, sql string, _ ...any) (pgx.Rows, error) {
+	switch {
+	case strings.Contains(sql, "FROM striatumd.lane_uid_leases"):
+		if tx.laneUIDLeaseRow == nil {
+			return runPrepareRowsFromMaps(nil), nil
+		}
+		return runPrepareRowsFromMaps([]map[string]any{tx.laneUIDLeaseRow}), nil
+	default:
+		return nil, errors.New("unexpected query: " + sql)
+	}
 }
 
 func (tx *superviseReportFakeTx) QueryRow(_ context.Context, sql string, _ ...any) db.Row {

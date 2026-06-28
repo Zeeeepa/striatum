@@ -117,6 +117,53 @@ STRIATUM_LANE_OS_USER=striatum-lane
 reports `daemon_launch_enforced=true` with
 `daemon_launch_mechanism="sudo -n -u striatum-lane"` when the posture is adopted.
 
+### 5b. Optional: lease from a per-lane uid pool (RFC 0168 P0)
+
+For the stronger RFC 0168 posture, pre-provision multiple login-less lane users
+and expose them as a comma-separated pool:
+
+```sh
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin striatum-lane-1
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin striatum-lane-2
+
+STRIATUM_LANE_UID_POOL=striatum-lane-1,striatum-lane-2
+```
+
+When `STRIATUM_LANE_UID_POOL` is set, `supervise.start` leases one available uid
+per live supervisor and records it in `striatumd.lane_uid_leases` (runtime schema
+47). The daemon injects `STRIATUM_LANE_UID_LEASE_ID`,
+`STRIATUM_LANE_UID`, and `STRIATUM_LANE_UID_GENERATION` into the lane env and
+stores the same generation in supervisor metadata. Attestation and control
+delivery fail closed if a supervisor presents a stale generation after the uid
+was scrubbed or reused. `supervise.report` applies the same generation check
+before it records heartbeat or terminal metadata from the helper path.
+
+Each pool user needs the same sudo and PostgreSQL deny posture as the single
+`STRIATUM_LANE_OS_USER` account. If the pool is exhausted because all users are
+active, scrubbing, or quarantined, `supervise.start` returns
+`lane_uid_pool_exhausted`; recover or stop lanes, or add more users.
+
+A uid returns to the pool only after scrub cleanup and proof are both clean:
+the kill-domain cleanup must not fail, provider/home stores and supervisor
+scratch must be absent, no live non-zombie uid-owned process may remain, and
+no active or abandoned worktree/workspace row may still reference the uid's
+lease. Failed proof leaves the lease `quarantined`; an explicit recovery sweep
+with `retry_quarantined_lane_uids=true` reruns the same proof and returns the
+uid only if it is clean.
+
+RFC 0168 also narrows private scratch and workspace access:
+
+- MCP bearer config files are written under
+  `.striatum/scratch/<supervisor_id>/`, not the scratch root.
+- `.striatum` and `.striatum/scratch` grant pool users traverse-only access;
+  only the selected supervisor scratch directory is writable by that lane.
+- Repo registration ACL provisioning avoids `.striatum`, `.git`, and provider
+  home directories. Use `STRIATUM_LANE_REPO_ACL_ALLOWLIST` to restrict grants to
+  explicit top-level repository entries when adopting a tighter host policy.
+- Per-job git worktrees and plain-dir workspaces are granted to the selected
+  lane user at creation time, so the pool user can edit only the workspace the
+  daemon assigned.
+
 On daemon startup, Striatum grants the lane user only the ACL entries needed to
 reach the daemon MCP/RPC socket: execute on the socket parent directory, execute
 on the daemon runtime directory, and read/write on `daemon-go.sock`. The daemon

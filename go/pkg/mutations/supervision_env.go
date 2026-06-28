@@ -38,19 +38,25 @@ func supervisedEnv(adapter, repoRoot, repositoryID, runID, sessionID, supervisor
 func supervisedLaneEnv(config supervisionStartConfig, supervisorID string) []string {
 	adapter := config.adapterName()
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)))
+		env := applyLaneLaunchEnv(config, supervisedEnv(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
+		env = mergeEnvReplacing(env, laneUIDGenerationEnv(config))
+		return normalizeSupervisedTerminalEnv(env)
 	}
 	entries := supervisedEnvEntries(adapter, config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)
 	base := supervisedRunAsPassThrough(os.Environ(), config.RunAsUser)
 	if endpoint, err := agentloop.ResolveMCPEndpoint(config.RepoRoot, os.Environ()); err == nil && strings.TrimSpace(endpoint) != "" {
 		base = mergeEnvReplacing(base, []string{"STRIATUM_MCP_URL=" + endpoint})
 	}
-	return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, mergeEnvReplacing(base, entries)))
+	env := applyLaneLaunchEnv(config, mergeEnvReplacing(base, entries))
+	env = mergeEnvReplacing(env, laneUIDGenerationEnv(config))
+	return normalizeSupervisedTerminalEnv(env)
 }
 
 func supervisedPTYHelperSpecEnv(config supervisionStartConfig, supervisorID string) []string {
 	if strings.TrimSpace(config.RunAsUser) == "" {
-		return normalizeSupervisedTerminalEnv(applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken)))
+		env := applyLaneLaunchEnv(config, supervisedEnvEntries(config.adapterName(), config.RepoRoot, config.RepositoryID, config.RunID, config.SessionID, supervisorID, config.LaneID, config.CapabilityToken))
+		env = mergeEnvReplacing(env, laneUIDGenerationEnv(config))
+		return normalizeSupervisedTerminalEnv(env)
 	}
 	return supervisedLaneEnv(config, supervisorID)
 }

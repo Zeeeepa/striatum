@@ -55,6 +55,12 @@ type supervisionStartConfig struct {
 	// for the lane process. It cannot set PATH (use path_prefix) or any
 	// STRIATUM_-namespaced control var, so it never touches the control plane.
 	LaunchEnv map[string]string
+	// LaneUID* fields are populated only when STRIATUM_LANE_UID_POOL is configured.
+	// They bind a supervised process to a daemon-owned per-uid lease generation so
+	// stale attestations/control paths fail closed after a uid is scrubbed/reused.
+	LaneUIDLeaseID    string
+	LaneUID           int
+	LaneUIDGeneration int64
 }
 
 // adapterName returns the bare CLI adapter name of the lane (e.g. "claude"),
