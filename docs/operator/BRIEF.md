@@ -12,17 +12,23 @@ status: "current"
 # Operator Brief
 author: operator-claude-opus-4-8-001
 
-## 2026-06-28 delta — RFC 0171 accepted, build pending
+## 2026-06-28 delta — RFC 0171 accepted, first build slice shipped
 
 RFC 0171 is accepted as D273. It addresses the 2026-06-28 architecture-review
 finding that generated operator records and run-shaped docs are now the main
 repo-cognition drag: bodies should move to daemon-indexed blob storage, while
 git keeps compact dockets, pointer manifests, accepted product docs, source/doc
-changes, and intentional publication indexes. The first build should ship
-dockets, a record index, `striatum://` resolution/materialization, historical
-inventory/import proofing, doctor/check-docs integrity support, workflow
-placement defaults, and a hygiene guard. Broad historical deletion remains
-blocked until byte-identical reconstruction proof exists.
+changes, and intentional publication indexes.
+
+The first build slice shipped runtime schema **46** (`generated_records`),
+the deterministic record docket domain, daemon-backed `records.docket` /
+`striatum records docket <run-id>`, blob-required publish fail-closed posture,
+workflow-generator placement defaults, `records migration inventory`, opt-in
+check-docs Striatum URI and generated-body hygiene checks, and reference-doc
+updates. `striatum://` materialize/hydrate, historical import reconstruction
+proof, and doctor record/docket integrity checks remain pending. Broad
+historical deletion remains blocked until byte-identical reconstruction proof
+exists.
 
 ## 2026-06-27 delta — v2.39.0 release
 

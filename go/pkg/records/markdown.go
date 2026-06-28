@@ -23,14 +23,6 @@ func (d Docket) RenderMarkdown() (string, error) {
 		lines = append(lines, fmt.Sprintf("- Generated: `%s`", inlineCode(normalized.GeneratedAt)))
 	}
 	lines = append(lines, fmt.Sprintf("- Merkle root: `%s`", root), "")
-	if normalized.RunID != "" {
-		lines = append(lines,
-			"```bash",
-			fmt.Sprintf("striatum records hydrate --run-id %s", shellWord(normalized.RunID)),
-			"```",
-			"",
-		)
-	}
 	lines = append(lines,
 		"| Identity | Job | Name/path | Kind/class | Placement | Retention | SHA-256 | Pointer | Size | URI |",
 		"|---|---|---|---|---|---|---|---|---:|---|",
@@ -105,14 +97,4 @@ func tableCell(value string) string {
 
 func inlineCode(value string) string {
 	return strings.ReplaceAll(value, "`", "\\`")
-}
-
-func shellWord(value string) string {
-	if value == "" {
-		return "''"
-	}
-	if strings.ContainsAny(value, " \t\n'\"\\$`!*?[]{}()<>|&;") {
-		return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
-	}
-	return value
 }

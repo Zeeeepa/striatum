@@ -81,7 +81,8 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		return runRunDrive(driveArgs, stdout, stderr, globals)
 	}
-	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "records" {
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "records" &&
+		(len(globals.CommandArgs) == 1 || routes.IsHelpArg(globals.CommandArgs[1]) || globals.CommandArgs[1] == "migration") {
 		recordsArgs := append([]string(nil), globals.CommandArgs[1:]...)
 		if globals.JSONOutput && !containsFlag(recordsArgs, "--json") {
 			recordsArgs = append(recordsArgs, "--json")

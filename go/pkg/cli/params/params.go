@@ -261,6 +261,8 @@ func positionalNames(group string) []string {
 		// blob_exhaust REVIEW.md that evidence/corpus export only surface as
 		// metadata — instead of reconstructing it from PTY trajectory noise.
 		return []string{"artifact_id"}
+	case "records_docket":
+		return []string{"run_id"}
 	case "ack", "release":
 		return []string{"session_id", "message_id", "lease_id"}
 	case "heartbeat":

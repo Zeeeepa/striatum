@@ -55,6 +55,7 @@ var methodEntries = []MethodEntry{
 	{Method: "artifact.show", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "artifact.get_content", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "artifact.list_for_run", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
+	{Method: "records.docket", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "corpus.migrate_historical_dogfood_file", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "artifact.backfill_blob", RequiredCapability: CapPtr(CapabilityWrite), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},
 	{Method: "corpus.list_historical_dogfoods", RequiredCapability: CapPtr(CapabilityRead), RepositoryScope: true, RepositoryScopeMode: ScopeSingleRepo, ParamsSchemaVersion: 1, AuditClass: "metadata", MinEnvelope: 1},

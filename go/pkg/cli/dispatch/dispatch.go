@@ -218,6 +218,19 @@ func Run(ctx context.Context, args []string, stdout io.Writer, stderr io.Writer,
 			return 0
 		}
 	}
+	if route.Method == "records.docket" && !globals.JSONOutput {
+		if body, ok := data["body"].(string); ok && body != "" {
+			_, err := fmt.Fprint(stdout, body)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, err.Error())
+				return 1
+			}
+			if !strings.HasSuffix(body, "\n") {
+				_, _ = fmt.Fprintln(stdout)
+			}
+			return 0
+		}
+	}
 	if globals.JSONOutput {
 		return writeJSON(stdout, map[string]any{"ok": true, "data": data}, stderr)
 	}

@@ -141,6 +141,7 @@ func Register(server *rpc.Server, runner db.Runner, opts ...Options) {
 	server.Register("artifact.show", makeHandler(runner, HandleArtifactShow))
 	server.Register("artifact.get_content", makeHandler(runner, HandleArtifactGetContent))
 	server.Register("artifact.list_for_run", makeHandler(runner, HandleArtifactListForRun))
+	server.Register("records.docket", makeHandler(runner, HandleRecordsDocket))
 	server.Register("git.snapshot", makeHandler(runner, HandleGitSnapshot))
 	server.Register("corpus.list_historical_dogfoods", makeHandler(runner, HandleCorpusListHistoricalDogfoods))
 	server.Register("corpus.list_historical_dogfood_files", makeHandler(runner, HandleCorpusListHistoricalDogfoodFiles))

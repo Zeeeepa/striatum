@@ -8,6 +8,11 @@
   operator/run record bodies to daemon-indexed blob storage while keeping git
   reviewable through compact dockets, pointer manifests, and materializable
   `striatum://` virtual records.
+- **RFC 0171 first build slice.** Added runtime schema 46
+  (`generated_records`), deterministic record dockets, `striatum records
+  docket`, blob-required publish refusal, generated-workflow placement
+  defaults, historical record inventory dry-run, and opt-in check-docs URI /
+  generated-body hygiene checks.
 
 ## v2.39.0 — 2026-06-27
 

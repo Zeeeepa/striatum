@@ -177,6 +177,15 @@ var usageByGroup = map[string]Usage{
 			"At least one selector is required. Without --raw, this returns metadata and packet_sha256 only.",
 		},
 	},
+	"records_docket": {
+		Params: []Param{
+			{Name: "run-id", Positional: true, Required: true, Help: "run whose artifact/generated-record docket should be rendered"},
+			{Name: "format", Values: []string{"markdown", "json"}, Help: "docket body format; defaults to markdown"},
+		},
+		Notes: []string{
+			"Read-only. Renders a compact RFC 0171 docket from daemon-indexed artifact metadata and generated_records rows; markdown output prints directly unless --json is used.",
+		},
+	},
 	"ack": {
 		Params: []Param{
 			{Name: "session-id", Positional: true, Required: true, Help: "session that claimed the packet"},

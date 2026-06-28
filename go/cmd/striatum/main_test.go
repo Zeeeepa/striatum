@@ -183,6 +183,19 @@ func TestRecordsMigrationInventoryIsLocalJSON(t *testing.T) {
 	}
 }
 
+func TestRecordsDocketHelpUsesDaemonRoute(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"records", "docket", "--help"}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	for _, want := range []string{"usage: striatum records docket", "run-id", "format", "markdown"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("help output missing %q; got:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestOperatorBootstrapHelpAndDocsStayInSync(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exitCode := run([]string{"operator", "bootstrap", "--help"}, &stdout, &stderr)

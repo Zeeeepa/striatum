@@ -91,7 +91,7 @@ func TestDocketMerkleRootStableAcrossInputOrderAndWhitespace(t *testing.T) {
 	}
 }
 
-func TestDocketRendersCompactMarkdownWithHydrationCommand(t *testing.T) {
+func TestDocketRendersCompactMarkdown(t *testing.T) {
 	body, err := sampleDocketScrambled().RenderMarkdown()
 	if err != nil {
 		t.Fatalf("RenderMarkdown: %v", err)
@@ -101,10 +101,6 @@ func TestDocketRendersCompactMarkdownWithHydrationCommand(t *testing.T) {
 - Run: ` + "`run_rfc0171`" + `
 - Generated: ` + "`2026-06-28T00:00:00Z`" + `
 - Merkle root: ` + "`24b4aa8d40aef82d93736471b0c41827e4ec384a849b87f280e9fefa5db5fc5e`" + `
-
-` + "```bash" + `
-striatum records hydrate --run-id run_rfc0171
-` + "```" + `
 
 | Identity | Job | Name/path | Kind/class | Placement | Retention | SHA-256 | Pointer | Size | URI |
 |---|---|---|---|---|---|---|---|---:|---|

@@ -45,6 +45,7 @@
     {"command": "complete", "subcommand": null, "method": "work.complete", "params": "complete"},
     {"command": "publish-artifact", "subcommand": null, "method": "artifact.publish", "params": "publish_artifact"},
     {"command": "artifact", "subcommand": "get-content", "method": "artifact.get_content", "params": "artifact_get_content"},
+    {"command": "records", "subcommand": "docket", "method": "records.docket", "params": "records_docket"},
     {"command": "verdict", "subcommand": null, "method": "review.verdict", "params": "verdict"},
     {"command": "submit-review", "subcommand": null, "method": "review.submit", "params": "submit_review"},
     {"command": "override-verdict", "subcommand": null, "method": "review.override", "params": "override_verdict"},
@@ -563,6 +564,15 @@
     },
     {
       "method": "artifact.list_for_run",
+      "required_capability": "read",
+      "repository_scope_mode": "single_repo",
+      "params_schema_version": 1,
+      "audit_class": "metadata",
+      "min_envelope": 1,
+      "deprecated": false
+    },
+    {
+      "method": "records.docket",
       "required_capability": "read",
       "repository_scope_mode": "single_repo",
       "params_schema_version": 1,

@@ -58,6 +58,7 @@
 | `artifact.show` | `read` | `single_repo` | 1 | 1 | no |
 | `artifact.get_content` | `read` | `single_repo` | 1 | 1 | no |
 | `artifact.list_for_run` | `read` | `single_repo` | 1 | 1 | no |
+| `records.docket` | `read` | `single_repo` | 1 | 1 | no |
 | `corpus.migrate_historical_dogfood_file` | `write` | `single_repo` | 1 | 1 | no |
 | `artifact.backfill_blob` | `write` | `single_repo` | 1 | 1 | no |
 | `corpus.list_historical_dogfoods` | `read` | `single_repo` | 1 | 1 | no |
@@ -206,6 +207,7 @@
 | `complete` | `work.complete` | `write` | `single_repo` |
 | `publish-artifact` | `artifact.publish` | `write` | `single_repo` |
 | `artifact get-content` | `artifact.get_content` | `read` | `single_repo` |
+| `records docket` | `records.docket` | `read` | `single_repo` |
 | `verdict` | `review.verdict` | `review` | `single_repo` |
 | `submit-review` | `review.submit` | `review` | `single_repo` |
 | `override-verdict` | `review.override` | `admin` | `single_repo` |

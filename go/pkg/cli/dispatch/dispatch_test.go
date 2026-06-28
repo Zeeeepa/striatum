@@ -37,6 +37,9 @@ func (f *fakeInvoker) Invoke(_ context.Context, method string, params map[string
 			},
 		}, nil
 	}
+	if method == "records.docket" {
+		return map[string]any{"body": "# Striatum Record Docket\n\n- Run: `run_1`\n"}, nil
+	}
 	return map[string]any{"method": method}, nil
 }
 
@@ -476,6 +479,35 @@ func TestDispatchArtifactGetContentRoutesBodyFetch(t *testing.T) {
 	}
 	if got.params["repository_id"] != "repo_1" {
 		t.Fatalf("repository_id = %#v, want repo_1", got.params["repository_id"])
+	}
+}
+
+func TestDispatchRecordsDocketRoutesAndPrintsBody(t *testing.T) {
+	invoker := &fakeInvoker{}
+	var stdout, stderr bytes.Buffer
+	exit := Run(context.Background(), []string{"records", "docket", "run_1"},
+		&stdout, &stderr, Options{
+			Invoker: invoker,
+			Env:     []string{"STRIATUM_REPOSITORY_ID=repo_1"},
+		})
+	if exit != 0 {
+		t.Fatalf("exit = %d stderr=%s", exit, stderr.String())
+	}
+	if len(invoker.calls) != 1 {
+		t.Fatalf("expected 1 RPC call, got %#v", invoker.calls)
+	}
+	got := invoker.calls[0]
+	if got.method != "records.docket" {
+		t.Fatalf("method = %q, want records.docket", got.method)
+	}
+	if got.params["run_id"] != "run_1" {
+		t.Fatalf("run_id = %#v, want run_1", got.params["run_id"])
+	}
+	if got.params["repository_id"] != "repo_1" {
+		t.Fatalf("repository_id = %#v, want repo_1", got.params["repository_id"])
+	}
+	if out := stdout.String(); !strings.Contains(out, "# Striatum Record Docket") {
+		t.Fatalf("stdout = %q, want markdown docket body", out)
 	}
 }
 

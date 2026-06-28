@@ -1,6 +1,6 @@
 # RFC 0171: Operator records blob dockets and virtual records
 
-Status: accepted (D273; build pending)
+Status: accepted (D273; partially implemented: first build slice shipped 2026-06-28)
 Date: 2026-06-28
 Context: [RFC 0072](0072-blob-backed-artifact-storage.md),
 [RFC 0123](0123-blob-routed-lane-exhaust-and-git-publication-specs.md),
@@ -100,14 +100,13 @@ Markdown. Docket entries include:
 - `striatum://artifact/<artifact_id>` or `striatum://run/<run_id>` URI.
 
 The Merkle root is computed over normalized entries sorted by stable identity.
-The rendered docket includes the hydration command:
+The first shipped renderer is a compact review surface. The hydrate/materialize
+slice will add the reconstruction command after byte-stable materialization and
+hash verification are implemented.
 
-```bash
-striatum records hydrate --run-id <run_id>
-```
-
-`striatum records docket create --run-id <run_id>` is read-only. It renders from
-daemon-indexed artifact/record rows and never deletes or moves files.
+`striatum records docket <run_id> [--format markdown|json]` is read-only. It
+renders from daemon-indexed artifact/record rows and never deletes or moves
+files.
 
 ### Virtual record resolver and materializer
 
@@ -185,7 +184,7 @@ and other source-like records.
 1. Schema and authority inventory for the generated-record index.
 2. Pure record/docket domain package with deterministic rendering and Merkle
    root tests.
-3. Read-only docket daemon method and `striatum records docket create`.
+3. Read-only docket daemon method and `striatum records docket`.
 4. `striatum://` resolver plus export/materialize/hydrate into ignored scratch.
 5. Blob-required artifact publish posture and fail-closed tests.
 6. Workflow generator defaults for explicit placement.
@@ -196,14 +195,17 @@ and other source-like records.
 11. Repo hygiene guard for newly tracked generated record bodies.
 12. Concise runbook/spec/brief updates.
 
+Implementation state as of 2026-06-28: slices 1, 2, 3, 5, 6, 7, 10, 11, and
+the brief/changelog/reference-doc updates in slice 12 are implemented. Slices 4,
+8, and 9 remain pending, so no broad historical deletion is authorized.
+
 ## Acceptance Criteria
 
 - A generated multi-lane workflow can publish ordinary lane outputs to blob and
   commit only a docket or pointer manifest for review.
-- `striatum records docket create --run-id <id>` produces deterministic output
-  with artifact ids, hashes, placement, retention class, Merkle root, and a
-  hydration command.
-- `striatum records hydrate --run-id <id>` reconstructs a run into ignored
+- `striatum records docket <id>` produces deterministic output
+  with artifact ids, hashes, placement, retention class, and Merkle root.
+- The pending hydrate/materialize command reconstructs a run into ignored
   scratch and verifies hashes.
 - Historical inventory can scan the target directories and produce a
   deterministic JSON manifest without writing.
