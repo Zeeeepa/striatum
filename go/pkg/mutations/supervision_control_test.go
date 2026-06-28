@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/halbritt/striatum/go/pkg/agentloop"
 	"github.com/halbritt/striatum/go/pkg/db"
 	"github.com/halbritt/striatum/go/pkg/laneproviderauth"
 	"github.com/halbritt/striatum/go/pkg/rpc"
@@ -1166,9 +1167,22 @@ func TestSupervisedPushCommandRefusesCodexWithoutEndpoint(t *testing.T) {
 		RepoRoot:        t.TempDir(), // no .striatum metadata → no endpoint
 		CapabilityToken: "stok_session_secret",
 	}
-	// Empty env (and an isolated HOME) so ResolveMCPEndpoint finds no live endpoint.
+	// Empty endpoint env (and an isolated HOME/runtime dir) so ResolveMCPEndpoint
+	// finds no live endpoint even when the operator shell is connected to a daemon.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	for _, key := range []string{
+		agentloop.EnvMCPURL,
+		agentloop.EnvDaemonMCPHTTPURL,
+		agentloop.EnvDaemonMCPHTTPEndpointFile,
+		agentloop.EnvDaemonRuntimeDir,
+		agentloop.EnvDaemonMCPHTTPAddr,
+		agentloop.EnvMCPAddr,
+		agentloop.EnvMCPPort,
+		agentloop.EnvDaemonMCPHTTPPort,
+	} {
+		t.Setenv(key, "")
+	}
 	got, err := supervisedPushCommand(config, []string{})
 	if err == nil {
 		t.Fatalf("expected codex push launch to refuse without an endpoint, got command %#v", got)
