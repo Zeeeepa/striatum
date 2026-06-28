@@ -109,14 +109,22 @@ func TestPublishGitPlacementsIgnoreBlobRequiredPostureWithoutBlobClient(t *testi
 			if result["placement"] != placement {
 				t.Fatalf("result placement = %v, want %s", result["placement"], placement)
 			}
-			row, err := oneRow(ctx, runner, `
-				SELECT placement, blob_key FROM striatumd.artifacts
+			placementColumnPresent := db.ArtifactPlacementColumnPresent(ctx, runner)
+			query := `
+				SELECT blob_key FROM striatumd.artifacts
 				 WHERE repository_id = $1 AND job_id = $2 AND logical_name = 'out'
-				 LIMIT 1`, ids.repoID, ids.jobID)
+				 LIMIT 1`
+			if placementColumnPresent {
+				query = `
+					SELECT placement, blob_key FROM striatumd.artifacts
+					 WHERE repository_id = $1 AND job_id = $2 AND logical_name = 'out'
+					 LIMIT 1`
+			}
+			row, err := oneRow(ctx, runner, query, ids.repoID, ids.jobID)
 			if err != nil {
 				t.Fatalf("read artifact row: %v", err)
 			}
-			if row["placement"] != placement {
+			if placementColumnPresent && row["placement"] != placement {
 				t.Fatalf("row placement = %v, want %s", row["placement"], placement)
 			}
 			if row["blob_key"] != nil {

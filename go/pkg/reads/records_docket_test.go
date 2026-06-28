@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 	"github.com/halbritt/striatum/go/pkg/pgtest"
 	"github.com/halbritt/striatum/go/pkg/rpc"
 )
@@ -62,9 +61,9 @@ func TestRecordsDocketRendersArtifactAndGeneratedRecordRows(t *testing.T) {
 	if err := runner.Exec(ctx, `
 		INSERT INTO striatumd.artifacts (
 		  repository_id, artifact_id, run_id, job_id, logical_name, artifact_kind,
-		  repo_path, content_sha256, size_bytes, publish_mode, created_at, attempt, placement
-		) VALUES ($1,$2,$3,$4,'review','finding','docs/REVIEW.md',$5,42,'create',$6,1,$7)`,
-		repoID, "art_review_171", runID, "job_"+runID, strings.Repeat("a", 64), now, artifactcontracts.PlacementGitPublication); err != nil {
+		  repo_path, content_sha256, size_bytes, publish_mode, created_at, attempt
+		) VALUES ($1,$2,$3,$4,'brief','operator_brief','docs/BRIEF.md',$5,42,'create',$6,1)`,
+		repoID, "art_brief_171", runID, "job_"+runID, strings.Repeat("a", 64), now); err != nil {
 		t.Fatalf("seed artifact: %v", err)
 	}
 	if err := runner.Exec(ctx, `
@@ -91,7 +90,7 @@ func TestRecordsDocketRendersArtifactAndGeneratedRecordRows(t *testing.T) {
 	body, _ := result["body"].(string)
 	for _, want := range []string{
 		"# Striatum Record Docket",
-		"`artifact:art_review_171`",
+		"`artifact:art_brief_171`",
 		"`record:rec_report_171`",
 	} {
 		if !strings.Contains(body, want) {
