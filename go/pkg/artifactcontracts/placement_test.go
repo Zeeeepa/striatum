@@ -34,3 +34,19 @@ func TestPlacementStorePredicates(t *testing.T) {
 		t.Fatal("git_pointer_manifest should use git anchor")
 	}
 }
+
+func TestBlobRequiredPostureDeclared(t *testing.T) {
+	for _, value := range []map[string]any{
+		{"blob_required": true},
+		{"artifact_placement_posture": BlobRequiredPosture},
+		{"blob_posture": "required"},
+		{"options": map[string]any{"artifact_blob_posture": BlobRequiredPosture}},
+	} {
+		if !BlobRequiredPostureDeclared(value) {
+			t.Fatalf("BlobRequiredPostureDeclared(%#v) = false, want true", value)
+		}
+	}
+	if BlobRequiredPostureDeclared(map[string]any{"artifact_placement_posture": "compatibility"}) {
+		t.Fatal("compatibility posture must not require blob storage")
+	}
+}

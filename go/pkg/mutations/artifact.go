@@ -311,31 +311,45 @@ func publishArtifactWithOptions(
 	// blob storage. Workflows without explicit placement still resolve through
 	// the legacy RFC 0072 kind defaults.
 	var blobKey, blobSha256, blobContentType string
-	if packageBlobClient != nil && artifactcontracts.PlacementUsesBlob(placement) {
-		bucket, err := lookupRepoBlobBucket(ctx, runner, repositoryID)
+	if artifactcontracts.PlacementUsesBlob(placement) {
+		blobRequired, err := resolveBlobRequiredPublishPosture(ctx, runner, repositoryID, run, job, kind, logicalName, pathText, attempt)
 		if err != nil {
 			return nil, err
 		}
-		if bucket != "" {
-			runID := fmt.Sprint(job["run_id"])
-			blobKey = blob.ArtifactKey(runID, jobID, logicalName)
-			blobContentType = artifactContentType(pathText)
-			uploadedSha, err := packageBlobClient.PutBytes(ctx, bucket, blobKey, payload, blobContentType)
+		if packageBlobClient == nil {
+			if blobRequired {
+				return nil, blobRequiredUnavailableError(repositoryID, placement, "blob_client_unavailable")
+			}
+		} else {
+			bucket, err := lookupRepoBlobBucket(ctx, runner, repositoryID)
 			if err != nil {
-				return nil, rpc.NewError("blob_publish_failed", err.Error(), map[string]any{
-					"bucket": bucket,
-					"key":    blobKey,
-				})
+				return nil, err
 			}
-			if uploadedSha != digest {
-				return nil, rpc.NewError("blob_publish_failed", "sha256 mismatch after upload", map[string]any{
-					"bucket":   bucket,
-					"key":      blobKey,
-					"expected": digest,
-					"got":      uploadedSha,
-				})
+			if bucket == "" {
+				if blobRequired {
+					return nil, blobRequiredUnavailableError(repositoryID, placement, "blob_bucket_unconfigured")
+				}
+			} else {
+				runID := fmt.Sprint(job["run_id"])
+				blobKey = blob.ArtifactKey(runID, jobID, logicalName)
+				blobContentType = artifactContentType(pathText)
+				uploadedSha, err := packageBlobClient.PutBytes(ctx, bucket, blobKey, payload, blobContentType)
+				if err != nil {
+					return nil, rpc.NewError("blob_publish_failed", err.Error(), map[string]any{
+						"bucket": bucket,
+						"key":    blobKey,
+					})
+				}
+				if uploadedSha != digest {
+					return nil, rpc.NewError("blob_publish_failed", "sha256 mismatch after upload", map[string]any{
+						"bucket":   bucket,
+						"key":      blobKey,
+						"expected": digest,
+						"got":      uploadedSha,
+					})
+				}
+				blobSha256 = digest
 			}
-			blobSha256 = digest
 		}
 	}
 
@@ -408,6 +422,58 @@ func resolvePublishPlacement(job map[string]any, kind, logicalName, pathText str
 		}
 	}
 	return artifactcontracts.DefaultPlacementForKind(kind)
+}
+
+func resolveBlobRequiredPublishPosture(ctx context.Context, runner any, repositoryID string, run, job map[string]any, kind, logicalName, pathText string, attempt int) (bool, error) {
+	for _, item := range resolveExpectedArtifactCycles(asList(job["expected_artifacts_json"]), attempt) {
+		expected := asMap(item)
+		if expected["logical_name"] == logicalName && expected["kind"] == kind && expected["path"] == pathText {
+			if artifactcontracts.BlobRequiredPostureDeclared(expected) {
+				return true, nil
+			}
+			break
+		}
+	}
+	if artifactcontracts.BlobRequiredPostureDeclared(job) || artifactcontracts.BlobRequiredPostureDeclared(run) {
+		return true, nil
+	}
+	repo, err := oneRow(ctx, runner, `
+		SELECT settings_json FROM striatumd.repositories
+		 WHERE repository_id = $1 AND state != 'removed' LIMIT 1`, repositoryID)
+	if err != nil {
+		if !errorsIsNoRows(err) {
+			return false, err
+		}
+	} else if artifactcontracts.BlobRequiredPostureDeclared(asMap(repo["settings_json"])) {
+		return true, nil
+	}
+	snapshotID := strings.TrimSpace(fmt.Sprint(run["workflow_snapshot_id"]))
+	if snapshotID == "" {
+		return false, nil
+	}
+	snapshot, err := rowByID(ctx, runner, repositoryID, "workflow_snapshots", "workflow_snapshot_id", snapshotID, false)
+	if err != nil {
+		return false, err
+	}
+	workflow := asMap(snapshot["workflow_json"])
+	if artifactcontracts.BlobRequiredPostureDeclared(workflow) {
+		return true, nil
+	}
+	for _, item := range asList(workflow["jobs"]) {
+		def := asMap(item)
+		if def["id"] == job["workflow_job_id"] && artifactcontracts.BlobRequiredPostureDeclared(def) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func blobRequiredUnavailableError(repositoryID, placement, reason string) error {
+	return rpc.NewError("blob_disabled", fmt.Sprintf("blob storage is required for placement %q but is unavailable", placement), map[string]any{
+		"repository_id": repositoryID,
+		"placement":     placement,
+		"reason":        reason,
+	})
 }
 
 func artifactSourcePath(repoRoot, pathText string, activeWorktree map[string]any) (string, error) {
