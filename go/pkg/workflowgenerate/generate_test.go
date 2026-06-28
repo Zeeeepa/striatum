@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/halbritt/striatum/go/pkg/artifactcontracts"
 	"github.com/halbritt/striatum/go/pkg/workflowauthoring"
 )
 
@@ -641,6 +642,81 @@ func TestAdjudicatedConstraintExtractionDefaultPosturesOverridable(t *testing.T)
 	}
 }
 
+func TestGeneratedMultiLaneDesignReviewBuildPlacementDefaults(t *testing.T) {
+	cases := []struct {
+		name string
+		spec map[string]any
+		want map[string]string
+	}{
+		{
+			name: "multi_phase",
+			spec: multiPhaseGeneratorSpec(),
+			want: map[string]string{
+				"phase_1_design__docs__review": artifactcontracts.PlacementBlobExhaust,
+				"phase_1_design__docs__apply":  artifactcontracts.PlacementBlobExhaust,
+				"phase_1_design__synthesis":    artifactcontracts.PlacementBlobExhaust,
+			},
+		},
+		{
+			name: "implementation_panel",
+			spec: implementationPanelGeneratorSpec(),
+			want: map[string]string{
+				"compile_tradeoffs": artifactcontracts.PlacementBlobExhaust,
+				"arbitrate":         artifactcontracts.PlacementBlobExhaust,
+				"review_dissent":    artifactcontracts.PlacementBlobExhaust,
+				"record_decision":   artifactcontracts.PlacementGitPublication,
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			generated := mustGenerate(t, tc.spec)
+			assertEveryExpectedArtifactHasPlacement(t, generated.Workflow)
+			jobs := jobsByID(generated.Workflow["jobs"])
+			for jobID, want := range tc.want {
+				assertArtifactPlacement(t, jobs, jobID, want)
+			}
+		})
+	}
+}
+
+func TestGeneratedCollaborationPlacementDefaults(t *testing.T) {
+	spec := collaborationGeneratorSpec("falsification_gate")
+	mapFrom(spec["options"])["include_scribe"] = true
+	generated := mustGenerate(t, spec)
+	assertEveryExpectedArtifactHasPlacement(t, generated.Workflow)
+
+	jobs := jobsByID(generated.Workflow["jobs"])
+	assertArtifactPlacement(t, jobs, "scribe_note", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "adjudicate", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "commit_proposal", artifactcontracts.PlacementGitPublication)
+	assertArtifactPlacement(t, jobs, "final_summary", artifactcontracts.PlacementBlobExhaust)
+}
+
+func TestGeneratedAdjudicatedConstraintExtractionPlacementDefaults(t *testing.T) {
+	generated := mustGenerate(t, adjudicatedConstraintExtractionGeneratorSpec())
+	assertEveryExpectedArtifactHasPlacement(t, generated.Workflow)
+
+	jobs := jobsByID(generated.Workflow["jobs"])
+	assertArtifactPlacement(t, jobs, "cross_exam_synthesis", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "adjudicate", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "spec_publication", artifactcontracts.PlacementGitPublication)
+	assertArtifactPlacement(t, jobs, "final_discharge_check", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "final_review_synthesis", artifactcontracts.PlacementBlobExhaust)
+}
+
+func TestGeneratedVerificationGatePlacementDefaults(t *testing.T) {
+	generated := generateVerification(t, nil)
+	assertEveryExpectedArtifactHasPlacement(t, generated.Workflow)
+
+	jobs := jobsByID(generated.Workflow["jobs"])
+	assertArtifactPlacement(t, jobs, "build", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "verify", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "adjudicate", artifactcontracts.PlacementBlobExhaust)
+	assertArtifactPlacement(t, jobs, "commit_verified", artifactcontracts.PlacementGitPublication)
+	assertArtifactPlacement(t, jobs, "final_summary", artifactcontracts.PlacementBlobExhaust)
+}
+
 func TestGenerateUsesSharedAuthoringLintPayload(t *testing.T) {
 	generated := mustGenerate(t, map[string]any{
 		"schema_version":   GeneratorSchemaVersion,
@@ -1097,6 +1173,39 @@ func jobsByID(value any) map[string]map[string]any {
 		jobs[fmt.Sprint(job["id"])] = job
 	}
 	return jobs
+}
+
+func assertEveryExpectedArtifactHasPlacement(t *testing.T, workflow map[string]any) {
+	t.Helper()
+	for _, jobItem := range listFrom(workflow["jobs"]) {
+		job := mapFrom(jobItem)
+		for artifactIndex, artifactItem := range listFrom(job["expected_artifacts"]) {
+			artifact := mapFrom(artifactItem)
+			placement, _ := artifact["placement"].(string)
+			if placement == "" {
+				t.Fatalf("job %q expected_artifacts[%d] missing placement: %#v", job["id"], artifactIndex, artifact)
+			}
+			if !artifactcontracts.IsAllowedPlacement(placement) {
+				t.Fatalf("job %q expected_artifacts[%d] placement %q is not allowed", job["id"], artifactIndex, placement)
+			}
+		}
+	}
+}
+
+func assertArtifactPlacement(t *testing.T, jobs map[string]map[string]any, jobID, want string) {
+	t.Helper()
+	job, ok := jobs[jobID]
+	if !ok {
+		t.Fatalf("missing job %q in %#v", jobID, jobs)
+	}
+	artifacts := listFrom(job["expected_artifacts"])
+	if len(artifacts) != 1 {
+		t.Fatalf("job %q expected_artifacts = %#v, want exactly one", jobID, job["expected_artifacts"])
+	}
+	artifact := mapFrom(artifacts[0])
+	if got := artifact["placement"]; got != want {
+		t.Fatalf("job %q artifact placement = %#v, want %q; artifact=%#v", jobID, got, want, artifact)
+	}
 }
 
 func hasEdge(value any, from, to string) bool {

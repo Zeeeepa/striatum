@@ -793,18 +793,57 @@ func job(id, jobType, title, role, lane, root, filename, artifactKind, logicalNa
 			"kind":         artifactKind,
 			"path":         root + "/" + filename,
 			"required":     true,
-			"placement":    generatedArtifactPlacement(jobType, artifactKind),
+			"placement":    generatedArtifactPlacement(id, jobType, artifactKind, logicalName, root+"/"+filename),
 		}},
 	}
 }
 
-func generatedArtifactPlacement(jobType, artifactKind string) string {
-	switch jobType {
-	case "synthesis", "phase_synthesis":
-		return artifactcontracts.PlacementGitPublication
-	default:
-		return artifactcontracts.DefaultPlacementForKind(artifactKind)
+func generatedArtifactPlacement(jobID, jobType, artifactKind, logicalName, artifactPath string) string {
+	if generatedPointerManifestArtifact(artifactKind, logicalName, artifactPath) {
+		return artifactcontracts.PlacementGitPointerManifest
 	}
+	if generatedGitPublicationArtifact(jobID, jobType, artifactKind, logicalName, artifactPath) {
+		return artifactcontracts.PlacementGitPublication
+	}
+	if generatedBlobExhaustArtifact(artifactKind) {
+		return artifactcontracts.PlacementBlobExhaust
+	}
+	return artifactcontracts.DefaultPlacementForKind(artifactKind)
+}
+
+func generatedPointerManifestArtifact(artifactKind, logicalName, artifactPath string) bool {
+	text := strings.ToLower(strings.Join([]string{artifactKind, logicalName, artifactPath}, " "))
+	return strings.Contains(text, "pointer_manifest")
+}
+
+func generatedGitPublicationArtifact(jobID, jobType, artifactKind, logicalName, artifactPath string) bool {
+	kind := strings.TrimSpace(artifactKind)
+	if kind == "decision" || kind == "commit_request" || kind == "pr_request" ||
+		kind == "operator_brief" || kind == "work_plan" || kind == "escalation" {
+		return true
+	}
+	text := strings.ToLower(strings.Join([]string{jobID, jobType, logicalName, artifactPath}, " "))
+	base := path.Base(strings.ToLower(artifactPath))
+	switch {
+	case strings.Contains(text, "spec_publication"), base == "spec.md", strings.Contains(base, "spec_publication"):
+		return true
+	case strings.Contains(text, "commit_proposal"), strings.Contains(text, "commit_verified"), strings.Contains(text, "verified_release"):
+		return true
+	case strings.Contains(text, "final_synthesis"), strings.Contains(text, "ideation_synthesis"):
+		return true
+	case strings.Contains(text, "docket"):
+		return true
+	default:
+		return false
+	}
+}
+
+func generatedBlobExhaustArtifact(artifactKind string) bool {
+	kind := strings.TrimSpace(artifactKind)
+	return artifactcontracts.DefaultPlacementForKind(kind) == artifactcontracts.PlacementBlobExhaust ||
+		artifactcontracts.IsEvictableKind(kind) ||
+		strings.HasSuffix(kind, "_ledger") ||
+		kind == "receipt"
 }
 
 func reviewJob(id, lane, artifactPath, posture string) map[string]any {
