@@ -1,0 +1,215 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-build-v3"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-build-v3/context/v1_FINAL_V2_FINDINGS.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/context/v5_HOLDER.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/context/v5_LEDGER_cycle_1.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/SEED.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0168-design-v6/decision/DECISION_override_to_build.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/decisions/decision-log.md", "required": true },
+    { "path": "docs/how-to/lane-sandbox.md", "required": true },
+    { "path": "docs/operator/rfc-roadmap.md", "required": true },
+    { "path": "docs/operator/BRIEF.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "review",
+      "max_iterations": 3,
+      "on_verdict": "needs_revision",
+      "to": "draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "on": "completed",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "on": "completed",
+      "to": "apply"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "draft",
+          "path": "docs/operator/artifacts/rfc-0168-build-v3/DRAFT.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Implement RFC 0168 P0 from origin main and close the final v2 review blockers. Use the canceled v2 branch, head 24d85e5f, only as reference material; do not blindly replay or cherry-pick rejected code without closing every blocker in docs/operator/workflows/rfc-0168-build-v3/context/v1_FINAL_V2_FINDINGS.md. Preserve accepted v2 pieces where correct: RFC 0171 schema and docket work remain intact; RFC 0168 runtime migration numbering must start after the current main frontier, expected 0047 after rechecking; owner bundle 0023 remains the expected free slot after rechecking; MCP bearer material stays under supervisor scratch; absolute provider credential directory guards remain covered; AGY_HOME and FIXTURE_CONFIG_DIR remain positive controls; and the selected run-as uid has explicit access to job worktrees and workspaces. This v3 build must close three gates. Gate 1: UID return must be proof-gated by complete S1-S3 and P1-P5 checks. The lease uid must not return when proof is incomplete. S1 kill failure must fail closed or quarantine instead of being recorded and ignored. S2 must prove provider credential-store absence after cleanup. S3 must prove tmux socket, HOME and reseal-token cleanup, per-lease ACL cleanup, and worktree cleanup before return. P4 and P5 must be real proofs, not deferred or unconditional placeholders. Recovery must expose an operator retry path from quarantined or stuck states that reruns P1-P5 and returns only after clean proof. Gate 2: generation freshness must be enforced for supervise.report. The helper report path must compare the live lane uid generation against lane_uid_leases before heartbeat or terminal metadata updates. Add stale-generation negative tests for helper reports, not only attestation overlay or active control lookup. Gate 3: relative provider credential selectors must resolve against the lane launch cwd or repo root and fail closed when they point inside the target repository. Cover CLAUDE_SECURESTORAGE_CONFIG_DIR=docs/.lane-auth/secure and ANTHROPIC_CONFIG_DIR=docs/.lane-auth/anthropic, and keep ordinary relative non-credential env allowed where appropriate. Keep the D272 discriminator: fail closed only for provider-owned credential selectors while preserving typed lane_uncovered_credential_selector_inside_repo for uncovered provider credential directory selectors resolving in-repo. Update docs that move with the implementation, including RFC 0168 status, roadmap row 2b, operator brief, README, CHANGELOG, or reference docs if source behavior changes, and the command-authority matrix if any RPC or route authority changes. Do not add a new decision unless implementation reopens the D272 security boundary. Run cd go && go build ./... && go vet ./...; run targeted tests for touched packages plus go test ./..., make check-docs, make lint, make typecheck, and smoke when feasible. Publish DRAFT.md summarizing files changed, how each final v2 blocker is closed, tests run, and any residual operator work.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Draft RFC 0168 P0 blocker closure",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build-v3/",
+          "go/",
+          "docs/how-to/",
+          "docs/reference/",
+          "docs/rfcs/0168-per-lane-security-principal.md",
+          "docs/operator/rfc-roadmap.md",
+          "docs/operator/BRIEF.md",
+          "docs/decisions/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/rfc-0168-build-v3/review/REVIEW.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the RFC 0168 P0 v3 implementation against the accepted design context, D272, and docs/operator/workflows/rfc-0168-build-v3/context/v1_FINAL_V2_FINDINGS.md. Return needs_revision for any missing gate-critical work, any source or doc mismatch, any schema or owner-bundle collision, or any security boundary that is proved only by a placeholder. This review must explicitly verify the three final v2 blockers. Gate 1: UID return is blocked until complete S1-S3 and P1-P5 proof exists; kill failure fail-closes or quarantines; provider credential-store absence is proved after cleanup; tmux socket, HOME and reseal-token cleanup, per-lease ACL cleanup, and worktree cleanup are proved; P4 and P5 are not deferred or unconditional; quarantined or stuck-state operator retry reruns P1-P5 and returns only on clean proof. Gate 2: supervise.report compares live lane uid generation against lane_uid_leases before heartbeat or terminal metadata updates, with stale-generation negative tests for helper reports. Gate 3: relative provider credential selectors resolve against lane launch cwd or repo root and fail closed if they point inside the target repository, including CLAUDE_SECURESTORAGE_CONFIG_DIR=docs/.lane-auth/secure and ANTHROPIC_CONFIG_DIR=docs/.lane-auth/anthropic; ordinary relative non-credential env remains allowed where intended. Also confirm accepted v2 pieces were preserved: RFC 0171 files remain intact, runtime migration numbering starts after the current main frontier, MCP bearer material lives under supervisor scratch, selected run-as uid worktree and workspace access is explicit, absolute provider credential guards still work, and AGY_HOME or FIXTURE_CONFIG_DIR positive controls still launch. Run cd go && go build ./... && go vet ./..., targeted tests for touched packages, go test ./..., make check-docs, make lint, and make typecheck where the worktree permits; state exact commands and results. Publish REVIEW.md with verdict accept, accept_with_findings, or needs_revision, and include concrete file and line evidence for each gate. If any of the three blockers is still open, the verdict must be needs_revision.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review RFC 0168 P0 blocker closure",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build-v3/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "summary",
+          "path": "docs/operator/artifacts/rfc-0168-build-v3/SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Apply accepted review findings and finalize the RFC 0168 P0 v3 blocker-closure build. Keep all source and docs inside write scope and preserve current-main RFC 0171 generated-records and docket work. The final source state must satisfy D272 and close the three final v2 blockers: proof-gated UID return through complete S1-S3 and P1-P5 with fail-closed cleanup and real operator retry; generation freshness enforcement for supervise.report before heartbeat or terminal metadata updates; and relative provider credential selectors resolving in-repo refused while ordinary non-credential relative env remains allowed where intended. Re-run cd go && go build ./... && go vet ./..., touched-package tests, go test ./..., make check-docs, make lint, make typecheck, and smoke when practical. Publish SUMMARY.md enumerating files changed by gate, review findings addressed, commands run with results, and any remaining operator work such as live host provisioning.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Apply reviewed RFC 0168 P0 blocker closure",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build-v3/",
+          "go/",
+          "docs/how-to/",
+          "docs/reference/",
+          "docs/rfcs/0168-per-lane-security-principal.md",
+          "docs/operator/rfc-roadmap.md",
+          "docs/operator/BRIEF.md",
+          "docs/decisions/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-build-v3",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0168-build-v3",
+  "workflow_version": "2026-06-28"
+}
