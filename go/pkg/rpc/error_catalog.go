@@ -242,6 +242,11 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Suggestion: "Heartbeat your lease (work.heartbeat); if it is stale, recover stale leases (`striatum recovery stale-leases`) and re-claim via work.await_packet.",
 	},
 	{
+		Code:       "lane_credential_cache_inside_repo",
+		Meaning:    "A provider-owned credential/cache selector resolves inside the target repository, where a repo-write lane could read or mutate it.",
+		Suggestion: "Move the provider credential/cache directory outside the target repository, then retry supervise.start.",
+	},
+	{
 		Code:       "lane_provider_auth_failed",
 		Meaning:    "The lane provider-auth preflight found missing, stale, expired, revoked, or unrefreshable provider credentials for the lane identity.",
 		Suggestion: "Refresh the provider login for the lane OS user, then retry supervise.start.",
@@ -275,6 +280,31 @@ var ErrorCatalog = []ErrorCatalogEntry{
 		Code:       "lane_provider_unavailable",
 		Meaning:    "Network, provider service, rate limit, or provider-side availability prevented the lane provider-auth preflight from reaching an auth conclusion.",
 		Suggestion: "Retry after provider or network availability recovers.",
+	},
+	{
+		Code:       "lane_uid_generation_mismatch",
+		Meaning:    "A supervised lane's uid lease generation no longer matches the active daemon lease row, so attestation/control/reporting was refused fail-closed.",
+		Suggestion: "Stop and relaunch the supervised lane so it receives a fresh uid lease generation; inspect `striatum doctor` if the old lease is quarantined.",
+	},
+	{
+		Code:       "lane_uid_generation_missing",
+		Meaning:    "A supervised lane references a uid lease without carrying the expected lease generation metadata.",
+		Suggestion: "Stop and relaunch the supervised lane with the current daemon binary; inspect supervisor metadata if this persists.",
+	},
+	{
+		Code:       "lane_uid_lease_missing",
+		Meaning:    "A supervised lane references a uid lease row that is absent from the daemon ledger.",
+		Suggestion: "Stop and relaunch the supervised lane; run `striatum doctor` to check lane_uid_leases integrity.",
+	},
+	{
+		Code:       "lane_uid_pool_exhausted",
+		Meaning:    "Every configured lane uid pool entry is active, scrubbing, or quarantined, so supervise.start cannot allocate an isolated OS uid.",
+		Suggestion: "Wait for active lanes to finish, recover/quarantine stuck uid leases, or add more users to STRIATUM_LANE_UID_POOL.",
+	},
+	{
+		Code:       "lane_uncovered_credential_selector_inside_repo",
+		Meaning:    "A provider-owned credential/cache selector not modeled by Striatum resolves inside the target repository, so the provider auth boundary cannot be proven.",
+		Suggestion: "Move that provider selector outside the repository or add an explicit resolver model before retrying supervise.start.",
 	},
 	{
 		Code:       "merge_conflict",

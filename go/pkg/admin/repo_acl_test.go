@@ -95,13 +95,12 @@ func TestProvisionCommitteeACLsAppliesLaneAndOwnerDefaults(t *testing.T) {
 	defer restore()
 
 	repo := t.TempDir()
+	mustWriteFile(t, filepath.Join(repo, "README.md"), "readme")
+	mustMkdir(t, filepath.Join(repo, "docs"))
+	mustMkdir(t, filepath.Join(repo, ".striatum", "worktrees"))
+	mustMkdir(t, filepath.Join(repo, ".git"))
 	if err := provisionCommitteeACLs(repo); err != nil {
 		t.Fatalf("provisionCommitteeACLs() error = %v", err)
-	}
-
-	worktrees := filepath.Join(repo, ".striatum", "worktrees")
-	if info, err := os.Stat(worktrees); err != nil || !info.IsDir() {
-		t.Fatalf("expected %s to be created as a directory, err=%v", worktrees, err)
 	}
 
 	wantSpecs := []string{
@@ -110,11 +109,11 @@ func TestProvisionCommitteeACLsAppliesLaneAndOwnerDefaults(t *testing.T) {
 		"d:u:halbritt:rwx",      // default ACL: lane-created entries stay owner-manageable (#539)
 	}
 	if len(*calls) != 2 {
-		t.Fatalf("expected 2 setfacl targets (repo tree + worktrees root), got %d: %#v", len(*calls), *calls)
+		t.Fatalf("expected 2 setfacl targets (safe top-level content only), got %d: %#v", len(*calls), *calls)
 	}
 	gotPaths := []string{(*calls)[0].path, (*calls)[1].path}
 	sort.Strings(gotPaths)
-	wantPaths := []string{repo, worktrees}
+	wantPaths := []string{filepath.Join(repo, "README.md"), filepath.Join(repo, "docs")}
 	sort.Strings(wantPaths)
 	if !reflect.DeepEqual(gotPaths, wantPaths) {
 		t.Fatalf("setfacl target paths = %#v, want %#v", gotPaths, wantPaths)
@@ -123,6 +122,24 @@ func TestProvisionCommitteeACLsAppliesLaneAndOwnerDefaults(t *testing.T) {
 		if !reflect.DeepEqual(call.specs, wantSpecs) {
 			t.Fatalf("setfacl specs on %s = %#v, want %#v", call.path, call.specs, wantSpecs)
 		}
+	}
+}
+
+func TestProvisionCommitteeACLsHonorsTopLevelAllowlist(t *testing.T) {
+	t.Setenv(LaneOSUserEnv, "striatum-lane")
+	t.Setenv(LaneRepoACLAllowlistEnv, "docs")
+	calls, restore := stubRepoACL(t, "halbritt", "striatum-lane")
+	defer restore()
+
+	repo := t.TempDir()
+	mustWriteFile(t, filepath.Join(repo, "README.md"), "readme")
+	mustMkdir(t, filepath.Join(repo, "docs"))
+	mustMkdir(t, filepath.Join(repo, "go"))
+	if err := provisionCommitteeACLs(repo); err != nil {
+		t.Fatalf("provisionCommitteeACLs() error = %v", err)
+	}
+	if len(*calls) != 1 || (*calls)[0].path != filepath.Join(repo, "docs") {
+		t.Fatalf("setfacl targets with allowlist = %#v, want only docs", *calls)
 	}
 }
 
@@ -183,5 +200,19 @@ func TestWithCommitteeACLResultAnnotates(t *testing.T) {
 	out2 := WithCommitteeACLResult(map[string]any{}, false, errors.New("setfacl boom"))
 	if out2["committee_acl_error"] != "setfacl boom" {
 		t.Fatalf("committee_acl_error not annotated: %#v", out2)
+	}
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+func mustWriteFile(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }

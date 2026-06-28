@@ -118,10 +118,14 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"interrogations":      ClassRuntimeDML,
 	"job_dependencies":    ClassRuntimeDML,
 	"job_recovery_state":  ClassRuntimeDML,
-	"job_workspaces":      ClassRuntimeDML,
-	"job_worktrees":       ClassRuntimeDML,
-	"jobs":                ClassRuntimeDML,
-	"leases":              ClassRuntimeDML,
+	// lane_uid_leases (RFC 0168 P0 / D272): runtime-owned OS uid lease and scrub
+	// proof ledger. The daemon INSERTs allocations and UPDATEs lifecycle state
+	// active -> scrubbing -> returned|quarantined; DELETE is not granted.
+	"lane_uid_leases": ClassRuntimeDML,
+	"job_workspaces":  ClassRuntimeDML,
+	"job_worktrees":   ClassRuntimeDML,
+	"jobs":            ClassRuntimeDML,
+	"leases":          ClassRuntimeDML,
 	// RFC 0167 P0 / owner bundle 0022: operator identity lifecycle tables.
 	// Runtime may INSERT/UPDATE lease/session state; identity reads are
 	// column-gated and routed through SECURITY DEFINER projections.

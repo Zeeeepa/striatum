@@ -288,6 +288,13 @@ func recordSuperviseReportEvent(ctx context.Context, runner db.TxRunner, reposit
 	if event.SessionID != "" && supervisor.SessionID != event.SessionID {
 		return superviseReportRecordResult{}, rpc.NewError("invalid_transition", "session_id does not match supervisor_id", nil)
 	}
+	if err := enforceLaneUIDLeaseFreshness(ctx, runner, repositoryID, supervisorControlRow{
+		SupervisorID: supervisor.SupervisorID,
+		SessionID:    supervisor.SessionID,
+		Metadata:     supervisor.Metadata,
+	}); err != nil {
+		return superviseReportRecordResult{}, err
+	}
 	if !supervisorActiveStates[supervisor.State] {
 		return superviseReportRecordResult{}, rpc.NewError("invalid_transition", fmt.Sprintf("supervise report requires an active supervisor (state=%s)", supervisor.State), nil)
 	}

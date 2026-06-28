@@ -331,6 +331,10 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 	warnings = append(warnings, attributionWarnings...)
 	warningRecords = append(warningRecords, attributionWarningRecords...)
 
+	laneUIDBlock, laneUIDProblems, laneUIDRecords := doctorLaneUIDLeases(ctx, runner, repositoryID, time.Now().UTC())
+	problems = append(problems, laneUIDProblems...)
+	problemRecords = append(problemRecords, laneUIDRecords...)
+
 	result := map[string]any{
 		"ok":                           len(problems) == 0,
 		"schema_version":               schemaVersion,
@@ -357,6 +361,7 @@ func HandleDoctor(ctx context.Context, runner db.Runner, envelope rpc.Envelope) 
 		"job_stuck_no_live_session":    stuckJobBlock,
 		"event_chain_segment_seams":    eventSegmentBlock,
 		"attribution_unknown":          attributionBlock,
+		"lane_uid_leases":              laneUIDBlock,
 		"owner_bundle_watermark":       ownerBundleWatermarkBlock,
 		"schema_drift":                 schemaDriftBlock,
 		"schema_deploy":                deployUnrecordedBlock,

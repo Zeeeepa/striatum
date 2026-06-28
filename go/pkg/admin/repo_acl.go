@@ -18,12 +18,17 @@ import (
 // daemon's OS user and need no cross-user ACL provisioning.
 const LaneOSUserEnv = "STRIATUM_LANE_OS_USER"
 
-// setRepoACL applies (`setfacl -R -m`) ACL entries recursively to a path. It is
+// LaneRepoACLAllowlistEnv optionally narrows the top-level repository entries
+// that repo.add/repo.init will ACL for lane users. When unset, every non-private
+// top-level entry except daemon/operator state is eligible.
+const LaneRepoACLAllowlistEnv = "STRIATUM_LANE_REPO_ACL_ALLOWLIST"
+
+// setRepoACL applies (`setfacl -R -P -m`) ACL entries recursively to a path. It is
 // a package variable so tests can observe the planned ACL operations without
 // requiring root or the setfacl binary (mirrors setDaemonSocketACL in
 // cmd/striatumd and setScratchACL in pkg/mutations).
 var setRepoACL = func(path string, specs ...string) error {
-	args := []string{"-R"}
+	args := []string{"-R", "-P"}
 	for _, spec := range specs {
 		args = append(args, "-m", spec)
 	}
@@ -66,11 +71,12 @@ func configuredRepoLaneUser() string {
 }
 
 // provisionCommitteeACLs grants the lane OS user the POSIX ACLs a
-// `review_only_artifact` lane needs to publish into the repo tree, and grants
-// the daemon/operator an inheritable default ACL so lane-written committee
-// provenance stays manageable without sudo. It mirrors the convention already
-// applied to repos set up before the ACL convention existed (#537 verified fix:
-// `setfacl -R -m u:<lane>:rwx -m d:u:<lane>:rwx -m d:u:<owner>:rwx <repo>`):
+// `review_only_artifact` lane needs to publish into selected repository content,
+// and grants the daemon/operator an inheritable default ACL so lane-written
+// committee provenance stays manageable without sudo. RFC 0168 narrows the old
+// broad-root grant: daemon/operator state such as `.striatum`, `.git`, provider
+// homes, and unspecified allowlist entries stay forbidden by default, while
+// per-job workspaces are granted at create time.
 //
 //   - `u:<lane>:rwx`   — access ACL: the lane can read/write/traverse existing
 //     tree entries (so a no-repo-write review lane can create its staging path).
@@ -90,10 +96,8 @@ func configuredRepoLaneUser() string {
 //   - the platform has no setfacl semantics (windows),
 //   - the configured lane user does not exist (don't apply a bogus principal).
 //
-// This only EXTENDS an already-accepted provisioning convention to a path that
-// lacked it (clone/worktree-registered repos). It does not widen who can read
-// any daemon capability token or private operator state; it touches the target
-// repository tree and its `.striatum/worktrees` directory only.
+// This does not widen who can read any daemon capability token or private
+// operator state; it deliberately avoids `.striatum` and `.git`.
 func provisionCommitteeACLs(repoRoot string) error {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" {
@@ -123,20 +127,60 @@ func provisionCommitteeACLs(repoRoot string) error {
 		specs = append(specs, "d:u:"+owner+":rwx")
 	}
 
-	// The repo tree itself (covers review-only lane staging paths anywhere under
-	// the target repository), plus the per-job worktree root the daemon stages
-	// isolated lanes into. Provision the worktrees root explicitly so the default
-	// ACL is present even before the first worktree is created.
-	worktreesRoot := filepath.Join(repoRoot, ".striatum", "worktrees")
-	if err := os.MkdirAll(worktreesRoot, 0o755); err != nil {
-		return fmt.Errorf("create %s for committee ACL provisioning: %w", worktreesRoot, err)
+	targets, err := repoACLTargets(repoRoot)
+	if err != nil {
+		return err
 	}
-	for _, target := range []string{repoRoot, worktreesRoot} {
+	for _, target := range targets {
 		if err := setRepoACL(target, specs...); err != nil {
 			return fmt.Errorf("provision committee ACL on %s: %w", target, err)
 		}
 	}
 	return nil
+}
+
+func repoACLTargets(repoRoot string) ([]string, error) {
+	entries, err := os.ReadDir(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	allow := repoACLAllowlist()
+	targets := []string{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if repoACLPrivateTopLevel(name) {
+			continue
+		}
+		if len(allow) > 0 && !allow[name] {
+			continue
+		}
+		targets = append(targets, filepath.Join(repoRoot, name))
+	}
+	return targets, nil
+}
+
+func repoACLAllowlist() map[string]bool {
+	raw := strings.TrimSpace(os.Getenv(LaneRepoACLAllowlistEnv))
+	if raw == "" {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" && !strings.Contains(part, string(os.PathSeparator)) {
+			out[part] = true
+		}
+	}
+	return out
+}
+
+func repoACLPrivateTopLevel(name string) bool {
+	switch name {
+	case ".striatum", ".git", ".gemini", ".claude", ".codex":
+		return true
+	default:
+		return false
+	}
 }
 
 // ProvisionCommitteeACLsResult runs provisionCommitteeACLs and reports whether

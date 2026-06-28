@@ -106,7 +106,8 @@ func TestAgyGeminiSettingsExcludePreservesOperatorExcludes(t *testing.T) {
 
 func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_claude")
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch", "sup_claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cmd, cleanup, err := injectLaneMCPConfig(
@@ -123,8 +124,8 @@ func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 		t.Fatalf("unexpected command: %#v", cmd)
 	}
 	cfgPath := cmd[len(cmd)-2]
-	if !strings.HasPrefix(cfgPath, filepath.Join(repo, ".striatum", "scratch")) {
-		t.Fatalf("config not under .striatum/scratch: %q", cfgPath)
+	if !strings.HasPrefix(cfgPath, filepath.Join(repo, ".striatum", "scratch", "sup_claude")) {
+		t.Fatalf("config not under supervisor scratch: %q", cfgPath)
 	}
 	info, err := os.Stat(cfgPath)
 	if err != nil {
@@ -162,7 +163,8 @@ func TestInjectLaneMCPConfigClaudeWritesEphemeralStrictConfig(t *testing.T) {
 // without persisting the rotating endpoint anywhere but the ephemeral scratch.
 func TestRewriteEphemeralMCPConfigSwapsEndpointAndToken(t *testing.T) {
 	repo := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch"), 0o755); err != nil {
+	t.Setenv("STRIATUM_SUPERVISOR_ID", "sup_rewrite")
+	if err := os.MkdirAll(filepath.Join(repo, ".striatum", "scratch", "sup_rewrite"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	path, cleanup, err := writeEphemeralMCPConfig(repo, "http://127.0.0.1:37637/mcp/sse", "dtok_launch")
@@ -446,6 +448,7 @@ func TestCleanupAgyUserSettingsRemovesCreatedSettings(t *testing.T) {
 }
 
 func TestInjectLaneMCPConfigCodexAppendsTomlUrlOverride(t *testing.T) {
+	t.Setenv(EnvMCPBootEpoch, "")
 	repo := t.TempDir()
 	cmd, cleanup, err := injectLaneMCPConfig(
 		[]string{"/home/x/.local/bin/codex"},
@@ -483,6 +486,7 @@ func TestInjectLaneMCPConfigCodexAppendsBearerEnvOverride(t *testing.T) {
 }
 
 func TestInjectCodexMCPConfigArgsPrecedesExecSubcommand(t *testing.T) {
+	t.Setenv(EnvMCPBootEpoch, "")
 	repo := t.TempDir()
 	cmd := InjectCodexMCPConfigArgs(
 		[]string{"codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "-"},

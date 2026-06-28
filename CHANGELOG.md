@@ -13,6 +13,16 @@
   docket`, blob-required publish refusal, generated-workflow placement
   defaults, historical record inventory dry-run, and opt-in check-docs URI /
   generated-body hygiene checks.
+- **RFC 0168 P0 build v3.** Added runtime schema 47 (`lane_uid_leases`) and
+  owner bundle 0023 for pooled per-lane OS uid leases, generation-bound
+  supervisor attestation/control, private supervisor scratch bearer files,
+  provider-owned credential selector refusal for in-repo paths, per-job
+  worktree/workspace ACL grants to the selected lane user, and doctor/recovery
+  visibility for stuck or quarantined uid leases. The v3 build closes the final
+  v2 blockers by proof-gating uid return on S1-S3/P1-P5 cleanup, enforcing
+  `supervise.report` lease-generation freshness before heartbeat/state writes,
+  and resolving relative provider credential selectors against the lane launch
+  root.
 
 ## v2.39.0 — 2026-06-27
 

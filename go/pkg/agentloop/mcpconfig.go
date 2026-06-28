@@ -552,9 +552,14 @@ func writeEphemeralMCPConfig(repoRoot, endpoint, bearer string) (string, func(),
 	if err != nil {
 		return "", func() {}, err
 	}
-	dir := filepath.Join(repoRoot, ".striatum", "scratch")
-	if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
-		dir = os.TempDir()
+	dir := os.TempDir()
+	if supervisorID := strings.TrimSpace(os.Getenv("STRIATUM_SUPERVISOR_ID")); supervisorID != "" && strings.TrimSpace(repoRoot) != "" {
+		candidate := filepath.Join(repoRoot, ".striatum", "scratch", supervisorID)
+		if err := os.MkdirAll(candidate, 0o700); err == nil {
+			if info, statErr := os.Stat(candidate); statErr == nil && info.IsDir() {
+				dir = candidate
+			}
+		}
 	}
 	f, err := os.CreateTemp(dir, "lane-mcp-config-*.json")
 	if err != nil {

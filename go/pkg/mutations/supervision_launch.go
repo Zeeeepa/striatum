@@ -107,6 +107,7 @@ func launchPipeProcess(ctx context.Context, config supervisionStartConfig, super
 	if config.RunAsUser != "" {
 		metadata["run_as_user"] = config.RunAsUser
 	}
+	addLaneUIDMetadata(metadata, config)
 	if envFilePath != "" {
 		metadata["launch_env_file_path"] = envFilePath
 	}
@@ -286,6 +287,7 @@ func launchPTYHelper(ctx context.Context, config supervisionStartConfig, supervi
 	if config.RunAsUser != "" {
 		metadata["run_as_user"] = config.RunAsUser
 	}
+	addLaneUIDMetadata(metadata, config)
 	if tmux := tmuxMetadataFromHelperEvents(events); tmux != nil {
 		metadata["tmux"] = tmux
 		if agentStart == "" {

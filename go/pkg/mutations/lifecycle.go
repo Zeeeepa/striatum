@@ -497,7 +497,7 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 	if reason == "" {
 		return nil, rpc.NewError("invalid_transition", "session close reason must not be empty", nil)
 	}
-	return withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
+	result, err := withTx(ctx, runner, func(tx db.TxRunner) (map[string]any, error) {
 		session, err := rowByID(ctx, tx, repositoryID, "sessions", "session_id", sessionID, true)
 		if err != nil {
 			return nil, err
@@ -624,6 +624,15 @@ func HandleCloseSession(ctx context.Context, runner db.Runner, envelope rpc.Enve
 
 		return result, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	if result != nil {
+		if state := strings.TrimSpace(fmt.Sprint(result["state"])); state == "closed" || state == "stopped" || state == "lost" || state == "expired" {
+			result["lane_uid_scrub"] = scrubLaneUIDLeasesForSession(ctx, runner, repositoryID, sessionID, reason)
+		}
+	}
+	return result, nil
 }
 
 func HandleSessionReport(ctx context.Context, runner db.Runner, envelope rpc.Envelope) (map[string]any, error) {

@@ -87,8 +87,12 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"job_recovery_state": ReadClassRuntimeSensitive,
 	"job_workspaces":     ReadClassRuntimeSensitive,
 	"job_worktrees":      ReadClassRuntimeSensitive,
-	"jobs":               ReadClassRuntimeSensitive,
-	"leases":             ReadClassRuntimeSensitive,
+	// lane_uid_leases (RFC 0168 / D272): host uid lifecycle and scrub proof
+	// state. It is selected by the runtime daemon for launch, attestation,
+	// recovery, and doctor surfaces.
+	"lane_uid_leases": ReadClassRuntimeSensitive,
+	"jobs":            ReadClassRuntimeSensitive,
+	"leases":          ReadClassRuntimeSensitive,
 	// RFC 0167 P0 / owner bundle 0022: operator identity surfaces. Both keep a
 	// COLUMN gate (the principal_clients precedent) — principal_id (and client_id
 	// on operator_sessions) is denied so a leaked runtime credential cannot
