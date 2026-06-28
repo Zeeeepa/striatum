@@ -131,6 +131,58 @@ func TestRunDriveRejectsBadProviderAuthGate(t *testing.T) {
 	}
 }
 
+func TestRecordsMigrationInventoryIsLocalJSON(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeRepoFile(t, repoRoot, "dogfoods/rfc-0097-self-hosting/OPERATOR_REPORT.md", "report")
+	writeRepoFile(t, repoRoot, "docs/records/audits/STRIATUM_AUDIT.md", "audit")
+
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{
+		"--repo", repoRoot,
+		"records", "migration", "inventory",
+		"--root", "dogfoods",
+		"--root", "docs/records/audits",
+	}, &stdout, &stderr)
+	if exitCode != 0 {
+		t.Fatalf("exit = %d, stderr = %s", exitCode, stderr.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+
+	var payload struct {
+		SchemaVersion string `json:"schema_version"`
+		Entries       []struct {
+			Path               string `json:"path"`
+			RecordClass        string `json:"record_class"`
+			ProposedImportMode string `json:"proposed_import_mode"`
+			Classification     string `json:"classification"`
+			SourceCommit       string `json:"source_commit"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("inventory JSON invalid: %v\n%s", err, stdout.String())
+	}
+	if payload.SchemaVersion != "striatum.records_migration_inventory.v1" {
+		t.Fatalf("schema_version = %q", payload.SchemaVersion)
+	}
+	if len(payload.Entries) != 2 {
+		t.Fatalf("entries = %#v", payload.Entries)
+	}
+	if payload.Entries[0].Path != "docs/records/audits/STRIATUM_AUDIT.md" || payload.Entries[1].Path != "dogfoods/rfc-0097-self-hosting/OPERATOR_REPORT.md" {
+		t.Fatalf("entries not sorted by path: %#v", payload.Entries)
+	}
+	if payload.Entries[0].RecordClass != "audit_record" || payload.Entries[0].Classification != "safe_to_blob_index" || payload.Entries[0].ProposedImportMode != "safe_to_blob_index" {
+		t.Fatalf("audit classification = %#v", payload.Entries[0])
+	}
+	if payload.Entries[1].RecordClass != "operator_report" || payload.Entries[1].Classification != "safe_to_blob_index" {
+		t.Fatalf("operator report classification = %#v", payload.Entries[1])
+	}
+	if payload.Entries[0].SourceCommit != "" || payload.Entries[1].SourceCommit != "" {
+		t.Fatalf("source commits should be empty outside git history: %#v", payload.Entries)
+	}
+}
+
 func TestOperatorBootstrapHelpAndDocsStayInSync(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	exitCode := run([]string{"operator", "bootstrap", "--help"}, &stdout, &stderr)
@@ -885,6 +937,17 @@ func writeWorkflow(t *testing.T, dir string, body string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeRepoFile(t *testing.T, repoRoot, relPath, body string) {
+	t.Helper()
+	target := filepath.Join(repoRoot, filepath.FromSlash(relPath))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeBootstrapRepo(t *testing.T, version string, currentBrief bool) string {

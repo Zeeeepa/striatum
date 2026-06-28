@@ -22,6 +22,16 @@ func TestOperatorBootstrapIsExplicitLocalCommand(t *testing.T) {
 	}
 }
 
+func TestRecordsMigrationIsExplicitLocalCommand(t *testing.T) {
+	command, ok := Lookup([]string{"records", "migration", "inventory"})
+	if !ok {
+		t.Fatal("records migration not local")
+	}
+	if command.Rationale == "" {
+		t.Fatalf("missing rationale: %#v", command)
+	}
+}
+
 func TestDaemonBackedWorkflowRoutesAreNotLocal(t *testing.T) {
 	if command, ok := Lookup([]string{"workflow", "accepted-risks"}); ok {
 		t.Fatalf("unexpected local route: %#v", command)

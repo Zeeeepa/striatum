@@ -81,6 +81,13 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 		}
 		return runRunDrive(driveArgs, stdout, stderr, globals)
 	}
+	if len(globals.CommandArgs) > 0 && globals.CommandArgs[0] == "records" {
+		recordsArgs := append([]string(nil), globals.CommandArgs[1:]...)
+		if globals.JSONOutput && !containsFlag(recordsArgs, "--json") {
+			recordsArgs = append(recordsArgs, "--json")
+		}
+		return runRecords(recordsArgs, stdout, stderr, globals.RepoPath)
+	}
 	// `run start` runs the start verbatim through the daemon route, then auto-drives
 	// the started run in a detached driver so the run reconciles to terminal with no
 	// operator (or operator-model) in the loop (#212). Opt out with `--no-drive` or
@@ -168,11 +175,12 @@ func usage(out io.Writer) {
 		}
 	}
 	// Local commands handled before the daemon route (main.go run()).
-	for _, local := range []string{"scope-check", "codex", "verifier", "daemon", "skills", "plugin"} {
+	for _, local := range []string{"scope-check", "codex", "verifier", "daemon", "skills", "plugin", "records"} {
 		if subs[local] == nil {
 			subs[local] = map[string]bool{}
 		}
 	}
+	subs["records"]["migration"] = true
 	if subs["operator"] == nil {
 		subs["operator"] = map[string]bool{}
 	}
