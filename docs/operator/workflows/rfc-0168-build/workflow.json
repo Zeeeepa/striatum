@@ -1,0 +1,214 @@
+{
+  "branch": {
+    "allow_dirty": false,
+    "mode": "auto",
+    "suggested_name": "striatum/rfc-0168-build"
+  },
+  "context_docs": [
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/context/v5_HOLDER.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/context/v5_LEDGER_cycle_1.md", "required": true },
+    { "path": "docs/operator/workflows/rfc-0168-design-v6/SEED.md", "required": true },
+    { "path": "docs/operator/artifacts/rfc-0168-design-v6/decision/DECISION_override_to_build.md", "required": true },
+    { "path": "docs/rfcs/0168-per-lane-security-principal.md", "required": true },
+    { "path": "docs/decisions/decision-log.md", "required": true },
+    { "path": "docs/how-to/lane-sandbox.md", "required": true },
+    { "path": "docs/operator/rfc-roadmap.md", "required": true },
+    { "path": "docs/operator/BRIEF.md", "required": true }
+  ],
+  "coordinator": {
+    "lane_id": "author",
+    "role_id": "author"
+  },
+  "cycles": [
+    {
+      "from": "review",
+      "max_iterations": 1,
+      "on_verdict": "needs_revision",
+      "to": "draft"
+    }
+  ],
+  "edges": [
+    {
+      "from": "draft",
+      "on": "completed",
+      "to": "review"
+    },
+    {
+      "from": "review",
+      "on": "completed",
+      "to": "apply"
+    }
+  ],
+  "jobs": [
+    {
+      "expected_artifacts": [
+        {
+          "kind": "handoff",
+          "logical_name": "draft",
+          "path": "docs/operator/artifacts/rfc-0168-build/DRAFT.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "draft",
+      "lane_id": "author",
+      "objective": "Implement RFC 0168 P0 in Go, contract-first, from the accepted v6 design context and D272. Read the required context docs in full first; do not re-litigate the per-lane pooled uid direction. Implement the P0 slice: (1) daemon-owned lane_uid_leases persistence in the next free runtime migration slot 0046+ with active, scrubbing, quarantined, and returned states; generation; repository, session, and supervisor links; scrub proof and failure fields; held-uid uniqueness; reservations; authority inventory; and owner-bundle 0023+ or the next free owner bundle; (2) static host-provisioned pool leasing at supervise.start with host-global exhaustion and typed lane_uid_pool_exhausted refusal, never fallback to the shared lane user and never daemon useradd or userdel; (3) session close plus recovery reaper return, scrub, and proof flow with S1-S3, P1-P5, classifyPoolUIDTaskState rather than processZombie, quarantine on failed proof, stuck-scrub redrive, and an operator-visible doctor plus recovery surface; (4) leased uid plus monotonic generation in attestation and control-frame checks to prevent recycled-uid confusion; (5) pool ACL provisioning as allowlist and exclude-at-traversal source grants, no group ACL under .striatum, .git, or provider credential caches, physical no-symlink-follow recursion, per-leased-uid scratch and worktree grants, and per-uid PG reject coverage; (6) re-root writeEphemeralMCPConfig to .striatum/scratch/<STRIATUM_SUPERVISOR_ID>/ with os.TempDir fallback and never scratch-root fallback; (7) credential-cache resolution-domain guard covering CLAUDE_CONFIG_DIR, CLAUDE_SECURESTORAGE_CONFIG_DIR, CODEX_HOME, and any in-scope provider-owned credential selector the adapter declares. D272 binding follow-up is mandatory: add a discriminator to the OQ4.1.2 coverage-gap gate so it fails closed only for provider-owned credential selectors, preserves typed lane_uncovered_credential_selector_inside_repo for uncovered provider credential-dir selectors resolving in-repo, and proves legitimate in-repo non-credential lane env such as AGY_HOME or FIXTURE_CONFIG_DIR still launches. Add focused tests for the named A1-A26 surfaces needed by the code you land, especially A21, A22-A25, the secure-storage selector, the D272 positive control, and no-regression of ordinary lane env. Update docs that move with the build: RFC 0168 status, roadmap row 2b, operator brief, README and CHANGELOG or reference docs if source behavior changes, and command-authority matrix if any RPC or route authority changes. Do not add a new decision unless implementation requires reopening the D272 security boundary. Run at least cd go && go build ./... && go vet ./... plus targeted go tests for touched packages; run broader tests when feasible. Publish DRAFT.md summarizing files changed, each design assertion and gate discharged, tests run, and any verifier or operator residuals.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/draft.md"
+      },
+      "title": "Draft RFC 0168 P0 implementation",
+      "type": "draft",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build/",
+          "go/",
+          "docs/how-to/",
+          "docs/reference/",
+          "docs/rfcs/0168-per-lane-security-principal.md",
+          "docs/operator/rfc-roadmap.md",
+          "docs/operator/BRIEF.md",
+          "docs/decisions/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "finding",
+          "logical_name": "review",
+          "path": "docs/operator/artifacts/rfc-0168-build/review/REVIEW.md",
+          "placement": "blob_exhaust",
+          "required": true
+        }
+      ],
+      "fresh_session_required": true,
+      "id": "review",
+      "lane_id": "reviewer",
+      "objective": "Review the RFC 0168 P0 implementation against the required v5 holder, v5 ledger, v6 seed, and D272 decision. Return needs_revision for any missing gate-critical work. Check the migration, owner bundle, and authority inventory shape; lane_uid_leases state machine and held-uid uniqueness; allocation exhaustion typed refusal; scrub P1-P5 with classifyPoolUIDTaskState and quarantine; recovery reaper and doctor plus retry surface; leased uid plus generation attestation and control-frame binding; ACL planner and applier with no group access or default ACL to .striatum, .git, or provider caches; physical no-symlink-follow; per-leased-uid scratch and worktree grants; writeEphemeralMCPConfig under supervisor scratch with no root-scratch bearer; provider credential selector guard covering CLAUDE_CONFIG_DIR, CLAUDE_SECURESTORAGE_CONFIG_DIR, CODEX_HOME, and fail-closed uncovered provider credential selectors resolving in-repo. D272 review focus: the discriminator must not over-refuse ordinary non-credential lane env; verify the positive-control test where AGY_HOME or FIXTURE_CONFIG_DIR resolves in-repo and launch still proceeds, while typed lane_uncovered_credential_selector_inside_repo remains for uncovered provider credential-dir selectors resolving in-repo. Confirm docs match the implemented state and no new product or security decision was smuggled in. Run cd go && go build ./... && go vet ./... and targeted tests for touched packages if the worktree permits; otherwise state exactly what could not run. Publish REVIEW.md with verdict accept, accept_with_findings, or needs_revision and concrete file and line findings.",
+      "role_id": "reviewer",
+      "task_prompt": {
+        "path": "prompts/review.md"
+      },
+      "title": "Review RFC 0168 P0 implementation",
+      "type": "review",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build/review/"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "review_only_artifact",
+        "repo_write": false
+      }
+    },
+    {
+      "expected_artifacts": [
+        {
+          "kind": "synthesis",
+          "logical_name": "summary",
+          "path": "docs/operator/artifacts/rfc-0168-build/SUMMARY.md",
+          "placement": "git_publication",
+          "required": true
+        }
+      ],
+      "id": "apply",
+      "lane_id": "author",
+      "objective": "Apply the accepted review findings and finalize the RFC 0168 P0 build. Ensure all source and docs remain inside write scope and the implementation still satisfies D272: provider-owned credential selectors fail closed when uncovered and resolving in-repo, while legitimate in-repo non-credential env such as AGY_HOME or FIXTURE_CONFIG_DIR still launches. Re-run cd go && go build ./... && go vet ./... plus the touched-package tests and broader tests when feasible. Publish SUMMARY.md enumerating files changed by gate: schema and owner bundle; leasing and exhaustion; scrub and reaper; attestation and generation; ACL and bearer path; credential selector discriminator; docs. Include the assertion IDs and tests that discharge them, review findings addressed, commands run with results, and any remaining verifier or operator work such as live host provisioning or PG two-role checks. Source changes are captured through publish_source_changes.",
+      "role_id": "author",
+      "task_prompt": {
+        "path": "prompts/apply.md"
+      },
+      "title": "Apply reviewed RFC 0168 P0 implementation",
+      "type": "synthesis",
+      "write_scope": {
+        "allowed_paths": [
+          "docs/operator/artifacts/rfc-0168-build/",
+          "go/",
+          "docs/how-to/",
+          "docs/reference/",
+          "docs/rfcs/0168-per-lane-security-principal.md",
+          "docs/operator/rfc-roadmap.md",
+          "docs/operator/BRIEF.md",
+          "docs/decisions/",
+          "README.md",
+          "CHANGELOG.md"
+        ],
+        "forbidden_paths": [
+          ".striatum/"
+        ],
+        "mode": "repo_write",
+        "publish_source_changes": true,
+        "repo_write": true
+      }
+    }
+  ],
+  "lanes": {
+    "author": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "author",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    },
+    "reviewer": {
+      "adapter": "process",
+      "adapter_capabilities": {
+        "agent_loop": true
+      },
+      "capabilities": [
+        "write",
+        "review",
+        "synthesis"
+      ],
+      "command": [
+        "codex",
+        "--yolo"
+      ],
+      "display_model": "reviewer",
+      "supervision": {
+        "transport": "pty_helper"
+      },
+      "worktree_isolation": "per_job"
+    }
+  },
+  "name": "rfc-0168-build",
+  "parallelism": {
+    "max_active_jobs": 1,
+    "mode": "declared",
+    "require_disjoint_write_scopes": true
+  },
+  "roles": {
+    "author": {
+      "definition_path": "roles/author.md"
+    },
+    "reviewer": {
+      "definition_path": "roles/reviewer.md"
+    }
+  },
+  "schema_version": "striatum.workflow.v1",
+  "workflow_id": "rfc-0168-build",
+  "workflow_version": "2026-06-28"
+}
