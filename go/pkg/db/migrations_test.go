@@ -640,6 +640,79 @@ func TestMigrationThirtyOneBarrierStatusViewIsOwnershipSafe(t *testing.T) {
 	}
 }
 
+// TestMigrationFortySixGeneratedRecordsIsOwnershipSafe is RFC 0171 / D273: the
+// generated-record index creates one new runtime-owned table with no owner-table
+// dependencies. Run/job/artifact linkage stays in bare columns; integrity is
+// enforced by later daemon record/docket slices, not by cross-table constraints
+// that striatumd_rw cannot install on a two-role deploy.
+func TestMigrationFortySixGeneratedRecordsIsOwnershipSafe(t *testing.T) {
+	migrations, err := Migrations()
+	if err != nil {
+		t.Fatalf("load migrations: %v", err)
+	}
+	var migration *Migration
+	for index := range migrations {
+		if migrations[index].Version == 46 {
+			migration = &migrations[index]
+			break
+		}
+	}
+	if migration == nil {
+		t.Fatal("migration 46 is missing")
+	}
+	sql := migration.SQL
+	for _, needle := range []string{
+		"CREATE TABLE IF NOT EXISTS striatumd.generated_records",
+		"repository_id   text NOT NULL",
+		"record_id       text NOT NULL",
+		"source_path     text NOT NULL",
+		"source_commit   text",
+		"record_class    text NOT NULL",
+		"run_id          text",
+		"job_id          text",
+		"artifact_id     text",
+		"content_sha256  text NOT NULL",
+		"blob_key        text NOT NULL",
+		"blob_sha256     text NOT NULL",
+		"content_type    text NOT NULL",
+		"size_bytes      bigint NOT NULL CHECK (size_bytes >= 0)",
+		"retention_class text NOT NULL",
+		"bundle_id       text",
+		"import_batch_id text",
+		"created_at      timestamptz NOT NULL DEFAULT now()",
+		"status          text NOT NULL DEFAULT 'indexed' CHECK (status IN (",
+		"PRIMARY KEY (repository_id, record_id)",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uq_generated_records_repo_blob_key",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uq_generated_records_source_commit_path",
+		"WHERE source_commit IS NOT NULL",
+		"CREATE UNIQUE INDEX IF NOT EXISTS uq_generated_records_artifact",
+		"WHERE artifact_id IS NOT NULL",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_run_job",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_source_path",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_content_sha256",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_status",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_bundle",
+		"CREATE INDEX IF NOT EXISTS idx_generated_records_import_batch",
+		"GRANT SELECT, INSERT, UPDATE ON striatumd.generated_records TO striatumd_rw",
+		"REVOKE DELETE ON striatumd.generated_records FROM striatumd_rw",
+	} {
+		if !strings.Contains(sql, needle) {
+			t.Fatalf("migration 46 missing %q", needle)
+		}
+	}
+	for _, forbidden := range []string{
+		"ALTER TABLE",
+		"DROP TABLE",
+		"REFERENCES striatumd.",
+		"FOREIGN KEY",
+		"SELECT *",
+	} {
+		if strings.Contains(sql, forbidden) {
+			t.Fatalf("migration 46 must not contain %q (owner-table dependency / runtime-safety guard)", forbidden)
+		}
+	}
+}
+
 func TestFutureRuntimeMigrationsDoNotCarryOwnerDDL(t *testing.T) {
 	migrations, err := Migrations()
 	if err != nil {

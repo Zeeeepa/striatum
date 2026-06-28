@@ -63,6 +63,11 @@ var readAuthorityInventory = map[string]ReadAuthorityClass{
 	"daemon_supervisors":             ReadClassRuntimeSensitive,
 	"escalation_inbox":               ReadClassRuntimeSensitive,
 	"events":                         ReadClassRuntimeSensitive,
+	// generated_records (RFC 0171 / D273): daemon-indexed blob pointers for
+	// generated operator/run-shaped bodies. It stores source paths, blob keys,
+	// run/job/artifact linkage, and retention metadata, so it stays in the
+	// sensitive broad-SELECT cohort while #164 remains open.
+	"generated_records": ReadClassRuntimeSensitive,
 	// fan-in sealed-barrier tables (RFC 0135 P1, migration 0029): the immutable
 	// freeze record and the attempt-addressed staging contributions the live-seal
 	// JOIN barrier SELECTs — coordination state, like leases/sessions/jobs.

@@ -9,7 +9,7 @@
 # file, a DUPLICATE ordinal, or a GAP in the sequence. Two PRs can no longer
 # silently grab the same NNNN (the 0039 / 0041 collisions, RFC 0142 failure #4).
 #
-# Frontiers: runtime_migration = 0044, owner_bundle = 0020 (embedded). Owner
+# Frontiers: runtime_migration = 0046, owner_bundle = 0020 (embedded). Owner
 # ordinal 0021 is RESERVED but STAGED, not embedded (see the owner-bundle note
 # below) — the embedded frontier tops out at 20.
 #
@@ -199,6 +199,11 @@ note = "RFC 0142 P4 deploy substrate: deploy_cursor + deploy_plan + deploy_recei
 ordinal = 45
 file = "0045_cullable_entity.sql"
 note = "RFC 0170 P0 observe-only cullable_entity candidacy ledger"
+
+[[runtime_migration]]
+ordinal = 46
+file = "0046_generated_records.sql"
+note = "RFC 0171 generated-record blob index"
 
 # --- Owner bundles (go/pkg/db/sql/owner/NNNN_*.sql), applied out-of-band as owner ---
 [[owner_bundle]]

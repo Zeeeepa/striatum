@@ -89,6 +89,10 @@ var writeAuthorityInventory = map[string]WriteAuthorityClass{
 	"cullable_entity":    ClassRuntimeDML,
 	"daemon_supervisors": ClassRuntimeDML,
 	"escalation_inbox":   ClassRuntimeDML,
+	// generated_records (RFC 0171 / D273): runtime-owned blob index for
+	// generated operator/run-shaped bodies. Import/publish slices INSERT rows and
+	// later integrity/import checks may UPDATE status; DELETE is not granted.
+	"generated_records": ClassRuntimeDML,
 	// deploy_cursor / deploy_plan / deploy_receipt (RFC 0142 P4, migration 0044):
 	// the runtime-owned deploy-coordinator substrate. Direct runtime DML — the
 	// single-role deployer INSERTs the immutable plan + per-step receipts and
