@@ -518,15 +518,28 @@ func proveLaneUIDWorkspaceCleanup(ctx context.Context, runner db.Runner, reposit
 		return nil
 	}
 	rows, err := queryRows(ctx, runner, `
-		SELECT 'worktree' AS kind, worktree_id AS id, worktree_path AS path, state
-		  FROM striatumd.job_worktrees
-		 WHERE repository_id = $1 AND lease_id = $2
-		   AND state NOT IN ('released','removed')
+		WITH lane_lease AS (
+			SELECT run_id, session_id
+			  FROM striatumd.lane_uid_leases
+			 WHERE repository_id = $1 AND lease_id = $2
+		)
+		SELECT 'worktree' AS kind, w.worktree_id AS id, w.worktree_path AS path, w.state
+		  FROM striatumd.job_worktrees w
+		  JOIN striatumd.leases l
+		    ON l.repository_id = w.repository_id AND l.lease_id = w.lease_id
+		  JOIN lane_lease ll
+		    ON ll.run_id = w.run_id AND ll.session_id = l.owner_session_id
+		 WHERE w.repository_id = $1
+		   AND w.state NOT IN ('released','removed')
 		UNION ALL
-		SELECT 'workspace' AS kind, workspace_id AS id, workspace_path AS path, state
-		  FROM striatumd.job_workspaces
-		 WHERE repository_id = $1 AND lease_id = $2
-		   AND state NOT IN ('released','removed')
+		SELECT 'workspace' AS kind, w.workspace_id AS id, w.workspace_path AS path, w.state
+		  FROM striatumd.job_workspaces w
+		  JOIN striatumd.leases l
+		    ON l.repository_id = w.repository_id AND l.lease_id = w.lease_id
+		  JOIN lane_lease ll
+		    ON ll.run_id = w.run_id AND ll.session_id = l.owner_session_id
+		 WHERE w.repository_id = $1
+		   AND w.state NOT IN ('released','removed')
 		 ORDER BY kind, id`,
 		repositoryID, leaseID,
 	)
