@@ -23,6 +23,10 @@ const (
 	laneUIDLeaseStateScrubbing   = "scrubbing"
 	laneUIDLeaseStateQuarantined = "quarantined"
 	laneUIDLeaseStateReturned    = "returned"
+
+	laneUIDTaskReaped  = "reaped"
+	laneUIDTaskLive    = "live"
+	laneUIDTaskUnknown = "unknown"
 )
 
 type laneUIDPoolEntry struct {
@@ -382,16 +386,18 @@ func baseLaneUIDScrubProof(poolUID int, poolUser, supervisorID string) map[strin
 
 func appendLaneUIDScrubProof(ctx context.Context, runner db.Runner, repositoryID, leaseID string, poolUID int, poolUser, supervisorID, repoRoot string, proof map[string]any) error {
 	checks := proof["checks"].(map[string]any)
-	procs, err := laneUIDProcesses(poolUID)
+	observations, blocking, err := laneUIDProcessObservations(poolUID)
+	checks["p1_processes_for_uid"] = map[string]any{
+		"observed_count": len(observations),
+		"blocking_count": len(blocking),
+		"observations":   observations,
+		"blocking":       blocking,
+	}
 	if err != nil {
 		return err
 	}
-	checks["p1_processes_for_uid"] = map[string]any{
-		"remaining_count": len(procs),
-		"pids":            procs,
-	}
-	if len(procs) > 0 {
-		return fmt.Errorf("uid %d still owns live processes: %v", poolUID, procs)
+	if len(blocking) > 0 {
+		return fmt.Errorf("uid %d still owns non-reaped or unknown processes: %v", poolUID, blocking)
 	}
 	if err := proveLaneUIDTmuxSocketAbsent(poolUID, checks); err != nil {
 		return err
@@ -572,15 +578,16 @@ func pathMustBeAbsent(path string) error {
 	return fmt.Errorf("%s still exists", path)
 }
 
-func laneUIDProcesses(uid int) ([]int, error) {
+func laneUIDProcessObservations(uid int) ([]map[string]any, []map[string]any, error) {
 	if uid <= 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	entries, err := laneUIDReadDir("/proc")
 	if err != nil {
-		return nil, fmt.Errorf("read /proc: %w", err)
+		return nil, nil, fmt.Errorf("read /proc: %w", err)
 	}
-	pids := []int{}
+	observations := []map[string]any{}
+	blocking := []map[string]any{}
 	for _, entry := range entries {
 		if !entry.IsDir() || !allDigits(entry.Name()) {
 			continue
@@ -592,20 +599,28 @@ func laneUIDProcesses(uid int) ([]int, error) {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return nil, fmt.Errorf("read %s: %w", statusPath, err)
+			return observations, blocking, fmt.Errorf("read %s: %w", statusPath, err)
 		}
 		if procStatusHasUID(body, uid) {
-			state, stateErr := procStateForPID(entry.Name())
+			observation := map[string]any{
+				"pid": pid,
+				"uid": uid,
+			}
+			classification, state, stateErr := classifyPoolUIDTaskState(entry.Name())
+			if state != "" {
+				observation["state"] = state
+			}
+			observation["classification"] = classification
 			if stateErr != nil {
-				return nil, stateErr
+				observation["error"] = stateErr.Error()
 			}
-			if state == "zombie_or_dead" {
-				continue
+			observations = append(observations, observation)
+			if classification != laneUIDTaskReaped {
+				blocking = append(blocking, observation)
 			}
-			pids = append(pids, pid)
 		}
 	}
-	return pids, nil
+	return observations, blocking, nil
 }
 
 func procStatusHasUID(body []byte, uid int) bool {
@@ -624,19 +639,23 @@ func procStatusHasUID(body []byte, uid int) bool {
 	return false
 }
 
-func procStateForPID(pid string) (string, error) {
+func classifyPoolUIDTaskState(pid string) (string, string, error) {
 	body, err := laneUIDReadFile(filepath.Join("/proc", pid, "stat"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "zombie_or_dead", nil
+			return laneUIDTaskReaped, "", nil
 		}
-		return "", fmt.Errorf("read /proc/%s/stat: %w", pid, err)
+		return laneUIDTaskUnknown, "", fmt.Errorf("read /proc/%s/stat: %w", pid, err)
 	}
 	state, err := parseProcStatState(string(body))
 	if err != nil {
-		return "", err
+		return laneUIDTaskUnknown, "", err
 	}
-	return classifyProcState(state)
+	classification, err := classifyProcState(state)
+	if err != nil {
+		return laneUIDTaskUnknown, string(state), err
+	}
+	return classification, string(state), nil
 }
 
 func parseProcStatState(stat string) (byte, error) {
@@ -654,11 +673,11 @@ func parseProcStatState(stat string) (byte, error) {
 func classifyProcState(state byte) (string, error) {
 	switch state {
 	case 'Z', 'X', 'x':
-		return "zombie_or_dead", nil
+		return laneUIDTaskReaped, nil
 	case 'R', 'S', 'D', 'T', 't', 'I', 'P':
-		return "live", nil
+		return laneUIDTaskLive, nil
 	default:
-		return "", fmt.Errorf("unrecognized /proc state %q", state)
+		return laneUIDTaskUnknown, fmt.Errorf("unrecognized /proc state %q", state)
 	}
 }
 

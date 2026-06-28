@@ -3,6 +3,7 @@ package mutations
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +20,7 @@ func TestClassifyProcStateBlocksStoppedTracedLiveAndUnknown(t *testing.T) {
 		if err != nil {
 			t.Fatalf("classifyProcState(%q): %v", state, err)
 		}
-		if got != "live" {
+		if got != laneUIDTaskLive {
 			t.Fatalf("classifyProcState(%q) = %q, want live", state, got)
 		}
 	}
@@ -28,13 +29,93 @@ func TestClassifyProcStateBlocksStoppedTracedLiveAndUnknown(t *testing.T) {
 		if err != nil {
 			t.Fatalf("classifyProcState(%q): %v", state, err)
 		}
-		if got != "zombie_or_dead" {
-			t.Fatalf("classifyProcState(%q) = %q, want zombie_or_dead", state, got)
+		if got != laneUIDTaskReaped {
+			t.Fatalf("classifyProcState(%q) = %q, want reaped", state, got)
 		}
 	}
 	if _, err := classifyProcState('W'); err == nil {
 		t.Fatalf("classifyProcState(W) succeeded; unknown proc states must fail closed")
 	}
+}
+
+func TestLaneUIDProcessProofRecordsStateEvidenceAndBlocksUnknown(t *testing.T) {
+	origReadDir := laneUIDReadDir
+	origReadFile := laneUIDReadFile
+	t.Cleanup(func() {
+		laneUIDReadDir = origReadDir
+		laneUIDReadFile = origReadFile
+	})
+
+	laneUIDReadDir = func(path string) ([]os.DirEntry, error) {
+		if path != "/proc" {
+			t.Fatalf("unexpected readdir path %q", path)
+		}
+		return []os.DirEntry{
+			fakeDirEntry{name: "101", dir: true},
+			fakeDirEntry{name: "102", dir: true},
+			fakeDirEntry{name: "103", dir: true},
+			fakeDirEntry{name: "self", dir: true},
+		}, nil
+	}
+	laneUIDReadFile = func(path string) ([]byte, error) {
+		switch path {
+		case "/proc/101/status", "/proc/102/status", "/proc/103/status":
+			return []byte("Name:\ttest\nUid:\t65001\t65001\t65001\t65001\n"), nil
+		case "/proc/101/stat":
+			return []byte("101 (sleep) S 1 1 1 0 -1 0 0 0 0 0"), nil
+		case "/proc/102/stat":
+			return []byte("102 (gone) Z 1 1 1 0 -1 0 0 0 0 0"), nil
+		case "/proc/103/stat":
+			return []byte("103 (future) W 1 1 1 0 -1 0 0 0 0 0"), nil
+		default:
+			return nil, os.ErrNotExist
+		}
+	}
+
+	proof := baseLaneUIDScrubProof(65001, "lane-pool-1", "sup_1")
+	err := appendLaneUIDScrubProof(context.Background(), nil, "repo_1", "luid_1", 65001, "lane-pool-1", "sup_1", "/repo", proof)
+	if err == nil || !strings.Contains(err.Error(), "non-reaped or unknown") {
+		t.Fatalf("appendLaneUIDScrubProof err = %v, want blocking P1 failure", err)
+	}
+	checks := proof["checks"].(map[string]any)
+	p1 := checks["p1_processes_for_uid"].(map[string]any)
+	if p1["observed_count"] != 3 || p1["blocking_count"] != 2 {
+		t.Fatalf("p1 proof = %#v, want 3 observed / 2 blocking", p1)
+	}
+	observations := p1["observations"].([]map[string]any)
+	if observations[0]["state"] != "S" || observations[0]["classification"] != laneUIDTaskLive {
+		t.Fatalf("live observation = %#v", observations[0])
+	}
+	if observations[1]["state"] != "Z" || observations[1]["classification"] != laneUIDTaskReaped {
+		t.Fatalf("reaped observation = %#v", observations[1])
+	}
+	if observations[2]["state"] != "W" || observations[2]["classification"] != laneUIDTaskUnknown || observations[2]["error"] == nil {
+		t.Fatalf("unknown observation = %#v", observations[2])
+	}
+}
+
+type fakeDirEntry struct {
+	name string
+	dir  bool
+}
+
+func (e fakeDirEntry) Name() string {
+	return e.name
+}
+
+func (e fakeDirEntry) IsDir() bool {
+	return e.dir
+}
+
+func (e fakeDirEntry) Type() fs.FileMode {
+	if e.dir {
+		return fs.ModeDir
+	}
+	return 0
+}
+
+func (e fakeDirEntry) Info() (fs.FileInfo, error) {
+	return nil, nil
 }
 
 func TestScrubLaneUIDArtifactsFailsClosedOnKillFailure(t *testing.T) {
