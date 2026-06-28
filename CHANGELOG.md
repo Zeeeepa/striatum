@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+
+- **RFC 0171 accepted.** Records the build plan for moving generated
+  operator/run record bodies to daemon-indexed blob storage while keeping git
+  reviewable through compact dockets, pointer manifests, and materializable
+  `striatum://` virtual records.
+
 ## v2.39.0 — 2026-06-27
 
 ### Added
